@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Воркфлоу — CRM</title>
+    <link rel="stylesheet" href="css/style.css?v=30">
+    <style>
+        .workflows-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .workflows-page h1 { margin-bottom: 24px; }
+        .wf-item { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 8px; }
+        .wf-info { display: flex; flex-direction: column; gap: 4px; }
+        .wf-actions { display: flex; gap: 8px; align-items: center; }
+        .wf-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+        .wf-active { background: #d1fae5; color: #065f46; }
+        .wf-inactive { background: #f3f4f6; color: #6b7280; }
+        .section-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+        .section-card h2 { font-size: 18px; margin-bottom: 16px; }
+        .back-btn { margin-bottom: 16px; }
+        .trigger-item, .step-item { padding: 12px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .step-connector { text-align: center; padding: 8px; color: var(--text-muted); font-size: 20px; }
+        .trigger-icon { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-right: 12px; }
+        .trigger-record { background: #dbeafe; }
+        .trigger-schedule { background: #fef3c7; }
+        .trigger-webhook { background: #e0e7ff; }
+        .trigger-manual { background: #d1fae5; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 14px; background: var(--card-bg); color: var(--text-color); }
+        .run-status { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        .run-running { background: #fef3c7; color: #92400e; }
+        .run-completed { background: #d1fae5; color: #065f46; }
+        .run-failed { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header"><h2>CRM</h2></div>
+            <nav class="sidebar-nav">
+                <a href="/" class="nav-btn"><span class="nav-icon">◫</span><span class="nav-label">Канбан</span></a>
+                <a href="/custom_objects.html" class="nav-btn"><span class="nav-icon">⚙</span><span class="nav-label">Объекты</span></a>
+                <a href="/workflows.html" class="nav-btn active"><span class="nav-icon">⚡</span><span class="nav-label">Воркфлоу</span></a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <div class="workflows-page">
+
+                <!-- Список воркфлоу -->
+                <div id="wf-list">
+                    <h1>Воркфлоу</h1>
+                    <p style="color:var(--text-muted);margin-bottom:20px;">Автоматизируйте бизнес-процессы: уведомления, создание задач, интеграции.</p>
+
+                    <div class="section-card">
+                        <h2>Создать воркфлоу</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="new-wf-name" placeholder="Название (например: Уведомление о новом заказе)" style="flex:1;min-width:300px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <button class="btn btn-primary" onclick="workflowsUI.createWorkflow()">Создать</button>
+                        </div>
+                    </div>
+
+                    <div id="workflows-list"></div>
+                </div>
+
+                <!-- Детали воркфлоу -->
+                <div id="wf-detail" class="hidden">
+                    <button class="btn btn-secondary back-btn" onclick="workflowsUI.backToList()">← Назад к списку</button>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <h1 id="wf-detail-title" style="margin:0"></h1>
+                        <div style="display:flex;gap:8px;">
+                            <button id="wf-toggle-btn" class="btn btn-success btn-sm" onclick="workflowsUI.toggleActive()">Включить</button>
+                            <button class="btn btn-danger btn-sm" onclick="workflowsUI.deleteWorkflow()">Удалить</button>
+                        </div>
+                    </div>
+
+                    <!-- Триггеры -->
+                    <div class="section-card">
+                        <h2>Триггеры (Что запускает)</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                            <select id="new-trigger-type" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                                <option value="record_event">Изменение записи</option>
+                                <option value="manual">Ручной запуск</option>
+                                <option value="schedule">По расписанию</option>
+                                <option value="webhook">Webhook</option>
+                            </select>
+                            <select id="new-trigger-object" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                                <option value="card">Сделка</option>
+                                <option value="client">Клиент</option>
+                                <option value="payment">Оплата</option>
+                            </select>
+                            <select id="new-trigger-event" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                                <option value="created">Создана</option>
+                                <option value="updated">Обновлена</option>
+                                <option value="deleted">Удалена</option>
+                            </select>
+                            <button class="btn btn-primary btn-sm" onclick="workflowsUI.createTrigger()">Добавить</button>
+                        </div>
+                        <div id="triggers-list"></div>
+                    </div>
+
+                    <!-- Шаги -->
+                    <div class="section-card">
+                        <h2>Шаги (Что происходит)</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                            <select id="new-step-type" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                                <option value="action">Действие</option>
+                                <option value="condition">Условие</option>
+                                <option value="delay">Задержка</option>
+                            </select>
+                            <select id="new-step-action" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                                <option value="create_record">Создать запись</option>
+                                <option value="update_record">Обновить запись</option>
+                                <option value="send_email">Отправить email</option>
+                                <option value="http_request">HTTP-запрос</option>
+                            </select>
+                            <input type="text" id="new-step-config" placeholder="Параметры (JSON)" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <button class="btn btn-primary btn-sm" onclick="workflowsUI.createStep()">Добавить</button>
+                        </div>
+                        <div id="steps-list"></div>
+                    </div>
+
+                    <!-- Логи -->
+                    <div class="section-card">
+                        <h2>Последние запуски</h2>
+                        <div id="runs-list"></div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+    const WORKFLOWS_API = '/workflows';
+    let currentWF = null;
+
+    async function wfFetch(path, options = {}) {
+        let token;
+        try { token = localStorage.getItem('crm_token'); } catch(e) { token = null; }
+        const headers = { ...options.headers };
+        if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(`${WORKFLOWS_API}${path}`, { ...options, headers });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Ошибка'); }
+        return res.json();
+    }
+
+    function showToast(msg, type) {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type || 'info'}`;
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    const workflowsUI = {
+        async loadWorkflows() {
+            const wfs = await wfFetch('/');
+            const list = document.getElementById('workflows-list');
+            list.innerHTML = '';
+            if (wfs.length === 0) {
+                list.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px;">Нет воркфлоу. Создайте первый!</p>';
+                return;
+            }
+            wfs.forEach(wf => {
+                const div = document.createElement('div');
+                div.className = 'wf-item';
+                div.innerHTML = `
+                    <div class="wf-info">
+                        <strong>${escapeHtml(wf.name)}</strong>
+                        <span style="color:var(--text-muted);font-size:12px;">${escapeHtml(wf.description || '')}</span>
+                    </div>
+                    <div class="wf-actions">
+                        <span class="wf-badge ${wf.is_active ? 'wf-active' : 'wf-inactive'}">${wf.is_active ? 'Активен' : 'Выкл'}</span>
+                        <button class="btn btn-secondary btn-sm" onclick="workflowsUI.openWorkflow(${wf.id})">Открыть</button>
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        },
+
+        async createWorkflow() {
+            const name = document.getElementById('new-wf-name').value.trim();
+            if (!name) { showToast('Введите название', 'error'); return; }
+            await wfFetch('/', { method: 'POST', body: JSON.stringify({ name }) });
+            document.getElementById('new-wf-name').value = '';
+            showToast('Воркфлоу создан', 'success');
+            await this.loadWorkflows();
+        },
+
+        async openWorkflow(id) {
+            const wfs = await wfFetch('/');
+            currentWF = wfs.find(w => w.id === id);
+            if (!currentWF) return;
+
+            document.getElementById('wf-list').classList.add('hidden');
+            document.getElementById('wf-detail').classList.remove('hidden');
+            document.getElementById('wf-detail-title').textContent = currentWF.name;
+            document.getElementById('wf-toggle-btn').textContent = currentWF.is_active ? 'Выключить' : 'Включить';
+
+            await this.loadTriggers();
+            await this.loadSteps();
+            await this.loadRuns();
+        },
+
+        backToList() {
+            currentWF = null;
+            document.getElementById('wf-list').classList.remove('hidden');
+            document.getElementById('wf-detail').classList.add('hidden');
+        },
+
+        async toggleActive() {
+            if (!currentWF) return;
+            await wfFetch(`/${currentWF.id}`, {
+                method: 'PATCH', body: JSON.stringify({ is_active: !currentWF.is_active })
+            });
+            currentWF.is_active = !currentWF.is_active;
+            document.getElementById('wf-toggle-btn').textContent = currentWF.is_active ? 'Выключить' : 'Включить';
+            showToast(currentWF.is_active ? 'Включён' : 'Выключен', 'success');
+        },
+
+        async deleteWorkflow() {
+            if (!currentWF || !confirm(`Удалить "${currentWF.name}"?`)) return;
+            await wfFetch(`/${currentWF.id}`, { method: 'DELETE' });
+            showToast('Удалено', 'success');
+            this.backToList();
+            await this.loadWorkflows();
+        },
+
+        async loadTriggers() {
+            if (!currentWF) return;
+            const triggers = await wfFetch(`/${currentWF.id}/triggers`);
+            const list = document.getElementById('triggers-list');
+            list.innerHTML = '';
+            const icons = { record_event: '📋', schedule: '⏰', webhook: '🌐', manual: '👆' };
+            const classes = { record_event: 'trigger-record', schedule: 'trigger-schedule', webhook: 'trigger-webhook', manual: 'trigger-manual' };
+            const labels = { record_event: 'Изменение записи', schedule: 'По расписанию', webhook: 'Webhook', manual: 'Ручной запуск' };
+            const objLabels = { card: 'Сделка', client: 'Клиент', payment: 'Оплата' };
+            const eventLabels = { created: 'создана', updated: 'обновлена', deleted: 'удалена' };
+
+            triggers.forEach(t => {
+                const config = t.config || {};
+                const div = document.createElement('div');
+                div.className = 'trigger-item';
+                div.innerHTML = `
+                    <div style="display:flex;align-items:center;">
+                        <div class="trigger-icon ${classes[t.trigger_type] || ''}">${icons[t.trigger_type] || '?'}</div>
+                        <div>
+                            <strong>${labels[t.trigger_type] || t.trigger_type}</strong>
+                            ${config.object ? `<span style="color:var(--text-muted);font-size:12px;"> — ${objLabels[config.object] || config.object} ${eventLabels[config.event] || ''}</span>` : ''}
+                            ${config.cron ? `<span style="color:var(--text-muted);font-size:12px;"> — ${config.cron}</span>` : ''}
+                        </div>
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="workflowsUI.deleteTrigger(${t.id})">Удалить</button>
+                `;
+                list.appendChild(div);
+            });
+        },
+
+        async createTrigger() {
+            const type = document.getElementById('new-trigger-type').value;
+            const config = {};
+            if (type === 'record_event') {
+                config.object = document.getElementById('new-trigger-object').value;
+                config.event = document.getElementById('new-trigger-event').value;
+            }
+            await wfFetch(`/${currentWF.id}/triggers`, {
+                method: 'POST', body: JSON.stringify({ trigger_type: type, config })
+            });
+            showToast('Триггер добавлен', 'success');
+            await this.loadTriggers();
+        },
+
+        async deleteTrigger(id) {
+            if (!confirm('Удалить триггер?')) return;
+            await wfFetch(`/triggers/${id}`, { method: 'DELETE' });
+            showToast('Удалено', 'success');
+            await this.loadTriggers();
+        },
+
+        async loadSteps() {
+            if (!currentWF) return;
+            const steps = await wfFetch(`/${currentWF.id}/steps`);
+            const list = document.getElementById('steps-list');
+            list.innerHTML = '';
+            const icons = { create_record: '➕', update_record: '✏️', send_email: '📧', http_request: '🌐', code: '💻' };
+            const typeLabels = { action: 'Действие', condition: 'Условие', delay: 'Задержка' };
+            const actionLabels = { create_record: 'Создать запись', update_record: 'Обновить запись', send_email: 'Отправить email', http_request: 'HTTP-запрос', code: 'Код' };
+
+            steps.forEach((s, i) => {
+                if (i > 0) {
+                    const connector = document.createElement('div');
+                    connector.className = 'step-connector';
+                    connector.textContent = '↓';
+                    list.appendChild(connector);
+                }
+                const div = document.createElement('div');
+                div.className = 'step-item';
+                div.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <span style="color:var(--text-muted);font-size:13px;">#${i + 1}</span>
+                        <span>${icons[s.action_type] || '⚡'} <strong>${typeLabels[s.step_type] || s.step_type}</strong> — ${actionLabels[s.action_type] || s.action_type}</span>
+                        ${s.config && Object.keys(s.config).length > 0 ? `<span style="color:var(--text-muted);font-size:12px;">${JSON.stringify(s.config).substring(0, 60)}...</span>` : ''}
+                    </div>
+                    <button class="btn btn-danger btn-sm" onclick="workflowsUI.deleteStep(${s.id})">Удалить</button>
+                `;
+                list.appendChild(div);
+            });
+        },
+
+        async createStep() {
+            const stepType = document.getElementById('new-step-type').value;
+            const actionType = document.getElementById('new-step-action').value;
+            let config = {};
+            const configStr = document.getElementById('new-step-config').value.trim();
+            if (configStr) {
+                try { config = JSON.parse(configStr); }
+                catch(e) { showToast('Неверный JSON в параметрах', 'error'); return; }
+            }
+            const steps = await wfFetch(`/${currentWF.id}/steps`);
+            await wfFetch(`/${currentWF.id}/steps`, {
+                method: 'POST', body: JSON.stringify({
+                    step_type: stepType, action_type: actionType, config, position: steps.length
+                })
+            });
+            document.getElementById('new-step-config').value = '';
+            showToast('Шаг добавлен', 'success');
+            await this.loadSteps();
+        },
+
+        async deleteStep(id) {
+            if (!confirm('Удалить шаг?')) return;
+            await wfFetch(`/steps/${id}`, { method: 'DELETE' });
+            showToast('Удалено', 'success');
+            await this.loadSteps();
+        },
+
+        async loadRuns() {
+            if (!currentWF) return;
+            const runs = await wfFetch(`/${currentWF.id}/runs`);
+            const list = document.getElementById('runs-list');
+            if (runs.length === 0) {
+                list.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:12px;">Запусков пока нет</p>';
+                return;
+            }
+            list.innerHTML = '';
+            runs.forEach(r => {
+                const div = document.createElement('div');
+                div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border-color);';
+                const statusClass = r.status === 'completed' ? 'run-completed' : r.status === 'failed' ? 'run-failed' : 'run-running';
+                div.innerHTML = `
+                    <span>${r.started_at ? new Date(r.started_at).toLocaleString('ru-RU') : '—'}</span>
+                    <span class="run-status ${statusClass}">${r.status}</span>
+                    ${r.error ? `<span style="color:var(--danger-color);font-size:12px;">${escapeHtml(r.error)}</span>` : ''}
+                `;
+                list.appendChild(div);
+            });
+        }
+    };
+
+    function escapeHtml(v) {
+        if (v === null || v === undefined) return '';
+        return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        workflowsUI.loadWorkflows();
+    });
+    </script>
+</body>
+</html>

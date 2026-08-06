@@ -1,0 +1,17 @@
+{
+  "name": "CRM: Снабжение и Продажи",
+  "short_name": "CRM СвД",
+  "description": "CRM система для управления снабжением и продажами",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1f2937",
+  "theme_color": "#1f2937",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "/static/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
