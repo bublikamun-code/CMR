@@ -19,7 +19,7 @@
 .sidebar-footer { padding: 20px; }
 .nav-btn.active { background: linear-gradient(90deg, #4f7cf5, #3b63d4); color: white; font-weight: 600; box-shadow: 0 4px 12px rgba(79,124,245,0.35); }
 </style>
-    <link rel="stylesheet" href="css/style.css?v=1785023000">
+    <link rel="stylesheet" href="css/style.css?v=47587dac0b">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1f2937">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -89,7 +89,7 @@
                 <button id="compact-toggle" class="compact-toggle" title="Плотный режим" aria-label="Плотный режим">⊞</button>
             </div>
             <div class="sidebar-footer">
-                <a href="/admin" id="admin-link" class="admin-link-btn hidden" target="_blank">Админ-панель</a>
+                <a href="/admin" id="admin-link" class="admin-link-btn hidden" target="_blank" rel="noopener noreferrer">Админ-панель</a>
                 <button id="logout-btn" class="logout-btn">Выйти</button>
             </div>
         </aside>
@@ -586,25 +586,27 @@
         </div>
     </div>
 
-    <script defer src="js/crm_store.js?v=30"></script>
-    <script defer src="js/api.js?v=30"></script>
-    <script defer src="js/features.js?v=30"></script>
-    <script defer src="js/auth.js?v=30"></script>
-    <script defer src="js/kanban.js?v=1784934588"></script>
-    <script defer src="js/card_modal.js?v=1785023000"></script>
-    <script defer src="js/payments.js?v=30"></script>
-    <script defer src="js/writeoffs.js?v=30"></script>
-    <script defer src="js/documents.js?v=30"></script>
-    <script defer src="js/contacts.js?v=1"></script>
-    <script defer src="js/clients.js?v=1785020000"></script>
-    <script defer src="js/suppliers.js?v=1785020000"></script>
-    <script defer src="js/dashboard.js?v=30"></script>
-    <script defer src="js/email_parser.js?v=30"></script>
-    <script defer src="js/realtime.js?v=30"></script>
-    <script defer src="js/settings.js?v=1784931906"></script>
-    <script defer src="js/calendar.js?v=30"></script>
-    <script defer src="js/ui-polish.js?v=8"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script defer src="js/crm_store.js?v=dd6baeb897"></script>
+    <script defer src="js/api.js?v=116947a0c6"></script>
+    <script defer src="js/features.js?v=777c0dd4b1"></script>
+    <script defer src="js/auth.js?v=27700e2c8d"></script>
+    <script defer src="js/kanban.js?v=100bf2a4eb"></script>
+    <script defer src="js/card_modal.js?v=511bb4c68e"></script>
+    <script defer src="js/payments.js?v=a070de2f79"></script>
+    <script defer src="js/writeoffs.js?v=00efc2fb43"></script>
+    <script defer src="js/documents.js?v=1ea6d44bd0"></script>
+    <script defer src="js/contacts.js?v=970449b785"></script>
+    <script defer src="js/clients.js?v=c476fe2e56"></script>
+    <script defer src="js/suppliers.js?v=1851fbd176"></script>
+    <script defer src="js/dashboard.js?v=f34545a331"></script>
+    <script defer src="js/email_parser.js?v=16324033df"></script>
+    <script defer src="js/realtime.js?v=82d28b3e96"></script>
+    <script defer src="js/settings.js?v=3cdd14c4bd"></script>
+    <script defer src="js/calendar.js?v=886aea696b"></script>
+    <script defer src="js/ui-polish.js?v=2632feddcb"></script>
+    <!-- Chart.js размещён локально: внешний CDN был единой точкой отказа для
+         дашборда и мог подменить код, имеющий доступ к токену сессии. -->
+    <script defer src="js/vendor/chart.umd.min.js?v=31298e4d34"></script>
 
     <div id="client-cards-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="client-cards-title">
         <div class="modal-content">
@@ -660,7 +662,9 @@
         setTimeout(requestNotificationPermission, 3000);
     });
 
-    // Уведомления о новых сделках через WebSocket
+    // Уведомления о новых сделках. Источник данных — периодический опрос
+    // в js/realtime.js (WebSocket не используется), событие приходит после
+    // каждой успешной загрузки доски.
     if (window.crmOn) {
         crmOn('kanban:loaded', (data) => {
             const prev = parseInt(sessionStorage.getItem('kanban_card_count') || '0');

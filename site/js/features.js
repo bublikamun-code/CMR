@@ -45,6 +45,36 @@ function openModalTrapped(modal) {
 }
 
 /**
+ * Озвучивание сообщения для скринридера.
+ *
+ * Держим два постоянных live-региона вместо одного: «вежливый» дожидается
+ * паузы в речи, «настойчивый» перебивает — ошибку сохранения пользователь
+ * должен услышать сразу, а не после того, как дочитает текущий абзац.
+ * Регионы создаются один раз и живут в DOM: если создавать их вместе с
+ * сообщением, скринридер не успевает заметить появление узла и молчит.
+ *
+ * @param {string} message
+ * @param {'success'|'error'|'info'} type
+ */
+function announceToScreenReader(message, type = 'info') {
+    const assertive = type === 'error';
+    const id = assertive ? 'a11y-live-assertive' : 'a11y-live-polite';
+    let region = document.getElementById(id);
+    if (!region) {
+        region = document.createElement('div');
+        region.id = id;
+        region.className = 'sr-only';
+        region.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+        region.setAttribute('aria-atomic', 'true');
+        document.body.appendChild(region);
+    }
+    // Два одинаковых сообщения подряд не читаются: текст не меняется, и
+    // мутации нет. Чистим регион и пишем в следующем кадре.
+    region.textContent = '';
+    requestAnimationFrame(() => { region.textContent = message; });
+}
+
+/**
  * Всплывающее уведомление (тост) вместо alert().
  * @param {string} message
  * @param {'success'|'error'|'info'} type
@@ -55,8 +85,13 @@ function showToast(message, type = 'info', timeout = 3200) {
         container = document.createElement('div');
         container.id = 'toast-container';
         container.className = 'toast-container';
+        // Сам стек тостов — чисто визуальный. Озвучивание идёт через
+        // отдельные live-регионы ниже: если объявить живой областью и
+        // контейнер, и вложенный тост, часть скринридеров читает дважды.
+        container.setAttribute('aria-hidden', 'true');
         document.body.appendChild(container);
     }
+    announceToScreenReader(message, type);
     const icon = type === 'success' ? '✓' : (type === 'error' ? '!' : 'i');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
