@@ -13,8 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPayments();
     });
 
-    const search = document.getElementById('payments-search');
-    if (search) search.addEventListener('input', (e) => filterTableRows('payments-table', e.target.value));
+    bindTableSearch('payments-search', 'payments-table');
 
     const exportBtn = document.getElementById('payments-export');
     if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentPayments, 'reestr_oplat.csv'));

@@ -13,8 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderDocuments();
     });
 
-    const search = document.getElementById('documents-search');
-    if (search) search.addEventListener('input', (e) => filterTableRows('documents-table', e.target.value));
+    bindTableSearch('documents-search', 'documents-table');
 
     const exportBtn = document.getElementById('documents-export');
     if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentDocuments, 'dokumenty.csv'));

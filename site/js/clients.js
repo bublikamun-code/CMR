@@ -6,8 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (clientsBtn) clientsBtn.addEventListener('click', loadClientsTable);
     if (document.getElementById('page-clients')?.classList.contains('active')) loadClientsTable();
 
-    const search = document.getElementById('clients-search');
-    if (search) search.addEventListener('input', (e) => filterTableRows('clients-table', e.target.value));
+    bindTableSearch('clients-search', 'clients-table');
 
     document.getElementById('btn-create-client').onclick = () => openClientModal();
     document.getElementById('client-cancel').onclick = () => document.getElementById('client-modal').classList.add('hidden');

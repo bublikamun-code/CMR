@@ -381,6 +381,30 @@ function filterTableRows(tableId, query) {
 }
 
 /**
+ * Подписка поля поиска на таблицу с задержкой.
+ *
+ * Раньше каждая из четырёх таблиц вешала обработчик самостоятельно и без
+ * задержки: filterTableRows обходит все строки и читает textContent, то есть
+ * на каждое нажатие клавиши браузер делает полный проход по таблице с
+ * принудительным пересчётом раскладки. На нескольких сотнях строк ввод
+ * начинал заметно отставать от клавиатуры.
+ *
+ * @param {string} inputId  id поля поиска
+ * @param {string} tableId  id таблицы
+ * @param {number} delay    задержка в мс
+ */
+function bindTableSearch(inputId, tableId, delay = 200) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    let timer = null;
+    input.addEventListener('input', (e) => {
+        const value = e.target.value;
+        clearTimeout(timer);
+        timer = setTimeout(() => filterTableRows(tableId, value), delay);
+    });
+}
+
+/**
  * Фильтр карточек на канбан-доске по всем полям.
  */
 function filterKanbanCards(query) {

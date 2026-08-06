@@ -67,6 +67,12 @@ function hasToken() {
     return !!getToken();
 }
 
+// Предельное время ожидания ответа. Без него оборванное соединение
+// (мобильная сеть, спящий ноутбук, перезапуск сервера) оставляет запрос
+// висеть неопределённо долго: спиннер крутится, ошибка не показывается,
+// пользователь не понимает, сохранились данные или нет.
+const API_TIMEOUT_MS = 30000;
+
 async function apiFetch(endpoint, options = {}) {
     const token = getToken();
     
@@ -86,11 +92,18 @@ async function apiFetch(endpoint, options = {}) {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
+    // Загрузка файлов идёт дольше обычных запросов, ей даём больше времени.
+    const timeoutMs = options.timeoutMs
+        || (options.body instanceof FormData ? API_TIMEOUT_MS * 4 : API_TIMEOUT_MS);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
         // Отправляем запрос
         const response = await fetch(`${API_BASE_URL}${endpoint}`, {
             ...options,
-            headers
+            headers,
+            signal: options.signal || controller.signal
         });
 
         // Если сервер ответил 401 (Не авторизован) - токен истек или неверный
@@ -140,6 +153,17 @@ async function apiFetch(endpoint, options = {}) {
         return data;
     } catch (error) {
         console.error(`Ошибка при запросе к ${endpoint}:`, error);
+        // AbortError без пояснения выглядит для пользователя как «ничего не
+        // произошло». Превращаем его в понятную причину.
+        if (error.name === 'AbortError') {
+            throw new Error(`Сервер не ответил за ${Math.round(timeoutMs / 1000)} с. Проверьте соединение и повторите.`);
+        }
+        // fetch отклоняется с TypeError, когда сети нет вовсе.
+        if (error instanceof TypeError) {
+            throw new Error('Нет связи с сервером. Проверьте интернет-соединение.');
+        }
         throw error; // Пробрасываем ошибку дальше, чтобы ее мог обработать конкретный скрипт
+    } finally {
+        clearTimeout(timer);
     }
 }
