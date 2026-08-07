@@ -1,4 +1,10 @@
 // Общие утилиты: тосты, подтверждения, поиск, экспорт CSV, кастомный дропдаун.
+//
+// Focus trap, Escape и возврат фокуса для модалок живут в ui-polish.js.
+// Здесь их не дублируем: две реализации на одном keydown конкурировали —
+// features.js прятал модалку через classList и возвращал фокус сам, а
+// ui-polish.js в это же время искал .close-btn и возвращал фокус по своей
+// цепочке, из-за чего фокус уезжал не туда.
 
 const SAFE_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 function sanitizeColor(c) { return (c && SAFE_COLOR_RE.test(c)) ? c : '#4f7cf5'; }
@@ -14,34 +20,6 @@ function getSkeletonHTML(cols, rowsCount = 5) {
         html += '</tr>';
     }
     return html;
-}
-
-let lastFocusedElement = null;
-
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        const openModal = document.querySelector('.modal:not(.hidden)');
-        if (openModal) {
-            openModal.classList.add('hidden');
-            if (lastFocusedElement) { lastFocusedElement.focus(); lastFocusedElement = null; }
-        }
-    }
-    if (e.key === 'Tab') {
-        const openModal = document.querySelector('.modal:not(.hidden)');
-        if (!openModal) return;
-        const focusable = openModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (!focusable.length) return;
-        const first = focusable[0], last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    }
-});
-
-function openModalTrapped(modal) {
-    lastFocusedElement = document.activeElement;
-    modal.classList.remove('hidden');
-    const first = modal.querySelector('input, button, [tabindex]');
-    if (first) setTimeout(() => first.focus(), 50);
 }
 
 /**
