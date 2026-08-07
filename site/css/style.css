@@ -166,9 +166,8 @@ html {
 }
 [data-theme="dark"] .kanban-column h3 { color: var(--text-color); }
 [data-theme="dark"] .kanban-column { background-color: var(--bg-color); }
-[data-theme="dark"] .dropdown-menu { background: var(--table-row-hover); border-color: var(--border-interactive); }
-[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
 [data-theme="dark"] .data-table th { background: var(--table-header-bg); color: var(--text-color); }
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
 [data-theme="dark"] .data-table td { border-color: var(--border-color); }
 [data-theme="dark"] .btn-primary { background: var(--primary-color); }
 [data-theme="dark"] .btn-primary:hover { background: var(--primary-hover); }
@@ -1995,25 +1994,6 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 /* Списание: блоки магазинов не складываем в столбик — оставляем
    горизонтальный скролл вправо (как на канбане). */
 
-@media (max-width: 900px) {
-    /* [FIXED] Убран конфликт мобильного меню с выезжающей шторкой */
-    
-    .kanban-board {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        height: calc(100vh - 140px);
-    }
-    
-    .page-header {
-        flex-direction: column;
-        gap: 10px;
-        align-items: flex-start;
-    }
-    
-    /* Колонки "На списание"/"Списано" внутри магазина остаются рядом —
-       страница прокручивается вправо вместе с канбаном. */
-}
-
 /* ==========================================================
    ТОСТЫ (всплывающие уведомления)
    ========================================================== */
@@ -2952,6 +2932,23 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     .modal-content-wide { max-width: 95%; }
     .kanban-board { overflow-x: auto; }
     .writeoffs-container { grid-template-columns: 1fr; }
+
+    /* [FIXED] Убран конфликт мобильного меню с выезжающей шторкой */
+    
+    .kanban-board {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        height: calc(100vh - 140px);
+    }
+    
+    .page-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+    
+    /* Колонки "На списание"/"Списано" внутри магазина остаются рядом —
+       страница прокручивается вправо вместе с канбаном. */
 }
 
 @media (max-width: 600px) {
@@ -4475,11 +4472,6 @@ input, select, textarea {
 
 /* === ПОЛНАЯ DARK THEME ДЛЯ ВСЕХ ЭЛЕМЕНТОВ === */
 
-/* Settings tabs */
-[data-theme="dark"] .settings-tab { color: var(--text-muted); }
-[data-theme="dark"] .settings-tab:hover { color: var(--text-color); }
-[data-theme="dark"] .settings-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
-
 /* Settings panes */
 [data-theme="dark"] .settings-pane { color: var(--text-color); }
 
@@ -4490,14 +4482,6 @@ input, select, textarea {
 [data-theme="dark"] .btn-danger:hover { background: #b91c1c; }
 [data-theme="dark"] .btn-success { background: #059669; color: white; }
 [data-theme="dark"] .btn-success:hover { background: #047857; }
-
-/* Card elements */
-[data-theme="dark"] .card-progress { background: rgba(255,255,255,0.03); }
-[data-theme="dark"] .card-manager { color: var(--text-muted); }
-[data-theme="dark"] .card-amount { color: var(--primary-color); }
-[data-theme="dark"] .card-badges { color: var(--text-muted); }
-[data-theme="dark"] .card-tags .card-tag { background: rgba(255,255,255,0.1); }
-[data-theme="dark"] .card-title { color: var(--text-color); }
 
 /* Progress bars */
 [data-theme="dark"] .progress-track { background: rgba(255,255,255,0.1); }
@@ -5148,9 +5132,6 @@ textarea:focus-visible {
     z-index: 2;
 }
 /* на тач-устройствах крестик виден всегда, иначе до него не добраться */
-@media (hover: none) {
-    .writeoff-card .btn-delete-writeoff { opacity: 0.55; }
-}
 
 /* --- Метка «2 из 3 накладных» --- */
 .writeoff-card-meta {
@@ -5929,9 +5910,7 @@ input, select, textarea, button{ font-family: inherit !important; }
   box-shadow: 0 4px 8px -2px rgba(15,23,42,.15);
 }
 
-@media (prefers-reduced-motion: reduce){
-  .card-hover-actions, .progress-fill{ transition: none !important; }
-}
+
 /* ============================================================
    AUDIT FIXES — часть 2, дизайн и палитра (6 августа 2026)
    Дописывается после блока «AUDIT FIXES — Спринт 0».
@@ -7486,9 +7465,6 @@ td.td-center > .btn-edit-row .ui-icon{
   25%{ transform: translateX(-3px); }
   75%{ transform: translateX(3px); }
 }
-@media (prefers-reduced-motion: reduce){
-  .checklist-amount.amount-invalid{ animation: none; }
-}
 
 /* оплачено — плашка гаснет, но остаётся правимой */
 .checklist-text.completed .amount-field{ opacity: .65; }
@@ -7530,4 +7506,7 @@ td.td-center > .btn-edit-row .ui-icon{
     .delete-checklist {
         opacity: 1;
     }
+
+    /* на тач-устройствах крестик виден всегда, иначе до него не добраться */
+    .writeoff-card .btn-delete-writeoff { opacity: 0.55; }
 }
