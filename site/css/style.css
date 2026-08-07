@@ -2658,6 +2658,11 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 
 /* --- DUE DATE ИНДИКАТОРЫ --- */
+/* Пульсации ниже раньше стояли infinite. Просрочка — постоянное состояние,
+   а не процесс, поэтому мигание не прекращалось всё время, пока открыта
+   страница, и превращалось в фоновый раздражитель. Три повтора привлекают
+   внимание при появлении и затихают. Красный цвет и текст остаются —
+   информация не теряется. */
 .overdue-badge {
     display: inline-block;
     font-size: 11px;
@@ -2667,7 +2672,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     padding: 2px 8px;
     border-radius: 999px;
     margin-left: 8px;
-    animation: pulse-overdue 2s infinite;
+    animation: pulse-overdue 2s ease-in-out 3;
 }
 .overdue-badge-card {
     display: inline-block;
@@ -2681,7 +2686,9 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 .card-overdue {
     border-left: 3px solid var(--danger-color) !important;
-    animation: pulse-overdue-border 2s infinite;
+    /* Рамка мигала в transparent бесконечно — это ещё и мерцающий элемент
+       (WCAG 2.3.1). Три повтора, дальше остаётся сплошная красная полоса. */
+    animation: pulse-overdue-border 2s ease-in-out 3;
 }
 
 .card-due-soon {
@@ -2704,17 +2711,14 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-radius: var(--radius-md);
     font-size: 13px;
     font-weight: 500;
-    animation: pulse-overdue 2s infinite;
+    /* Сплошная красная плашка во всю ширину и без мигания заметна
+       достаточно, поэтому здесь пульсация убрана полностью. */
 }
 
 .overdue-summary-icon {
     font-size: 16px;
 }
 
-@keyframes pulse-overdue {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.8; }
-}
 .due-soon-badge {
     display: inline-block;
     font-size: 10px;
@@ -3598,35 +3602,13 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 
 /* ==========================================================
    PREMIUM SKELETON LOADERS
+   Определение .skeleton-line и @keyframes skeleton-shimmer перенесены
+   ниже, в блок «Skeleton loading»: они были объявлены здесь и там, и
+   каскад собирал элемент из двух половин (ширина отсюда, цвет и
+   анимация оттуда). Здесь остаётся только отступ строки таблицы.
    ========================================================== */
-@keyframes skeleton-shimmer {
-    0% {
-        background-position: -200% 0;
-    }
-    100% {
-        background-position: 200% 0;
-    }
-}
-
 .skeleton-row td {
     padding: 16px 12px !important;
-}
-
-.skeleton-line {
-    height: 12px;
-    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-    background-size: 200% 100%;
-    animation: skeleton-shimmer 1.5s infinite linear;
-    border-radius: var(--radius-sm);
-    width: 100%;
-}
-
-.skeleton-line.short {
-    width: 40%;
-}
-
-.skeleton-line.medium {
-    width: 70%;
 }
 
 /* ==========================================================
@@ -4723,12 +4705,17 @@ input, select, textarea {
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* --- Skeleton loading --- */
+/* --- Skeleton loading ---
+   Единственное определение: раньше .skeleton-line объявлялся ещё и выше,
+   в блоке PREMIUM SKELETON LOADERS. Побеждали разные половины двух
+   правил, а хардкод-цвета первого не переключались в тёмной теме. */
 .skeleton-line {
     height: 14px;
+    width: 100%;
     background: linear-gradient(90deg, var(--border-color) 25%, var(--bg-color) 50%, var(--border-color) 75%);
     background-size: 200% 100%;
-    animation: skeleton-shimmer 1.5s infinite;
+    /* linear: равномерное движение не должно разгоняться и тормозить */
+    animation: skeleton-shimmer 1.5s infinite linear;
     border-radius: 4px;
 }
 .skeleton-line.medium { width: 60%; }
