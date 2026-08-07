@@ -85,10 +85,27 @@ back)
         echo "  tools/deploy.sh back main.py routers/clients_router.py" >&2
         exit 1
     fi
-    echo "==> Byte-compiling Python files locally to catch syntax errors"
+    echo "==> Checking syntax locally before upload"
     for f in "$@"; do
-        python3 -m py_compile "$REPO_ROOT/server_snapshot/$f"
-        echo "    ok: $f"
+        case "$f" in
+            *.py)
+                python3 -m py_compile "$REPO_ROOT/server_snapshot/$f"
+                echo "    ok (python): $f"
+                ;;
+            *.sh)
+                bash -n "$REPO_ROOT/server_snapshot/$f"
+                echo "    ok (bash): $f"
+                ;;
+            *)
+                # No syntax checker for this type; verify the file exists so a
+                # typo in the path fails here instead of silently uploading.
+                [[ -f "$REPO_ROOT/server_snapshot/$f" ]] || {
+                    echo "ERROR: no such file: server_snapshot/$f" >&2
+                    exit 1
+                }
+                echo "    ok (no check): $f"
+                ;;
+        esac
     done
 
     for f in "$@"; do

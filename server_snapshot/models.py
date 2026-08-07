@@ -111,7 +111,11 @@ class CardChecklist(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     card = relationship("Card", back_populates="checklists")
-    supplier = relationship("Supplier", back_populates="checklist_items")
+    # ChecklistResponse включает supplier, а FastAPI сериализует ответ уже
+    # после того, как роутер закрыл сессию в finally. При ленивой загрузке
+    # это давало DetachedInstanceError и 500 на ровном месте.
+    # joined — связь подтягивается тем же запросом, объект остаётся полным.
+    supplier = relationship("Supplier", back_populates="checklist_items", lazy="joined")
 
 class Transaction(Base):
     __tablename__ = "transactions"
