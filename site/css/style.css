@@ -145,8 +145,8 @@ html {
     box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.25);
 }
 [data-theme="dark"] .kanban-card {
-    background-color: var(--table-row-hover) !important;
-    border-color: var(--border-interactive) !important;
+    background-color: var(--table-row-hover);
+    border-color: var(--border-interactive);
 }
 [data-theme="dark"] .kanban-column h3 { color: var(--text-color); }
 [data-theme="dark"] .kanban-column { background-color: var(--bg-color); }
@@ -1982,7 +1982,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 [data-theme="dark"] .writeoff-column h4 {
     background: rgba(255,255,255,0.1) !important;
-    color: var(--text-color) !important;
+    color: var(--text-color);
 }
 
 .writeoff-column[data-status="true"] {
@@ -4529,8 +4529,8 @@ textarea.auto-expand-title:focus {
 [data-theme="dark"] .wf-status-failed { background: #7f1d1d !important; color: #fca5a5 !important; }
 [data-theme="dark"] .wf-status-running { background: #78350f !important; color: #fcd34d !important; }
 [data-theme="dark"] .wf-error-msg { color: var(--danger-color) !important; }
-[data-theme="dark"] .settings-table th { color: var(--text-muted) !important; border-bottom-color: var(--border-interactive) !important; }
-[data-theme="dark"] .settings-table td { border-bottom-color: var(--border-interactive) !important; }
+[data-theme="dark"] .settings-table th { color: var(--text-muted) !important; border-bottom-color: var(--border-interactive); }
+[data-theme="dark"] .settings-table td { border-bottom-color: var(--border-interactive); }
 
 /* === PAGINATION === */
 .pagination-bar { display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: var(--card-bg); border-bottom: 1px solid var(--border-color); }
@@ -5060,8 +5060,8 @@ input, select, textarea {
 
 /* Карточки */
 [data-theme="dark"] .kanban-card {
-    background-color: var(--table-row-hover) !important;
-    border-color: var(--border-interactive) !important;
+    background-color: var(--table-row-hover);
+    border-color: var(--border-interactive);
 }
 [data-theme="dark"] .kanban-card.old-card { background: var(--table-row-odd); }
 
@@ -5163,28 +5163,28 @@ input, select, textarea {
 
 /* Кнопки */
 [data-theme="dark"] .btn-secondary { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
-[data-theme="dark"] .btn-secondary:hover { background-color: var(--border-interactive) !important; }
+[data-theme="dark"] .btn-secondary:hover { background-color: var(--border-interactive); }
 
 /* Кнопки архива/старых */
 [data-theme="dark"] .btn-show-old { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
-[data-theme="dark"] .btn-show-old:hover { background-color: var(--border-interactive) !important; }
+[data-theme="dark"] .btn-show-old:hover { background-color: var(--border-interactive); }
 
 /* Чекбоксы */
 [data-theme="dark"] .data-table input[type="checkbox"] { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
-[data-theme="dark"] .data-table input[type="checkbox"]:checked { background-color: var(--primary-color) !important; }
+[data-theme="dark"] .data-table input[type="checkbox"]:checked { background-color: var(--primary-color); }
 
 /* Селекты в таблицах */
 [data-theme="dark"] .data-table select { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
 /* Карточки Kanban — ГЛАВНОЕ ИСПРАВЛЕНИЕ */
 [data-theme="dark"] .kanban-card { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
-[data-theme="dark"] .kanban-card:hover { background-color: var(--border-color) !important; }
+[data-theme="dark"] .kanban-card:hover { background-color: var(--border-color); }
 [data-theme="dark"] .kanban-card.old-card { background-color: var(--table-row-odd) !important; }
 [data-theme="dark"] .kanban-card.card-assembly { background-color: #1a2e1a !important; }
 
 /* Текст в карточках */
-[data-theme="dark"] .card-title { color: var(--text-color) !important; }
-[data-theme="dark"] .card-amount { color: var(--accent-indigo) !important; }
+[data-theme="dark"] .card-title { color: var(--text-color); }
+[data-theme="dark"] .card-amount { color: var(--accent-indigo); }
 [data-theme="dark"] .card-manager { color: var(--text-muted) !important; }
 [data-theme="dark"] .card-badges { color: var(--text-muted) !important; }
 [data-theme="dark"] .card-description { color: var(--text-color) !important; background-color: var(--bg-color) !important; }
@@ -5203,7 +5203,7 @@ input, select, textarea {
 /* Dropdown меню */
 [data-theme="dark"] .dropdown-menu { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
 [data-theme="dark"] .dropdown-item { color: var(--text-color) !important; }
-[data-theme="dark"] .dropdown-item:hover { background-color: var(--border-interactive) !important; }
+[data-theme="dark"] .dropdown-item:hover { background-color: var(--border-interactive); }
 [data-theme="dark"] .dropdown-item.selected { background-color: rgba(79,124,245,0.2) !important; color: var(--accent-indigo) !important; }
 [data-theme="dark"] .dropdown-toggle { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
@@ -5218,8 +5218,8 @@ input, select, textarea {
 [data-theme="dark"] .wf-item { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
 
 /* Настройки */
-[data-theme="dark"] .settings-tab { color: var(--text-muted) !important; }
-[data-theme="dark"] .settings-tab.active { color: var(--accent-indigo) !important; border-bottom-color: var(--accent-indigo) !important; }
+[data-theme="dark"] .settings-tab { color: var(--text-muted); }
+[data-theme="dark"] .settings-tab.active { color: var(--accent-indigo); border-bottom-color: var(--accent-indigo); }
 
 /* Формы */
 [data-theme="dark"] .form-group label { color: var(--text-muted) !important; }
@@ -5227,7 +5227,7 @@ input, select, textarea {
 
 /* Toggle slider */
 [data-theme="dark"] .toggle-slider { background-color: var(--border-interactive) !important; }
-[data-theme="dark"] .toggle-slider::before { background-color: var(--text-color) !important; }
+[data-theme="dark"] .toggle-slider::before { background-color: var(--text-color); }
 [data-theme="dark"] .toggle-switch input:checked + .toggle-slider { background-color: var(--accent-indigo) !important; }
 
 /* Прогресс-бары */
@@ -5236,11 +5236,11 @@ input, select, textarea {
 [data-theme="dark"] .progress-fill.came { background-color: var(--accent-indigo) !important; }
 
 /* Файлы и вложения */
-[data-theme="dark"] .file-chip { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; color: var(--text-color) !important; }
+[data-theme="dark"] .file-chip { background-color: var(--table-row-hover); border-color: var(--border-interactive) !important; color: var(--text-color) !important; }
 
 /* Воронка продаж — текст */
-[data-theme="dark"] .dash-funnel-label { color: var(--text-color) !important; }
-[data-theme="dark"] .dash-funnel-count { color: var(--text-color) !important; }
+[data-theme="dark"] .dash-funnel-label { color: var(--text-color); }
+[data-theme="dark"] .dash-funnel-count { color: var(--text-color); }
 [data-theme="dark"] .dash-funnel-bar { background-color: var(--accent-indigo) !important; }
 
 /* Страницы */
@@ -5323,19 +5323,19 @@ input, select, textarea {
 [data-theme="dark"] .file-dropzone input[type="file"] { color: var(--text-color) !important; }
 
 /* Вложения/файлы */
-[data-theme="dark"] .attachment-item { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; color: var(--text-color) !important; }
+[data-theme="dark"] .attachment-item { background-color: var(--table-row-hover); border-color: var(--border-interactive); color: var(--text-color); }
 [data-theme="dark"] .attachment-item:hover { background-color: var(--border-interactive) !important; }
-[data-theme="dark"] .attachment-link { color: var(--accent-indigo) !important; }
+[data-theme="dark"] .attachment-link { color: var(--accent-indigo); }
 
 /* Списание — карточки */
 [data-theme="dark"] .writeoff-card { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
-[data-theme="dark"] .writeoff-card .card-title { color: var(--text-color) !important; }
+[data-theme="dark"] .writeoff-card .card-title { color: var(--text-color); }
 [data-theme="dark"] .writeoff-card .card-amount { color: var(--text-color) !important; }
 [data-theme="dark"] .writeoff-column h4 { color: var(--text-color) !important; }
-[data-theme="dark"] .writeoff-store-block h3 { color: var(--text-color) !important; }
+[data-theme="dark"] .writeoff-store-block h3 { color: var(--text-color); }
 
 /* Бейджи статуса документов */
-[data-theme="dark"] .print-badge { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .print-badge { background-color: var(--table-row-hover); color: var(--text-color) !important; border-color: var(--border-interactive); }
 [data-theme="dark"] .print-badge[data-print="Доверенность"] { background-color: rgba(245,158,11,0.2) !important; color: var(--warning-color) !important; border-color: rgba(245,158,11,0.3) !important; }
 [data-theme="dark"] .print-badge[data-print="БН"] { background-color: rgba(15,118,110,0.2) !important; color: #2dd4bf !important; border-color: rgba(15,118,110,0.3) !important; }
 
@@ -5355,7 +5355,7 @@ input, select, textarea {
 
 /* Dropzone в модалке */
 [data-theme="dark"] .dropzone { background-color: var(--bg-color) !important; border-color: var(--border-interactive) !important; color: var(--text-muted) !important; }
-[data-theme="dark"] .dropzone:hover { background-color: var(--table-row-hover) !important; border-color: var(--accent-indigo) !important; }
+[data-theme="dark"] .dropzone:hover { background-color: var(--table-row-hover); border-color: var(--accent-indigo) !important; }
 [data-theme="dark"] .attachments-container { background: transparent !important; }
 [data-theme="dark"] .attachment-item { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; color: var(--text-color) !important; }
 [data-theme="dark"] .attachment-link { color: var(--accent-indigo) !important; }
@@ -5397,7 +5397,7 @@ input, select, textarea {
 
 /* Кнопка удаления списания */
 [data-theme="dark"] .btn-delete-writeoff { background-color: transparent !important; color: var(--danger-color) !important; }
-[data-theme="dark"] .btn-delete-writeoff:hover { background-color: rgba(239,68,68,0.2) !important; color: var(--danger-color) !important; }
+[data-theme="dark"] .btn-delete-writeoff:hover { background-color: rgba(239,68,68,0.2) !important; color: var(--danger-color); }
 
 /* === FILE INPUTS — скрыты, используется dropzone === */
 input[type="file"] {
@@ -7000,7 +7000,7 @@ textarea.auto-expand-title{
   color: #cbd5e1 !important;          /* было приглушённое: 3.54:1 */
 }
 [data-theme="dark"] .settings-tab:hover{
-  color: #f1f5f9 !important;
+  color: #f1f5f9;
   background: rgba(255,255,255,.06) !important;
 }
 [data-theme="dark"] .settings-tab.active{
@@ -7767,7 +7767,7 @@ td.td-center > .btn-edit-row .ui-icon{
 [data-theme="dark"] .btn-add-contact:hover{
   background: #4338ca !important;
   border-color: #4338ca !important;
-  color: #fff !important;                 /* 7.90:1 */
+  color: #fff;                 /* 7.90:1 */
 }
 [data-theme="dark"] .contact-del:hover{
   color: #fca5a5 !important;
