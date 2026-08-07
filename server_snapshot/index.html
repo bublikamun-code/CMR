@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM: Снабжение и Продажи</title>
+    <style>
+/* CRITICAL: sidebar layout - inline to prevent cache issues */
+.app-container { display: flex; flex-direction: row; height: 100vh; width: 100%; overflow: hidden; }
+.sidebar { width: 230px; min-width: 230px; max-width: 230px; flex: 0 0 230px; background: linear-gradient(180deg, #1f2937, #111827); color: white; display: flex; flex-direction: column; box-shadow: 2px 0 16px rgba(16,24,40,0.12); z-index: 50; overflow-y: auto; overflow-x: hidden; }
+.main-content { flex: 1 1 0%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-nav { flex: 1; display: flex; flex-direction: column; padding: 15px 0; }
+.nav-btn { display: flex; align-items: center; gap: 12px; background: none; border: none; color: #aeb8c7; padding: 12px 14px; margin: 2px 8px; border-radius: 6px; text-align: left; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.nav-icon { flex-shrink: 0; width: 20px; min-width: 20px; display: flex; align-items: center; justify-content: center; }
+.nav-icon svg { width: 19px; height: 19px; display: block; }
+.nav-label { overflow: hidden; text-overflow: ellipsis; }
+.sidebar-header { padding: 22px 20px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sidebar-header h2 { font-size: 18px; background: linear-gradient(90deg, #fff, #c7d2fe); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.sidebar-footer { padding: 20px; }
+.nav-btn.active { background: linear-gradient(90deg, #4f7cf5, #3b63d4); color: white; font-weight: 600; box-shadow: 0 4px 12px rgba(79,124,245,0.35); }
+</style>
+    <link rel="stylesheet" href="css/style.css?v=1785023000">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1f2937">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <script>
+        (function() {
+            var theme = localStorage.getItem('crm_theme');
+            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+            var compact = localStorage.getItem('crm_compact');
+            if (compact === 'true') document.body.classList.add('compact-mode');
+        })();
+    </script>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">К содержимому</a>
+    <button id="mobile-menu-toggle" class="mobile-menu-toggle" aria-label="Открыть меню">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <div id="mobile-overlay" class="mobile-overlay"></div>
+
+    <div class="app-container">
+        <aside class="sidebar" id="app-sidebar">
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/развернуть меню">◀</button>
+            <div class="sidebar-header">
+                <h2>CRM Система</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-target="page-kanban">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg></span>
+                    <span class="nav-label">Канбан-доска</span>
+                </button>
+                <button class="nav-btn" data-target="page-payments">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></span>
+                    <span class="nav-label">Реестр оплат</span>
+                </button>
+                <button class="nav-btn" data-target="page-writeoffs">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
+                    <span class="nav-label">Списание</span>
+                </button>
+                <button class="nav-btn" data-target="page-documents">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+                    <span class="nav-label">Документы</span>
+                </button>
+                <button class="nav-btn" data-target="page-clients">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+                    <span class="nav-label">Клиенты</span>
+                </button>
+                <button class="nav-btn" data-target="page-suppliers">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span>
+                    <span class="nav-label">Поставщики</span>
+                </button>
+                <button class="nav-btn" data-target="page-dashboard">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg></span>
+                    <span class="nav-label">Дашборд</span>
+                </button>
+                <button class="nav-btn" data-target="page-calendar">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                    <span class="nav-label">Календарь</span>
+                </button>
+                <button class="nav-btn" data-target="page-settings">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+                    <span class="nav-label">Настройки</span>
+                </button>
+            </nav>
+            <div class="sidebar-controls">
+                <button id="theme-toggle" class="theme-toggle" title="Переключить тему" aria-label="Переключить тему">☀</button>
+                <button id="compact-toggle" class="compact-toggle" title="Плотный режим" aria-label="Плотный режим">⊞</button>
+            </div>
+            <div class="sidebar-footer">
+                <a href="/admin" id="admin-link" class="admin-link-btn hidden" target="_blank">Админ-панель</a>
+                <button id="logout-btn" class="logout-btn">Выйти</button>
+            </div>
+        </aside>
+
+        <main class="main-content" id="main-content" tabindex="-1">
+            
+            <section id="page-kanban" class="page-section active">
+                <header class="page-header">
+                    <h1>Воронка продаж (Канбан)</h1>
+                    <div class="header-actions">
+                        <div class="view-toggle">
+                            <button id="view-board" class="btn btn-sm view-toggle-btn active" onclick="switchKanbanView('board')">◫ Доска</button>
+                            <button id="view-list" class="btn btn-sm view-toggle-btn" onclick="switchKanbanView('list')">≡ Список</button>
+                        </div>
+                        <input type="text" id="kanban-search" class="search-input" placeholder="Поиск по сделкам..." aria-label="Поиск по сделкам">
+                        <button id="btn-trash" class="btn-secondary btn-trash"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Архив</button>
+                        <button id="btn-create-card" class="btn-primary">+ Новая сделка</button>
+                        <button id="btn-export-csv" class="btn-secondary" title="Экспорт CSV">&#8595; CSV</button>
+                    </div>
+                </header>
+                <button class="filter-toggle" onclick="toggleFilters()">🔍 Фильтры ▾</button>
+                <div class="filter-bar" id="kanban-filters">
+                    <span class="filter-label">Фильтры:</span>
+                    <select id="filter-store" onchange="applyKanbanFilters()">
+                        <option value="">Все магазины</option>
+                        <option value="Матусевича">Матусевича</option>
+                        <option value="Богдановича">Богдановича</option>
+                        <option value="БН">Безнал (БН)</option>
+                    </select>
+                    <input type="number" id="filter-amount-min" placeholder="Сумма от" style="width:100px;" onchange="applyKanbanFilters()">
+                    <input type="number" id="filter-amount-max" placeholder="Сумма до" style="width:100px;" onchange="applyKanbanFilters()">
+                    <input type="text" id="filter-client" placeholder="Клиент" style="width:120px;" onchange="applyKanbanFilters()">
+                    <select id="filter-priority" onchange="applyKanbanFilters()">
+                        <option value="">Все приоритеты</option>
+                        <option value="3">Высокий</option>
+                        <option value="2">Средний</option>
+                        <option value="1">Низкий</option>
+                    </select>
+                    <button class="filter-reset" onclick="resetKanbanFilters()">Сбросить</button>
+                </div>
+                <div class="kanban-board" id="kanban-board">
+                </div>
+                <div id="kanban-list" class="hidden" style="overflow-x:auto;">
+                    <div id="kanban-list-pagination" class="pagination-bar"></div>
+                    <table class="data-table" style="width:100%;">
+                        <thead>
+                            <tr>
+                                <th>Название</th>
+                                <th>Статус</th>
+                                <th>Сумма</th>
+                                <th>Магазин</th>
+                                <th>Менеджер</th>
+                                <th>Дедлайн</th>
+                                <th>Приоритет</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="kanban-list-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="page-payments" class="page-section">
+                <header class="page-header">
+                    <h1>Реестр оплат</h1>
+                    <div class="header-actions">
+                        <div id="payments-month" class="month-filter" title="Фильтр по дате оплаты"></div>
+                        <input type="text" id="payments-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по оплатам">
+                        <button id="payments-export" class="btn-secondary btn-export">Экспорт CSV</button>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="data-table" id="payments-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="date">Дата</th>
+                                <th class="sortable" data-sort="company_name">Название</th>
+                                <th class="sortable" data-sort="amount">Сумма</th>
+                                <th class="sortable" data-sort="store_location">Магазин</th>
+                                <th>Просчет</th>
+                                <th>Выписка ТН</th>
+                                <th>Списание с магазина</th>
+                                <th>Печать/доверенность</th>
+                                <th>Примечание</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-totals">
+                                <td>Итого</td>
+                                <td id="payments-count"></td>
+                                <td id="payments-total"></td>
+                                <td colspan="7"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </section>
+
+            <section id="page-writeoffs" class="page-section">
+                <header class="page-header">
+                    <h1>Складское списание</h1>
+                </header>
+                
+                <div class="writeoffs-container">
+                    
+                    <div class="writeoff-store-block" data-store="Матусевича">
+                        <h3>Матусевича</h3>
+                        <div class="writeoff-columns">
+                            <div class="kanban-column writeoff-column" data-store="Матусевича" data-status="false">
+                                <h4>На списание</h4>
+                                <div class="writeoff-cards"></div>
+                            </div>
+                            <div class="kanban-column writeoff-column" data-store="Матусевича" data-status="true">
+                                <h4>Списано</h4>
+                                <div class="writeoff-cards"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="writeoff-store-block" data-store="Богдановича">
+                        <h3>Богдановича</h3>
+                        <div class="writeoff-columns">
+                            <div class="kanban-column writeoff-column" data-store="Богдановича" data-status="false">
+                                <h4>На списание</h4>
+                                <div class="writeoff-cards"></div>
+                            </div>
+                            <div class="kanban-column writeoff-column" data-store="Богдановича" data-status="true">
+                                <h4>Списано</h4>
+                                <div class="writeoff-cards"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <section id="page-documents" class="page-section">
+                <header class="page-header">
+                    <h1>Документы</h1>
+                    <div class="header-actions">
+                        <div id="documents-month" class="month-filter" title="Фильтр по дате накладной"></div>
+                        <input type="text" id="documents-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по документам">
+                        <button id="documents-export" class="btn-secondary btn-export">Экспорт CSV</button>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="data-table" id="documents-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="date">Дата</th>
+                                <th class="sortable" data-sort="company_name">Название</th>
+                                <th class="sortable" data-sort="amount">Сумма</th>
+                                <th class="sortable" data-sort="invoice_number">№ накладной</th>
+                                <th class="sortable" data-sort="invoice_date">Дата накладной</th>
+                                <th>Накладная</th>
+                                <th>Счет на оплату</th>
+                                <th>Маркеры</th>
+                                <th>Примечание</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-totals">
+                                <td>Итого</td>
+                                <td id="documents-count"></td>
+                                <td id="documents-total"></td>
+                                <td colspan="7"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </section>
+
+            <section id="page-clients" class="page-section">
+                <header class="page-header">
+                    <h1>Клиенты</h1>
+                    <div class="header-actions">
+                        <input type="text" id="clients-search" class="search-input" placeholder="Поиск по имени/УНП/телефону..." aria-label="Поиск по клиентам">
+                        <button id="btn-create-client" class="btn-primary">+ Новый клиент</button>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="data-table" id="clients-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="name">Название</th>
+                                <th class="sortable" data-sort="unp">УНП</th>
+                                <th class="sortable" data-sort="phone">Телефон</th>
+                                <th>Почта</th>
+                                <th>Контактное лицо</th>
+                                <th>Примечание</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="page-suppliers" class="page-section">
+                <header class="page-header">
+                    <h1>Поставщики</h1>
+                    <div class="header-actions">
+                        <input type="text" id="suppliers-search" class="search-input" placeholder="Поиск по названию/УНП/телефону..." aria-label="Поиск по поставщикам">
+                        <button id="btn-create-supplier" class="btn-primary">+ Новый поставщик</button>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="data-table" id="suppliers-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="name">Название</th>
+                                <th class="sortable" data-sort="unp">УНП</th>
+                                <th class="sortable" data-sort="phone">Телефон</th>
+                                <th>Почта</th>
+                                <th>Контактное лицо</th>
+                                <th>Адрес</th>
+                                <th>Примечание</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="page-dashboard" class="page-section">
+                <header class="page-header">
+                    <h1>Дашборд</h1>
+                    <div class="header-actions">
+                        <div id="dashboard-month" class="month-filter" title="Фильтр по дате"></div>
+                    </div>
+                </header>
+                <div class="dashboard-container" id="dashboard-container">
+                    <div class="dashboard-loading">Загрузка данных...</div>
+                </div>
+            </section>
+
+            <section id="page-calendar" class="page-section">
+                <header class="page-header">
+                    <h1>Календарь</h1>
+                </header>
+                <div id="calendar-container" style="max-width:1000px;"></div>
+            </section>
+
+            <section id="page-settings" class="page-section">
+                <header class="page-header">
+                    <h1>Настройки</h1>
+                </header>
+
+                <div class="settings-tabs" id="settings-tabs">
+                    <button class="settings-tab active" onclick="SettingsUI.switchTab('objects')">Кастомные объекты</button>
+                    <button class="settings-tab" disabled style="opacity:0.5;cursor:not-allowed;" title="В разработке">Воркфлоу</button>
+                    <button class="settings-tab" onclick="SettingsUI.switchTab('email')">Почта</button>
+                    <button class="settings-tab" onclick="SettingsUI.switchTab('webhooks')">Webhooks</button>
+                </div>
+
+                <!-- КАСТОМНЫЕ ОБЪЕКТЫ -->
+                <div id="stab-objects" class="settings-pane active">
+                    <div id="sobj-list">
+                        <div class="settings-card">
+                            <h3>Создать объект</h3>
+                            <div class="settings-row">
+                                <input type="text" id="sobj-label" placeholder="Название (Товар)" class="input-settings">
+                                <input type="text" id="sobj-name" placeholder="Имя (product)" class="input-settings">
+                                <button class="btn btn-primary" onclick="SettingsUI.createObj()">Создать</button>
+                            </div>
+                        </div>
+                        <div id="sobj-container"></div>
+                    </div>
+                    <div id="sobj-detail" class="hidden">
+                        <button class="btn btn-secondary" onclick="SettingsUI.backObj()" style="margin-bottom:16px;">← Назад</button>
+                        <h2 id="sobj-detail-title" style="margin-bottom:16px;"></h2>
+                        <div class="settings-card">
+                            <h3>Поля</h3>
+                            <div class="settings-row-bottom">
+                                <input type="text" id="sfield-label" placeholder="Название поля" class="input-settings">
+                                <input type="text" id="sfield-name" placeholder="Имя (латиницей)" class="input-settings">
+                                <select id="sfield-type" class="select-settings">
+                                    <option value="text">Текст</option><option value="number">Число</option><option value="select">Выбор</option>
+                                    <option value="date">Дата</option><option value="currency">Валюта</option><option value="boolean">Да/Нет</option>
+                                </select>
+                                <button class="btn btn-primary" onclick="SettingsUI.addField()">Добавить</button>
+                            </div>
+                            <div id="sfields-container"></div>
+                        </div>
+                        <div class="settings-card">
+                            <div class="settings-card-header">
+                                <h3>Записи</h3>
+                                <button class="btn btn-primary btn-sm" onclick="SettingsUI.showNewRec()">+ Новая</button>
+                            </div>
+                            <div id="snew-rec-form" class="hidden settings-new-form"></div>
+                            <div id="srecords-container"></div>
+                        </div>
+                    </div>
+                </div>
+
+                 <!-- ВОРКФЛОУ -->
+                 <div id="stab-workflows" class="settings-pane hidden">
+                    <div class="settings-card" style="text-align:center;padding:40px;">
+                        <h2 style="color:#888;">Воркфлоу</h2>
+                        <p style="color:#aaa;">Функционал автоматизации в разработке. Скоро будет доступен.</p>
+                    </div>
+                </div>
+
+                <!-- ПОЧТА -->
+                <div id="stab-email" class="settings-pane">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div class="settings-card">
+                            <h3>Настройки IMAP</h3>
+                            <div class="form-group">
+                                <label>IMAP-сервер</label>
+                                <input type="text" id="email-imap-server" placeholder="imap.yandex.ru" value="imap.yandex.ru">
+                            </div>
+                            <div class="form-group">
+                                <label>Электронная почта</label>
+                                <input type="email" id="email-username" placeholder="email@yandex.ru">
+                            </div>
+                            <div class="form-group">
+                                <label>Пароль приложения</label>
+                                <input type="password" id="email-password" placeholder="Пароль приложения">
+                                <span class="field-hint">Специальный пароль приложения, не обычный пароль.</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Колонка для новых лидов</label>
+                                <select id="email-target-status">
+                                    <option value="Новый запрос">Новый запрос</option>
+                                    <option value="В работе">В работе</option>
+                                    <option value="Ждет оплаты">Ждет оплаты</option>
+                                    <option value="Сборка">Сборка</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" onclick="SettingsUI.saveEmail()">Сохранить настройки</button>
+                        </div>
+                        <div class="settings-card">
+                            <h3>Синхронизация</h3>
+                            <p>Статус: <span id="email-sync-status-text" style="color:var(--text-muted);">Не выполнялась</span> <span id="email-last-sync-time" style="color:var(--text-muted);font-size:12px;"></span></p>
+                            <button class="btn btn-primary" onclick="SettingsUI.syncEmail()" style="margin-top:12px;">Проверить почту и импортировать</button>
+                            <div id="email-sync-results" style="margin-top:16px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WEBHOOKS -->
+                <div id="stab-webhooks" class="settings-pane">
+                    <div class="settings-card">
+                        <h3>Создать webhook</h3>
+                        <div class="form-group">
+                            <label>URL-адрес</label>
+                            <input type="url" id="wh-url" placeholder="https://example.com/webhook">
+                        </div>
+                        <div class="form-group">
+                            <label>События</label>
+                            <div id="wh-events" style="display:flex;flex-wrap:wrap;gap:8px;">
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="card.created"> Сделка создана</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="card.updated"> Сделка обновлена</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="card.deleted"> Сделка удалена</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="client.created"> Клиент создан</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="client.updated"> Клиент обновлён</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="client.deleted"> Клиент удалён</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="supplier.created"> Поставщик создан</label>
+                                <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="supplier.updated"> Поставщик обновлён</label>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" onclick="SettingsUI.createWebhook()">Создать</button>
+                    </div>
+                    <div id="webhooks-container"></div>
+                </div>
+
+            </section>
+
+        </main>
+    </div>
+
+    <div id="card-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-content modal-content-split">
+            <div class="modal-split-header">
+                <h2 id="modal-title">Детали карточки</h2>
+                <button class="close-btn" aria-label="Закрыть">&times;</button>
+            </div>
+            <div class="modal-split-left" id="modal-body-left"></div>
+            <div class="modal-split-right" id="modal-body-right"></div>
+        </div>
+    </div>
+    
+    <div id="create-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+        <div class="modal-content">
+            <button class="close-btn" aria-label="Закрыть">&times;</button>
+            <h2 id="create-modal-title">Новая сделка</h2>
+            <div class="modal-section">
+                <label class="modal-label" for="new-card-title"><b>Название сделки *</b></label>
+                <input type="text" id="new-card-title" placeholder="Введите название..." required>
+            </div>
+            <div class="modal-section">
+                <label class="modal-label"><b>Магазин</b></label>
+                <!-- нативный select заменён на общий .dropdown — как в карточке и фильтрах -->
+                <div id="new-card-store-mount"></div>
+            </div>
+            <div class="modal-section">
+                <label class="modal-label" for="new-card-amount"><b>Сумма (BYN)</b></label>
+                <input type="number" id="new-card-amount" placeholder="0.00" min="0" step="0.01">
+            </div>
+            <div class="modal-section">
+                <label class="modal-label"><b>Приоритет</b></label>
+                <div id="new-card-priority-mount"></div>
+            </div>
+            <div class="modal-actions create-modal-actions">
+                <button id="cancel-create" class="btn-secondary">Отменить</button>
+                <button id="confirm-create" class="btn-primary">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="trash-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="trash-modal-title">
+        <div class="modal-content modal-trash">
+            <button class="close-btn" aria-label="Закрыть">&times;</button>
+            <h2 id="trash-modal-title">Архив удалённых сделок</h2>
+            <div id="trash-list" class="trash-list"></div>
+        </div>
+    </div>
+
+    <div id="client-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="client-modal-title">
+        <div class="modal-content">
+            <button class="close-btn" aria-label="Закрыть">&times;</button>
+            <h2 id="client-modal-title">Новый клиент</h2>
+            <div class="modal-section">
+                <label class="modal-label" for="client-name"><b>Название компании *</b></label>
+                <input type="text" id="client-name" placeholder="Название организации" required>
+            </div>
+            <div class="modal-section">
+                <label class="modal-label" for="client-unp"><b>УНП</b></label>
+                <input type="text" id="client-unp" placeholder="Учетный номер плательщика">
+            </div>
+            <div class="modal-section">
+                <div class="contacts-head">
+                    <label class="modal-label">Контакты</label>
+                    <button type="button" id="client-contact-add" class="btn-add-contact">+ Добавить контакт</button>
+                </div>
+                <div id="client-contacts" class="contacts-box"></div>
+            </div>
+            <div class="modal-section">
+                <label class="modal-label" for="client-address">Адрес</label>
+                <input type="text" id="client-address" placeholder="г. Минск, ул. ...">
+            </div>
+            <div class="modal-section">
+                <label class="modal-label" for="client-note">Примечание</label>
+                <input type="text" id="client-note" placeholder="Заметка...">
+            </div>
+            <div class="modal-actions">
+                <button id="client-cancel" class="btn-secondary">Отмена</button>
+                <button id="client-save" class="btn-primary">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="supplier-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="supplier-modal-title">
+        <div class="modal-content">
+            <button class="close-btn" aria-label="Закрыть">&times;</button>
+            <h2 id="supplier-modal-title">Новый поставщик</h2>
+            <div class="modal-section">
+                <label class="modal-label" for="supplier-name"><b>Название компании *</b></label>
+                <input type="text" id="supplier-name" placeholder="Название организации" required>
+            </div>
+            <div class="modal-section">
+                <label class="modal-label" for="supplier-unp"><b>УНП</b></label>
+                <input type="text" id="supplier-unp" placeholder="Учетный номер плательщика">
+            </div>
+            <div class="modal-section">
+                <div class="contacts-head">
+                    <label class="modal-label">Контакты</label>
+                    <button type="button" id="supplier-contact-add" class="btn-add-contact">+ Добавить контакт</button>
+                </div>
+                <div id="supplier-contacts" class="contacts-box"></div>
+            </div>
+            <div class="modal-section">
+                <label class="modal-label" for="supplier-address">Адрес</label>
+                <input type="text" id="supplier-address" placeholder="г. Минск, ул. ...">
+            </div>
+            <div class="modal-section">
+                <label class="modal-label" for="supplier-note">Примечание</label>
+                <input type="text" id="supplier-note" placeholder="Заметка...">
+            </div>
+            <div class="modal-actions">
+                <button id="supplier-cancel" class="btn-secondary">Отмена</button>
+                <button id="supplier-save" class="btn-primary">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <script defer src="js/crm_store.js?v=30"></script>
+    <script defer src="js/api.js?v=30"></script>
+    <script defer src="js/features.js?v=30"></script>
+    <script defer src="js/auth.js?v=30"></script>
+    <script defer src="js/kanban.js?v=1784934588"></script>
+    <script defer src="js/card_modal.js?v=1785023000"></script>
+    <script defer src="js/payments.js?v=30"></script>
+    <script defer src="js/writeoffs.js?v=30"></script>
+    <script defer src="js/documents.js?v=30"></script>
+    <script defer src="js/contacts.js?v=1"></script>
+    <script defer src="js/clients.js?v=1785020000"></script>
+    <script defer src="js/suppliers.js?v=1785020000"></script>
+    <script defer src="js/dashboard.js?v=30"></script>
+    <script defer src="js/email_parser.js?v=30"></script>
+    <script defer src="js/realtime.js?v=30"></script>
+    <script defer src="js/settings.js?v=1784931906"></script>
+    <script defer src="js/calendar.js?v=30"></script>
+    <script defer src="js/ui-polish.js?v=8"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <div id="client-cards-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="client-cards-title">
+        <div class="modal-content">
+            <button class="close-btn" aria-label="Закрыть">&times;</button>
+            <h2 id="client-cards-title">Карточки клиента</h2>
+            <div id="client-cards-body"></div>
+        </div>
+    </div>
+
+    <div id="cmd-palette-overlay" class="cmd-palette-overlay hidden" role="dialog" aria-modal="true" aria-label="Быстрый поиск">
+        <div class="cmd-palette">
+            <input type="text" id="cmd-palette-input" class="cmd-palette-input" placeholder="Поиск сделок, клиентов, страниц..." autocomplete="off">
+            <div id="cmd-palette-results" class="cmd-palette-results"></div>
+        </div>
+    </div>
+
+    <script>
+    // === SIDEBAR TOGGLE ===
+    function toggleSidebar() {
+        const sidebar = document.getElementById('app-sidebar');
+        const toggle = sidebar.querySelector('.sidebar-toggle');
+        sidebar.classList.toggle('collapsed');
+        const isCollapsed = sidebar.classList.contains('collapsed');
+        toggle.textContent = isCollapsed ? '▶' : '◀';
+        try { localStorage.setItem('crm_sidebar_collapsed', isCollapsed); }
+        catch(e) {}
+    }
+    (function() {
+        const saved = localStorage.getItem('crm_sidebar_collapsed');
+        if (saved === 'true') {
+            const sidebar = document.getElementById('app-sidebar');
+            if (sidebar) {
+                sidebar.classList.add('collapsed');
+                const toggle = sidebar.querySelector('.sidebar-toggle');
+                if (toggle) toggle.textContent = '▶';
+            }
+        }
+    })();
+
+    // === BROWSER NOTIFICATIONS ===
+    function requestNotificationPermission() {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    }
+    function sendBrowserNotification(title, body, icon) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(title, { body: body, icon: icon || '/favicon.ico' });
+        }
+    }
+    // Запрашиваем разрешение при загрузке
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(requestNotificationPermission, 3000);
+    });
+
+    // Уведомления о новых сделках через WebSocket
+    if (window.crmOn) {
+        crmOn('kanban:loaded', (data) => {
+            const prev = parseInt(sessionStorage.getItem('kanban_card_count') || '0');
+            if (prev > 0 && data.count > prev) {
+                sendBrowserNotification('Новая сделка', 'Добавлена новая сделка на Kanban-доске');
+            }
+            sessionStorage.setItem('kanban_card_count', data.count);
+        });
+    }
+    </script>
+

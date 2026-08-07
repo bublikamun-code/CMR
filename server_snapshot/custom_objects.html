@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Кастомные объекты — CRM</title>
+    <link rel="stylesheet" href="css/style.css?v=30">
+    <style>
+        .custom-objects-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .custom-objects-page h1 { margin-bottom: 24px; }
+        .custom-object-item { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 8px; }
+        .custom-object-info { display: flex; flex-direction: column; gap: 4px; }
+        .custom-object-actions { display: flex; gap: 8px; }
+        .field-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 8px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 14px; background: var(--card-bg); color: var(--text-color); }
+        .section-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+        .section-card h2 { font-size: 18px; margin-bottom: 16px; }
+        .back-btn { margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header"><h2>CRM</h2></div>
+            <nav class="sidebar-nav">
+                <a href="/" class="nav-btn"><span class="nav-icon">◫</span><span class="nav-label">Канбан</span></a>
+                <a href="/#payments" class="nav-btn"><span class="nav-icon">≡</span><span class="nav-label">Оплаты</span></a>
+                <a href="/#clients" class="nav-btn"><span class="nav-icon">👥</span><span class="nav-label">Клиенты</span></a>
+                <a href="/custom_objects.html" class="nav-btn active"><span class="nav-icon">⚙</span><span class="nav-label">Объекты</span></a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <div class="custom-objects-page">
+
+                <!-- Список объектов -->
+                <div id="objects-list">
+                    <h1>Кастомные объекты</h1>
+                    <p style="color:var(--text-muted);margin-bottom:20px;">Создавайте собственные сущности: Товары, Заказы, Проекты и т.д.</p>
+
+                    <div class="section-card">
+                        <h2>Создать объект</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="new-object-label" placeholder="Название (например: Товар)" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <input type="text" id="new-object-name" placeholder="Имя (латиницей: product)" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <button class="btn btn-primary" onclick="customObjects.createObject()">Создать</button>
+                        </div>
+                    </div>
+
+                    <div id="custom-objects-list"></div>
+                </div>
+
+                <!-- Детали объекта -->
+                <div id="object-detail" class="hidden">
+                    <button class="btn btn-secondary back-btn" onclick="customObjects.backToList()">← Назад к списку</button>
+                    <h1 id="object-detail-title"></h1>
+
+                    <div class="section-card">
+                        <h2>Поля</h2>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                            <input type="text" id="new-field-label" placeholder="Название поля" style="flex:1;min-width:150px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <input type="text" id="new-field-name" placeholder="Имя (латиницей)" style="flex:1;min-width:150px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <select id="new-field-type" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                                <option value="text">Текст</option>
+                                <option value="number">Число</option>
+                                <option value="select">Выбор</option>
+                                <option value="date">Дата</option>
+                                <option value="currency">Валюта</option>
+                                <option value="boolean">Да/Нет</option>
+                            </select>
+                            <button class="btn btn-primary" onclick="customObjects.createField()">Добавить</button>
+                        </div>
+                        <div id="fields-list"></div>
+                    </div>
+
+                    <div class="section-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                            <h2 style="margin:0">Записи</h2>
+                            <button class="btn btn-primary btn-sm" onclick="customObjects.showNewRecordForm()">+ Новая запись</button>
+                        </div>
+                        <div id="new-record-form" class="hidden" style="padding:16px;background:var(--bg-color);border-radius:var(--radius-md);margin-bottom:12px;"></div>
+                        <div id="records-container"></div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="js/api.js?v=30"></script>
+    <script src="js/custom_objects.js?v=1784928639"></script>
+</body>
+</html>

@@ -1,0 +1,323 @@
+let _dashCards = [], _dashTransactions = [], _dashClients = [], _dashSuppliers = [];
+let _dashSelectedMonth = 'all';
+let _dashLoaded = false;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const dashBtn = document.querySelector('[data-target="page-dashboard"]');
+    if (dashBtn) dashBtn.addEventListener('click', loadDashboard);
+    if (document.getElementById('page-dashboard')?.classList.contains('active')) loadDashboard();
+
+    if (window.CRM_STORE) {
+        CRM_STORE.on('kanban:loaded', (data) => {
+            _dashCards = CRM_STORE.get('cards') || [];
+            if (_dashLoaded) renderDashboard();
+        });
+        CRM_STORE.on('payments:loaded', (data) => {
+            _dashTransactions = CRM_STORE.get('transactions') || [];
+            if (_dashLoaded) renderDashboard();
+        });
+        CRM_STORE.on('clients:loaded', (data) => {
+            _dashClients = CRM_STORE.get('clients') || [];
+            if (_dashLoaded) renderDashboard();
+        });
+        CRM_STORE.on('suppliers:loaded', (data) => {
+            _dashSuppliers = CRM_STORE.get('suppliers') || [];
+            if (_dashLoaded) renderDashboard();
+        });
+        CRM_STORE.on('realtime:tick', () => {
+            if (_dashLoaded) {
+                _dashCards = CRM_STORE.get('cards') || [];
+                _dashTransactions = CRM_STORE.get('transactions') || [];
+                _dashClients = CRM_STORE.get('clients') || [];
+                _dashSuppliers = CRM_STORE.get('suppliers') || [];
+                renderDashboard();
+            }
+        });
+    }
+});
+
+async function loadDashboard() {
+    if (!hasToken()) return;
+    const container = document.getElementById('dashboard-container');
+    if (!container) return;
+
+    try {
+        if (!_dashLoaded) {
+            container.innerHTML = `
+                <div class="dash-grid" style="opacity: 0.6;">
+                    <div class="dash-card">
+                        <div class="skeleton-line" style="width: 30%; height: 20px; margin-bottom: 20px;"></div>
+                        <div class="dash-summary-grid">
+                            <div class="dash-stat"><div class="skeleton-line" style="height: 48px;"></div></div>
+                            <div class="dash-stat"><div class="skeleton-line" style="height: 48px;"></div></div>
+                            <div class="dash-stat"><div class="skeleton-line" style="height: 48px;"></div></div>
+                            <div class="dash-stat"><div class="skeleton-line" style="height: 48px;"></div></div>
+                        </div>
+                    </div>
+                    <div class="dash-card">
+                        <div class="skeleton-line" style="width: 40%; height: 20px; margin-bottom: 20px;"></div>
+                        <div class="skeleton-line" style="height: 24px; margin-bottom: 12px;"></div>
+                        <div class="skeleton-line" style="height: 24px; margin-bottom: 12px;"></div>
+                        <div class="skeleton-line" style="height: 24px; margin-bottom: 12px;"></div>
+                        <div class="skeleton-line" style="height: 24px;"></div>
+                    </div>
+                    <div class="dash-card">
+                        <div class="skeleton-line" style="width: 50%; height: 20px; margin-bottom: 20px;"></div>
+                        <div class="skeleton-line" style="height: 32px; margin-bottom: 12px;"></div>
+                        <div class="skeleton-line" style="height: 32px; margin-bottom: 12px;"></div>
+                        <div class="skeleton-line" style="height: 32px;"></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (window.CRM_STORE && CRM_STORE.get('cards')?.length) {
+            _dashCards = CRM_STORE.get('cards');
+            _dashTransactions = CRM_STORE.get('transactions') || [];
+            _dashClients = CRM_STORE.get('clients') || [];
+            _dashSuppliers = CRM_STORE.get('suppliers') || [];
+        } else {
+            const [cardsRes, transactionsRes, clientsRes, suppliersRes] = await Promise.allSettled([
+                apiFetch('/kanban/cards'),
+                apiFetch('/payments/transactions'),
+                apiFetch('/clients'),
+                apiFetch('/suppliers')
+            ]);
+
+            _dashCards = cardsRes.status === 'fulfilled' ? cardsRes.value : [];
+            _dashTransactions = transactionsRes.status === 'fulfilled' ? transactionsRes.value : [];
+            _dashClients = clientsRes.status === 'fulfilled' ? clientsRes.value : [];
+            _dashSuppliers = suppliersRes.status === 'fulfilled' ? suppliersRes.value : [];
+
+            if (window.CRM_STORE) {
+                CRM_STORE.set('cards', _dashCards);
+                CRM_STORE.set('transactions', _dashTransactions);
+                CRM_STORE.set('clients', _dashClients);
+                CRM_STORE.set('suppliers', _dashSuppliers);
+            }
+        }
+
+        buildMonthFilter('dashboard-month', _dashCards, c => c.created_at, _dashSelectedMonth, (val) => {
+            _dashSelectedMonth = val;
+            renderDashboard();
+        });
+
+        _dashLoaded = true;
+        renderDashboard();
+    } catch (error) {
+        container.innerHTML = '<div class="dashboard-error">Ошибка загрузки: ' + escapeHtml(error.message) + '</div>';
+    }
+}
+
+function renderDashboard() {
+    const container = document.getElementById('dashboard-container');
+    if (!container) return;
+
+    let cards = _dashCards;
+    if (_dashSelectedMonth !== 'all') {
+        cards = cards.filter(c => monthKeyOf(c.created_at) === _dashSelectedMonth);
+    }
+
+    const funnelData = {};
+    const KANBAN_COLS = ["Новый запрос", "В работе", "Ждет оплаты", "Сборка"];
+    KANBAN_COLS.forEach(s => { funnelData[s] = 0; });
+    cards.forEach(c => {
+        if (funnelData[c.status] !== undefined) funnelData[c.status]++;
+    });
+    funnelData['Закрыто'] = cards.filter(c => c.status === 'Закрыто').length;
+
+    const totalAmount = cards.reduce((a, c) => a + (parseFloat(c.total_amount) || 0), 0);
+    const closedAmount = cards.filter(c => c.status === 'Закрыто').reduce((a, c) => a + (parseFloat(c.total_amount) || 0), 0);
+
+    const managerStats = {};
+    cards.forEach(c => {
+        const name = c.owner ? c.owner.username : 'Неизвестно';
+        if (!managerStats[name]) managerStats[name] = { count: 0, amount: 0, closed: 0 };
+        managerStats[name].count++;
+        managerStats[name].amount += parseFloat(c.total_amount) || 0;
+        if (c.status === 'Закрыто') managerStats[name].closed++;
+    });
+
+    const storeStats = {};
+    cards.forEach(c => {
+        const store = c.store_location || 'Не привязан';
+        if (!storeStats[store]) storeStats[store] = 0;
+        storeStats[store]++;
+    });
+
+    const maxFunnel = Math.max(...Object.values(funnelData), 1);
+    const funnelHtml = KANBAN_COLS.map(status => {
+        const count = funnelData[status];
+        const pct = Math.round((count / maxFunnel) * 100);
+        return '<div class="dash-funnel-row">' +
+            '<div class="dash-funnel-label">' + escapeHtml(status) + '</div>' +
+            '<div class="dash-funnel-bar-track"><div class="dash-funnel-bar" style="width:' + pct + '%"></div></div>' +
+            '<div class="dash-funnel-count">' + count + '</div>' +
+        '</div>';
+    }).join('') + '<div class="dash-funnel-row dash-funnel-closed">' +
+        '<div class="dash-funnel-label">Закрыто</div>' +
+        '<div class="dash-funnel-bar-track"><div class="dash-funnel-bar" style="width:' + (funnelData["Закрыто"] ? Math.round((funnelData["Закрыто"] / maxFunnel) * 100) : 0) + '%"></div></div>' +
+        '<div class="dash-funnel-count">' + funnelData["Закрыто"] + '</div>' +
+    '</div>';
+
+    const managerRows = Object.entries(managerStats)
+        .sort((a, b) => b[1].count - a[1].count)
+        .map(([name, s]) => '<tr>' +
+            '<td><b>' + escapeHtml(name) + '</b></td>' +
+            '<td>' + s.count + '</td>' +
+            '<td>' + s.closed + '</td>' +
+            '<td>' + formatMoney(s.amount) + ' BYN</td>' +
+        '</tr>').join('');
+
+    const storeRows = Object.entries(storeStats)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => '<tr><td>' + escapeHtml(name) + '</td><td>' + count + '</td></tr>').join('');
+
+    container.innerHTML = '<div class="dash-grid">' +
+        '<div class="dash-card dash-summary">' +
+            '<h3>Обзор</h3>' +
+            '<div class="dash-summary-grid">' +
+                '<div class="dash-stat">' +
+                    '<div class="dash-stat-icon">' +
+                        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>' +
+                    '</div>' +
+                    '<div class="dash-stat-info">' +
+                        '<div class="dash-stat-value">' + cards.length + '</div>' +
+                        '<div class="dash-stat-label">Всего сделок</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="dash-stat">' +
+                    '<div class="dash-stat-icon">' +
+                        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="18" y2="12"/></svg>' +
+                    '</div>' +
+                    '<div class="dash-stat-info">' +
+                        '<div class="dash-stat-value">' + formatMoney(totalAmount) + ' BYN</div>' +
+                        '<div class="dash-stat-label">Общая сумма</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="dash-stat">' +
+                    '<div class="dash-stat-icon">' +
+                        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+                    '</div>' +
+                    '<div class="dash-stat-info">' +
+                        '<div class="dash-stat-value">' + formatMoney(closedAmount) + ' BYN</div>' +
+                        '<div class="dash-stat-label">Закрытые сделки</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="dash-stat">' +
+                    '<div class="dash-stat-icon">' +
+                        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' +
+                    '</div>' +
+                    '<div class="dash-stat-info">' +
+                        '<div class="dash-stat-value">' + _dashClients.length + '</div>' +
+                        '<div class="dash-stat-label">Клиентов</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="dash-stat">' +
+                    '<div class="dash-stat-icon">' +
+                        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>' +
+                    '</div>' +
+                    '<div class="dash-stat-info">' +
+                        '<div class="dash-stat-value">' + _dashSuppliers.length + '</div>' +
+                        '<div class="dash-stat-label">Поставщиков</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="dash-stat">' +
+                    '<div class="dash-stat-icon">' +
+                        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>' +
+                    '</div>' +
+                    '<div class="dash-stat-info">' +
+                        '<div class="dash-stat-value">' + _dashTransactions.length + '</div>' +
+                        '<div class="dash-stat-label">Транзакций</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>' +
+        '<div class="dash-card"><h3>Воронка продаж</h3><div class="dash-funnel">' + funnelHtml + '</div>' +
+            '<div style="margin-top:12px;font-size:13px;color:var(--text-muted);">Конверсия: ' +
+            (cards.length > 0 ? Math.round((funnelData['Закрыто'] / cards.length) * 100) : 0) + '% закрытых</div></div>' +
+        '<div class="dash-card"><h3>Топ менеджеров</h3><table class="data-table dash-table"><thead><tr><th>Менеджер</th><th>Сделок</th><th>Закрыто</th><th>Сумма</th></tr></thead><tbody>' + managerRows + '</tbody></table></div>' +
+        '<div class="dash-card"><h3>По магазинам</h3><table class="data-table dash-table"><thead><tr><th>Магазин</th><th>Сделок</th></tr></thead><tbody>' + storeRows + '</tbody></table></div>' +
+        '<div class="dash-card"><h3>Топ клиентов</h3><div id="dash-top-clients"></div></div>' +
+        '<div class="dash-card" style="grid-column: 1 / -1;"><h3>Продажи по месяцам</h3><div style="height:250px;"><canvas id="dash-chart-monthly"></canvas></div></div>' +
+    '</div>';
+
+    // Топ клиентов
+    const clientStats = {};
+    cards.forEach(c => {
+        if (c.client) {
+            const name = c.client.name;
+            if (!clientStats[name]) clientStats[name] = { count: 0, amount: 0 };
+            clientStats[name].count++;
+            clientStats[name].amount += parseFloat(c.total_amount) || 0;
+        }
+    });
+    const topClients = Object.entries(clientStats)
+        .sort((a, b) => b[1].amount - a[1].amount)
+        .slice(0, 10);
+    const topClientsEl = document.getElementById('dash-top-clients');
+    if (topClientsEl && topClients.length > 0) {
+        topClientsEl.innerHTML = '<table class="data-table dash-table"><thead><tr><th>Клиент</th><th>Сделок</th><th>Сумма</th></tr></thead><tbody>' +
+            topClients.map(([name, s]) => `<tr><td><b>${escapeHtml(name)}</b></td><td>${s.count}</td><td>${formatMoney(s.amount)} BYN</td></tr>`).join('') +
+            '</tbody></table>';
+    } else if (topClientsEl) {
+        topClientsEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:12px;">Нет данных</p>';
+    }
+
+    // График продаж по месяцам
+    setTimeout(() => renderMonthlyChart(cards), 100);
+}
+
+function renderMonthlyChart(cards) {
+    const canvas = document.getElementById('dash-chart-monthly');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    const monthlyData = {};
+    const months = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+    months.forEach((m, i) => { monthlyData[i] = { count: 0, amount: 0 }; });
+
+    cards.forEach(c => {
+        if (c.created_at) {
+            const d = new Date(c.created_at);
+            const month = d.getMonth();
+            monthlyData[month].count++;
+            monthlyData[month].amount += parseFloat(c.total_amount) || 0;
+        }
+    });
+
+    const ctx = canvas.getContext('2d');
+    if (canvas._chart) canvas._chart.destroy();
+
+    canvas._chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: months,
+            datasets: [{
+                label: 'Сумма (BYN)',
+                data: months.map((_, i) => monthlyData[i].amount),
+                backgroundColor: 'rgba(79, 124, 245, 0.6)',
+                borderColor: 'rgba(79, 124, 245, 1)',
+                borderWidth: 1,
+                borderRadius: 4
+            }, {
+                label: 'Сделок',
+                data: months.map((_, i) => monthlyData[i].count),
+                type: 'line',
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                tension: 0.3,
+                fill: true,
+                yAxisID: 'y1'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: 'BYN' } },
+                y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Сделок' }, grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+}

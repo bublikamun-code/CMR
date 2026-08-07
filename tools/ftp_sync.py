@@ -23,10 +23,18 @@ PASS = os.environ.get("CRM_FTP_PASS", "")
 ROOT = os.environ.get("CRM_FTP_ROOT", "/")
 
 # Каталоги, которые не нужны в рабочей копии.
-SKIP_DIRS = {".venv", "__pycache__", "node_modules", ".git", "logs", "tmp"}
+# uploads — 220 МБ счетов и накладных клиентов: это бизнес-данные, им нужен
+# отдельный бэкап, в репозитории кода им не место.
+SKIP_DIRS = {".venv", "__pycache__", "node_modules", ".git", "logs", "tmp",
+             "uploads"}
 
 # Расширения/файлы, которые не тянем при pull (большие или бинарные).
 SKIP_PULL_SUFFIX = (".pyc", ".so", ".whl")
+
+# Ручные бэкапы, накопленные на сервере (35 копий style.css и т.п.).
+# Для точки отката важно текущее состояние, а не история чужих правок;
+# качать их — это десятки мегабайт и минуты ожидания впустую.
+SKIP_PULL_MARKERS = (".bak", ".backup_")
 
 
 def connect():
@@ -87,15 +95,24 @@ def cmd_ls(ftp, args):
     print(f"\nВсего файлов: подсчитано, суммарный размер {total/1048576:.1f} MB")
 
 
+def _should_skip(rel):
+    if rel.endswith(SKIP_PULL_SUFFIX):
+        return True
+    return any(marker in os.path.basename(rel) for marker in SKIP_PULL_MARKERS)
+
+
 def cmd_pull(ftp, args):
     dest = args[0] if args else "."
     files = sorted(walk(ftp, ROOT))
     ok = failed = skipped = 0
     for rel, size in files:
-        if rel.endswith(SKIP_PULL_SUFFIX):
+        if _should_skip(rel):
             skipped += 1
             continue
         local = os.path.join(dest, rel)
+        if os.path.isfile(local) and os.path.getsize(local) == size:
+            skipped += 1
+            continue
         os.makedirs(os.path.dirname(local) or ".", exist_ok=True)
         try:
             with open(local, "wb") as fh:
