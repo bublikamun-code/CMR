@@ -280,8 +280,8 @@ body {
    свёрнутый сайдбар расширяет кнопку под курсором. Добавляем адресно. */
 .sidebar.collapsed .nav-btn { transition: var(--transition-ui), padding var(--transition-fast); }
 .sidebar.collapsed .nav-btn:hover { padding: 12px 8px; }
-.sidebar.collapsed .sidebar-footer .admin-link-btn span { display: none; }
-.sidebar.collapsed .sidebar-footer .logout-btn span { display: none; }
+.sidebar.collapsed .sidebar-footer .admin-link-btn span:not(.nav-icon),
+.sidebar.collapsed .sidebar-footer .logout-btn span:not(.nav-icon) { display: none; }
 .sidebar.collapsed .sidebar-controls { justify-content: center; }
 
 /* Кнопка сворачивания */
@@ -4050,8 +4050,8 @@ textarea.auto-expand-title:focus {
     .sidebar .nav-label { display: none; }
     .sidebar .nav-btn { justify-content: center; padding: 12px 0; margin: 2px 4px; }
     .sidebar .sidebar-toggle { display: none; }
-    .sidebar .sidebar-footer .admin-link-btn span,
-    .sidebar .sidebar-footer .logout-btn span { display: none; }
+    .sidebar .sidebar-footer .admin-link-btn span:not(.nav-icon),
+    .sidebar .sidebar-footer .logout-btn span:not(.nav-icon) { display: none; }
     .sidebar .sidebar-controls { justify-content: center; }
 
     /* Основной контент */
@@ -5855,6 +5855,18 @@ textarea:focus-visible {
 .btn-primary, .btn-secondary, .dropdown-toggle,
 .logout-btn, .admin-link-btn, .nav-btn{
   border-radius: 8px !important;
+}
+.logout-btn, .admin-link-btn:not(.hidden){
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+.sidebar.collapsed .sidebar-footer .logout-btn,
+.sidebar.collapsed .sidebar-footer .admin-link-btn:not(.hidden){
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 .btn-primary{
   background-image: none !important;
