@@ -160,20 +160,13 @@ html {
     color: var(--text-color);
     border-color: var(--border-interactive);
 }
-[data-theme="dark"] input:focus, [data-theme="dark"] select:focus, [data-theme="dark"] textarea:focus {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.25);
-}
 [data-theme="dark"] .kanban-card {
     background-color: var(--table-row-hover);
     border-color: var(--border-interactive);
 }
 [data-theme="dark"] .kanban-column h3 { color: var(--text-color); }
 [data-theme="dark"] .kanban-column { background-color: var(--bg-color); }
-[data-theme="dark"] .kanban-column h3 { background: var(--table-row-hover); color: var(--text-color); }
 [data-theme="dark"] .dropdown-menu { background: var(--table-row-hover); border-color: var(--border-interactive); }
-[data-theme="dark"] .dropdown-item { color: var(--text-color); }
-[data-theme="dark"] .dropdown-item:hover { background: var(--border-color); }
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
 [data-theme="dark"] .data-table th { background: var(--table-header-bg); color: var(--text-color); }
 [data-theme="dark"] .data-table td { border-color: var(--border-color); }
@@ -206,7 +199,6 @@ html {
 .text-right { text-align: right; }
 .font-mono { font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hidden { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 
 * {
@@ -406,7 +398,7 @@ a.nav-btn { text-decoration: none; }
 .admin-link-btn {
     width: 100%;
     padding: 10px 18px;
-    background: linear-gradient(90deg, #8b5cf6, #7c3aed);
+    background: linear-gradient(90deg, #8b5cf6, var(--store-bogdanovicha));
     color: white;
     border: none;
     border-radius: var(--radius-sm);
@@ -418,7 +410,7 @@ a.nav-btn { text-decoration: none; }
     transition: var(--transition-ui);
 }
 .admin-link-btn:hover {
-    background: linear-gradient(90deg, #7c3aed, #6d28d9);
+    background: linear-gradient(90deg, var(--store-bogdanovicha), #6d28d9);
     transform: translateY(-1px);
 }
 .hidden { display: none !important; }
@@ -1286,7 +1278,7 @@ a.nav-btn { text-decoration: none; }
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 12.5px;
-    color: #0f766e;
+    color: var(--store-bn);
     text-decoration: none;
     font-weight: 600;
 }
@@ -1516,11 +1508,6 @@ a.nav-btn { text-decoration: none; }
     position: relative;
 }
 
-.kanban-card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
-}
-
 .kanban-card:active {
     cursor: grabbing;
 }
@@ -1638,7 +1625,7 @@ a.nav-btn { text-decoration: none; }
 }
 
 .progress-fill.paid { background: var(--success-color); }
-.progress-fill.came { background: #6366f1; }
+.progress-fill.came { background: var(--primary-500); }
 
 .kanban-card:hover .btn-delete-card {
     opacity: 1;
@@ -2356,7 +2343,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 .print-badge[data-print="БН"] {
     background: var(--store-bn-soft);
-    color: #0f766e;
+    color: var(--store-bn);
     border-color: #99f6e4;
 }
 .markers-cell {
@@ -2821,10 +2808,6 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     box-shadow: var(--shadow-sm);
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
-.dash-stat:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
 .dash-stat-icon {
     display: flex;
     align-items: center;
@@ -3102,7 +3085,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 
 /* Статусные акценты по цвету левой границы */
 .kanban-card[data-status="Новый запрос"] { border-left: 4px solid #64748b !important; }
-.kanban-card[data-status="В работе"] { border-left: 4px solid #4f46e5 !important; }
+.kanban-card[data-status="В работе"] { border-left: 4px solid var(--primary-600) !important; }
 .kanban-card[data-status="Ждет оплаты"] { border-left: 4px solid #f59e0b !important; }
 .kanban-card[data-status="Сборка"] { border-left: 4px solid #10b981 !important; }
 
@@ -3194,7 +3177,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 .progress-label.done.blue {
-    color: #6366f1 !important;
+    color: var(--primary-500) !important;
 }
 
 .progress-track {
@@ -3212,7 +3195,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 .progress-fill.paid { background-color: var(--success-color) !important; }
-.progress-fill.came { background-color: #6366f1 !important; }
+.progress-fill.came { background-color: var(--primary-500) !important; }
 
 /* Кнопка Показать старые в стиле Dashboard */
 .btn-show-old {
@@ -4518,8 +4501,6 @@ input, select, textarea {
 
 /* Progress bars */
 [data-theme="dark"] .progress-track { background: rgba(255,255,255,0.1); }
-[data-theme="dark"] .progress-fill.paid { background: var(--success-color); }
-[data-theme="dark"] .progress-fill.came { background: var(--accent-indigo); }
 
 /* List items (custom objects, workflows, webhooks) */
 [data-theme="dark"] .list-item { background: var(--table-row-odd); border-color: var(--border-color); }
@@ -4587,7 +4568,6 @@ input, select, textarea {
 
 /* Checklist */
 [data-theme="dark"] .checklist-item { border-color: var(--border-color); }
-[data-theme="dark"] .checklist-item label { color: var(--text-color); }
 
 /* Tags */
 [data-theme="dark"] .card-tag { background: rgba(255,255,255,0.1); }
@@ -5936,7 +5916,6 @@ input, select, textarea, button{ font-family: inherit !important; }
   padding: 10px 16px; background:#fff; border-radius: 8px;
   box-shadow: 0 4px 8px -2px rgba(15,23,42,.15);
 }
-.skip-link:focus{ left: 8px; }
 
 @media (prefers-reduced-motion: reduce){
   .card-hover-actions, .progress-fill{ transition: none !important; }
@@ -5948,7 +5927,7 @@ input, select, textarea, button{ font-family: inherit !important; }
    ============================================================ */
 
 /* --- 21. Единая шкала indigo вместо двух разных синих -------------- */
-/* было: --primary-color #4a57a4 и --primary-hover #4338ca из разных шкал */
+/* было: --primary-color #4a57a4 и --primary-hover var(--primary-700) из разных шкал */
 :root{
   --primary-50:  #eef2ff;
   --primary-100: #e0e7ff;
@@ -6060,12 +6039,11 @@ input::placeholder, textarea::placeholder{ color:#94a3b8; }
   color: var(--text-muted) !important;
   margin-left: 4px;
 }
-.dash-stat-label{ font-size: 12px !important; color: var(--text-muted) !important; }
 
 /* --- 30. Шапка таблицы: тёмная -> светлая, как у Stripe ----------- */
 .data-table thead th{
   background: #f1f5f9 !important;
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
   padding: 12px !important;
   border-bottom: 1px solid #e2e8f0 !important;
 }
@@ -6086,7 +6064,7 @@ input::placeholder, textarea::placeholder{ color:#94a3b8; }
 .kanban-column [class*="count"]{
   font-size: 12px !important;
   font-weight: 600 !important;
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
   background: #f1f5f9 !important;
   padding: 2px 8px !important;
   border-radius: 999px !important;
@@ -7083,7 +7061,7 @@ td.td-center > .btn-edit-row .ui-icon{
    (#34d399 / #818cf8), но НЕ цвет подписи — там остались токены
    светлой темы, рассчитанные на белый фон:
      .progress-label.done      success #059669 на #22262e -> 4.02:1
-     .progress-label.done.blue primary #4f46e5 на #22262e -> 2.41:1
+     .progress-label.done.blue primary var(--primary-600) на #22262e -> 2.41:1
    Кегль 11px, порог AA = 4.5. Берём светлые тона тех же шкал,
    чтобы подпись совпадала по цвету со своей заливкой. */
 [data-theme="dark"] .progress-label.done{
@@ -7097,15 +7075,15 @@ td.td-center > .btn-edit-row .ui-icon{
 }
 
 /* --- 85. Активный переключатель вида: 4.47:1 -------------------- */
-/* Белый на #6366f1 = 4.47 — не хватало 0.03 до порога.
-   Затемняем подложку до --primary-600 (#4338ca): белый = 7.90:1.
+/* Белый на var(--primary-500) = 4.47 — не хватало 0.03 до порога.
+   Затемняем подложку до --primary-600 (var(--primary-700)): белый = 7.90:1.
    В светлой теме тот же тон — переключатель выглядит одинаково. */
 [data-theme="dark"] .view-toggle-btn.active{
-  background: #4338ca !important;
+  background: var(--primary-700) !important;
   color: #ffffff !important;
 }
 .view-toggle-btn.active{
-  background: var(--primary-600) !important;  /* белый на #4f46e5 = 6.29:1 */
+  background: var(--primary-600) !important;  /* белый на var(--primary-600) = 6.29:1 */
   color: #ffffff !important;
 }
 
@@ -7316,8 +7294,8 @@ td.td-center > .btn-edit-row .ui-icon{
   color: #c7d2fe !important;              /* 8.16:1 */
 }
 [data-theme="dark"] .btn-add-contact:hover{
-  background: #4338ca !important;
-  border-color: #4338ca !important;
+  background: var(--primary-700) !important;
+  border-color: var(--primary-700) !important;
   color: #fff;                 /* 7.90:1 */
 }
 [data-theme="dark"] .contact-del:hover{
