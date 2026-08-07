@@ -70,8 +70,28 @@ html {
     --font-base: 14px;
     --font-md: 16px;
     --font-lg: 20px;
+    /* Длительность + easing. Используются там, где свойство указано явно:
+       transition: border-color var(--transition-fast); */
     --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* Готовые переходы для интерактивных элементов. Список свойств задан
+       явно вместо `all`: `all` заставляет браузер отслеживать каждое
+       свойство, включая layout-свойства (width, padding, top), из-за чего
+       случайное изменение размера начинает анимироваться и появляется
+       «резиновый» интерфейс. Здесь только свойства, которые анимируются
+       на GPU или не вызывают пересчёт геометрии. */
+    --transition-ui: background-color var(--transition-fast),
+                     border-color var(--transition-fast),
+                     color var(--transition-fast),
+                     box-shadow var(--transition-fast),
+                     opacity var(--transition-fast),
+                     transform var(--transition-fast);
+    --transition-ui-slow: background-color var(--transition-normal),
+                          border-color var(--transition-normal),
+                          color var(--transition-normal),
+                          box-shadow var(--transition-normal),
+                          opacity var(--transition-normal),
+                          transform var(--transition-normal);
     /* Цвета таблицы */
     --table-header-bg: #0f172a;
     --table-header-text: #ffffff;
@@ -272,6 +292,9 @@ body {
 .sidebar.collapsed .sidebar-header h2 { display: none; }
 .sidebar.collapsed .nav-label { display: none; }
 .sidebar.collapsed .nav-btn { justify-content: center; padding: 12px 0; margin: 2px 4px; }
+/* padding нет в --transition-ui (layout-свойство), но здесь анимация нужна:
+   свёрнутый сайдбар расширяет кнопку под курсором. Добавляем адресно. */
+.sidebar.collapsed .nav-btn { transition: var(--transition-ui), padding var(--transition-fast); }
 .sidebar.collapsed .nav-btn:hover { padding: 12px 8px; }
 .sidebar.collapsed .sidebar-footer .admin-link-btn span { display: none; }
 .sidebar.collapsed .sidebar-footer .logout-btn span { display: none; }
@@ -295,7 +318,7 @@ body {
     font-size: 12px;
     color: var(--text-muted);
     z-index: 60;
-    transition: all 0.2s;
+    transition: var(--transition-ui);
     box-shadow: var(--shadow-sm);
 }
 .sidebar-toggle:hover {
@@ -338,7 +361,7 @@ body {
     text-align: left;
     font-size: 14px;
     cursor: pointer;
-    transition: var(--transition-normal);
+    transition: var(--transition-ui-slow);
     position: relative;
     white-space: nowrap;
     overflow: hidden;
@@ -400,7 +423,7 @@ a.nav-btn { text-decoration: none; }
     text-align: center;
     text-decoration: none;
     font-size: 14px;
-    transition: all 0.2s;
+    transition: var(--transition-ui);
 }
 .admin-link-btn:hover {
     background: linear-gradient(90deg, #7c3aed, #6d28d9);
@@ -417,7 +440,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-weight: 500;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .logout-btn:hover {
@@ -489,7 +512,7 @@ a.nav-btn { text-decoration: none; }
     font-size: 14px;
     font-weight: 600;
     box-shadow: 0 2px 8px rgba(79,124,245,0.25);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-primary:hover {
@@ -525,7 +548,7 @@ a.nav-btn { text-decoration: none; }
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: left 12px center;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .search-input:focus {
@@ -544,7 +567,7 @@ a.nav-btn { text-decoration: none; }
     font-size: 14px;
     font-weight: 500;
     white-space: nowrap;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-secondary:hover {
@@ -564,7 +587,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     font-size: 11px;
     color: var(--text-muted);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-show-old:hover {
@@ -644,7 +667,7 @@ a.nav-btn { text-decoration: none; }
 .data-table th.sortable {
     cursor: pointer;
     user-select: none;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .data-table th.sortable:hover {
     color: var(--primary-color);
@@ -687,7 +710,7 @@ a.nav-btn { text-decoration: none; }
     background: #fff;
     cursor: pointer;
     position: relative;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 [data-theme="dark"] .data-table input[type="checkbox"] {
@@ -730,7 +753,7 @@ a.nav-btn { text-decoration: none; }
     font-weight: 600;
     color: var(--text-color);
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
@@ -773,7 +796,7 @@ a.nav-btn { text-decoration: none; }
     background-repeat: no-repeat;
     background-position: right 10px center;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .data-table select:hover {
@@ -849,7 +872,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     background: var(--bg-color);
     color: var(--text-color);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     border: none;
     line-height: 1;
 }
@@ -926,7 +949,7 @@ a.nav-btn { text-decoration: none; }
     font-family: inherit;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     height: 42px;
     box-sizing: border-box;
 }
@@ -996,7 +1019,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-md);
     cursor: pointer;
     background: #f8fafc;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: var(--text-muted);
     font-size: 13px;
     display: flex;
@@ -1030,7 +1053,7 @@ a.nav-btn { text-decoration: none; }
     background: #f1f5f9;
     border: 1px solid var(--border-color);
     border-radius: 999px; /* Chip style */
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     max-width: 100%;
 }
 
@@ -1072,7 +1095,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     width: 18px;
     height: 18px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-delete-attachment:hover {
@@ -1110,7 +1133,7 @@ a.nav-btn { text-decoration: none; }
     background-repeat: no-repeat;
     background-position: right 14px center;
     background-size: 14px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: var(--text-color);
     box-shadow: var(--shadow-sm);
 }
@@ -1138,7 +1161,7 @@ a.nav-btn { text-decoration: none; }
     cursor: pointer;
     font-weight: 600;
     font-size: 14px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: white;
 }
 
@@ -1206,7 +1229,7 @@ a.nav-btn { text-decoration: none; }
     font-size: 14px;
     padding: 2px 6px;
     border-radius: 50%;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     opacity: 0;
 }
 
@@ -1244,7 +1267,7 @@ a.nav-btn { text-decoration: none; }
     border: 1px dashed #c3d2f7;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .checklist-invoice-add:hover {
@@ -1290,7 +1313,7 @@ a.nav-btn { text-decoration: none; }
     line-height: 1;
     padding: 2px 6px;
     border-radius: 50%;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .checklist-invoice-del:hover {
@@ -1313,7 +1336,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     font-size: 14px;
     line-height: 1;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     padding: 0;
 }
 
@@ -1334,7 +1357,7 @@ a.nav-btn { text-decoration: none; }
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     padding: 0;
 }
 
@@ -1365,7 +1388,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     font-size: 14px;
     line-height: 1;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     padding: 0;
     opacity: 0;
 }
@@ -1387,7 +1410,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     font-size: 14px;
     margin-bottom: 12px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .modal-content input:focus {
@@ -1688,7 +1711,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-weight: 600;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-writeoff:hover {
@@ -1730,7 +1753,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     font-size: 14px;
     box-sizing: border-box;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .login-screen input:focus {
@@ -1809,7 +1832,7 @@ a.nav-btn { text-decoration: none; }
 
 /* Общие правила для всех кнопок и инпутов */
 button, select, input {
-    transition: all var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 button:focus:not(:focus-visible), select:focus:not(:focus-visible), input:focus:not(:focus-visible) {
@@ -2137,7 +2160,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border: 1px solid var(--border-color);
     background: #fff;
     color: var(--text-color);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .confirm-cancel:hover {
@@ -2182,7 +2205,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-size: 14px;
     font-weight: 400;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     text-align: left;
     font-family: inherit;
     height: 42px;
@@ -2262,7 +2285,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     color: var(--text-color);
     text-align: left;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2435,7 +2458,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-family: inherit;
     resize: vertical;
     min-height: 38px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     box-sizing: border-box;
 }
 
@@ -2459,7 +2482,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-size: 13px;
     font-weight: 700;
     text-decoration: none;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .checklist-invoice-dl:hover {
@@ -2551,7 +2574,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .tag-add-btn:hover {
     border-color: var(--primary-color);
@@ -2624,7 +2647,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-weight: 500;
     cursor: pointer;
     border-left: 3px solid transparent;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: var(--text-color);
 }
 .tag-filter-btn:hover { background: var(--bg-color); }
@@ -2999,7 +3022,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-radius: 6px;
     border: 2px solid transparent;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: var(--transition-ui);
     padding: 0;
 }
 .tag-color-sq:hover { transform: scale(1.15); }
@@ -3050,7 +3073,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 input[type="text"], input[type="number"], select, textarea {
     border-radius: var(--radius-md) !important;
     border: 1px solid var(--border-color) !important;
-    transition: all var(--transition-fast) !important;
+    transition: var(--transition-ui) !important;
 }
 
 input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
@@ -3222,7 +3245,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     align-items: center !important;
     justify-content: center !important;
     gap: 6px !important;
-    transition: all var(--transition-fast) !important;
+    transition: var(--transition-ui) !important;
 }
 
 .btn-show-old:hover {
@@ -3412,7 +3435,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     border-radius: var(--radius-md);
     font-size: 14px;
     outline: none;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .form-group input:focus, .form-group select:focus {
@@ -3535,7 +3558,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     border-radius: var(--radius-md);
     padding: 12px 16px;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .imported-item:hover {
@@ -3665,7 +3688,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     border: none;
     border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: var(--transition-ui);
     box-shadow: var(--shadow-sm);
 }
 
@@ -3691,7 +3714,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     background: rgba(255,255,255,0.08);
     color: #aeb8c7;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     font-size: 18px;
 }
 .theme-toggle:hover, .compact-toggle:hover {
@@ -3852,7 +3875,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     color: var(--text-muted);
     cursor: pointer;
     font-size: 14px;
-    transition: all 0.2s ease;
+    transition: var(--transition-ui);
     line-height: 1;
     box-shadow: 0 1px 3px rgba(0,0,0,0.12);
 }
@@ -3905,7 +3928,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     border-radius: 8px;
     background: transparent;
     color: var(--text-muted);
-    transition: all 0.15s;
+    transition: var(--transition-ui);
 }
 .modal-split-header .close-btn:hover {
     background: var(--danger-color);
@@ -4090,7 +4113,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     text-align: center;
     color: var(--text-muted);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: var(--transition-ui);
 }
 .dropzone:hover, .dropzone.dragover {
     border-color: var(--primary-color);
@@ -4297,7 +4320,7 @@ textarea.auto-expand-title:focus {
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     margin-bottom: -1px;
 }
 
@@ -4399,7 +4422,7 @@ textarea.auto-expand-title:focus {
     bottom: 0;
     background: var(--border-color);
     border-radius: 24px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .toggle-slider::before {
@@ -4411,7 +4434,7 @@ textarea.auto-expand-title:focus {
     bottom: 3px;
     background: white;
     border-radius: 50%;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .toggle-switch input:checked + .toggle-slider {
@@ -4569,7 +4592,7 @@ textarea.auto-expand-title:focus {
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .settings-gear:hover {
@@ -4594,7 +4617,7 @@ textarea.auto-expand-title:focus {
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     margin-bottom: -1px;
 }
 
@@ -4863,7 +4886,7 @@ input, select, textarea {
     color: var(--text-muted);
     font-size: 12px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: var(--transition-ui);
 }
 .filter-reset:hover {
     background: var(--danger-color);
@@ -5751,7 +5774,7 @@ textarea:focus-visible {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
     background: var(--card-bg);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .inv-in:focus {
     outline: none;
@@ -6007,7 +6030,7 @@ textarea:focus-visible {
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .checklist-link-supplier:hover {
     background: #fef3c7;
@@ -6047,7 +6070,7 @@ textarea:focus-visible {
 .supplier-name-link {
     cursor: pointer;
     border-bottom: 1px dashed var(--border-color);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .supplier-name-link:hover {
     color: var(--primary-color);
