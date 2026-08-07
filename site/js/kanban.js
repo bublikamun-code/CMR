@@ -86,14 +86,11 @@ async function loadKanbanBoard() {
 
             let colCards = cards.filter(c => c.status === colName);
 
-            // Сортировка: новые сверху, просроченные внизу
-            const now = new Date();
-            colCards.sort((a, b) => {
-                const aOverdue = a.due_date && new Date(a.due_date + 'T00:00:00') < now && a.status !== 'Закрыто';
-                const bOverdue = b.due_date && new Date(b.due_date + 'T00:00:00') < now && b.status !== 'Закрыто';
-                if (aOverdue !== bOverdue) return aOverdue ? 1 : -1;
-                return new Date(b.created_at) - new Date(a.created_at);
-            });
+            // Порядок карточек задаёт сервер (поле position). Просроченные
+            // всё ещё подсвечиваются классом card-overdue, но не сдвигаются
+            // вглубь колонки — иначе пользователь не видит результат
+            // перетаскивания: после перерисовки карточка возвращалась в
+            // сортированную позицию, а не на место броска.
 
             const visibleCards = colCards.filter(c => {
                 const diffDays = Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24));
@@ -339,11 +336,40 @@ async function handleDrop(e) {
     const oldColumn = cardEl.closest('.kanban-column');
     const oldStatus = oldColumn ? oldColumn.getAttribute('data-status') : null;
 
-    targetContainer.appendChild(cardEl);
+    // Визначаємо позицію вставки: шукаємо картку, над якою відпустили
+    const cards = Array.from(targetContainer.querySelectorAll('.kanban-card'));
+    const afterElement = cards.reduce((closest, child) => {
+        if (child === cardEl) return closest;
+        const box = child.getBoundingClientRect();
+        const offset = e.clientY - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+
+    if (afterElement == null) {
+        targetContainer.appendChild(cardEl);
+    } else {
+        targetContainer.insertBefore(cardEl, afterElement);
+    }
     cardEl.classList.toggle('card-assembly', newStatus === 'Сборка');
 
     try {
-        await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: newStatus }) });
+        // Зміна статусу, якщо потрібно
+        if (oldStatus !== newStatus) {
+            await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: newStatus }) });
+        }
+
+        // Сохранение позиции внутри колонки
+        const allCardsInColumn = Array.from(targetContainer.querySelectorAll('.kanban-card'));
+        const cardIds = allCardsInColumn.map(c => parseInt(c.dataset.id));
+        await apiFetch('/kanban/cards/reorder', {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: newStatus, card_ids: cardIds })
+        });
 
         // Уход из «Сборки» ВПЕРЁД (на списание / закрытие) — это нормальный ход
         // сделки, реестр трогать нельзя. Раньше запись удалялась при любом

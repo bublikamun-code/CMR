@@ -74,6 +74,7 @@ class Card(Base):
     is_deleted = Column(Boolean, default=False, index=True)
     due_date = Column(Date, nullable=True)
     priority = Column(Integer, default=0)
+    position = Column(Integer, default=0, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
 
     owner = relationship("User", back_populates="cards")

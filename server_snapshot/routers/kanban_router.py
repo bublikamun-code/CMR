@@ -34,7 +34,7 @@ def get_cards(db: Session = Depends(get_db), current_user: models.User = Depends
             selectinload(models.Card.owner),
             selectinload(models.Card.client),
             selectinload(models.Card.tags),
-        ).order_by(models.Card.id.desc()).all()
+        ).order_by(models.Card.position, models.Card.id.desc()).all()
     finally:
         if tdb is not db:
             tdb.close()
@@ -77,7 +77,7 @@ def get_trash(db: Session = Depends(get_db), current_user: models.User = Depends
                 selectinload(models.Card.owner),
                 selectinload(models.Card.client),
                 selectinload(models.Card.tags),
-            ).order_by(models.Card.id.desc()).all()
+            ).order_by(models.Card.position, models.Card.id.desc()).all()
         else:
             cards = tdb.query(models.Card).filter(models.Card.is_deleted == True).options(
                 selectinload(models.Card.attachments),
@@ -85,7 +85,7 @@ def get_trash(db: Session = Depends(get_db), current_user: models.User = Depends
                 selectinload(models.Card.owner),
                 selectinload(models.Card.client),
                 selectinload(models.Card.tags),
-            ).order_by(models.Card.id.desc()).all()
+            ).order_by(models.Card.position, models.Card.id.desc()).all()
         return cards
     finally:
         if tdb is not db:
@@ -112,6 +112,26 @@ def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current
         tdb.add(log)
         tdb.commit()
         return new_card
+    finally:
+        if tdb is not db:
+            tdb.close()
+
+@router.patch("/cards/reorder")
+def reorder_cards(payload: schemas.CardReorder, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    tdb = _db(current_user, db)
+    try:
+        cards = tdb.query(models.Card).filter(
+            models.Card.id.in_(payload.card_ids),
+            models.Card.status == payload.status,
+            models.Card.is_deleted == False
+        ).all()
+        found = {c.id: c for c in cards}
+        for index, card_id in enumerate(payload.card_ids):
+            card = found.get(card_id)
+            if card is not None:
+                card.position = index
+        tdb.commit()
+        return {"updated": len(found)}
     finally:
         if tdb is not db:
             tdb.close()

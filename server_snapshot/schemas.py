@@ -201,6 +201,29 @@ class CardCreate(CardBase):
     client_id: Optional[int] = None
     tag_ids: Optional[List[int]] = []
 
+class CardReorder(BaseModel):
+    status: str
+    card_ids: List[int]
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        VALID = {"Новый запрос", "В работе", "Ждет оплаты", "Сборка", "На списание", "Закрыто"}
+        if v not in VALID:
+            raise ValueError(f"Недопустимый статус: {v}")
+        return v
+
+    @field_validator("card_ids")
+    @classmethod
+    def validate_card_ids(cls, v):
+        if not v:
+            raise ValueError("Список карточек пуст")
+        if len(v) > 500:
+            raise ValueError("Слишком много карточек")
+        if len(set(v)) != len(v):
+            raise ValueError("Есть дубли")
+        return v
+
 class CardStatusUpdate(BaseModel):
     status: str
 
