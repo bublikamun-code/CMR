@@ -47,8 +47,19 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error: {exc}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "Внутренняя ошибка сервера"})
 
-# CORS: allow both HTTP and HTTPS origins
-ALLOWED_ORIGINS = os.environ.get("CRM_CORS_ORIGINS", "https://crm.svetvdome.by,http://crm.svetvdome.by,http://87.232.65.217").split(",")
+# CORS: the app is served same-origin, so this list only needs the hosts the
+# UI is actually reached by. Override with CRM_CORS_ORIGINS when the domain
+# changes; do not add wildcards, allow_credentials=True forbids them.
+_DEFAULT_ORIGINS = ",".join([
+    "http://87-232-64-12.nip.io",
+    "https://87-232-64-12.nip.io",
+    "http://87.232.64.12",
+])
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CRM_CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,6 +82,10 @@ app.include_router(tags_router.router)
 app.include_router(suppliers_router.router)
 app.include_router(activity_router.router)
 app.include_router(email_parser_router.router)
+# Cron-only routes (/email-parser/sync-all). This router was defined but never
+# registered, so scheduled email sync silently did nothing. It is guarded by
+# require_cron_token, not by a user JWT.
+app.include_router(email_parser_router.cron_router)
 app.include_router(custom_objects_router.router)
 app.include_router(workflows_router.router)
 app.include_router(webhooks_router.router)
@@ -106,14 +121,21 @@ def healthcheck():
 @app.middleware("http")
 async def add_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith("/css/") or request.url.path.startswith("/js/"):
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-    elif request.url.path.startswith("/api/"):
+    path = request.url.path
+
+    if path.startswith("/css/") or path.startswith("/js/"):
+        # Static assets are referenced with ?v=<sha1 of content> (see
+        # tools/stamp_assets.py), so a given URL can never change meaning.
+        # Caching them for a year removes ~250 KB CSS + 20 JS requests from
+        # every page load. Any edit changes the hash and busts the cache.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store, private"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+    else:
+        # HTML must never be cached: it carries the asset hashes above, so a
+        # stale copy would keep pointing browsers at superseded JS and CSS.
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     return response

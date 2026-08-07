@@ -4,7 +4,7 @@ import logging
 import jwt
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import models
@@ -13,21 +13,33 @@ from database import get_db
 logger = logging.getLogger(__name__)
 
 _KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".secret_key")
+_CRON_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cron_token")
 
-def _load_or_create_secret() -> str:
-    key = os.environ.get("CRM_SECRET_KEY")
+def _load_or_create_key(path: str, env_var: str) -> str:
+    key = os.environ.get(env_var)
     if key:
         return key
-    if os.path.exists(_KEY_FILE):
-        with open(_KEY_FILE, "r") as f:
-            return f.read().strip()
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            existing = f.read().strip()
+        if existing:
+            return existing
     key = secrets.token_hex(32)
-    with open(_KEY_FILE, "w") as f:
+    with open(path, "w") as f:
         f.write(key)
-    os.chmod(_KEY_FILE, 0o600)
+    os.chmod(path, 0o600)
     return key
 
+def _load_or_create_secret() -> str:
+    return _load_or_create_key(_KEY_FILE, "CRM_SECRET_KEY")
+
 SECRET_KEY = _load_or_create_secret()
+
+# Separate credential for unattended cron jobs. These call endpoints that have
+# no user context, so they cannot present a JWT. Note this host is shared:
+# other tenants can reach 127.0.0.1:<port>, so a loopback-only check would not
+# actually restrict anything. The token is the control that matters.
+CRON_TOKEN = _load_or_create_key(_CRON_TOKEN_FILE, "CRM_CRON_TOKEN")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
@@ -91,3 +103,14 @@ def require_admin():
             raise HTTPException(status_code=403, detail="Только администратор")
         return current_user
     return checker
+
+def require_cron_token(x_cron_token: str = Header(default="", alias="X-Cron-Token")):
+    """Guard for endpoints invoked by scheduled jobs instead of by a user.
+
+    Compared with compare_digest so a wrong token cannot be recovered by
+    timing the response.
+    """
+    if not x_cron_token or not secrets.compare_digest(x_cron_token, CRON_TOKEN):
+        logger.warning("Rejected cron request with missing or invalid token")
+        raise HTTPException(status_code=403, detail="Недействительный токен")
+    return True

@@ -21,7 +21,7 @@ except ImportError:
     _fernet_available = False
 
 
-from auth import get_current_user, require_role
+from auth import get_current_user, require_role, require_cron_token
 from email_cleaner import clean_email_body, html_to_text, normalize_subject
 
 logger = logging.getLogger(__name__)
@@ -57,9 +57,13 @@ router = APIRouter(
     dependencies=[Depends(require_role("manager", "warehouse", "superadmin", "admin"))]
 )
 
+# Endpoints for scheduled jobs. They run without a logged-in user, so they are
+# gated by a shared cron token rather than a JWT. Previously this router had no
+# dependencies at all, leaving /email-parser/sync-all fully unauthenticated.
 cron_router = APIRouter(
     prefix="/email-parser",
-    tags=["Email Интеграция"]
+    tags=["Email Интеграция"],
+    dependencies=[Depends(require_cron_token)]
 )
 
 def _get_settings_path(tenant_id: int = None) -> str:
