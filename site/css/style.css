@@ -1670,45 +1670,10 @@ a.nav-btn { text-decoration: none; }
     margin-bottom: var(--space-sm) !important;
 }
 
-.writeoff-fields {
-    border-top: 1px solid var(--border-color);
-    padding-top: var(--space-sm) !important;
-    display: flex !important;
-    gap: var(--space-xs) !important;
-}
-
-.writeoff-fields input {
-    flex: 1 !important;
-    min-width: 0 !important;
-    padding: 6px var(--space-sm) !important;
-    font-size: var(--font-sm) !important;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    margin-bottom: 0 !important;
-    box-sizing: border-box;
-    height: 32px !important;      /* было 20px — невозможно попасть пальцем */
-    transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-
-/* Подтверждение сохранения номера накладной — раньше сохранялось молча */
-.writeoff-fields input.saving {
-    border-color: var(--warning-color);
-    background: #fffbeb;
-}
-.writeoff-fields input.saved {
-    border-color: var(--success-color);
-    background: #f0fdf4;
-}
-.writeoff-fields input.save-error {
-    border-color: var(--danger-color);
-    background: #fef2f2;
-}
-
-.writeoff-fields input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.15);
-}
+/* Блок .writeoff-fields удалён: поля ввода с доски списаний убраны
+   (правятся только внутри карточки сделки), разметка их больше не
+   создаёт. Вместе с ним снята парная функция saveFieldWithFeedback
+   в js/writeoffs.js. */
 
 .btn-writeoff {
     position: absolute;
@@ -5386,10 +5351,6 @@ input, select, textarea {
 [data-theme="dark"] .writeoff-store-block[data-store="Матусевича"] { border-left: 4px solid #38bdf8 !important; }
 [data-theme="dark"] .writeoff-store-block[data-store="Богдановича"] { border-left: 4px solid #a78bfa !important; }
 
-/* Поля ввода списания */
-[data-theme="dark"] .writeoff-fields input { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
-[data-theme="dark"] .writeoff-fields input:focus { border-color: var(--accent-indigo) !important; }
-
 /* Кнопки списания */
 [data-theme="dark"] .btn-writeoff { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 [data-theme="dark"] .btn-writeoff:hover { background-color: var(--border-interactive) !important; }
@@ -5526,7 +5487,6 @@ input[type="file"] {
         min-width: 44px;
         min-height: 44px;
     }
-    .writeoff-fields input { height: 40px !important; font-size: var(--font-base) !important; }
     .btn-writeoff { padding: 10px var(--space-sm); }
 }
 
@@ -5534,7 +5494,6 @@ input[type="file"] {
 .btn-primary:focus-visible,
 .btn-secondary:focus-visible,
 .nav-btn:focus-visible,
-.writeoff-fields input:focus-visible,
 .data-table input:focus-visible,
 .search-input:focus-visible,
 button:focus-visible,
@@ -5546,8 +5505,11 @@ textarea:focus-visible {
 }
 
 /* --- 4. Числа в таблицах: колонки сумм не выравнивались по разряду --- */
-.data-table td.amount-cell,
-.data-table td.num-cell,
+/* Было .data-table td.amount-cell / td.num-cell — таких классов разметка
+   никогда не создавала, правило не применялось. Вешаем на таблицу целиком:
+   tabular-nums действует только на цифры, поэтому текстовые колонки не
+   меняются, а даты, суммы и счётчики выстраиваются по разряду. */
+.data-table,
 .card-amount {
     font-variant-numeric: tabular-nums;
 }

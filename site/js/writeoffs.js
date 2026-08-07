@@ -162,24 +162,10 @@ async function loadWriteoffsBoard() {
     }
 }
 
-async function saveFieldWithFeedback(input, transactionId, data) {
-    input.classList.remove('saved', 'save-error');
-    input.classList.add('saving');
-    try {
-        await apiFetch(`/payments/transactions/${transactionId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        input.classList.remove('saving');
-        input.classList.add('saved');
-        setTimeout(() => input.classList.remove('saved'), 1800);
-    } catch (error) {
-        input.classList.remove('saving');
-        input.classList.add('save-error');
-        showToast('Не сохранено: ' + error.message, 'error');
-    }
-}
+// saveFieldWithFeedback() удалена: на доске списаний нет редактируемых
+// полей (см. комментарий выше — номер и сумма накладной правятся только
+// внутри карточки сделки), поэтому функция не вызывалась ни разу.
+// Вместе с ней снят мёртвый CSS .writeoff-fields в style.css.
 
 function updateWriteoffCounters() {
     document.querySelectorAll('.writeoff-column').forEach(col => {
