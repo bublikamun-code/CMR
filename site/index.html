@@ -115,9 +115,6 @@
                     <span class="filter-label">Фильтры:</span>
                     <select id="filter-store" aria-label="Магазин" onchange="applyKanbanFilters()">
                         <option value="">Все магазины</option>
-                        <option value="Матусевича">Матусевича</option>
-                        <option value="Богдановича">Богдановича</option>
-                        <option value="БН">Безнал (БН)</option>
                     </select>
                     <input type="number" id="filter-amount-min" aria-label="Сумма от" placeholder="Сумма от" style="width:100px;" onchange="applyKanbanFilters()">
                     <input type="number" id="filter-amount-max" aria-label="Сумма до" placeholder="Сумма до" style="width:100px;" onchange="applyKanbanFilters()">
@@ -586,12 +583,13 @@
         </div>
     </div>
 
+    <script defer src="js/constants.js?v=9a719d2d21"></script>
     <script defer src="js/crm_store.js?v=dd6baeb897"></script>
     <script defer src="js/api.js?v=2158463c21"></script>
     <script defer src="js/features.js?v=53fc466615"></script>
     <script defer src="js/auth.js?v=27700e2c8d"></script>
-    <script defer src="js/kanban.js?v=100bf2a4eb"></script>
-    <script defer src="js/card_modal.js?v=511bb4c68e"></script>
+    <script defer src="js/kanban.js?v=b9e53fba4b"></script>
+    <script defer src="js/card_modal.js?v=cf9037a748"></script>
     <script defer src="js/payments.js?v=a550e947b5"></script>
     <script defer src="js/writeoffs.js?v=00efc2fb43"></script>
     <script defer src="js/documents.js?v=f8e58e4372"></script>

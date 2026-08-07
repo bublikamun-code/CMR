@@ -387,9 +387,7 @@ function setupCreateCardButton() {
     // нативный <select>, который выпадал из оформления сайта.
     const STORE_OPTIONS = [
         { value: '', label: 'Не выбран' },
-        { value: 'Матусевича', label: 'Матусевича' },
-        { value: 'Богдановича', label: 'Богдановича' },
-        { value: 'БН', label: 'Безнал (БН)' }
+        ...APP_STORES
     ];
     const PRIORITY_OPTIONS = [
         { value: '0', label: 'Без приоритета' },

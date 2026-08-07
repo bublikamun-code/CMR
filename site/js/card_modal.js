@@ -319,11 +319,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     };
     container.addEventListener('change', container._modalChangeHandler);
 
-    const STORE_OPTIONS = [
-        { value: 'Матусевича', label: 'Матусевича' },
-        { value: 'Богдановича', label: 'Богдановича' },
-        { value: 'БН', label: 'Безнал (БН)' }
-    ];
+    const STORE_OPTIONS = APP_STORES;
     const storeDropdown = createDropdown({
         options: STORE_OPTIONS,
         value: card.store_location || '',
