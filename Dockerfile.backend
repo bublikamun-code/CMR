@@ -1,0 +1,41 @@
+# Multi-stage build for FastAPI backend
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# Copy requirements and install dependencies
+COPY server_snapshot/requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Final stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy Python dependencies from builder
+COPY --from=builder /root/.local /home/app/.local
+
+# Set PATH to use local pip packages
+ENV PATH=/home/app/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    CRM_DATA_DIR=/app/data
+
+# Copy application code
+COPY server_snapshot/ .
+
+# Run as an unprivileged user instead of root.
+RUN useradd --create-home --uid 10001 app \
+    && mkdir -p uploads logs data/tenants \
+    && chown -R app:app /app /home/app
+
+USER app
+
+# Health check.
+# NOTE: `python -m urllib.request <url>` is NOT runnable as a module - it exits 0
+# unconditionally, so the container reported healthy even with a dead app.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)" || exit 1
+
+# Run Uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

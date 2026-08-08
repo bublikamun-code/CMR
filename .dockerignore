@@ -1,0 +1,101 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database
+# NOTE: bare patterns like `*.db` only match the build-context root. The backend
+# is copied with `COPY server_snapshot/ .`, so every path below needs the
+# server_snapshot/ prefix or the real client database ends up baked into the image.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+server_snapshot/*.db
+server_snapshot/*.db-shm
+server_snapshot/*.db-wal
+server_snapshot/*.db.backup_*
+server_snapshot/tenants/*.db
+server_snapshot/tenants/*.db-shm
+server_snapshot/tenants/*.db-wal
+
+# Secrets and environment
+.secret_key
+.env
+.env.local
+.env.*.local
+server_snapshot/.secret_key
+server_snapshot/.cron_token
+server_snapshot/routers/.secret_key
+server_snapshot/routers/.cron_token
+server_snapshot/email_settings.json
+
+# Temporary and backup files
+*.bak
+*.bak_*
+*.tmp
+*.temp
+*.swp
+*.backup_*
+
+# Server artifacts
+server_snapshot/uploads/*
+server_snapshot/tenants/*
+server_snapshot/restart.php
+server_snapshot/restart_trigger.php
+server_snapshot/*.sh
+
+# FTP config
+.ftpenv
+
+# Backups, TLS keys and recovered data.
+# None of this belongs in a build context: it holds client data and private keys,
+# and it would also bloat every build.
+backups/
+ssl/
+letsencrypt/
+certbot-webroot/
+recovery/
+
+# Project files.
+# NOTE: same prefix trap as the databases above - the backend is copied with
+# `COPY server_snapshot/ .`, so bare names only match the context root and every
+# path inside the app needs the server_snapshot/ prefix.
+README.md
+STATUS.md
+docs/
+tools/
+.ftpenv
+server_snapshot/PROMPT.md
+server_snapshot/*.md
+server_snapshot/*.bak_*
+server_snapshot/*.bak-*
+server_snapshot/**/*.bak_*
+server_snapshot/restart_trigger.php
+
+# Node/PM2 (if present)
+ecosystem.config.js
+node_modules/

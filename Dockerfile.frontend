@@ -1,0 +1,29 @@
+FROM nginx:alpine
+
+# Remove default config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy frontend files
+COPY site/ /usr/share/nginx/html/
+
+# Copy nginx config. The image defaults to plain HTTP; for TLS mount
+# nginx/https.conf over /etc/nginx/conf.d/default.conf - see docs/deployment/.
+# Shared snippets are included by both configs so they cannot drift apart.
+COPY nginx/snippets/ /etc/nginx/snippets/
+# The HSTS `map` must live in the http context, and only conf.d/*.conf is loaded
+# there automatically. The 00- prefix makes it load before any server block.
+COPY nginx/snippets/hsts-map.conf /etc/nginx/conf.d/00-hsts-map.conf
+COPY nginx/http.conf /etc/nginx/conf.d/default.conf
+
+# Fail the build on an invalid config instead of at container start.
+RUN nginx -t -c /etc/nginx/nginx.conf
+
+# Health check.
+# NOTE: use 127.0.0.1, not localhost - in Alpine `localhost` resolves to ::1 first
+# and nginx listens on IPv4 0.0.0.0:80, which made every probe fail.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget -q -O- http://127.0.0.1/health || exit 1
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
