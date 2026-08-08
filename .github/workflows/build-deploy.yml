@@ -1,0 +1,143 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.backend
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.frontend
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  test:
+    runs-on: ubuntu-latest
+    # NOTE: no `services:` block here. It previously pulled the backend image by
+    # ${{ github.sha }}, but that tag is only pushed on main, so the job failed on
+    # every PR and on develop. Tests run against the source tree instead.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server_snapshot/requirements.txt
+
+      - name: Run tests
+        working-directory: server_snapshot
+        run: python test_routes.py
+
+      - name: Verify no secrets or databases leak into the backend image
+        run: |
+          docker build -f Dockerfile.backend -t crm-backend:ci .
+          for f in /app/crm_app.db /app/.secret_key /app/.cron_token \
+                   /app/routers/.secret_key /app/email_settings.json; do
+            if docker run --rm crm-backend:ci test -e "$f"; then
+              echo "::error::$f must not be baked into the image"
+              exit 1
+            fi
+          done
+          echo "No secrets or databases found in the image."
+
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'crm-backend:ci'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  security-audit:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for secrets
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: SAST scan with Bandit
+        uses: gaurav-nelson/github-action-bandit@v1
+        with:
+          path: "server_snapshot"
+
+  deploy-staging:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          # Add your staging deployment command here
+          # Example: SSH to staging server and pull latest images
+
+  deploy-production:
+    needs: [build, test, security-audit]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          # Add your production deployment command here
+          # Example: SSH to prod server, backup DB, pull images, restart
