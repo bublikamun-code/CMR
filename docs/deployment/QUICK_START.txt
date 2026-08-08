@@ -1,0 +1,102 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                  CRM SVETVDOME — QUICK START GUIDE                         ║
+║                                                                            ║
+║                        ✅ CONTAINERIZATION COMPLETE                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+🚀 START LOCAL DEVELOPMENT
+──────────────────────────────────────────────────────────────────────────────
+1. Start containers
+   $ docker compose up -d
+
+2. Check status
+   $ docker ps
+   $ docker compose logs -f backend
+
+3. Open in browser
+   http://localhost              (Frontend)
+   http://localhost:8000         (Backend API)
+   http://localhost:8000/health  (Health check)
+
+4. Stop when done
+   $ docker compose down
+
+
+📋 KEY FILES
+──────────────────────────────────────────────────────────────────────────────
+DEPLOYMENT.md              → How to deploy to production
+DEPLOYMENT_SECURITY.md     → Security best practices
+README_DEPLOYMENT.md       → Complete roadmap & overview
+PHASE1_COMPLETION.md       → What was completed in Phase 1
+PHASE2_IDOR_AUDIT.md       → IDOR audit results & fix roadmap
+
+docker-compose.yml         → Local development
+docker-compose.production.yml → Production ready
+Dockerfile.backend         → Python/FastAPI container
+Dockerfile.frontend        → Nginx container
+
+
+🔒 SECURITY STATUS
+──────────────────────────────────────────────────────────────────────────────
+✅ Containerization      - COMPLETE
+✅ Environment vars      - COMPLETE (.env.local configured)
+✅ Database persistence  - VERIFIED (tested up/down)
+✅ HTTPS configuration   - READY (awaits SSL cert)
+✅ CI/CD pipeline        - CONFIGURED (GitHub Actions)
+⚠️  IDOR vulnerabilities - AUDITED (40+ issues documented, need fixes)
+⚠️  .secret_key in git    - DOCUMENTED (need to clean history)
+
+
+🎯 NEXT STEPS
+──────────────────────────────────────────────────────────────────────────────
+PHASE 2: Security Audit (2-3 days)
+  1. Read: PHASE2_IDOR_AUDIT.md
+  2. Fix IDOR in kanban_router.py and payments_router.py
+  3. Test multi-tenant scenarios
+  4. Clean git history (remove .secret_key)
+
+PHASE 3: Production Deploy (30 minutes)
+  1. Generate keys:      bash scripts/generate_keys.sh > .env.production
+  2. Set up SSL certs    (Let's Encrypt or self-signed)
+  3. Deploy:             docker compose -f docker-compose.production.yml up -d
+  4. Verify:             curl https://your-domain.com
+
+
+📊 VERIFICATION
+──────────────────────────────────────────────────────────────────────────────
+Backend health:        ✅ curl http://localhost:8000/health
+Frontend health:       ✅ curl http://localhost/health
+Database:              ✅ docker exec crm-backend find /app -name "*.db"
+Network isolation:     ✅ Backend uses internal network only (prod)
+Security headers:      ✅ Configured in nginx.conf
+
+
+🛠️ USEFUL COMMANDS
+──────────────────────────────────────────────────────────────────────────────
+# View logs
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Execute commands inside container
+docker exec crm-backend python -c "from database import engine; print('OK')"
+
+# Database backup
+bash scripts/backup_db.sh   # cp is unsafe in WAL mode - see DEPLOYMENT.md
+
+# Run IDOR audit
+python3 scripts/audit_idor.py
+
+# Generate security keys
+bash scripts/generate_keys.sh
+
+
+📞 QUESTIONS?
+──────────────────────────────────────────────────────────────────────────────
+- Read README_DEPLOYMENT.md for complete overview
+- Check DEPLOYMENT.md for troubleshooting
+- Review DEPLOYMENT_SECURITY.md for security questions
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                          Status: READY FOR PHASE 2 ✅
+═══════════════════════════════════════════════════════════════════════════════

@@ -1,3 +1,24 @@
+# CRM «Снабжение и Продажи»
+
+## Навигация
+
+| Что нужно | Куда идти |
+|-----------|-----------|
+| Запустить локально за 2 минуты | [`docs/deployment/QUICK_START.txt`](docs/deployment/QUICK_START.txt) |
+| Что работает прямо сейчас | [`STATUS.md`](STATUS.md) |
+| Что было сделано 08.08.2026 | [`docs/RESULT-2026-08-08.md`](docs/RESULT-2026-08-08.md) |
+| Развернуть на сервере | [`docs/deployment/DEPLOYMENT.md`](docs/deployment/DEPLOYMENT.md) |
+| Вся документация | [`docs/README.md`](docs/README.md) |
+
+```bash
+docker compose up -d       # приложение на http://localhost
+```
+
+> Документы в `docs/phases/` — исторические планы, местами расходятся с фактами.
+> При противоречии верен [`STATUS.md`](STATUS.md).
+
+---
+
 # Итоги рефакторинга CRM — 06-07.08.2026
 
 Выполнен аудит UI/UX и безопасности веб-приложения CRM для снабжения и продаж.
