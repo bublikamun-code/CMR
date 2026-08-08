@@ -26,7 +26,21 @@ from email_cleaner import clean_email_body, html_to_text, normalize_subject
 
 logger = logging.getLogger(__name__)
 
-_SECRET_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".secret_key")
+# This key encrypts stored mailbox passwords and is DIFFERENT from the JWT key in
+# auth.py. It must survive image rebuilds, otherwise saved email credentials can no
+# longer be decrypted, so it resolves to CRM_DATA_DIR when no legacy file is present.
+def _email_key_path() -> str:
+    legacy = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".secret_key")
+    if os.path.exists(legacy):
+        return legacy
+    data_dir = os.environ.get("CRM_DATA_DIR")
+    if data_dir:
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, ".email_secret_key")
+    return legacy
+
+
+_SECRET_KEY_FILE = _email_key_path()
 
 def _load_secret_key() -> bytes:
     key = os.environ.get("CRM_SECRET_KEY")
@@ -67,10 +81,36 @@ cron_router = APIRouter(
 )
 
 def _get_settings_path(tenant_id: int = None) -> str:
+    """Locate the mailbox settings file.
+
+    Resolution order, same rule as the secret keys in auth.py:
+      1. an existing file next to the code (legacy bare-metal layout) wins, so a
+         running server keeps its current settings;
+      2. otherwise CRM_DATA_DIR, which in Docker is a persistent volume.
+
+    This file holds the mailbox password and is excluded from the image, so under
+    Docker it can only live in the data volume. Resolving it relative to the code
+    made /email-parser/sync fail with 400 "Настройки почты не заполнены" even
+    though the settings existed.
+    """
+    from database import DATA_DIR
+
+    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     if tenant_id:
-        os.makedirs("tenants", exist_ok=True)
-        return os.path.join("tenants", f"email_settings_{tenant_id}.json")
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "email_settings.json")
+        filename = f"email_settings_{tenant_id}.json"
+        legacy = os.path.join(app_dir, "tenants", filename)
+        if os.path.exists(legacy):
+            return legacy
+        tenants_dir = os.path.join(DATA_DIR, "tenants")
+        os.makedirs(tenants_dir, exist_ok=True)
+        return os.path.join(tenants_dir, filename)
+
+    legacy = os.path.join(app_dir, "email_settings.json")
+    if os.path.exists(legacy):
+        return legacy
+    os.makedirs(DATA_DIR, exist_ok=True)
+    return os.path.join(DATA_DIR, "email_settings.json")
 
 class EmailSettingsSchema(BaseModel):
     email: str

@@ -103,8 +103,10 @@ def create_tenant_admin(data: schemas.UserCreate, db: Session = Depends(get_db),
     slug = re.sub(r'[^a-zA-Z0-9_]', '', data.username.lower().replace(" ", "_"))
     if not slug or len(slug) < 3:
         raise HTTPException(status_code=400, detail="Некорректное имя пользователя")
-    db_path = f"tenants/crm_{slug}.db"
-    os.makedirs("tenants", exist_ok=True)
+    from database import DATA_DIR
+    tenants_dir = os.path.join(DATA_DIR, "tenants")
+    db_path = os.path.join(tenants_dir, f"crm_{slug}.db")
+    os.makedirs(tenants_dir, exist_ok=True)
 
     tenant = Tenant(name=data.username, db_path=db_path)
     db.add(tenant)
