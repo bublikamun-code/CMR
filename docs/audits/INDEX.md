@@ -53,18 +53,24 @@
 
 ### 📊 Reference Documents
 8. **[PROJECT_REPORT.md](PROJECT_REPORT.md)** — Original project analysis
-   - Technology stack
-   - Directory structure
-   - Deployment process
-   - Database info
-   - Deployment data
+    - Technology stack
+    - Directory structure
+    - Deployment process
+    - Database info
+    - Deployment data
 
 9. **[SECURITY.md](SECURITY.md)** — Original security audit
-   - Critical issues
-   - Important findings
-   - Todo items
+    - Critical issues
+    - Important findings
+    - Todo items
 
-10. **[README.md](../../README.md)** — Project baseline (original)
+10. **[UI_AUDIT_PLAN.md](UI_AUDIT_PLAN.md)** — UI/UX audit and fix plan (2026-08-09)
+    - Sprint A: motion, press-feedback, modal timing
+    - Sprint B: visual noise reduction
+    - Sprint C: architectural cleanup
+    - Verification checklist
+
+11. **[README.md](../../README.md)** — Project baseline (original)
 
 ---
 

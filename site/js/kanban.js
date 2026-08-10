@@ -261,10 +261,13 @@ function fillCardHTML(cardEl, card) {
         : '';
 
     cardEl.innerHTML = `
-        <div class="card-hover-actions">
+        <div class="card-hover-actions" data-card-menu>
             <button class="card-hover-btn btn-edit-card" title="Редактировать" data-card-id="${card.id}">✎</button>
             <button class="card-hover-btn btn-delete-card" title="Удалить">&times;</button>
         </div>
+        <!-- UI Audit (2026-08-09, C.5): touch-only trigger для мобильных.
+             На десктопе скрыт, на тачах заменяет постоянно видимые hover-actions. -->
+        <button class="card-menu-trigger" title="Действия с карточкой" aria-label="Действия с карточкой" aria-haspopup="menu">⋯</button>
         <div class="card-header">
             <strong class="card-title">${escapeHtml(card.title)}</strong>
         </div>
@@ -290,6 +293,21 @@ function fillCardHTML(cardEl, card) {
         </div>` : ''}
     `;
 
+    // UI Audit (2026-08-09, C.5): ⋯-триггер для touch-устройств.
+    // На десктопе он скрыт (display:none), на тачах заменяет постоянно
+    // видимые hover-actions. Открывает popover с теми же кнопками.
+    const menuTrigger = cardEl.querySelector('.card-menu-trigger');
+    if (menuTrigger) {
+        menuTrigger.onclick = (e) => {
+            e.stopPropagation();
+            const actions = cardEl.querySelector('.card-hover-actions');
+            if (actions) {
+                const isOpen = actions.classList.toggle('popover-open');
+                menuTrigger.setAttribute('aria-expanded', isOpen);
+            }
+        };
+    }
+
     cardEl.querySelector('.btn-delete-card').onclick = async (e) => {
         e.stopPropagation();
         if (await confirmDialog("Удалить карточку?")) {
@@ -304,6 +322,15 @@ function fillCardHTML(cardEl, card) {
         openCardModal(card.id);
     };
 }
+
+// Закрытие popover при клике вне карточки (чтобы не оставался открытым)
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.kanban-card')) {
+        document.querySelectorAll('.card-hover-actions.popover-open').forEach(el => {
+            el.classList.remove('popover-open');
+        });
+    }
+});
 
 window.refreshCardOnBoard = async function(cardId) {
     try {
@@ -736,11 +763,14 @@ function renderListView() {
             }
             tr.appendChild(td);
         });
-        // Delete button cell
+        // UI Audit (2026-08-09, B.6): унификация крестика в списке с канбан-доской.
+        // title для доступности, явный font для cross-platform рендера ✕.
         const delTd = document.createElement('td');
         const delBtn = document.createElement('button');
         delBtn.className = 'btn btn-danger btn-sm';
         delBtn.textContent = '✕';
+        delBtn.title = 'Удалить сделку';
+        delBtn.setAttribute('aria-label', 'Удалить сделку');
         delBtn.onclick = (e) => { e.stopPropagation(); deleteCardFromList(c.id); };
         delTd.appendChild(delBtn);
         tr.appendChild(delTd);

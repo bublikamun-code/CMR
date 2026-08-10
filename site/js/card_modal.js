@@ -579,8 +579,8 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     const fileInput = document.getElementById('file-input');
     dropzone.onclick = () => fileInput.click();
     fileInput.onchange = (e) => uploadFiles(card.id, e.target.files);
-    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.style.borderColor = '#333'; };
-    dropzone.ondragleave = () => dropzone.style.borderColor = '#ccc';
+    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--border-interactive)'; };
+    dropzone.ondragleave = () => dropzone.style.borderColor = 'var(--border-color)';
     dropzone.ondrop = (e) => { e.preventDefault(); uploadFiles(card.id, e.dataTransfer.files); };
 
     document.getElementById('btn-to-assembly').onclick = async () => {
@@ -644,7 +644,11 @@ async function loadCardTags(card) {
                 pill.className = 'tag-pill';
                 const c = sanitizeColor(tag.color);
                 const r = parseInt(c.slice(1,3),16), g = parseInt(c.slice(3,5),16), b = parseInt(c.slice(5,7),16);
-                const bg = `rgb(${Math.round(r+(255-r)*0.8)},${Math.round(g+(255-g)*0.8)},${Math.round(b+(255-b)*0.8)})`;
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                const blend = isDark ? 0.3 : 0.8;
+                const bg = isDark
+                    ? `rgba(${r},${g},${b},${blend})`
+                    : `rgb(${Math.round(r+(255-r)*blend)},${Math.round(g+(255-g)*blend)},${Math.round(b+(255-b)*blend)})`;
                 pill.style.color = c;
                 pill.style.background = bg;
                 pill.innerHTML = `${escapeHtml(tag.name)} <button class="tag-remove" data-id="${tag.id}" title="Удалить тег">&times;</button>`;

@@ -74,6 +74,10 @@ html {
        transition: border-color var(--transition-fast); */
     --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* UI Audit (2026-08-09): чёткий ease-out без bounce для попапов, дропдаунов,
+       тостов и модалок. cubic-bezier(0.23,1,0.32,1) — рекомендуемый Kowalski-кривой,
+       резкий старт с мягким затуханием, без overshoot. */
+    --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
     /* Готовые переходы для интерактивных элементов. Список свойств задан
        явно вместо `all`: `all` заставляет браузер отслеживать каждое
        свойство, включая layout-свойства (width, padding, top), из-за чего
@@ -318,10 +322,9 @@ body {
 .sidebar-header h2 {
     font-size: 18px;
     letter-spacing: 0.3px;
-    background: linear-gradient(90deg, #fff, #c7d2fe);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    /* UI Audit (2026-08-09): градиентный текст удалён. Перебивался финальным
+       `background:none; color:#f8fafc !important;` на строке 7034 (читаемость
+       на 20px хуже сплошного — это осмысленно). Удаляю мёртвый код. */
 }
 
 .sidebar-nav {
@@ -566,7 +569,8 @@ a.nav-btn { text-decoration: none; }
     padding: 7px;
     cursor: pointer;
     border: 1px solid var(--border-color);
-    background: #fff;
+    /* UI Audit (2026-08-09, E.1): #fff → var(--card-bg) для тёмной темы */
+    background: var(--card-bg);
     border-radius: var(--radius-sm);
     font-size: 11px;
     color: var(--text-muted);
@@ -690,7 +694,8 @@ a.nav-btn { text-decoration: none; }
     display: block;
     border: 2px solid #cbd5e1;
     border-radius: 6px;
-    background: #fff;
+    /* UI Audit (2026-08-09, E.2): #fff → var(--card-bg). Выше dark-правило есть на 703-706. */
+    background: var(--card-bg);
     cursor: pointer;
     position: relative;
     transition: var(--transition-ui);
@@ -839,7 +844,10 @@ a.nav-btn { text-decoration: none; }
     overflow-y: auto;
     position: relative;
     box-shadow: var(--shadow-lg);
-    animation: modalFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    /* UI Audit (2026-08-09): единый быстрый вход 200мс, ease-out-strong, без bounce.
+       Раньше было modalFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) — overshoot,
+       плюс параллельно работал modalSlideUp с другого селектора → конфликт. */
+    animation: modalEnter 200ms var(--ease-out-strong);
 }
 
 .close-btn {
@@ -1095,6 +1103,10 @@ a.nav-btn { text-decoration: none; }
     border: 1px solid var(--border-color);
 }
 
+[data-theme="dark"] .store-section {
+    background: linear-gradient(180deg, var(--card-bg), var(--bg-color));
+}
+
 .store-section .modal-label {
     text-align: left;
     font-weight: 600;
@@ -1129,6 +1141,12 @@ a.nav-btn { text-decoration: none; }
 
 .store-select:hover {
     border-color: var(--primary-color);
+}
+
+[data-theme="dark"] .store-select {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border-color: var(--border-interactive);
 }
 
 .modal-actions {
@@ -1257,6 +1275,11 @@ a.nav-btn { text-decoration: none; }
     background: #e2ebfe;
     border-color: var(--primary-color);
     transform: none;
+}
+
+[data-theme="dark"] .checklist-invoice-add:hover {
+    background: rgba(99,102,241,0.2);
+    border-color: var(--primary-color);
 }
 
 .checklist-invoice {
@@ -1437,7 +1460,8 @@ a.nav-btn { text-decoration: none; }
     margin-bottom: 12px;
     padding: 9px 12px;
     color: var(--sidebar-bg);
-    background: #fff;
+    /* UI Audit (2026-08-09, E.2): #fff → var(--card-bg). Dark-override на 4848 дублирует. */
+    background: var(--card-bg);
     border-radius: var(--radius-md);
     border-left: 4px solid var(--primary-color);
     box-shadow: var(--shadow-sm);
@@ -1630,14 +1654,78 @@ a.nav-btn { text-decoration: none; }
     opacity: 1;
 }
 
-.btn-delete-card:hover {
-    background: rgba(74, 87, 164, 0.15);
+/* UI Audit (2026-08-09, C.6): базовый красный цвет крестика — БЕЗ !important.
+   Селектор .card-hover-btn.btn-delete-card (0,2,0) уже перекрывает
+   .card-hover-btn { color: var(--text-muted) } (0,1,0) по специфичности.
+   !important здесь не нужен — это не патч поверх чужих правил. */
+.card-hover-btn.btn-delete-card {
     color: var(--danger-color);
-    transform: scale(1.1);
 }
 
-.btn-delete-card {
-    color: var(--danger-color) !important;
+/* UI Audit (2026-08-09, B.6) — канбан-крестики выровнены.
+   Текстовые глифы ✕/✎ имеют разную базовую линию в разных ОС, поэтому явно задаём
+   font-family/size/weight/line-height. */
+.card-hover-btn.btn-delete-card,
+.card-hover-btn.btn-edit-card {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    min-height: 24px;
+}
+
+/* Специфичность (0,3,0) достаточна — без !important.
+   Перебивает .card-hover-btn:hover{...!important} на строке 5910. */
+.card-hover-btn.btn-delete-card:hover,
+button.btn-delete-card:hover {
+    background: var(--danger-color);
+    color: #fff;
+}
+
+/* Иконка редактирования на hover заливается основным цветом, а не красным */
+.card-hover-btn.btn-edit-card:hover,
+button.btn-edit-card:hover {
+    background: var(--primary-color);
+    color: #fff;
+}
+
+/* Light-mode .btn-danger — используется в табличном виде списка (kanban.js:742)
+   и других местах. Раньше был определён только в [data-theme="dark"],
+   поэтому в светлой теме кнопка удаления выглядела как обычная. */
+.btn-danger {
+    background: var(--danger-color);
+    color: #fff;
+    border: none;
+    transition: background-color var(--transition-fast);
+}
+.btn-danger:hover {
+    background: #b91c1c;   /* более тёмный красный на hover */
+    color: #fff;
+}
+.btn-danger:active {
+    transform: scale(0.97);
+    transition-duration: 60ms;
+}
+
+/* UI Audit (2026-08-09, B.6): .btn-danger.btn-sm используется как иконка-символ ✕
+   в таблице списка. Делаем квадратным (icon-only) и центрируем содержимое,
+   чтобы крестик выглядел так же аккуратно, как на канбан-доске. */
+.btn-danger.btn-sm {
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
 }
 
 /* --- СТИЛИ ДЛЯ КАРТОЧЕК СПИСАНИЙ --- */
@@ -1777,16 +1865,12 @@ a.nav-btn { text-decoration: none; }
     border: 2px solid var(--warning-color);
     opacity: 0.85;
 }
-@keyframes modalFadeIn {
-    from { 
-        opacity: 0; 
-        transform: translateY(-20px) scale(0.98); 
-    }
-    to { 
-        opacity: 1; 
-        transform: translateY(0) scale(1); 
-    }
-}
+/* UI Audit (2026-08-09): удалён старый @keyframes modalFadeIn.
+   Причины:
+   - 300 мс + cubic-bezier с overshoot (1.275) → «поп-ап реклама», не CRM.
+   - Дублировался modalSlideUp на .modal-content через другой селектор →
+     конфликт двух keyframes на одном элементе.
+   Заменён единым modalEnter (200мс, --ease-out-strong) — см. конец файла. */
 
 /* Выбираем карточки на доске и на странице списаний */
 .kanban-cards > div, .writeoff-cards > div {
@@ -1824,12 +1908,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 
 button:hover {
     filter: brightness(1.05);
-    transform: translateY(-1px);
-}
-
-button:active {
-    transform: translateY(0);
-    filter: brightness(0.98);
 }
 
 /* Красивые поля ввода */
@@ -2008,6 +2086,9 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     pointer-events: auto;
 }
 
+/* UI Audit (2026-08-09, E.1): тост перекрашен через переменные.
+   Раньше background был #fff всегда — в тёмной теме белый блок резал глаз.
+   color и border-color теперь через --text-color / --border-color. */
 .toast {
     display: flex;
     align-items: center;
@@ -2015,7 +2096,8 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     min-width: 240px;
     max-width: 380px;
     padding: 13px 16px;
-    background: #fff;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
     border-left: 4px solid var(--primary-color);
@@ -2024,12 +2106,40 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     color: var(--text-color);
     opacity: 0;
     transform: translateX(40px);
-    transition: opacity var(--transition-normal), transform var(--transition-normal);
+    transition: opacity 200ms var(--ease-out-strong), transform 200ms var(--ease-out-strong);
 }
 
 .toast.show {
     opacity: 1;
     transform: translateX(0);
+}
+
+/* UI Audit (2026-08-09): кнопка-крестик для ручного закрытия тоста. */
+.toast-close {
+    flex-shrink: 0;
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+.toast-close:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-color);
+}
+[data-theme="dark"] .toast-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-color);
 }
 
 .toast-icon {
@@ -2082,8 +2192,12 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     opacity: 1;
 }
 
+/* UI Audit (2026-08-09, E.1): confirm-dialog через переменные.
+   Раньше background был #fff всегда — белый popup в тёмной теме. */
 .confirm-box {
-    background: #fff;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     padding: 24px;
@@ -2117,7 +2231,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-weight: 600;
     cursor: pointer;
     border: 1px solid var(--border-color);
-    background: #fff;
+    background: var(--card-bg);
     color: var(--text-color);
     transition: var(--transition-ui);
 }
@@ -2159,7 +2273,8 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     padding: 10px 12px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
-    background: #fff;
+    /* UI Audit (2026-08-09, E.2): #fff → var(--card-bg). Dark на 4822/5020 уже есть. */
+    background: var(--card-bg);
     color: var(--text-color);
     font-size: 14px;
     font-weight: 400;
@@ -2208,15 +2323,17 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     left: 0;
     right: 0;
     z-index: 200;
-    background: #fff;
+    /* UI Audit (2026-08-09, E.1): #fff → var(--card-bg) для тёмной темы */
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
     padding: 4px;
+    color: var(--text-color);
     display: none;
     flex-direction: column;
     gap: 1px;
-    animation: dropdownIn 0.14s ease;
+    animation: dropdownIn 140ms var(--ease-out-strong);
     min-width: 100%;
     max-height: 280px;
     overflow-y: auto;
@@ -2631,7 +2748,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     padding: 2px 8px;
     border-radius: 999px;
     margin-left: 8px;
-    animation: pulse-overdue 2s ease-in-out 3;
+    animation: badgeEnter 150ms var(--ease-out-strong) 1;
 }
 .overdue-badge-card {
     display: inline-block;
@@ -2645,19 +2762,19 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 .card-overdue {
     border-left: 3px solid var(--danger-color) !important;
-    /* Рамка мигала в transparent бесконечно — это ещё и мерцающий элемент
-       (WCAG 2.3.1). Три повтора, дальше остаётся сплошная красная полоса. */
-    animation: pulse-overdue-border 2s ease-in-out 3;
+    /* UI Audit (2026-08-09): мигание заменено входом. Бейдж «Просрочено» —
+       это статус, а не событие. Пульсация любого вида в CRM считывается как
+       «рекламный поп-ап». */
+    animation: badgeEnter 150ms var(--ease-out-strong) 1;
 }
 
 .card-due-soon {
     border-left: 3px solid var(--warning-color, #f59e0b) !important;
 }
 
-@keyframes pulse-overdue-border {
-    0%, 100% { border-left-color: var(--danger-color); }
-    50% { border-left-color: transparent; }
-}
+/* UI Audit (2026-08-09): pulse-overdue-border удалён.
+   Рамка трижды мигала в transparent (WCAG 2.3.1 — мерцание). Статус «просрочено»
+   теперь статичен с одним коротким входом badgeEnter. */
 
 .overdue-summary-bar {
     display: flex;
@@ -2691,9 +2808,13 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-color: var(--danger-color);
     box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
 }
-@keyframes pulse-overdue {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+
+/* UI Audit (2026-08-09): pulse-overdue заменён на badgeEnter.
+   Пульсация (opacity 1→0.7→1) считывалась как мерцание статуса. Теперь
+   статический бейдж с коротким одноразовым появлением. */
+@keyframes badgeEnter {
+    from { opacity: 0; transform: translateY(2px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 /* --- МОДАЛКА: двухколоночный макет --- */
@@ -2993,6 +3114,11 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     transition: var(--transition-ui);
     padding: 0;
 }
+/* UI Audit (2026-08-09): scale на hover здесь БЕЗОПАСЕН.
+   На color-swatch (28×28 px) элемент не двигается поступательно, а только
+   масштабируется от центра — точка клика сохраняется, дрожания курсора нет.
+   После того как Спринт A убрал глобальный `button:hover{transform:none}`,
+   это правило снова работает корректно. */
 .tag-color-sq:hover { transform: scale(1.15); }
 .tag-color-sq.selected {
     border-color: var(--text-color);
@@ -3028,12 +3154,16 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 .kanban-card {
     border: 1px solid var(--border-color) !important;
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
-    transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast) !important;
+    transition: box-shadow var(--transition-fast), border-color var(--transition-fast) !important;
 }
 
+/* UI Audit (2026-08-09): hover НЕ поднимает карточку.
+   Старый паттерн translateY(-2px) конфликтовал с курсором (аналогично кнопкам):
+   карточка уезжала вверх, hover слетал, возвращалась — дрожание.
+   Меняем только тень и подсветку границы. Этого достаточно для hover-фидбека. */
 .kanban-card:hover {
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05) !important;
-    transform: translateY(-2px) !important;
+    box-shadow: var(--shadow-md) !important;
+    border-color: var(--border-interactive) !important;
 }
 
 input[type="text"], input[type="number"], select, textarea {
@@ -3048,7 +3178,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 .data-table th {
-    background: #f8fafc !important;
+    background: var(--table-header-bg) !important;
     color: var(--text-muted) !important;
     font-size: 11px !important;
     font-weight: 600 !important;
@@ -3088,7 +3218,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 
 /* Современный дизайн старой карточки (>15 дней) */
 .kanban-card.old-card {
-    background-color: #f8fafc !important; /* Утонченный светло-серый фон */
+    background-color: var(--table-row-even) !important; /* Утонченный светло-серый фон */
     border: 1px dashed #cbd5e1 !important;
     border-left: 4px dashed #94a3b8 !important; /* Специфическая штриховая левая граница */
     opacity: 0.72 !important; /* Легкое угасание */
@@ -3214,7 +3344,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 .btn-show-old:hover {
-    background: #f8fafc !important;
+    background: var(--table-row-even) !important;
     border-color: #94a3b8 !important;
     color: var(--text-color) !important;
     transform: translateY(-1px) !important;
@@ -3406,7 +3536,10 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     font-weight: 600;
     padding: 40px;
     font-size: 14px;
-    animation: email-pulse 1.5s infinite;
+    /* UI Audit (2026-08-09): пульсация лоадера допустима, но снизил до 2с
+       и заменил ease-in-out на linear для ровной пульсации без "ноги".
+       WCAG 2.3.1 ограничивает мерцание: 0.5Гц — это безопасно. */
+    animation: email-pulse 2s linear infinite;
 }
 
 @keyframes email-pulse {
@@ -3439,18 +3572,29 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     display: flex;
     align-items: center;
     gap: 16px;
-    background: #f8fafc;
+    /* UI Audit (2026-08-09, E.1): #f8fafc → var(--card-bg) для тёмной темы */
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     padding: 12px 16px;
     cursor: pointer;
     transition: var(--transition-ui);
+    color: var(--text-color);
 }
 
 .imported-item:hover {
-    background: #f1f5f9;
-    border-color: #cbd5e1;
+    /* UI Audit (2026-08-09, E.1): #f1f5f9 → var(--table-row-hover) для тёмной темы */
+    background: var(--table-row-hover);
+    border-color: var(--border-interactive);
     transform: translateX(4px);
+}
+
+[data-theme="dark"] .imported-item {
+    color: var(--text-color);
+    background: var(--table-row-odd);
+}
+[data-theme="dark"] .imported-item:hover {
+    background: var(--table-row-hover);
 }
 
 .imported-icon {
@@ -3736,6 +3880,67 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 [data-theme="dark"] .card-hover-btn { background: rgba(255,255,255,0.1); }
 .card-hover-btn:hover { background: var(--primary-color); color: white; }
+
+/* UI Audit (2026-08-09, C.5): ⋯-триггер для touch-устройств.
+   На десктопе скрыт (display:none), на тачах (@media hover: none) заменяет
+   постоянно видимые hover-actions. Экономит место на мобильном канбане,
+   где ✎ и × занимали бы драгоценные 24px. */
+.card-menu-trigger {
+    display: none;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: rgba(255,255,255,0.95);
+    color: var(--text-muted);
+    border-radius: 6px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 6;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong);
+}
+[data-theme="dark"] .card-menu-trigger {
+    background: rgba(255,255,255,0.1);
+}
+.card-menu-trigger:hover {
+    background: var(--primary-color);
+    color: white;
+}
+.card-menu-trigger:active {
+    transform: scale(0.95);
+    transition-duration: 60ms;
+}
+
+/* На тач-устройствах: показываем триггер, скрываем постоянные actions (меню открывается по тапу) */
+@media (hover: none) {
+    .card-menu-trigger {
+        display: flex;
+    }
+    /* Действия карточки — popover, показывается по тапу на ⋯, а не висят всегда */
+    .card-hover-actions {
+        visibility: hidden;
+        opacity: 0;
+    }
+    .card-hover-actions.popover-open {
+        visibility: visible;
+        opacity: 1;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 4px;
+        box-shadow: var(--shadow-lg);
+        flex-direction: column;
+        gap: 2px;
+    }
+}
 
 /* === DEAL ROTTING === */
 .kanban-card.deal-rotting {
@@ -4151,6 +4356,60 @@ textarea.auto-expand-title:focus {
     margin-bottom: 16px;
 }
 
+/* --- УТИЛИТЫ ДЛЯ INLINE-СТИЛЕЙ (UI Audit, 2026-08-09, Спринт C) ---
+   Сотни дублирующихся style="flex:1;min-width:200px;padding:8px 12px;..."
+   в settings/workflows/custom_objects.html заменены семантическими классами. */
+
+.form-input-flex {
+    flex: 1;
+    min-width: 200px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--card-bg);
+    color: var(--text-color);
+    font-size: 14px;
+    transition: var(--transition-ui);
+}
+.form-input-flex:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.form-input-flex--narrow { min-width: 150px; }
+.form-input-flex--wide { min-width: 300px; }
+.form-input-flex--full { flex: 0 0 auto; width: 100%; min-width: 0; }
+
+.text-muted { color: var(--text-muted); }
+.text-muted-sm { color: var(--text-muted); font-size: 12px; }
+.text-muted-md { color: var(--text-muted); font-size: 13px; }
+
+.empty-state {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 20px;
+}
+.empty-state--sm { padding: 12px; }
+
+.flex-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.flex-row--wrap { flex-wrap: wrap; }
+.flex-row--between { justify-content: space-between; }
+.flex-row--mb { margin-bottom: 12px; }
+.flex-row--mb-lg { margin-bottom: 16px; }
+
+.h-no-margin { margin: 0; }
+
+.bg-subtle {
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
 .settings-card h3 {
     font-size: 16px;
     font-weight: 600;
@@ -4260,24 +4519,27 @@ textarea.auto-expand-title:focus {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* --- Hover-эффект на карточках --- */
-.kanban-card {
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-.kanban-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
+/* --- Hover-эффект на карточках ---
+   UI Audit (2026-08-09): удалено дублирующее правило.
+   Финальный вариант .kanban-card:hover теперь описан в секции базовых
+   стилей канбан-карточки (после .kanban-card), не здесь, чтобы не
+   перебивать друг друга. Только box-shadow + border-color, без translateY. */
 
-/* --- Анимация модалок --- */
-.modal:not(.hidden) .modal-content,
+/* --- Анимация модалок ---
+   UI Audit (2026-08-09): единый вход 200мс, без bounce, ease-out-strong.
+   Раньше два конфликтующих keyframes (modalFadeIn 300мс + modalSlideUp 250мс)
+   применялись к .modal-content одновременно. Заменено на modalEnter.
+
+   NB: на .modal-content (одиночном) animation задан в его базовом правиле выше.
+   Здесь мы дублируем его на модалки других размеров, чтобы не плодить keyframes. */
 .modal:not(.hidden) .modal-content-split,
-.modal:not(.hidden) .modal-content-wide {
-    animation: modalSlideUp 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+.modal:not(.hidden) .modal-content-wide,
+.modal:not(.hidden) .modal-content-auto {
+    animation: modalEnter 200ms var(--ease-out-strong);
 }
-@keyframes modalSlideUp {
-    from { opacity: 0; transform: translateY(12px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes modalEnter {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
 /* --- Drag & drop визуальный фидбек --- */
@@ -4338,10 +4600,10 @@ input, select, textarea {
     box-shadow: var(--shadow-md);
 }
 
-/* --- Плавное появление toast --- */
-.toast {
-    transition: opacity 0.3s ease, transform 0.3s ease;
-}
+/* --- Плавное появление toast ---
+   UI Audit (2026-08-09): transition уже задан в основном блоке .toast
+   (200мс, --ease-out-strong). Этот дубль удалён: переопределял на
+   `0.3s ease` и конфликтовал с --ease-out-strong. */
 
 /* --- Улучшенные таблицы --- */
 .data-table tbody tr {
@@ -4508,6 +4770,37 @@ input, select, textarea {
 /* Section cards */
 [data-theme="dark"] .section-card { background: var(--table-row-odd); border-color: var(--border-color); }
 
+/* ============================================================
+   UI Audit (2026-08-09, E.2) — Dark theme coverage gap.
+   Глобальный прогон выявил ~12 селекторов со светлым фоном/текстом,
+   не имеющих dark-правила. Всё, что ниже — патчи к ним.
+   ============================================================ */
+
+/* Бейджи со статусами (светлый фон + цветной текст) */
+[data-theme="dark"] .due-soon-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); border-color: rgba(245,158,11,0.3); }
+[data-theme="dark"] .status-active { background: rgba(16,185,129,0.2); color: var(--success-color); border-color: rgba(16,185,129,0.3); }
+[data-theme="dark"] .status-never { background: rgba(239,68,68,0.15); color: var(--danger-color); border-color: rgba(239,68,68,0.3); }
+[data-theme="dark"] .chk-sum-line { background: rgba(16,185,129,0.15); color: var(--text-color); }
+[data-theme="dark"] .sync-status { background: var(--table-row-odd); color: var(--text-color); border-color: var(--border-color); }
+[data-theme="dark"] .inv-empty { background: rgba(16,185,129,0.08); color: var(--success-color); }
+[data-theme="dark"] .inv-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); }
+[data-theme="dark"] .pay-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); }
+
+/* УЧЁТ/списание — file-dropzone, attachment — уже покрыто, но добавим явно */
+[data-theme="dark"] .checklist-invoice-add { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
+[data-theme="dark"] .checklist-invoice-dl { background: var(--table-row-hover); color: var(--primary-color); border-color: var(--border-interactive); }
+[data-theme="dark"] .checklist-invoice-dl:hover { background: var(--accent-indigo); color: #fff; }
+
+/* Sidebar header input-overdue уже покрыто через .input-overdue */
+[data-theme="dark"] .input-overdue { border-color: var(--danger-color); box-shadow: 0 0 0 2px rgba(239,68,68,0.2); }
+[data-theme="dark"] .old-card-badge { background: rgba(255,255,255,0.1); color: var(--text-muted); }
+
+/* Settings card headers */
+[data-theme="dark"] .settings-card h3 { color: var(--text-color); }
+
+/* Sidebar-header h2 в darke (если старая версия сплошного белого — градиентный текст уже удалён) */
+[data-theme="dark"] .sidebar-header h2 { color: var(--text-color); }
+
 /* Filter toggle */
 [data-theme="dark"] .filter-toggle { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 [data-theme="dark"] .filter-toggle:hover { background: var(--border-interactive); }
@@ -4599,7 +4892,7 @@ input, select, textarea {
 
 /* Кнопки архива */
 [data-theme="dark"] .btn-show-old { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
-[data-theme="dark"] .btn-show-old:hover { background: var(--border-interactive); }
+[data-theme="dark"] .btn-show-old:hover { background: var(--border-interactive) !important; }
 
 /* Формы создания */
 [data-theme="dark"] .create-modal input,
@@ -4863,8 +5156,29 @@ input, select, textarea {
 [data-theme="dark"] .dash-funnel-closed .dash-funnel-bar { background: linear-gradient(90deg, var(--success-color), #10b981) !important; }
 
 /* Чек-листы в карточках — чекбоксы */
-[data-theme="dark"] .checklist-item input[type="checkbox"] { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
-[data-theme="dark"] .checklist-item input[type="checkbox"]:checked { background-color: var(--accent-indigo) !important; }
+[data-theme="dark"] .checklist-item input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--table-row-hover) !important;
+    border: 2px solid var(--border-interactive) !important;
+    border-radius: 4px;
+    position: relative;
+}
+[data-theme="dark"] .checklist-item input[type="checkbox"]:checked {
+    background-color: var(--accent-indigo) !important;
+    border-color: var(--accent-indigo) !important;
+}
+[data-theme="dark"] .checklist-item input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 0px;
+    width: 5px;
+    height: 10px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
 [data-theme="dark"] .checklist-invoice { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
 
 /* Модалка карточки — левая часть */
@@ -5081,7 +5395,8 @@ textarea:focus-visible {
     background: var(--bg-secondary);
     border-radius: 9px;
 }
-[data-theme="dark"] .col-count { background: rgba(255,255,255,0.12); color: #cbd5e1; }
+[data-theme="dark"] .col-count { background: rgba(255,255,255,0.12); color: #cbd5e1 !important; }
+[data-theme="dark"] .kanban-column [class*="count"] { color: #cbd5e1 !important; }
 
 /* --- 6. Номер сделки на плитке накладной --- */
 .writeoff-card-meta {
@@ -5628,7 +5943,7 @@ textarea:focus-visible {
 }
 .sup-pur-stat-value.ok { color: var(--success-color); }
 .sup-pur-stat-value.warn { color: var(--warning-color); }
-[data-theme="dark"] .sup-pur-stat { background: rgba(255,255,255,0.04); }
+[data-theme="dark"] .sup-pur-stat { background: rgba(255,255,255,0.04) !important; }
 [data-theme="dark"] .sup-pur-stat-value { color: var(--text-color); }
 
 .sup-pur-table { margin-top: 14px; }
@@ -5804,6 +6119,8 @@ textarea:focus-visible {
 .sidebar-toggle::before{ content:""; position:absolute; inset:-6px; }
 .btn-delete-supplier:hover,
 .btn-delete-client:hover{ background:#fef2f2 !important; color: var(--danger-color) !important; }
+[data-theme="dark"] .btn-delete-supplier:hover,
+[data-theme="dark"] .btn-delete-client:hover{ background:rgba(239,68,68,0.15) !important; color: var(--danger-color) !important; }
 
 /* --- 9. Контраст: --text-faint 2.56:1 -> 4.76:1 --------------------- */
 :root{ --text-faint: #64748b; }
@@ -5830,7 +6147,7 @@ textarea:focus-visible {
 }
 
 /* --- 12. Зебра таблицы: было различие в 1% -------------------------- */
-:root{ --table-row-even: #f8fafc; }
+:root:not([data-theme="dark"]){ --table-row-even: #f8fafc; }
 
 /* --- 13. Радиусы и градиенты: главный признак «недоделано» ---------- */
 .btn-primary, .btn-secondary, .dropdown-toggle,
@@ -5881,7 +6198,7 @@ textarea:focus-visible {
 .sup-pur-stats{ gap: 12px !important; }
 .sup-pur-stat{
   padding: 12px !important;
-  background: #f8fafc !important;
+  background: var(--table-row-even) !important;
   border: 1px solid #f1f5f9;
 }
 .sup-pur-stat-label{ font-size: 12px !important; }
@@ -6060,6 +6377,7 @@ input::placeholder, textarea::placeholder{ color:#94a3b8; }
   padding: 2px 8px !important;
   border-radius: 999px !important;
 }
+[data-theme="dark"] .kanban-column [class*="count"]{ background: rgba(255,255,255,0.08) !important; }
 
 /* --- 32. Индикация горизонтального скролла канбана ---------------- */
 .kanban-board{ position: relative; }
@@ -6529,8 +6847,11 @@ textarea.auto-expand-title{
 }
 .settings-tab.active{ font-weight: 600 !important; }
 
-/* --- 56. Canvas-график подхватывает фон темы -------------------- */
-[data-theme="dark"] canvas{ filter: invert(.92) hue-rotate(180deg); }
+/* --- 56. Canvas-график подхватывает фон темы --------------------
+   UI Audit (2026-08-09, C.3): цвета Chart.js теперь берутся из CSS-переменных
+   напрямую в js/dashboard.js (renderMonthlyChart). Глобальный `filter: invert`
+   на всех <canvas> был хрупким: инвертировал точки данных, текст подписей и
+   любые будущие canvas-элементы (аватары, превью). Удалён. */
 /* ============================================================
    AUDIT FIXES — часть 7: последние хвосты консистентности
    ============================================================ */
@@ -6640,24 +6961,53 @@ textarea.auto-expand-title{
 /* --- 64. ГЛАВНОЕ: дрожание мыши --------------------------------- */
 /* причина: глобальное button:hover{transform:translateY(-1px)}
    кнопка уезжает из-под курсора → hover слетает → возвращается → цикл.
-   Особенно бьёт по чекбоксам в чек-листе: галочка ставится не с первого раза. */
-button:hover,
-.btn-primary:hover,
-.logout-btn:hover,
-.admin-link-btn:hover,
-.btn-writeoff:hover,
-.btn-delete-card:hover,
-.close-btn:hover{
-  transform: none !important;
-  filter: none !important;
+   Особенно бьёт по чекбоксам в чек-листе: галочка ставится не с первого раза.
+
+   UI Audit (2026-08-09): hover больше НЕ двигает кнопки (это и есть фикс
+   дрожания). Вместо мёртвого `transform: none !important` используем:
+   - hover → только цвет/тень (здесь не трогаем, свои стили у каждой кнопки)
+   - :active → press-feedback scale(0.97) с ускорением transition до 60 мс.
+   Это возвращает тактильный отклик и не ломает позицию курсора. */
+button,
+.btn-primary,
+.btn-secondary,
+.btn-action,
+.logout-btn,
+.admin-link-btn,
+.btn-writeoff,
+.btn-delete-card,
+.close-btn{
+  transition: var(--transition-ui);
+}
+button:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-action:active,
+.logout-btn:active,
+.admin-link-btn:active,
+.btn-writeoff:active,
+.btn-delete-card:active,
+.close-btn:active{
+  transform: scale(0.97);
+  transition-duration: 60ms;
 }
 /* карточки поднимаются только на канбан-доске, где это уместно и безопасно */
 .kanban-cards > div:hover,
 .dash-stat:hover{ transform: none !important; }
-.kanban-card:hover{ transform: none !important; box-shadow: var(--shadow-md) !important; }
+/* UI Audit (2026-08-09): .kanban-card:hover{ box-shadow: ... !important } удалён
+   отсюда — это дубль. Смотри строку ~3074: там добавлен border-color, иначе этот
+   блок перебывал бы важность у !important и border-color не срабатывал. */
 
-/* внутри модалки ничего не должно двигаться под курсором */
+/* внутри модалки ничего не должно двигаться под курсором (но press-feedback на
+   кнопках модалки разрешён — он не конфликтует с курсором) */
 .modal *:hover{ transform: none !important; }
+.modal button:active,
+.modal .btn-primary:active,
+.modal .btn-secondary:active,
+.modal .btn-action:active,
+.modal .btn-delete-card:active{
+  transform: scale(0.97) !important;
+}
 
 /* --- 65. Чек-лист оплаты: клик с первого раза -------------------- */
 /* чекбоксы 13×13 в строке 17px — промахнуться проще, чем попасть */
@@ -7356,15 +7706,29 @@ td.td-center > .btn-edit-row .ui-icon{
   border-radius: 10px !important;
   font-size: 14px !important;
 }
-.admin-link-btn .nav-ico,
-.logout-btn .nav-ico{
+/* Fix (2026-08-10): в разметке используется .nav-icon (не .nav-ico) и голый
+   <span> для подписи (не .nav-label). Правила ниже приведены к реальным
+   классам HTML — раньше этот блок был мёртвым из-за опечаток в селекторах,
+   поэтому иконки пропадали, а текст не скрывался при сворачивании. */
+.admin-link-btn .nav-icon,
+.logout-btn .nav-icon{
   flex: 0 0 auto;
-  width: 18px !important;
+  flex-shrink: 0;             /* не сжиматься ни при каких условиях */
+  width: 18px !important;    /* квадратная flex-обёртка → иконка не сжимается */
   height: 18px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;                  /* база; collapsed правило 7708 дублирует !important */
+}
+.admin-link-btn .nav-icon svg,
+.logout-btn .nav-icon svg{
+  width: 18px;
+  height: 18px;
   display: block;
 }
-.admin-link-btn .nav-label,
-.logout-btn .nav-label{
+.admin-link-btn span:not(.nav-icon),
+.logout-btn span:not(.nav-icon){
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7379,11 +7743,13 @@ td.td-center > .btn-edit-row .ui-icon{
   width: 40px;
   margin: 0 auto;
 }
-/* правило было только для `span`, а .nav-label — тот же span,
-   но так надёжнее и не зависит от разметки */
-.sidebar.collapsed .admin-link-btn .nav-label,
-.sidebar.collapsed .logout-btn .nav-label{ display: none !important; }
-.sidebar.collapsed .sidebar-footer .nav-ico{ margin: 0 !important; }
+/* скрываем подпись: матчим голый <span> (в HTML нет класса nav-label) */
+.sidebar.collapsed .admin-link-btn span:not(.nav-icon),
+.sidebar.collapsed .logout-btn span:not(.nav-icon){ display: none !important; }
+/* иконка по центру, без margin и без gap-сжатия */
+.sidebar.collapsed .sidebar-footer .nav-icon{ margin: 0 !important; }
+.sidebar.collapsed .admin-link-btn,
+.sidebar.collapsed .logout-btn{ gap: 0 !important; }
 
 /* --- 95. Облагороженное поле суммы в чек-листе ------------------- */
 /* было: узкое поле впритык к тексту, валюта отдельным словом */
@@ -7492,15 +7858,13 @@ td.td-center > .btn-edit-row .ui-icon{
    Блок стоит в конце файла намеренно: правила .card-hover-actions
    объявлены ниже по тексту и иначе выигрывают каскад.
 
-   Размеры зон нажатия для этих же элементов заданы выше,
-   в @media (hover: none), (max-width: 900px).
+   UI Audit (2026-08-09, C.5): .card-hover-actions больше НЕ показываются
+   на постоянке (это был визуальный шум на всех карточках). Вместо этого
+   они открываются как popover по тапу на .card-menu-trigger (⋯).
+   Здесь остаются только десктопные override для старых hover-elements.
    ============================================================ */
 @media (hover: none) {
-    /* Действия карточки канбана: редактировать и удалить */
-    .card-hover-actions {
-        visibility: visible;
-        opacity: 1;
-    }
+    /* card-hover-actions на тачах показываются только по тапу на ⋯ (см. 3890) */
 
     /* Удаление строки чек-листа в модалке сделки */
     .delete-checklist {

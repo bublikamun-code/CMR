@@ -73,13 +73,22 @@ function showToast(message, type = 'info', timeout = 3200) {
     const icon = type === 'success' ? '✓' : (type === 'error' ? '!' : 'i');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escapeHtml(message)}</span>`;
+    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escapeHtml(message)}</span><button type="button" class="toast-close" aria-label="Закрыть уведомление">✕</button>`;
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('show'));
-    setTimeout(() => {
+
+    // UI Audit (2026-08-09): ручное закрытие через ✕.
+    // Тост раньше исчезал только по таймеру (3.2 с), но для важных уведомлений
+    // это долго, а для спама — нельзя убрать стек. Добавлена кнопка-крестик.
+    let dismissed = false;
+    const dismiss = () => {
+        if (dismissed) return;
+        dismissed = true;
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
-    }, timeout);
+    };
+    toast.querySelector('.toast-close').addEventListener('click', dismiss);
+    setTimeout(dismiss, timeout);
 }
 
 /**
@@ -486,6 +495,10 @@ function parseMoney(value) {
             toggle.textContent = '☾';
             toggle.title = 'Светлая тема';
         }
+        // UI Audit (2026-08-09, C.3): после смены темы перерендерим Chart.js
+        // с новыми цветами из CSS-переменных. Событие themeChanged
+        // ловится в dashboard.js.
+        document.dispatchEvent(new CustomEvent('crm:theme-changed', { detail: { dark: !dark } }));
     });
 })();
 
