@@ -208,9 +208,21 @@
         </div>
     </div>
 
+    <script src="js/api.js?v=401b0a5f34"></script>
+    <script src="js/features.js?v=c55d4713fd"></script>
     <script>
         const API = '';
-        let token = localStorage.getItem('admin_token');
+        const ADMIN_TOKEN_KEY = 'admin_token';
+        const ADMIN_ROLE_KEY = 'admin_role';
+
+        // 401-хук для админки: не reload (как в основном приложении),
+        // а показываем экран входа через logout(). tokenKey передаётся
+        // из apiFetch, чтобы хук знал, какой токен чистить.
+        window.__onApiUnauthorized = function(tokenKey) {
+            logout();
+        };
+
+        let token = getToken(ADMIN_TOKEN_KEY);
         let currentRole = '';
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -241,14 +253,12 @@
             });
         });
 
+        // Делегирование каноническому apiFetch с admin_token.
+        // Сохраняем ссылку на глобальную до того, как определим локальную
+        // с тем же именем (для совместимости с существующими вызовами).
+        const _globalApiFetch = apiFetch;
         async function apiFetch(path, options = {}) {
-            const res = await fetch(`${API}${path}`, {
-                ...options,
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', ...options.headers }
-            });
-            if (res.status === 401) { logout(); throw new Error('Сессия истекла'); }
-            if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Ошибка'); }
-            return res.json();
+            return _globalApiFetch(`${API}${path}`, options, ADMIN_TOKEN_KEY);
         }
 
         async function showAdminPanel() {
@@ -364,8 +374,7 @@
         }
 
         function logout() {
-            localStorage.removeItem('admin_token');
-            localStorage.removeItem('admin_role');
+            clearToken(ADMIN_TOKEN_KEY, ADMIN_ROLE_KEY);
             token = null;
             document.getElementById('login-screen').classList.remove('hidden');
             document.getElementById('admin-panel').classList.add('hidden');
@@ -394,26 +403,6 @@
                 updateIcon();
             });
         })();
-
-        function showToast(msg, type) {
-            // UI Audit (2026-08-09, C.2): тост с иконкой, крестиком, анимацией .show.
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            const icon = type === 'success' ? '✓' : (type === 'error' ? '!' : 'i');
-            toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg"></span><button type="button" class="toast-close" aria-label="Закрыть уведомление">✕</button>`;
-            toast.querySelector('.toast-msg').textContent = msg;   // безопасная вставка без innerHTML
-            document.body.appendChild(toast);
-            requestAnimationFrame(() => toast.classList.add('show'));
-            let dismissed = false;
-            const dismiss = () => {
-                if (dismissed) return;
-                dismissed = true;
-                toast.classList.remove('show');
-                setTimeout(() => toast.remove(), 300);
-            };
-            toast.querySelector('.toast-close').addEventListener('click', dismiss);
-            setTimeout(dismiss, 3200);
-        }
     </script>
 </body>
 </html>

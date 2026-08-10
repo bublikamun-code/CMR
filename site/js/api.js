@@ -1,9 +1,14 @@
 // Базовый адрес нашего Python-сервера
 const API_BASE_URL = '';
 
+// Ключи хранилища по умолчанию. admin.html использует 'admin_token' —
+// передаётся третьим аргументом в apiFetch и явным параметром в getToken/и т.д.
+const DEFAULT_TOKEN_KEY = 'crm_token';
+const DEFAULT_ROLE_KEY = 'crm_role';
+
 /**
  * Экранирование пользовательских данных перед вставкой через innerHTML.
- * Защищает от XSS: названия сделок, компаний, заметки и т.п. могут содержать < > " &.
+ * Защищает от XSS: названия сделок, компаний, заметки и т.п. могут содержать < > " & '.
  */
 function escapeHtml(value) {
     if (value === null || value === undefined) return '';
@@ -21,50 +26,53 @@ function escapeHtml(value) {
  * Чтение токена с учётом запасных хранилищ.
  * Если Chrome блокирует localStorage (запрет данных сайта, инкогнито,
  * «удалять при закрытии»), вход не срабатывал вообще и без сообщений.
+ *
+ * tokenKey — имя ключа ('crm_token' для основного приложения,
+ * 'admin_token' для админ-панели).
  */
-function getToken() {
+function getToken(tokenKey = DEFAULT_TOKEN_KEY) {
     try {
-        const t = localStorage.getItem('crm_token');
+        const t = localStorage.getItem(tokenKey);
         if (t) return t;
     } catch (e) {}
     try {
-        const t = sessionStorage.getItem('crm_token');
+        const t = sessionStorage.getItem(tokenKey);
         if (t) return t;
     } catch (e) {}
     try {
-        const m = document.cookie.match(/(?:^|;\s*)crm_token=([^;]+)/);
+        const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + tokenKey + '=([^;]+)'));
         if (m) return decodeURIComponent(m[1]);
     } catch (e) {}
     return null;
 }
 
-function getRole() {
+function getRole(roleKey = DEFAULT_ROLE_KEY) {
     try {
-        const r = localStorage.getItem('crm_role');
+        const r = localStorage.getItem(roleKey);
         if (r) return r;
     } catch (e) {}
     try {
-        const r = sessionStorage.getItem('crm_role');
+        const r = sessionStorage.getItem(roleKey);
         if (r) return r;
     } catch (e) {}
     try {
-        const m = document.cookie.match(/(?:^|;\s*)crm_role=([^;]+)/);
+        const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + roleKey + '=([^;]+)'));
         if (m) return decodeURIComponent(m[1]);
     } catch (e) {}
     return null;
 }
 
-function clearToken() {
-    try { localStorage.removeItem('crm_token'); localStorage.removeItem('crm_role'); } catch (e) {}
-    try { sessionStorage.removeItem('crm_token'); sessionStorage.removeItem('crm_role'); } catch (e) {}
+function clearToken(tokenKey = DEFAULT_TOKEN_KEY, roleKey = DEFAULT_ROLE_KEY) {
+    try { localStorage.removeItem(tokenKey); localStorage.removeItem(roleKey); } catch (e) {}
+    try { sessionStorage.removeItem(tokenKey); sessionStorage.removeItem(roleKey); } catch (e) {}
     try {
-        document.cookie = 'crm_token=; path=/; max-age=0';
-        document.cookie = 'crm_role=; path=/; max-age=0';
+        document.cookie = tokenKey + '=; path=/; max-age=0';
+        document.cookie = roleKey + '=; path=/; max-age=0';
     } catch (e) {}
 }
 
-function hasToken() {
-    return !!getToken();
+function hasToken(tokenKey = DEFAULT_TOKEN_KEY) {
+    return !!getToken(tokenKey);
 }
 
 // Предельное время ожидания ответа. Без него оборванное соединение
@@ -73,9 +81,15 @@ function hasToken() {
 // пользователь не понимает, сохранились данные или нет.
 const API_TIMEOUT_MS = 30000;
 
-async function apiFetch(endpoint, options = {}) {
-    const token = getToken();
-    
+/**
+ * Универсальный API-клиент.
+ *
+ * tokenKey — какой ключ токена использовать. Основное приложение
+ * работает с 'crm_token' (по умолчанию), админ-панель — с 'admin_token'.
+ */
+async function apiFetch(endpoint, options = {}, tokenKey = DEFAULT_TOKEN_KEY) {
+    const token = getToken(tokenKey);
+
     // Подготавливаем заголовки
     const headers = {
         ...options.headers,
@@ -108,11 +122,19 @@ async function apiFetch(endpoint, options = {}) {
 
         // Если сервер ответил 401 (Не авторизован) - токен истек или неверный
         if (response.status === 401) {
-            clearToken();
+            clearToken(tokenKey);
+            // Хук для 401: основное приложение перезагружает страницу,
+            // админ-панель показывает экран входа без reload.
+            // Переопределяется через window.__onApiUnauthorized.
             if (!window.__reloading) {
                 window.__reloading = true;
-                showToast('Сессия истекла. Пожалуйста, войдите снова.', 'error');
-                setTimeout(() => window.location.reload(), 500);
+                if (typeof window.__onApiUnauthorized === 'function') {
+                    window.__onApiUnauthorized(tokenKey);
+                } else {
+                    showToast('Сессия истекла. Пожалуйста, войдите снова.', 'error');
+                    setTimeout(() => window.location.reload(), 500);
+                }
+                window.__reloading = false;
             }
             throw new Error("Не авторизован");
         }

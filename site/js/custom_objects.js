@@ -16,25 +16,6 @@
         { value: 'boolean', label: 'Да/Нет' }
     ];
 
-    function showToast(msg, type) {
-        if (typeof window.showToast === 'function') {
-            window.showToast(msg, type);
-        } else {
-            alert(msg);
-        }
-    }
-
-    async function apiFetch(path, options = {}) {
-        let token;
-        try { token = localStorage.getItem('crm_token'); } catch(e) { token = null; }
-        const headers = { ...options.headers };
-        if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const res = await fetch(path, { ...options, headers });
-        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Ошибка'); }
-        return res.json();
-    }
-
     // === ОБЪЕКТЫ ===
 
     async function loadObjects() {
