@@ -1,4 +1,18 @@
-# CRM Svetvdome — Docker Deployment Guide
+# CRM Svetvdome — Deployment Guide
+
+This project has **two deployment paths**. Pick the one that matches your
+target environment:
+
+| Path | Where it runs | Status | When to use |
+|---|---|---|---|
+| **Bare-metal (PM2)** ← *active production* | `87.232.64.12` (hoster.by) | ✅ Live | The current production server |
+| **Docker Compose** | Any Docker host | 🧪 Tested, not on prod | New deployments, local dev, migration target |
+
+> The Docker path is fully built and tested (both containers healthy, data
+> survives `down`/`up`), but the live production server still runs on PM2.
+> See [`docs/phases/`](../phases/) for the migration roadmap.
+
+---
 
 ## Quick Start (Local Development)
 
@@ -17,7 +31,72 @@ API: http://localhost:8000
 
 ---
 
-## Production Deployment
+## Production: Bare-metal via PM2 (active)
+
+The current production runs on a shared hoster.by server. Deployment is done
+over SSH+rsync with `tools/deploy.sh` — this replaced the legacy FTP flow.
+
+### Prerequisites
+
+- SSH key at `~/.ssh/crm_svetvdome_deploy` (key-based auth, no password)
+- Server: `h212005@87.232.64.12`, app at `/var/www/h212005/data/www/cmr-svetvdome.online/`
+- PM2 process named `crm` running `server.py` on port 20008
+
+### Deploy frontend
+
+```bash
+tools/deploy.sh front
+```
+
+Runs JS syntax check (`tools/check_js.sh`) and asset-version verification
+(`tools/stamp_assets.py --check`), then rsyncs `site/` to the server webroot.
+Excludes `*.db`, `uploads/`, `tenants/`, `.secret_key`, `.env` — server-side
+state is never overwritten. Static files need no restart.
+
+### Deploy backend
+
+```bash
+tools/deploy.sh back main.py routers/clients_router.py
+```
+
+Runs `py_compile` locally, syncs the listed files, then **restarts the PM2
+process** (`pm2 restart crm --update-env`) — Python code is loaded at import
+time and won't take effect otherwise. Checks error logs after restart.
+
+### Operational commands
+
+```bash
+tools/deploy.sh status        # PM2 process list
+tools/deploy.sh restart       # Restart PM2 process only
+tools/deploy.sh logs 50       # Last 50 lines of error log
+tools/deploy.sh --dry-run front   # Preview without transferring
+```
+
+### Environment variables
+
+The script reads these (all have sensible defaults, override via env):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SSH_KEY` | `~/.ssh/crm_svetvdome_deploy` | Path to private key |
+| `SSH_USER` | `h212005` | Server user |
+| `SSH_HOST` | `87.232.64.12` | Server host |
+| `REMOTE_DIR` | `/var/www/h212005/data/www/cmr-svetvdome.online` | Web root |
+| `PM2_APP` | `crm` | PM2 process name |
+
+### Backup on the server
+
+The server has its own backup scripts under `server_snapshot/scripts/`
+(`backup_crm.sh` uses the SQLite backup API — **not** `cp`, which corrupts
+WAL databases). For Docker, see the backup section below.
+
+> **⚠️ The legacy FTP flow (`tools/ftp_sync.py`) is deprecated.** It reads
+> `CRM_FTP_PASS` from `.ftpenv` and sends the password in cleartext. Use
+> `tools/deploy.sh` instead.
+
+---
+
+## Production: Docker Compose (alternative)
 
 ### Prerequisites
 
@@ -255,6 +334,7 @@ sudo systemctl stop nginx  # or apache2
 ## Security Checklist
 
 - [ ] `.env.production` created and NOT in git
+- [ ] `email_settings.json` NOT in git (contains IMAP password — use `email_settings.example.json` as template)
 - [ ] SSL certificate installed and HTTPS enabled
 - [ ] Backend port (8000) not exposed to internet
 - [ ] Firewall configured (80/443 only)
@@ -264,6 +344,7 @@ sudo systemctl stop nginx  # or apache2
 - [ ] Monitoring & alerting configured
 - [ ] IDOR endpoints audited and fixed
 - [ ] `.secret_key` removed from git history
+- [ ] IMAP password rotated if it was ever committed
 
 ---
 

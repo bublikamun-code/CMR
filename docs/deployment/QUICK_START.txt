@@ -1,10 +1,10 @@
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║                  CRM SVETVDOME — QUICK START GUIDE                         ║
 ║                                                                            ║
-║                        ✅ CONTAINERIZATION COMPLETE                        ║
+║             Two deploy paths: Docker (new) · PM2 (active prod)             ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 
-🚀 START LOCAL DEVELOPMENT
+🚀 LOCAL DEVELOPMENT (Docker)
 ──────────────────────────────────────────────────────────────────────────────
 1. Start containers
    $ docker compose up -d
@@ -22,16 +22,34 @@
    $ docker compose down
 
 
+🚀 PRODUCTION DEPLOY (Bare-metal PM2 — ACTIVE)
+──────────────────────────────────────────────────────────────────────────────
+The live server (87.232.64.12, hoster.by) runs PM2, not Docker.
+
+1. Deploy frontend (CSS/JS/HTML — no restart needed)
+   $ tools/deploy.sh front
+
+2. Deploy backend files (restarts PM2 process 'crm')
+   $ tools/deploy.sh back main.py routers/clients_router.py
+
+3. Operational commands
+   $ tools/deploy.sh status     # PM2 process list
+   $ tools/deploy.sh restart    # Restart only
+   $ tools/deploy.sh logs 50    # Last 50 error-log lines
+   $ tools/deploy.sh --dry-run front   # Preview
+
+See docs/deployment/DEPLOYMENT.md for full details on both paths.
+
+
 📋 KEY FILES
 ──────────────────────────────────────────────────────────────────────────────
-DEPLOYMENT.md              → How to deploy to production
+DEPLOYMENT.md              → Both deploy paths (Docker + PM2)
 DEPLOYMENT_SECURITY.md     → Security best practices
 README_DEPLOYMENT.md       → Complete roadmap & overview
-PHASE1_COMPLETION.md       → What was completed in Phase 1
-PHASE2_IDOR_AUDIT.md       → IDOR audit results & fix roadmap
 
-docker-compose.yml         → Local development
-docker-compose.production.yml → Production ready
+tools/deploy.sh            → PM2 deploy (SSH+rsync) — ACTIVE
+docker-compose.yml         → Local development (Docker)
+docker-compose.production.yml → Production (Docker, alternative)
 Dockerfile.backend         → Python/FastAPI container
 Dockerfile.frontend        → Nginx container
 
@@ -42,24 +60,10 @@ Dockerfile.frontend        → Nginx container
 ✅ Environment vars      - COMPLETE (.env.local configured)
 ✅ Database persistence  - VERIFIED (tested up/down)
 ✅ HTTPS configuration   - READY (awaits SSL cert)
-✅ CI/CD pipeline        - CONFIGURED (GitHub Actions)
+✅ CI/CD pipeline        - Build+test+scan; deploy wired to PM2
+✅ email_settings.json   - PURGED from git history (filter-repo)
+⚠️  IMAP password        - NEEDS ROTATION (was committed in f4aafb1)
 ⚠️  IDOR vulnerabilities - AUDITED (40+ issues documented, need fixes)
-⚠️  .secret_key in git    - DOCUMENTED (need to clean history)
-
-
-🎯 NEXT STEPS
-──────────────────────────────────────────────────────────────────────────────
-PHASE 2: Security Audit (2-3 days)
-  1. Read: PHASE2_IDOR_AUDIT.md
-  2. Fix IDOR in kanban_router.py and payments_router.py
-  3. Test multi-tenant scenarios
-  4. Clean git history (remove .secret_key)
-
-PHASE 3: Production Deploy (30 minutes)
-  1. Generate keys:      bash scripts/generate_keys.sh > .env.production
-  2. Set up SSL certs    (Let's Encrypt or self-signed)
-  3. Deploy:             docker compose -f docker-compose.production.yml up -d
-  4. Verify:             curl https://your-domain.com
 
 
 📊 VERIFICATION
@@ -73,21 +77,18 @@ Security headers:      ✅ Configured in nginx.conf
 
 🛠️ USEFUL COMMANDS
 ──────────────────────────────────────────────────────────────────────────────
-# View logs
+# --- Docker (local/dev) ---
 docker compose logs -f backend
-docker compose logs -f frontend
-
-# Execute commands inside container
 docker exec crm-backend python -c "from database import engine; print('OK')"
-
-# Database backup
 bash scripts/backup_db.sh   # cp is unsafe in WAL mode - see DEPLOYMENT.md
-
-# Run IDOR audit
 python3 scripts/audit_idor.py
-
-# Generate security keys
 bash scripts/generate_keys.sh
+
+# --- PM2 (production bare-metal) ---
+tools/deploy.sh front              # Deploy frontend
+tools/deploy.sh back main.py       # Deploy backend + restart
+tools/deploy.sh status             # Check PM2
+tools/deploy.sh logs 50            # Error logs
 
 
 📞 QUESTIONS?
@@ -98,5 +99,5 @@ bash scripts/generate_keys.sh
 
 
 ═══════════════════════════════════════════════════════════════════════════════
-                          Status: READY FOR PHASE 2 ✅
+              Status: PM2 prod live · Docker tested · Ready to migrate
 ═══════════════════════════════════════════════════════════════════════════════
