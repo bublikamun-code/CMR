@@ -1,0 +1,7 @@
+{
+    "email": "your-mailbox@example.com",
+    "password": "your-app-password",
+    "imap_server": "imap.example.com:993",
+    "target_status": "Новый запрос",
+    "last_sync": null
+}

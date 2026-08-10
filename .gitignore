@@ -16,6 +16,11 @@ __pycache__/
 # ...but the template carries no secrets and must be in the repo.
 !.env.example
 
+# email_settings.json содержит IMAP-пароль почтового ящика.
+# На сервере создаётся/обновляется через UI настроек или вручную.
+# Шаблон лежит в репозитории как email_settings.example.json.
+email_settings.json
+
 # Базы с реальными данными клиентов и заказов. Плюс SQLite WAL/SHM —
 # бинарные, конфликтуют при каждом слиянии, смысла в версионировании нет.
 *.db
