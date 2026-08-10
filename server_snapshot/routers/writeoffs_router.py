@@ -6,19 +6,13 @@ import models
 import schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
+from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(
     prefix="/writeoffs",
     tags=["Списание со склада (Страница 3)"],
     dependencies=[Depends(get_current_user)]
 )
-
-def _db(current_user, db):
-    if current_user.role == "superadmin" and current_user.tenant_id is None:
-        return db
-    if current_user.tenant_id is None:
-        return db
-    return get_tenant_db(current_user.tenant_id)
 
 @router.post("/{card_id}/finish_assembly", response_model=schemas.CardResponse)
 def finish_assembly(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):

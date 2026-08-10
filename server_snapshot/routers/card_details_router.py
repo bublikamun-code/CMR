@@ -7,6 +7,7 @@ import models
 import schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
+from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(
     tags=["Детали карточки (Чек-листы и Файлы)"],
@@ -16,13 +17,6 @@ router = APIRouter(
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-def _db(current_user, db):
-    if current_user.role == "superadmin" and current_user.tenant_id is None:
-        return db
-    if current_user.tenant_id is None:
-        return db
-    return get_tenant_db(current_user.tenant_id)
 
 @router.post("/cards/{card_id}/checklists", response_model=schemas.ChecklistResponse)
 def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):

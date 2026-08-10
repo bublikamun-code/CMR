@@ -10,20 +10,13 @@ import json
 import models
 from database import SessionLocal
 from auth import get_current_user
+from db_utils import resolve_tenant_db_standalone as _get_db
 
 router = APIRouter(
     prefix="/workflows",
     tags=["Воркфлоу"],
     dependencies=[Depends(get_current_user)]
 )
-
-
-def _get_db(user):
-    from database import get_tenant_db as _gtdb, SessionLocal as _SL
-    tid = getattr(user, 'tenant_id', None)
-    if tid:
-        return _gtdb(tid)
-    return _SL()
 
 
 class WorkflowCreate(BaseModel):

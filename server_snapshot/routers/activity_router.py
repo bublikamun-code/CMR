@@ -4,15 +4,13 @@ from typing import List
 import models, schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
+from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(
     prefix="/activity",
     tags=["Лог действий"],
     dependencies=[Depends(get_current_user)]
 )
-
-def _db(current_user):
-    return get_tenant_db(current_user.tenant_id)
 
 @router.get("", response_model=List[schemas.ActivityLogResponse])
 def list_activity(
@@ -21,11 +19,11 @@ def list_activity(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    tdb = _db(current_user)
+    tdb = _db(current_user, db)
     try:
         query = tdb.query(models.ActivityLog)
         # superadmin без привязки к тенанту видит главную базу целиком
-        if current_user.role == "superadmin" and not current_user.tenant_id:
+        if current_user.role == "superadmin" and current_user.tenant_id is None:
             query = db.query(models.ActivityLog)
         else:
             # изоляция тенантов: не отдаём чужие записи
@@ -34,4 +32,5 @@ def list_activity(
             query = query.filter(models.ActivityLog.card_id == card_id)
         return query.order_by(models.ActivityLog.created_at.desc()).limit(limit).all()
     finally:
-        tdb.close()
+        if tdb is not db:
+            tdb.close()

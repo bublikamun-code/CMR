@@ -61,6 +61,7 @@ try:
 except Exception:
     _fernet = None
 from database import get_db, get_tenant_db
+from db_utils import resolve_tenant_db as _db
 import models
 import models_tenant
 import schemas
@@ -457,8 +458,7 @@ def get_related_cards(card_id: int, db: Session = Depends(get_db), current_user:
     Тему письма намеренно НЕ используем: заявки с сайта всегда приходят
     с одинаковым заголовком, но это разные клиенты и разные сделки.
     """
-    tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
-    tdb = get_tenant_db(tenant_id) if tenant_id else db
+    tdb = _db(current_user, db)
     try:
         card = tdb.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
@@ -488,8 +488,7 @@ def get_related_cards(card_id: int, db: Session = Depends(get_db), current_user:
 @router.post("/link/{card_id}")
 def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """Переносит текст письма комментарием в целевую сделку и удаляет письмо-дубль."""
-    tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
-    tdb = get_tenant_db(tenant_id) if tenant_id else db
+    tdb = _db(current_user, db)
     try:
         src = tdb.query(models.Card).filter(models.Card.id == card_id).first()
         dst = tdb.query(models.Card).filter(models.Card.id == payload.target_card_id).first()

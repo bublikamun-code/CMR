@@ -10,6 +10,7 @@ import json
 import models
 from database import SessionLocal
 from auth import get_current_user
+from db_utils import resolve_tenant_db_standalone as _get_db
 
 router = APIRouter(
     prefix="/custom",
@@ -33,14 +34,6 @@ class FieldCreate(BaseModel):
 
 class RecordData(BaseModel):
     data: dict
-
-
-def _get_db(user):
-    from database import get_tenant_db as _gtdb, SessionLocal as _SL
-    tid = getattr(user, 'tenant_id', None)
-    if tid:
-        return _gtdb(tid)
-    return _SL()
 
 
 # === ОБЪЕКТЫ ===

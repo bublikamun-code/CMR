@@ -17,6 +17,7 @@ import ipaddress
 import models
 from database import SessionLocal
 from auth import get_current_user
+from db_utils import resolve_tenant_db_standalone as _get_db
 from urllib.parse import urlparse
 
 # Blocked host patterns for SSRF protection
@@ -55,14 +56,6 @@ router = APIRouter(
     tags=["Webhooks"],
     dependencies=[Depends(get_current_user)]
 )
-
-
-def _get_db(user):
-    from database import get_tenant_db as _gtdb, SessionLocal as _SL
-    tid = getattr(user, 'tenant_id', None)
-    if tid:
-        return _gtdb(tid)
-    return _SL()
 
 
 class WebhookCreate(BaseModel):

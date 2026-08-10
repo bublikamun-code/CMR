@@ -6,19 +6,13 @@ import models
 import schemas
 from database import get_db, get_tenant_db
 from versioning import save_version
+from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(
     prefix="/kanban",
     tags=["Канбан-доска"],
     dependencies=[Depends(get_current_user)]
 )
-
-def _db(current_user, db):
-    if current_user.role == "superadmin" and not current_user.tenant_id:
-        return db
-    if current_user.tenant_id is None:
-        return db
-    return get_tenant_db(current_user.tenant_id)
 
 @router.get("/cards", response_model=list[schemas.CardResponse])
 def get_cards(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
