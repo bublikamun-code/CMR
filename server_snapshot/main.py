@@ -70,9 +70,7 @@ app.add_middleware(
 )
 
 os.makedirs("uploads", exist_ok=True)
-# Tenant databases live under CRM_DATA_DIR (a volume in Docker) and are created on
-# demand by database.get_tenant_engine(). Creating ./tenants here left an empty
-# directory next to the code that looked like the real one and misled debugging.
+os.makedirs("tenants", exist_ok=True)
 
 app.include_router(auth_router.router)
 app.include_router(kanban_router.router)

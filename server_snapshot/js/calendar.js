@@ -103,7 +103,6 @@
         container.innerHTML = html;
     }
 
-    function escapeHtml(v) { return v === null || v === undefined ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function formatMoney(v) { return (v || 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
     window.CalendarView = {

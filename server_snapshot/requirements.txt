@@ -3,11 +3,6 @@ uvicorn[standard]==0.30.0
 sqlalchemy==2.0.31
 pyjwt==2.9.0
 passlib[bcrypt]==1.7.4
-# passlib 1.7.4 reads bcrypt.__about__.__version__, which bcrypt >= 4.1 removed.
-# Unpinned, pip installs bcrypt 5.x and every login fails with
-# "password cannot be longer than 72 bytes". Pinned until passlib is updated.
-bcrypt==4.0.1
 slowapi==0.1.9
 pydantic==2.8.0
 alembic==1.13.0
-python-multipart==0.0.6

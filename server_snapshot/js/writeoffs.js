@@ -32,6 +32,7 @@ async function loadWriteoffsBoard() {
                 .map(b => b.dataset.store);
             if (!knownStores.includes(t.store_location)) return;
             if (t.is_document) return;
+            if ((parseFloat(t.amount) || 0) <= 0) return;
 
             const linkedCard = cards.find(c => c.id === t.card_id);
             const siblings = t.card_id
@@ -39,7 +40,7 @@ async function loadWriteoffsBoard() {
                 : [];
             const siblingCount = siblings.length;
             const siblingIndex = siblingCount > 1 ? siblings.findIndex(x => x.id === t.id) + 1 : 1;
-            if (linkedCard && linkedCard.status !== 'На списание' && linkedCard.status !== 'Закрыто') return;
+            if (!linkedCard || (linkedCard.status !== 'На списание' && linkedCard.status !== 'Закрыто')) return;
 
             const selector = `.writeoff-column[data-store="${t.store_location}"][data-status="${t.is_warehouse_writeoff}"] .writeoff-cards`;
             const container = document.querySelector(selector);
@@ -162,24 +163,10 @@ async function loadWriteoffsBoard() {
     }
 }
 
-async function saveFieldWithFeedback(input, transactionId, data) {
-    input.classList.remove('saved', 'save-error');
-    input.classList.add('saving');
-    try {
-        await apiFetch(`/payments/transactions/${transactionId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        input.classList.remove('saving');
-        input.classList.add('saved');
-        setTimeout(() => input.classList.remove('saved'), 1800);
-    } catch (error) {
-        input.classList.remove('saving');
-        input.classList.add('save-error');
-        showToast('Не сохранено: ' + error.message, 'error');
-    }
-}
+// saveFieldWithFeedback() удалена: на доске списаний нет редактируемых
+// полей (см. комментарий выше — номер и сумма накладной правятся только
+// внутри карточки сделки), поэтому функция не вызывалась ни разу.
+// Вместе с ней снят мёртвый CSS .writeoff-fields в style.css.
 
 function updateWriteoffCounters() {
     document.querySelectorAll('.writeoff-column').forEach(col => {

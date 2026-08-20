@@ -12,29 +12,8 @@ from database import get_db
 
 logger = logging.getLogger(__name__)
 
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def _key_path(filename: str) -> str:
-    """Resolve a secret file path.
-
-    Priority: an existing file next to the code (legacy bare-metal layout) wins so
-    running servers keep their current key. Otherwise the file is created in
-    CRM_DATA_DIR, which in Docker is a persistent volume - without this the key
-    would be regenerated on every image rebuild and log every user out.
-    """
-    legacy = os.path.join(_APP_DIR, filename)
-    if os.path.exists(legacy):
-        return legacy
-    data_dir = os.environ.get("CRM_DATA_DIR")
-    if data_dir:
-        os.makedirs(data_dir, exist_ok=True)
-        return os.path.join(data_dir, filename)
-    return legacy
-
-
-_KEY_FILE = _key_path(".secret_key")
-_CRON_TOKEN_FILE = _key_path(".cron_token")
+_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".secret_key")
+_CRON_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cron_token")
 
 def _load_or_create_key(path: str, env_var: str) -> str:
     key = os.environ.get(env_var)

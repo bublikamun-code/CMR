@@ -32,6 +32,7 @@ async function loadWriteoffsBoard() {
                 .map(b => b.dataset.store);
             if (!knownStores.includes(t.store_location)) return;
             if (t.is_document) return;
+            if ((parseFloat(t.amount) || 0) <= 0) return;
 
             const linkedCard = cards.find(c => c.id === t.card_id);
             const siblings = t.card_id
@@ -39,7 +40,7 @@ async function loadWriteoffsBoard() {
                 : [];
             const siblingCount = siblings.length;
             const siblingIndex = siblingCount > 1 ? siblings.findIndex(x => x.id === t.id) + 1 : 1;
-            if (linkedCard && linkedCard.status !== 'На списание' && linkedCard.status !== 'Закрыто') return;
+            if (!linkedCard || (linkedCard.status !== 'На списание' && linkedCard.status !== 'Закрыто')) return;
 
             const selector = `.writeoff-column[data-store="${t.store_location}"][data-status="${t.is_warehouse_writeoff}"] .writeoff-cards`;
             const container = document.querySelector(selector);

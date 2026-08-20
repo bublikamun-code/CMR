@@ -288,6 +288,18 @@ function renderMonthlyChart(cards) {
     const ctx = canvas.getContext('2d');
     if (canvas._chart) canvas._chart.destroy();
 
+    // UI Audit (2026-08-09, C.3): цвета из CSS-переменных, а не зашитые хексы.
+    // Раньше использовался filter: invert(.92) hue-rotate(180deg) на <canvas> —
+    // это инвертировало ВСЁ на канвасе, включая точки данных и текст подписей.
+    // Сейчас Chart.js получает цвета, совместимые с тёмной темой нативно.
+    const isDark = document.documentElement.dataset.theme === 'dark' ||
+                   document.body.dataset.theme === 'dark';
+    const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const primaryColor = cssVar('--primary-color') || '#4a57a4';
+    const successColor = cssVar('--success-color') || '#10b981';
+    const textColor = cssVar('--text-color') || '#1e293b';
+    const borderColor = cssVar('--border-color') || 'rgba(0,0,0,0.1)';
+
     canvas._chart = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -295,16 +307,16 @@ function renderMonthlyChart(cards) {
             datasets: [{
                 label: 'Сумма (BYN)',
                 data: months.map((_, i) => monthlyData[i].amount),
-                backgroundColor: 'rgba(79, 124, 245, 0.6)',
-                borderColor: 'rgba(79, 124, 245, 1)',
+                backgroundColor: primaryColor + '99',   // 60% alpha
+                borderColor: primaryColor,
                 borderWidth: 1,
                 borderRadius: 4
             }, {
                 label: 'Сделок',
                 data: months.map((_, i) => monthlyData[i].count),
                 type: 'line',
-                borderColor: '#10b981',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                borderColor: successColor,
+                backgroundColor: successColor + '1a',   // 10% alpha
                 tension: 0.3,
                 fill: true,
                 yAxisID: 'y1'
@@ -313,11 +325,46 @@ function renderMonthlyChart(cards) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { color: textColor }
+                }
+            },
             scales: {
-                y: { beginAtZero: true, title: { display: true, text: 'BYN' } },
-                y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Сделок' }, grid: { drawOnChartArea: false } }
+                x: {
+                    ticks: { color: textColor },
+                    grid: { color: borderColor }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'BYN', color: textColor },
+                    ticks: { color: textColor },
+                    grid: { color: borderColor }
+                },
+                y1: {
+                    beginAtZero: true,
+                    position: 'right',
+                    title: { display: true, text: 'Сделок', color: textColor },
+                    ticks: { color: textColor },
+                    grid: { drawOnChartArea: false }
+                }
             }
         }
     });
 }
+
+// UI Audit (2026-08-09, C.3): при смене темы перерендер графика с новыми цветами.
+// Хранить последние cards глобально, чтобы перерендерить без повторной загрузки.
+let _lastCards = null;
+const _origRender = renderMonthlyChart;
+renderMonthlyChart = function(cards) {
+    _lastCards = cards;
+    return _origRender(cards);
+};
+document.addEventListener('crm:theme-changed', () => {
+    if (_lastCards) {
+        // Даём CSS-переменным время примениться прежде, чем мы их читаем
+        setTimeout(() => _origRender(_lastCards), 50);
+    }
+});

@@ -1,4 +1,10 @@
 // Общие утилиты: тосты, подтверждения, поиск, экспорт CSV, кастомный дропдаун.
+//
+// Focus trap, Escape и возврат фокуса для модалок живут в ui-polish.js.
+// Здесь их не дублируем: две реализации на одном keydown конкурировали —
+// features.js прятал модалку через classList и возвращал фокус сам, а
+// ui-polish.js в это же время искал .close-btn и возвращал фокус по своей
+// цепочке, из-за чего фокус уезжал не туда.
 
 const SAFE_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 function sanitizeColor(c) { return (c && SAFE_COLOR_RE.test(c)) ? c : '#4f7cf5'; }
@@ -16,32 +22,34 @@ function getSkeletonHTML(cols, rowsCount = 5) {
     return html;
 }
 
-let lastFocusedElement = null;
-
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        const openModal = document.querySelector('.modal:not(.hidden)');
-        if (openModal) {
-            openModal.classList.add('hidden');
-            if (lastFocusedElement) { lastFocusedElement.focus(); lastFocusedElement = null; }
-        }
+/**
+ * Озвучивание сообщения для скринридера.
+ *
+ * Держим два постоянных live-региона вместо одного: «вежливый» дожидается
+ * паузы в речи, «настойчивый» перебивает — ошибку сохранения пользователь
+ * должен услышать сразу, а не после того, как дочитает текущий абзац.
+ * Регионы создаются один раз и живут в DOM: если создавать их вместе с
+ * сообщением, скринридер не успевает заметить появление узла и молчит.
+ *
+ * @param {string} message
+ * @param {'success'|'error'|'info'} type
+ */
+function announceToScreenReader(message, type = 'info') {
+    const assertive = type === 'error';
+    const id = assertive ? 'a11y-live-assertive' : 'a11y-live-polite';
+    let region = document.getElementById(id);
+    if (!region) {
+        region = document.createElement('div');
+        region.id = id;
+        region.className = 'sr-only';
+        region.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+        region.setAttribute('aria-atomic', 'true');
+        document.body.appendChild(region);
     }
-    if (e.key === 'Tab') {
-        const openModal = document.querySelector('.modal:not(.hidden)');
-        if (!openModal) return;
-        const focusable = openModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (!focusable.length) return;
-        const first = focusable[0], last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    }
-});
-
-function openModalTrapped(modal) {
-    lastFocusedElement = document.activeElement;
-    modal.classList.remove('hidden');
-    const first = modal.querySelector('input, button, [tabindex]');
-    if (first) setTimeout(() => first.focus(), 50);
+    // Два одинаковых сообщения подряд не читаются: текст не меняется, и
+    // мутации нет. Чистим регион и пишем в следующем кадре.
+    region.textContent = '';
+    requestAnimationFrame(() => { region.textContent = message; });
 }
 
 /**
@@ -55,18 +63,32 @@ function showToast(message, type = 'info', timeout = 3200) {
         container = document.createElement('div');
         container.id = 'toast-container';
         container.className = 'toast-container';
+        // Сам стек тостов — чисто визуальный. Озвучивание идёт через
+        // отдельные live-регионы ниже: если объявить живой областью и
+        // контейнер, и вложенный тост, часть скринридеров читает дважды.
+        container.setAttribute('aria-hidden', 'true');
         document.body.appendChild(container);
     }
+    announceToScreenReader(message, type);
     const icon = type === 'success' ? '✓' : (type === 'error' ? '!' : 'i');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escapeHtml(message)}</span>`;
+    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escapeHtml(message)}</span><button type="button" class="toast-close" aria-label="Закрыть уведомление">✕</button>`;
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('show'));
-    setTimeout(() => {
+
+    // UI Audit (2026-08-09): ручное закрытие через ✕.
+    // Тост раньше исчезал только по таймеру (3.2 с), но для важных уведомлений
+    // это долго, а для спама — нельзя убрать стек. Добавлена кнопка-крестик.
+    let dismissed = false;
+    const dismiss = () => {
+        if (dismissed) return;
+        dismissed = true;
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
-    }, timeout);
+    };
+    toast.querySelector('.toast-close').addEventListener('click', dismiss);
+    setTimeout(dismiss, timeout);
 }
 
 /**
@@ -346,6 +368,30 @@ function filterTableRows(tableId, query) {
 }
 
 /**
+ * Подписка поля поиска на таблицу с задержкой.
+ *
+ * Раньше каждая из четырёх таблиц вешала обработчик самостоятельно и без
+ * задержки: filterTableRows обходит все строки и читает textContent, то есть
+ * на каждое нажатие клавиши браузер делает полный проход по таблице с
+ * принудительным пересчётом раскладки. На нескольких сотнях строк ввод
+ * начинал заметно отставать от клавиатуры.
+ *
+ * @param {string} inputId  id поля поиска
+ * @param {string} tableId  id таблицы
+ * @param {number} delay    задержка в мс
+ */
+function bindTableSearch(inputId, tableId, delay = 200) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    let timer = null;
+    input.addEventListener('input', (e) => {
+        const value = e.target.value;
+        clearTimeout(timer);
+        timer = setTimeout(() => filterTableRows(tableId, value), delay);
+    });
+}
+
+/**
  * Фильтр карточек на канбан-доске по всем полям.
  */
 function filterKanbanCards(query) {
@@ -449,6 +495,10 @@ function parseMoney(value) {
             toggle.textContent = '☾';
             toggle.title = 'Светлая тема';
         }
+        // UI Audit (2026-08-09, C.3): после смены темы перерендерим Chart.js
+        // с новыми цветами из CSS-переменных. Событие themeChanged
+        // ловится в dashboard.js.
+        document.dispatchEvent(new CustomEvent('crm:theme-changed', { detail: { dark: !dark } }));
     });
 })();
 

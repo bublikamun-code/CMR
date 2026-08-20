@@ -123,13 +123,17 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db), curren
 
             invoices = [p for p in parts if (p.invoice_number or "").strip()]
 
+            card_paid = float(base.card.paid_amount or 0) if base.card else 0.0
+            card_payment_status = base.card.payment_status if base.card else None
             d = _tx_dict(base, parts=len(parts), invoices=len(invoices),
-                         paid=None, partial=False)
+                         paid=None, partial=False,
+                         paid_amount=card_paid, payment_status=card_payment_status)
             d["amount"] = total
             # флаги — по всем частям сразу
             d["is_calculated"] = all(bool(p.is_calculated) for p in parts)
             d["is_invoice_issued"] = any(bool(p.is_invoice_issued) or (p.invoice_number or "").strip() for p in parts)
             d["is_written_off"] = all(bool(p.is_written_off) for p in parts)
+            d["part_ids"] = [p.id for p in parts]
             if len(invoices) == 1:
                 d["invoice_number"] = invoices[0].invoice_number
                 d["invoice_date"] = invoices[0].invoice_date
@@ -146,7 +150,7 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db), curren
         tdb.close()
 
 
-def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False):
+def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, payment_status=None):
     return {
         "id": t.id, "date": t.date, "card_id": t.card_id,
         "company_name": t.company_name, "amount": float(t.amount or 0),
@@ -161,7 +165,10 @@ def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False):
         "is_bill_doc": bool(t.is_bill_doc),
         "is_warehouse_writeoff": bool(t.is_warehouse_writeoff),
         "parts_count": parts, "invoices_count": invoices,
-        "paid_amount": paid, "is_partial_payment": partial,
+        "part_ids": None,
+        "paid_amount": paid_amount,
+        "payment_status": payment_status,
+        "is_partial_payment": partial,
     }
 
 @router.get("/documents", response_model=List[schemas.TransactionResponse])
@@ -417,6 +424,9 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
             rest = round(float(card.total_amount or 0) - covered, 2)
             amount = rest if rest > 0 else 0.0
 
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Сумма накладной должна быть больше нуля: остаток по сделке уже покрыт")
+
         store = payload.store_location or card.store_location
         if not store and existing:
             store = existing[0].store_location
@@ -543,15 +553,23 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             )
             session.add(invoice)
             if remainder is not None:
-                remainder.amount = rest_after
-                remainder.store_location = store
-                new_remainder = remainder
+                if rest_after <= 0.01:
+                    # остаток исчерпан — удаляем пустую запись вместо нулевой
+                    session.delete(remainder)
+                    new_remainder = None
+                else:
+                    remainder.amount = rest_after
+                    remainder.store_location = store
+                    new_remainder = remainder
             else:
-                new_remainder = models.Transaction(
-                    company_name=card.title, amount=rest_after,
-                    store_location=store, card_id=card_id,
-                )
-                session.add(new_remainder)
+                if rest_after > 0.01:
+                    new_remainder = models.Transaction(
+                        company_name=card.title, amount=rest_after,
+                        store_location=store, card_id=card_id,
+                    )
+                    session.add(new_remainder)
+                else:
+                    new_remainder = None  # do not create a zero-amount remainder
 
         session.flush()
         _issue_document(session, invoice)

@@ -19,6 +19,24 @@ let showOldCards = { "Новый запрос": false, "В работе": false,
 // а при возврате из архива статус пересчитывается сервером.
 const KANBAN_COLUMNS = ["Новый запрос", "В работе", "Ждет оплаты", "Сборка"];
 const OLD_CARD_DAYS = 15;
+
+const PAYMENT_STATUS_CLASSES = {
+    'Не оплачен': 'pay-unpaid',
+    'Частично': 'pay-partial',
+    'Оплачен': 'pay-paid',
+    'Отсрочка': 'pay-deferred'
+};
+
+function renderPaymentBadge(card) {
+    const total = parseFloat(card.total_amount) || 0;
+    if (total <= 0) return '';
+    const paid = parseFloat(card.paid_amount) || 0;
+    const status = card.payment_status || 'Не оплачен';
+    const cls = PAYMENT_STATUS_CLASSES[status] || 'pay-unpaid';
+    const text = paid >= total - 0.01 ? `${paid.toFixed(2)} BYN` : `${paid.toFixed(2)} / ${total.toFixed(2)} BYN`;
+    return `<span class="pay-badge pay-badge-kanban ${cls}" title="Оплата: ${status}, ${paid.toFixed(2)} / ${total.toFixed(2)} BYN"><span class="pay-icon">💰</span>${text}</span>`;
+}
+
 let _isDropping = false;
 let _kanbanSearchQuery = '';
 let _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '' };
@@ -274,6 +292,7 @@ function fillCardHTML(cardEl, card) {
         <div class="card-amount">${escapeHtml(String(card.total_amount || 0))} BYN</div>
         <div class="card-badges">
             ${card.store_location ? `<span class="store-badge store-${escapeHtml(card.store_location)}">${escapeHtml(card.store_location)}</span>` : ''}
+            ${renderPaymentBadge(card)}
             ${invoiceCount > 0 ? `<span class="paperclip-badge" title="Прикреплённых счетов: ${invoiceCount}">${ICON_CLIP}${invoiceCount}</span>` : ''}
             ${isOld ? `<span class="old-card-badge" title="Создана более ${OLD_CARD_DAYS} дней назад">СТАРАЯ (${diffDays}д)</span>` : ''}
             ${isOverdue ? `<span class="overdue-badge-card">ПРОСРОЧЕНО</span>` : ''}

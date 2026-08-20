@@ -37,6 +37,8 @@ html {
     --bg-color: #f8fafc;
     --bg-secondary: #f1f5f9;
     --text-color: #1e293b;
+    --text-primary: var(--text-color);
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --text-muted: #64748b;
     --danger-color: #cb4154;
     --success-color: #1a9a75;
@@ -68,8 +70,32 @@ html {
     --font-base: 14px;
     --font-md: 16px;
     --font-lg: 20px;
+    /* Длительность + easing. Используются там, где свойство указано явно:
+       transition: border-color var(--transition-fast); */
     --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* UI Audit (2026-08-09): чёткий ease-out без bounce для попапов, дропдаунов,
+       тостов и модалок. cubic-bezier(0.23,1,0.32,1) — рекомендуемый Kowalski-кривой,
+       резкий старт с мягким затуханием, без overshoot. */
+    --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+    /* Готовые переходы для интерактивных элементов. Список свойств задан
+       явно вместо `all`: `all` заставляет браузер отслеживать каждое
+       свойство, включая layout-свойства (width, padding, top), из-за чего
+       случайное изменение размера начинает анимироваться и появляется
+       «резиновый» интерфейс. Здесь только свойства, которые анимируются
+       на GPU или не вызывают пересчёт геометрии. */
+    --transition-ui: background-color var(--transition-fast),
+                     border-color var(--transition-fast),
+                     color var(--transition-fast),
+                     box-shadow var(--transition-fast),
+                     opacity var(--transition-fast),
+                     transform var(--transition-fast);
+    --transition-ui-slow: background-color var(--transition-normal),
+                          border-color var(--transition-normal),
+                          color var(--transition-normal),
+                          box-shadow var(--transition-normal),
+                          opacity var(--transition-normal),
+                          transform var(--transition-normal);
     /* Цвета таблицы */
     --table-header-bg: #0f172a;
     --table-header-text: #ffffff;
@@ -118,6 +144,11 @@ html {
     --store-matusevicha-soft: #0c2d4a;
     --store-bogdanovicha-soft: #1e1547;
     --store-bn-soft: #0a2e2a;
+    /* Рамка интерактивных элементов (инпуты, кнопки, дропдауны): на тон
+       светлее --border-color, иначе поля ввода сливаются с фоном. */
+    --border-interactive: #3d4350;
+    /* Индиговый акцент тёмной темы: активные пункты, ссылки, фокус. */
+    --accent-indigo: #818cf8;
 }
 [data-theme="dark"] .sidebar {
     background: linear-gradient(180deg, #0b0e14, #080a0f);
@@ -125,31 +156,23 @@ html {
 }
 [data-theme="dark"] .modal-content,
 [data-theme="dark"] .modal-content-wide {
-    background: #1e2128;
-    border: 1px solid #2d3340;
+    background: var(--table-row-odd);
+    border: 1px solid var(--border-color);
 }
 [data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
-    background: #252830;
-    color: #e2e8f0;
-    border-color: #3d4350;
-}
-[data-theme="dark"] input:focus, [data-theme="dark"] select:focus, [data-theme="dark"] textarea:focus {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.25);
+    background: var(--table-row-hover);
+    color: var(--text-color);
+    border-color: var(--border-interactive);
 }
 [data-theme="dark"] .kanban-card {
-    background-color: #252830 !important;
-    border-color: #3d4350 !important;
+    background-color: var(--table-row-hover);
+    border-color: var(--border-interactive);
 }
-[data-theme="dark"] .kanban-column h3 { color: #e2e8f0; }
-[data-theme="dark"] .kanban-column { background-color: #1a1d24; }
-[data-theme="dark"] .kanban-column h3 { background: #252830; color: #e2e8f0; }
-[data-theme="dark"] .dropdown-menu { background: #252830; border-color: #3d4350; }
-[data-theme="dark"] .dropdown-item { color: #e2e8f0; }
-[data-theme="dark"] .dropdown-item:hover { background: #2d3340; }
+[data-theme="dark"] .kanban-column h3 { color: var(--text-color); }
+[data-theme="dark"] .kanban-column { background-color: var(--bg-color); }
+[data-theme="dark"] .data-table th { background: var(--table-header-bg); color: var(--text-color); }
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
-[data-theme="dark"] .data-table th { background: #161920; color: #e2e8f0; }
-[data-theme="dark"] .data-table td { border-color: #2d3340; }
+[data-theme="dark"] .data-table td { border-color: var(--border-color); }
 [data-theme="dark"] .btn-primary { background: var(--primary-color); }
 [data-theme="dark"] .btn-primary:hover { background: var(--primary-hover); }
 [data-theme="dark"] .dash-stat { background: var(--card-bg); }
@@ -174,20 +197,11 @@ html {
 
 /* === UTILITY CLASSES === */
 .flex { display: flex; }
-.flex-col { flex-direction: column; }
-.items-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-.gap-1 { gap: 4px; }
-.gap-2 { gap: 8px; }
-.gap-3 { gap: 12px; }
-.gap-4 { gap: 16px; }
 .text-sm { font-size: 12px; }
-.text-xs { font-size: 11px; }
 .text-muted { color: var(--text-muted); }
 .text-right { text-align: right; }
 .font-mono { font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hidden { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 
 * {
@@ -265,9 +279,12 @@ body {
 .sidebar.collapsed .sidebar-header h2 { display: none; }
 .sidebar.collapsed .nav-label { display: none; }
 .sidebar.collapsed .nav-btn { justify-content: center; padding: 12px 0; margin: 2px 4px; }
+/* padding нет в --transition-ui (layout-свойство), но здесь анимация нужна:
+   свёрнутый сайдбар расширяет кнопку под курсором. Добавляем адресно. */
+.sidebar.collapsed .nav-btn { transition: var(--transition-ui), padding var(--transition-fast); }
 .sidebar.collapsed .nav-btn:hover { padding: 12px 8px; }
-.sidebar.collapsed .sidebar-footer .admin-link-btn span { display: none; }
-.sidebar.collapsed .sidebar-footer .logout-btn span { display: none; }
+.sidebar.collapsed .sidebar-footer .admin-link-btn span:not(.nav-icon),
+.sidebar.collapsed .sidebar-footer .logout-btn span:not(.nav-icon) { display: none; }
 .sidebar.collapsed .sidebar-controls { justify-content: center; }
 
 /* Кнопка сворачивания */
@@ -288,7 +305,7 @@ body {
     font-size: 12px;
     color: var(--text-muted);
     z-index: 60;
-    transition: all 0.2s;
+    transition: var(--transition-ui);
     box-shadow: var(--shadow-sm);
 }
 .sidebar-toggle:hover {
@@ -305,10 +322,9 @@ body {
 .sidebar-header h2 {
     font-size: 18px;
     letter-spacing: 0.3px;
-    background: linear-gradient(90deg, #fff, #c7d2fe);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    /* UI Audit (2026-08-09): градиентный текст удалён. Перебивался финальным
+       `background:none; color:#f8fafc !important;` на строке 7034 (читаемость
+       на 20px хуже сплошного — это осмысленно). Удаляю мёртвый код. */
 }
 
 .sidebar-nav {
@@ -331,7 +347,7 @@ body {
     text-align: left;
     font-size: 14px;
     cursor: pointer;
-    transition: var(--transition-normal);
+    transition: var(--transition-ui-slow);
     position: relative;
     white-space: nowrap;
     overflow: hidden;
@@ -384,7 +400,7 @@ a.nav-btn { text-decoration: none; }
 .admin-link-btn {
     width: 100%;
     padding: 10px 18px;
-    background: linear-gradient(90deg, #8b5cf6, #7c3aed);
+    background: linear-gradient(90deg, #8b5cf6, var(--store-bogdanovicha));
     color: white;
     border: none;
     border-radius: var(--radius-sm);
@@ -393,10 +409,10 @@ a.nav-btn { text-decoration: none; }
     text-align: center;
     text-decoration: none;
     font-size: 14px;
-    transition: all 0.2s;
+    transition: var(--transition-ui);
 }
 .admin-link-btn:hover {
-    background: linear-gradient(90deg, #7c3aed, #6d28d9);
+    background: linear-gradient(90deg, var(--store-bogdanovicha), #6d28d9);
     transform: translateY(-1px);
 }
 .hidden { display: none !important; }
@@ -410,7 +426,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-weight: 500;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .logout-btn:hover {
@@ -456,9 +472,9 @@ a.nav-btn { text-decoration: none; }
 .view-toggle { display: flex; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; }
 .view-toggle-btn { border-radius: 0 !important; border: none !important; background: var(--card-bg); color: var(--text-muted); }
 .view-toggle-btn.active { background: var(--primary-color); color: white; }
-[data-theme="dark"] .view-toggle { border-color: #3d4350; }
-[data-theme="dark"] .view-toggle-btn { background: #252830; color: #94a3b8; }
-[data-theme="dark"] .view-toggle-btn.active { background: #6366f1; color: white; }
+[data-theme="dark"] .view-toggle { border-color: var(--border-interactive); }
+[data-theme="dark"] .view-toggle-btn { background: var(--table-row-hover); color: var(--text-muted); }
+[data-theme="dark"] .view-toggle-btn.active { background: var(--primary-hover); color: white; }
 
 .header-actions {
     flex-wrap: wrap;
@@ -482,7 +498,7 @@ a.nav-btn { text-decoration: none; }
     font-size: 14px;
     font-weight: 600;
     box-shadow: 0 2px 8px rgba(79,124,245,0.25);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-primary:hover {
@@ -518,7 +534,7 @@ a.nav-btn { text-decoration: none; }
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: left 12px center;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .search-input:focus {
@@ -537,7 +553,7 @@ a.nav-btn { text-decoration: none; }
     font-size: 14px;
     font-weight: 500;
     white-space: nowrap;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-secondary:hover {
@@ -553,11 +569,12 @@ a.nav-btn { text-decoration: none; }
     padding: 7px;
     cursor: pointer;
     border: 1px solid var(--border-color);
-    background: #fff;
+    /* UI Audit (2026-08-09, E.1): #fff → var(--card-bg) для тёмной темы */
+    background: var(--card-bg);
     border-radius: var(--radius-sm);
     font-size: 11px;
     color: var(--text-muted);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-show-old:hover {
@@ -637,7 +654,7 @@ a.nav-btn { text-decoration: none; }
 .data-table th.sortable {
     cursor: pointer;
     user-select: none;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .data-table th.sortable:hover {
     color: var(--primary-color);
@@ -677,15 +694,16 @@ a.nav-btn { text-decoration: none; }
     display: block;
     border: 2px solid #cbd5e1;
     border-radius: 6px;
-    background: #fff;
+    /* UI Audit (2026-08-09, E.2): #fff → var(--card-bg). Выше dark-правило есть на 703-706. */
+    background: var(--card-bg);
     cursor: pointer;
     position: relative;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 [data-theme="dark"] .data-table input[type="checkbox"] {
-    background: #252830;
-    border-color: #3d4350;
+    background: var(--table-row-hover);
+    border-color: var(--border-interactive);
 }
 
 [data-theme="dark"] .data-table input[type="checkbox"]:checked {
@@ -723,7 +741,7 @@ a.nav-btn { text-decoration: none; }
     font-weight: 600;
     color: var(--text-color);
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
@@ -766,7 +784,7 @@ a.nav-btn { text-decoration: none; }
     background-repeat: no-repeat;
     background-position: right 10px center;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .data-table select:hover {
@@ -826,7 +844,10 @@ a.nav-btn { text-decoration: none; }
     overflow-y: auto;
     position: relative;
     box-shadow: var(--shadow-lg);
-    animation: modalFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    /* UI Audit (2026-08-09): единый быстрый вход 200мс, ease-out-strong, без bounce.
+       Раньше было modalFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) — overshoot,
+       плюс параллельно работал modalSlideUp с другого селектора → конфликт. */
+    animation: modalEnter 200ms var(--ease-out-strong);
 }
 
 .close-btn {
@@ -842,7 +863,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     background: var(--bg-color);
     color: var(--text-color);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     border: none;
     line-height: 1;
 }
@@ -919,7 +940,7 @@ a.nav-btn { text-decoration: none; }
     font-family: inherit;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     height: 42px;
     box-sizing: border-box;
 }
@@ -989,7 +1010,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-md);
     cursor: pointer;
     background: #f8fafc;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: var(--text-muted);
     font-size: 13px;
     display: flex;
@@ -1023,7 +1044,7 @@ a.nav-btn { text-decoration: none; }
     background: #f1f5f9;
     border: 1px solid var(--border-color);
     border-radius: 999px; /* Chip style */
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     max-width: 100%;
 }
 
@@ -1065,7 +1086,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     width: 18px;
     height: 18px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-delete-attachment:hover {
@@ -1080,6 +1101,10 @@ a.nav-btn { text-decoration: none; }
     text-align: center;
     margin-top: 20px;
     border: 1px solid var(--border-color);
+}
+
+[data-theme="dark"] .store-section {
+    background: linear-gradient(180deg, var(--card-bg), var(--bg-color));
 }
 
 .store-section .modal-label {
@@ -1103,7 +1128,7 @@ a.nav-btn { text-decoration: none; }
     background-repeat: no-repeat;
     background-position: right 14px center;
     background-size: 14px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: var(--text-color);
     box-shadow: var(--shadow-sm);
 }
@@ -1116,6 +1141,12 @@ a.nav-btn { text-decoration: none; }
 
 .store-select:hover {
     border-color: var(--primary-color);
+}
+
+[data-theme="dark"] .store-select {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border-color: var(--border-interactive);
 }
 
 .modal-actions {
@@ -1131,7 +1162,7 @@ a.nav-btn { text-decoration: none; }
     cursor: pointer;
     font-weight: 600;
     font-size: 14px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: white;
 }
 
@@ -1199,7 +1230,7 @@ a.nav-btn { text-decoration: none; }
     font-size: 14px;
     padding: 2px 6px;
     border-radius: 50%;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     opacity: 0;
 }
 
@@ -1237,13 +1268,18 @@ a.nav-btn { text-decoration: none; }
     border: 1px dashed #c3d2f7;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .checklist-invoice-add:hover {
     background: #e2ebfe;
     border-color: var(--primary-color);
     transform: none;
+}
+
+[data-theme="dark"] .checklist-invoice-add:hover {
+    background: rgba(99,102,241,0.2);
+    border-color: var(--primary-color);
 }
 
 .checklist-invoice {
@@ -1264,7 +1300,7 @@ a.nav-btn { text-decoration: none; }
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 12.5px;
-    color: #0f766e;
+    color: var(--store-bn);
     text-decoration: none;
     font-weight: 600;
 }
@@ -1283,7 +1319,7 @@ a.nav-btn { text-decoration: none; }
     line-height: 1;
     padding: 2px 6px;
     border-radius: 50%;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .checklist-invoice-del:hover {
@@ -1306,7 +1342,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     font-size: 14px;
     line-height: 1;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     padding: 0;
 }
 
@@ -1327,7 +1363,7 @@ a.nav-btn { text-decoration: none; }
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     padding: 0;
 }
 
@@ -1358,7 +1394,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: 50%;
     font-size: 14px;
     line-height: 1;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     padding: 0;
     opacity: 0;
 }
@@ -1380,7 +1416,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     font-size: 14px;
     margin-bottom: 12px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .modal-content input:focus {
@@ -1424,7 +1460,8 @@ a.nav-btn { text-decoration: none; }
     margin-bottom: 12px;
     padding: 9px 12px;
     color: var(--sidebar-bg);
-    background: #fff;
+    /* UI Audit (2026-08-09, E.2): #fff → var(--card-bg). Dark-override на 4848 дублирует. */
+    background: var(--card-bg);
     border-radius: var(--radius-md);
     border-left: 4px solid var(--primary-color);
     box-shadow: var(--shadow-sm);
@@ -1492,11 +1529,6 @@ a.nav-btn { text-decoration: none; }
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
     border-left: 3px solid var(--primary-color);
     position: relative;
-}
-
-.kanban-card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
 }
 
 .kanban-card:active {
@@ -1616,20 +1648,84 @@ a.nav-btn { text-decoration: none; }
 }
 
 .progress-fill.paid { background: var(--success-color); }
-.progress-fill.came { background: #6366f1; }
+.progress-fill.came { background: var(--primary-500); }
 
 .kanban-card:hover .btn-delete-card {
     opacity: 1;
 }
 
-.btn-delete-card:hover {
-    background: rgba(74, 87, 164, 0.15);
+/* UI Audit (2026-08-09, C.6): базовый красный цвет крестика — БЕЗ !important.
+   Селектор .card-hover-btn.btn-delete-card (0,2,0) уже перекрывает
+   .card-hover-btn { color: var(--text-muted) } (0,1,0) по специфичности.
+   !important здесь не нужен — это не патч поверх чужих правил. */
+.card-hover-btn.btn-delete-card {
     color: var(--danger-color);
-    transform: scale(1.1);
 }
 
-.btn-delete-card {
-    color: var(--danger-color) !important;
+/* UI Audit (2026-08-09, B.6) — канбан-крестики выровнены.
+   Текстовые глифы ✕/✎ имеют разную базовую линию в разных ОС, поэтому явно задаём
+   font-family/size/weight/line-height. */
+.card-hover-btn.btn-delete-card,
+.card-hover-btn.btn-edit-card {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    min-height: 24px;
+}
+
+/* Специфичность (0,3,0) достаточна — без !important.
+   Перебивает .card-hover-btn:hover{...!important} на строке 5910. */
+.card-hover-btn.btn-delete-card:hover,
+button.btn-delete-card:hover {
+    background: var(--danger-color);
+    color: #fff;
+}
+
+/* Иконка редактирования на hover заливается основным цветом, а не красным */
+.card-hover-btn.btn-edit-card:hover,
+button.btn-edit-card:hover {
+    background: var(--primary-color);
+    color: #fff;
+}
+
+/* Light-mode .btn-danger — используется в табличном виде списка (kanban.js:742)
+   и других местах. Раньше был определён только в [data-theme="dark"],
+   поэтому в светлой теме кнопка удаления выглядела как обычная. */
+.btn-danger {
+    background: var(--danger-color);
+    color: #fff;
+    border: none;
+    transition: background-color var(--transition-fast);
+}
+.btn-danger:hover {
+    background: #b91c1c;   /* более тёмный красный на hover */
+    color: #fff;
+}
+.btn-danger:active {
+    transform: scale(0.97);
+    transition-duration: 60ms;
+}
+
+/* UI Audit (2026-08-09, B.6): .btn-danger.btn-sm используется как иконка-символ ✕
+   в таблице списка. Делаем квадратным (icon-only) и центрируем содержимое,
+   чтобы крестик выглядел так же аккуратно, как на канбан-доске. */
+.btn-danger.btn-sm {
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
 }
 
 /* --- СТИЛИ ДЛЯ КАРТОЧЕК СПИСАНИЙ --- */
@@ -1663,45 +1759,10 @@ a.nav-btn { text-decoration: none; }
     margin-bottom: var(--space-sm) !important;
 }
 
-.writeoff-fields {
-    border-top: 1px solid var(--border-color);
-    padding-top: var(--space-sm) !important;
-    display: flex !important;
-    gap: var(--space-xs) !important;
-}
-
-.writeoff-fields input {
-    flex: 1 !important;
-    min-width: 0 !important;
-    padding: 6px var(--space-sm) !important;
-    font-size: var(--font-sm) !important;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    margin-bottom: 0 !important;
-    box-sizing: border-box;
-    height: 32px !important;      /* было 20px — невозможно попасть пальцем */
-    transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-
-/* Подтверждение сохранения номера накладной — раньше сохранялось молча */
-.writeoff-fields input.saving {
-    border-color: var(--warning-color);
-    background: #fffbeb;
-}
-.writeoff-fields input.saved {
-    border-color: var(--success-color);
-    background: #f0fdf4;
-}
-.writeoff-fields input.save-error {
-    border-color: var(--danger-color);
-    background: #fef2f2;
-}
-
-.writeoff-fields input:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.15);
-}
+/* Блок .writeoff-fields удалён: поля ввода с доски списаний убраны
+   (правятся только внутри карточки сделки), разметка их больше не
+   создаёт. Вместе с ним снята парная функция saveFieldWithFeedback
+   в js/writeoffs.js. */
 
 .btn-writeoff {
     position: absolute;
@@ -1716,7 +1777,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-weight: 600;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .btn-writeoff:hover {
@@ -1758,7 +1819,7 @@ a.nav-btn { text-decoration: none; }
     border-radius: var(--radius-sm);
     font-size: 14px;
     box-sizing: border-box;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .login-screen input:focus {
@@ -1804,16 +1865,12 @@ a.nav-btn { text-decoration: none; }
     border: 2px solid var(--warning-color);
     opacity: 0.85;
 }
-@keyframes modalFadeIn {
-    from { 
-        opacity: 0; 
-        transform: translateY(-20px) scale(0.98); 
-    }
-    to { 
-        opacity: 1; 
-        transform: translateY(0) scale(1); 
-    }
-}
+/* UI Audit (2026-08-09): удалён старый @keyframes modalFadeIn.
+   Причины:
+   - 300 мс + cubic-bezier с overshoot (1.275) → «поп-ап реклама», не CRM.
+   - Дублировался modalSlideUp на .modal-content через другой селектор →
+     конфликт двух keyframes на одном элементе.
+   Заменён единым modalEnter (200мс, --ease-out-strong) — см. конец файла. */
 
 /* Выбираем карточки на доске и на странице списаний */
 .kanban-cards > div, .writeoff-cards > div {
@@ -1837,7 +1894,7 @@ a.nav-btn { text-decoration: none; }
 
 /* Общие правила для всех кнопок и инпутов */
 button, select, input {
-    transition: all var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 button:focus:not(:focus-visible), select:focus:not(:focus-visible), input:focus:not(:focus-visible) {
@@ -1851,12 +1908,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 
 button:hover {
     filter: brightness(1.05);
-    transform: translateY(-1px);
-}
-
-button:active {
-    transform: translateY(0);
-    filter: brightness(0.98);
 }
 
 /* Красивые поля ввода */
@@ -1975,7 +2026,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 [data-theme="dark"] .writeoff-column h4 {
     background: rgba(255,255,255,0.1) !important;
-    color: #e2e8f0 !important;
+    color: var(--text-color);
 }
 
 .writeoff-column[data-status="true"] {
@@ -2021,25 +2072,6 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 /* Списание: блоки магазинов не складываем в столбик — оставляем
    горизонтальный скролл вправо (как на канбане). */
 
-@media (max-width: 900px) {
-    /* [FIXED] Убран конфликт мобильного меню с выезжающей шторкой */
-    
-    .kanban-board {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        height: calc(100vh - 140px);
-    }
-    
-    .page-header {
-        flex-direction: column;
-        gap: 10px;
-        align-items: flex-start;
-    }
-    
-    /* Колонки "На списание"/"Списано" внутри магазина остаются рядом —
-       страница прокручивается вправо вместе с канбаном. */
-}
-
 /* ==========================================================
    ТОСТЫ (всплывающие уведомления)
    ========================================================== */
@@ -2054,6 +2086,9 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     pointer-events: auto;
 }
 
+/* UI Audit (2026-08-09, E.1): тост перекрашен через переменные.
+   Раньше background был #fff всегда — в тёмной теме белый блок резал глаз.
+   color и border-color теперь через --text-color / --border-color. */
 .toast {
     display: flex;
     align-items: center;
@@ -2061,7 +2096,8 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     min-width: 240px;
     max-width: 380px;
     padding: 13px 16px;
-    background: #fff;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
     border-left: 4px solid var(--primary-color);
@@ -2070,12 +2106,40 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     color: var(--text-color);
     opacity: 0;
     transform: translateX(40px);
-    transition: opacity var(--transition-normal), transform var(--transition-normal);
+    transition: opacity 200ms var(--ease-out-strong), transform 200ms var(--ease-out-strong);
 }
 
 .toast.show {
     opacity: 1;
     transform: translateX(0);
+}
+
+/* UI Audit (2026-08-09): кнопка-крестик для ручного закрытия тоста. */
+.toast-close {
+    flex-shrink: 0;
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+}
+.toast-close:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-color);
+}
+[data-theme="dark"] .toast-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-color);
 }
 
 .toast-icon {
@@ -2128,8 +2192,12 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     opacity: 1;
 }
 
+/* UI Audit (2026-08-09, E.1): confirm-dialog через переменные.
+   Раньше background был #fff всегда — белый popup в тёмной теме. */
 .confirm-box {
-    background: #fff;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     padding: 24px;
@@ -2163,9 +2231,9 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-weight: 600;
     cursor: pointer;
     border: 1px solid var(--border-color);
-    background: #fff;
+    background: var(--card-bg);
     color: var(--text-color);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .confirm-cancel:hover {
@@ -2205,12 +2273,13 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     padding: 10px 12px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
-    background: #fff;
+    /* UI Audit (2026-08-09, E.2): #fff → var(--card-bg). Dark на 4822/5020 уже есть. */
+    background: var(--card-bg);
     color: var(--text-color);
     font-size: 14px;
     font-weight: 400;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     text-align: left;
     font-family: inherit;
     height: 42px;
@@ -2254,15 +2323,17 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     left: 0;
     right: 0;
     z-index: 200;
-    background: #fff;
+    /* UI Audit (2026-08-09, E.1): #fff → var(--card-bg) для тёмной темы */
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
     padding: 4px;
+    color: var(--text-color);
     display: none;
     flex-direction: column;
     gap: 1px;
-    animation: dropdownIn 0.14s ease;
+    animation: dropdownIn 140ms var(--ease-out-strong);
     min-width: 100%;
     max-height: 280px;
     overflow-y: auto;
@@ -2290,7 +2361,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     color: var(--text-color);
     text-align: left;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2369,7 +2440,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 .print-badge[data-print="БН"] {
     background: var(--store-bn-soft);
-    color: #0f766e;
+    color: var(--store-bn);
     border-color: #99f6e4;
 }
 .markers-cell {
@@ -2463,7 +2534,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-family: inherit;
     resize: vertical;
     min-height: 38px;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     box-sizing: border-box;
 }
 
@@ -2487,7 +2558,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-size: 13px;
     font-weight: 700;
     text-decoration: none;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .checklist-invoice-dl:hover {
@@ -2579,13 +2650,152 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .tag-add-btn:hover {
     border-color: var(--primary-color);
     color: var(--primary-color);
     background: var(--primary-soft);
 }
+
+/* --- ОПЛАТА --- */
+.pay-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+.pay-badge-kanban {
+    font-size: 12px;
+    padding: 3px 10px;
+    gap: 5px;
+}
+.pay-icon {
+    font-size: 12px;
+    line-height: 1;
+}
+.pay-unpaid { background: #fee2e2; color: #991b1b; }
+.pay-partial { background: #fef3c7; color: #92400e; }
+.pay-paid { background: #d1fae5; color: #065f46; }
+.pay-deferred { background: #e0e7ff; color: #3730a3; }
+[data-theme="dark"] .pay-unpaid { background: rgba(254, 226, 226, 0.15); color: #fca5a5; }
+[data-theme="dark"] .pay-partial { background: rgba(254, 243, 199, 0.15); color: #fcd34d; }
+[data-theme="dark"] .pay-paid { background: rgba(209, 250, 229, 0.15); color: #6ee7b7; }
+[data-theme="dark"] .pay-deferred { background: rgba(224, 231, 255, 0.15); color: #a5b4fc; }
+
+#payment-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+#payment-section h3 {
+    margin: 0;
+    font-size: 14px;
+}
+.payment-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 13px;
+}
+.pay-amount {
+    color: var(--text-color);
+    font-weight: 500;
+}
+.pay-due {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.payment-progress {
+    height: 6px;
+    background: var(--border-color);
+    border-radius: 999px;
+    margin-top: 10px;
+    overflow: hidden;
+}
+.payment-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--success-color), #34d399);
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+.payment-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.payment-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.payment-field label {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.payment-field input,
+.payment-field select {
+    padding: 7px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--card-bg);
+    color: var(--text-color);
+    font-size: 13px;
+}
+.payment-field input:focus,
+.payment-field select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+.payment-form-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.payment-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 110px;
+}
+.payment-cell-amounts {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    font-size: 12px;
+    color: var(--text-color);
+    white-space: nowrap;
+}
+.pay-cell-paid {
+    font-weight: 600;
+}
+.pay-cell-divider {
+    color: var(--text-muted);
+}
+.pay-cell-total {
+    color: var(--text-muted);
+}
+.pay-cell-rest {
+    color: var(--danger-color);
+    font-size: 11px;
+}
+.payment-cell-progress {
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 999px;
+    overflow: hidden;
+    width: 100%;
+    margin-top: 2px;
+}
+
 .tag-dropdown-menu {
     position: absolute;
     top: 100%;
@@ -2652,7 +2862,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-weight: 500;
     cursor: pointer;
     border-left: 3px solid transparent;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     color: var(--text-color);
 }
 .tag-filter-btn:hover { background: var(--bg-color); }
@@ -2663,6 +2873,11 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 
 /* --- DUE DATE ИНДИКАТОРЫ --- */
+/* Пульсации ниже раньше стояли infinite. Просрочка — постоянное состояние,
+   а не процесс, поэтому мигание не прекращалось всё время, пока открыта
+   страница, и превращалось в фоновый раздражитель. Три повтора привлекают
+   внимание при появлении и затихают. Красный цвет и текст остаются —
+   информация не теряется. */
 .overdue-badge {
     display: inline-block;
     font-size: 11px;
@@ -2672,7 +2887,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     padding: 2px 8px;
     border-radius: 999px;
     margin-left: 8px;
-    animation: pulse-overdue 2s infinite;
+    animation: badgeEnter 150ms var(--ease-out-strong) 1;
 }
 .overdue-badge-card {
     display: inline-block;
@@ -2686,17 +2901,19 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 .card-overdue {
     border-left: 3px solid var(--danger-color) !important;
-    animation: pulse-overdue-border 2s infinite;
+    /* UI Audit (2026-08-09): мигание заменено входом. Бейдж «Просрочено» —
+       это статус, а не событие. Пульсация любого вида в CRM считывается как
+       «рекламный поп-ап». */
+    animation: badgeEnter 150ms var(--ease-out-strong) 1;
 }
 
 .card-due-soon {
     border-left: 3px solid var(--warning-color, #f59e0b) !important;
 }
 
-@keyframes pulse-overdue-border {
-    0%, 100% { border-left-color: var(--danger-color); }
-    50% { border-left-color: transparent; }
-}
+/* UI Audit (2026-08-09): pulse-overdue-border удалён.
+   Рамка трижды мигала в transparent (WCAG 2.3.1 — мерцание). Статус «просрочено»
+   теперь статичен с одним коротким входом badgeEnter. */
 
 .overdue-summary-bar {
     display: flex;
@@ -2709,17 +2926,14 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-radius: var(--radius-md);
     font-size: 13px;
     font-weight: 500;
-    animation: pulse-overdue 2s infinite;
+    /* Сплошная красная плашка во всю ширину и без мигания заметна
+       достаточно, поэтому здесь пульсация убрана полностью. */
 }
 
 .overdue-summary-icon {
     font-size: 16px;
 }
 
-@keyframes pulse-overdue {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.8; }
-}
 .due-soon-badge {
     display: inline-block;
     font-size: 10px;
@@ -2733,20 +2947,17 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-color: var(--danger-color);
     box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
 }
-@keyframes pulse-overdue {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+
+/* UI Audit (2026-08-09): pulse-overdue заменён на badgeEnter.
+   Пульсация (opacity 1→0.7→1) считывалась как мерцание статуса. Теперь
+   статический бейдж с коротким одноразовым появлением. */
+@keyframes badgeEnter {
+    from { opacity: 0; transform: translateY(2px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 /* --- МОДАЛКА: двухколоночный макет --- */
 .modal-content-wide { max-width: 900px; width: 95%; }
-.modal-top-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 8px;
-}
-.modal-top-col { display: flex; flex-direction: column; gap: 8px; }
 
 /* --- АКТИВНОСТЬ --- */
 .activity-container {
@@ -2836,10 +3047,6 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-sm);
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-}
-.dash-stat:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
 }
 .dash-stat-icon {
     display: flex;
@@ -2982,10 +3189,26 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     .page-header { padding-left: 56px; }
     .page-header h1 { font-size: 18px; }
     .header-actions { flex-wrap: wrap; }
-    .modal-top-row { grid-template-columns: 1fr; }
     .modal-content-wide { max-width: 95%; }
     .kanban-board { overflow-x: auto; }
     .writeoffs-container { grid-template-columns: 1fr; }
+
+    /* [FIXED] Убран конфликт мобильного меню с выезжающей шторкой */
+    
+    .kanban-board {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        height: calc(100vh - 140px);
+    }
+    
+    .page-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+    
+    /* Колонки "На списание"/"Списано" внутри магазина остаются рядом —
+       страница прокручивается вправо вместе с канбаном. */
 }
 
 @media (max-width: 600px) {
@@ -3027,9 +3250,14 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-radius: 6px;
     border: 2px solid transparent;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: var(--transition-ui);
     padding: 0;
 }
+/* UI Audit (2026-08-09): scale на hover здесь БЕЗОПАСЕН.
+   На color-swatch (28×28 px) элемент не двигается поступательно, а только
+   масштабируется от центра — точка клика сохраняется, дрожания курсора нет.
+   После того как Спринт A убрал глобальный `button:hover{transform:none}`,
+   это правило снова работает корректно. */
 .tag-color-sq:hover { transform: scale(1.15); }
 .tag-color-sq.selected {
     border-color: var(--text-color);
@@ -3044,8 +3272,6 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
         transition-duration: 0.01ms !important;
     }
 }
-
-
 
 
 /* [FIXED] Sticky headers for tables */
@@ -3067,18 +3293,22 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 .kanban-card {
     border: 1px solid var(--border-color) !important;
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
-    transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast) !important;
+    transition: box-shadow var(--transition-fast), border-color var(--transition-fast) !important;
 }
 
+/* UI Audit (2026-08-09): hover НЕ поднимает карточку.
+   Старый паттерн translateY(-2px) конфликтовал с курсором (аналогично кнопкам):
+   карточка уезжала вверх, hover слетал, возвращалась — дрожание.
+   Меняем только тень и подсветку границы. Этого достаточно для hover-фидбека. */
 .kanban-card:hover {
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05) !important;
-    transform: translateY(-2px) !important;
+    box-shadow: var(--shadow-md) !important;
+    border-color: var(--border-interactive) !important;
 }
 
 input[type="text"], input[type="number"], select, textarea {
     border-radius: var(--radius-md) !important;
     border: 1px solid var(--border-color) !important;
-    transition: all var(--transition-fast) !important;
+    transition: var(--transition-ui) !important;
 }
 
 input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:focus {
@@ -3087,7 +3317,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 .data-table th {
-    background: #f8fafc !important;
+    background: var(--table-header-bg) !important;
     color: var(--text-muted) !important;
     font-size: 11px !important;
     font-weight: 600 !important;
@@ -3106,7 +3336,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 
-
 /* === MODERN KANBAN CARD & OLD CARD PREMIUM DESIGN === */
 .kanban-card {
     border: 1px solid #e2e8f0 !important;
@@ -3122,13 +3351,13 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 
 /* Статусные акценты по цвету левой границы */
 .kanban-card[data-status="Новый запрос"] { border-left: 4px solid #64748b !important; }
-.kanban-card[data-status="В работе"] { border-left: 4px solid #4f46e5 !important; }
+.kanban-card[data-status="В работе"] { border-left: 4px solid var(--primary-600) !important; }
 .kanban-card[data-status="Ждет оплаты"] { border-left: 4px solid #f59e0b !important; }
 .kanban-card[data-status="Сборка"] { border-left: 4px solid #10b981 !important; }
 
 /* Современный дизайн старой карточки (>15 дней) */
 .kanban-card.old-card {
-    background-color: #f8fafc !important; /* Утонченный светло-серый фон */
+    background-color: var(--table-row-even) !important; /* Утонченный светло-серый фон */
     border: 1px dashed #cbd5e1 !important;
     border-left: 4px dashed #94a3b8 !important; /* Специфическая штриховая левая граница */
     opacity: 0.72 !important; /* Легкое угасание */
@@ -3214,7 +3443,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 .progress-label.done.blue {
-    color: #6366f1 !important;
+    color: var(--primary-500) !important;
 }
 
 .progress-track {
@@ -3232,7 +3461,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 
 .progress-fill.paid { background-color: var(--success-color) !important; }
-.progress-fill.came { background-color: #6366f1 !important; }
+.progress-fill.came { background-color: var(--primary-500) !important; }
 
 /* Кнопка Показать старые в стиле Dashboard */
 .btn-show-old {
@@ -3250,11 +3479,11 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     align-items: center !important;
     justify-content: center !important;
     gap: 6px !important;
-    transition: all var(--transition-fast) !important;
+    transition: var(--transition-ui) !important;
 }
 
 .btn-show-old:hover {
-    background: #f8fafc !important;
+    background: var(--table-row-even) !important;
     border-color: #94a3b8 !important;
     color: var(--text-color) !important;
     transform: translateY(-1px) !important;
@@ -3263,7 +3492,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 .btn-show-old:active {
     transform: translateY(0) !important;
 }
-
 
 
 #page-dashboard {
@@ -3376,53 +3604,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 #payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 11% !important; }
 #payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 5% !important; text-align: right; }
 
-/* ==========================================================
-   ИНТЕГРАЦИЯ С ПОЧТОЙ
-   ========================================================== */
-.email-settings-container {
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-    max-height: calc(100vh - 120px);
-    overflow-y: auto;
-}
-
-.email-settings-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-}
-
-@media (max-width: 1024px) {
-    .email-settings-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.email-settings-card, .email-log-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    padding: 24px;
-    box-shadow: var(--shadow-sm);
-}
-
-.email-settings-card h3, .email-log-card h3 {
-    font-size: 16px;
-    font-weight: 700;
-    margin-bottom: 20px;
-    color: var(--sidebar-bg);
-    border-bottom: 2px solid var(--border-color);
-    padding-bottom: 10px;
-}
-
-.settings-form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
 .form-group {
     display: flex;
     flex-direction: column;
@@ -3440,7 +3621,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     border-radius: var(--radius-md);
     font-size: 14px;
     outline: none;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 
 .form-group input:focus, .form-group select:focus {
@@ -3451,12 +3632,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 .field-hint {
     font-size: 11px;
     color: var(--text-muted);
-}
-
-.sync-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
 }
 
 .sync-status {
@@ -3486,31 +3661,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     font-size: 12px;
 }
 
-.btn-large {
-    padding: 14px 20px !important;
-    font-size: 15px !important;
-    font-weight: 600 !important;
-}
-
-.instructions-box {
-    background: #f0f4ff;
-    border-left: 4px solid var(--primary-color);
-    border-radius: 4px;
-    padding: 16px;
-    font-size: 13px;
-    color: var(--text-color);
-}
-
-.instructions-box h4 {
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-
-.instructions-box ol {
-    padding-left: 20px;
-    line-height: 1.6;
-}
-
 .sync-results-empty {
     text-align: center;
     color: var(--text-muted);
@@ -3525,7 +3675,10 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     font-weight: 600;
     padding: 40px;
     font-size: 14px;
-    animation: email-pulse 1.5s infinite;
+    /* UI Audit (2026-08-09): пульсация лоадера допустима, но снизил до 2с
+       и заменил ease-in-out на linear для ровной пульсации без "ноги".
+       WCAG 2.3.1 ограничивает мерцание: 0.5Гц — это безопасно. */
+    animation: email-pulse 2s linear infinite;
 }
 
 @keyframes email-pulse {
@@ -3558,18 +3711,29 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     display: flex;
     align-items: center;
     gap: 16px;
-    background: #f8fafc;
+    /* UI Audit (2026-08-09, E.1): #f8fafc → var(--card-bg) для тёмной темы */
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     padding: 12px 16px;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
+    color: var(--text-color);
 }
 
 .imported-item:hover {
-    background: #f1f5f9;
-    border-color: #cbd5e1;
+    /* UI Audit (2026-08-09, E.1): #f1f5f9 → var(--table-row-hover) для тёмной темы */
+    background: var(--table-row-hover);
+    border-color: var(--border-interactive);
     transform: translateX(4px);
+}
+
+[data-theme="dark"] .imported-item {
+    color: var(--text-color);
+    background: var(--table-row-odd);
+}
+[data-theme="dark"] .imported-item:hover {
+    background: var(--table-row-hover);
 }
 
 .imported-icon {
@@ -3603,35 +3767,13 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 
 /* ==========================================================
    PREMIUM SKELETON LOADERS
+   Определение .skeleton-line и @keyframes skeleton-shimmer перенесены
+   ниже, в блок «Skeleton loading»: они были объявлены здесь и там, и
+   каскад собирал элемент из двух половин (ширина отсюда, цвет и
+   анимация оттуда). Здесь остаётся только отступ строки таблицы.
    ========================================================== */
-@keyframes skeleton-shimmer {
-    0% {
-        background-position: -200% 0;
-    }
-    100% {
-        background-position: 200% 0;
-    }
-}
-
 .skeleton-row td {
     padding: 16px 12px !important;
-}
-
-.skeleton-line {
-    height: 12px;
-    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-    background-size: 200% 100%;
-    animation: skeleton-shimmer 1.5s infinite linear;
-    border-radius: var(--radius-sm);
-    width: 100%;
-}
-
-.skeleton-line.short {
-    width: 40%;
-}
-
-.skeleton-line.medium {
-    width: 70%;
 }
 
 /* ==========================================================
@@ -3693,7 +3835,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     border: none;
     border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: var(--transition-ui);
     box-shadow: var(--shadow-sm);
 }
 
@@ -3719,7 +3861,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     background: rgba(255,255,255,0.08);
     color: #aeb8c7;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     font-size: 18px;
 }
 .theme-toggle:hover, .compact-toggle:hover {
@@ -3821,15 +3963,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     color: var(--text-muted);
     font-size: 14px;
 }
-.cmd-palette-kbd {
-    display: inline-block;
-    padding: 2px 6px;
-    font-size: 11px;
-    font-family: monospace;
-    background: var(--border-color);
-    border-radius: 4px;
-    color: var(--text-muted);
-}
 
 /* === INLINE EDIT === */
 .inline-edit {
@@ -3880,12 +4013,73 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     color: var(--text-muted);
     cursor: pointer;
     font-size: 14px;
-    transition: all 0.2s ease;
+    transition: var(--transition-ui);
     line-height: 1;
     box-shadow: 0 1px 3px rgba(0,0,0,0.12);
 }
 [data-theme="dark"] .card-hover-btn { background: rgba(255,255,255,0.1); }
 .card-hover-btn:hover { background: var(--primary-color); color: white; }
+
+/* UI Audit (2026-08-09, C.5): ⋯-триггер для touch-устройств.
+   На десктопе скрыт (display:none), на тачах (@media hover: none) заменяет
+   постоянно видимые hover-actions. Экономит место на мобильном канбане,
+   где ✎ и × занимали бы драгоценные 24px. */
+.card-menu-trigger {
+    display: none;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: rgba(255,255,255,0.95);
+    color: var(--text-muted);
+    border-radius: 6px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 6;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background-color 200ms var(--ease-out-strong), color 200ms var(--ease-out-strong);
+}
+[data-theme="dark"] .card-menu-trigger {
+    background: rgba(255,255,255,0.1);
+}
+.card-menu-trigger:hover {
+    background: var(--primary-color);
+    color: white;
+}
+.card-menu-trigger:active {
+    transform: scale(0.95);
+    transition-duration: 60ms;
+}
+
+/* На тач-устройствах: показываем триггер, скрываем постоянные actions (меню открывается по тапу) */
+@media (hover: none) {
+    .card-menu-trigger {
+        display: flex;
+    }
+    /* Действия карточки — popover, показывается по тапу на ⋯, а не висят всегда */
+    .card-hover-actions {
+        visibility: hidden;
+        opacity: 0;
+    }
+    .card-hover-actions.popover-open {
+        visibility: visible;
+        opacity: 1;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 4px;
+        box-shadow: var(--shadow-lg);
+        flex-direction: column;
+        gap: 2px;
+    }
+}
 
 /* === DEAL ROTTING === */
 .kanban-card.deal-rotting {
@@ -3933,11 +4127,63 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     border-radius: 8px;
     background: transparent;
     color: var(--text-muted);
-    transition: all 0.15s;
+    transition: var(--transition-ui);
 }
 .modal-split-header .close-btn:hover {
     background: var(--danger-color);
     color: white;
+}
+.modal-payment-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 0 auto 0 24px;
+    padding: 8px 14px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.modal-payment-header .payment-total {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-color);
+    white-space: nowrap;
+}
+.modal-payment-header .payment-status-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.modal-payment-header .payment-actions {
+    display: flex;
+    gap: 6px;
+}
+.modal-payment-header .payment-actions button {
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: var(--transition-ui);
+}
+.modal-payment-header .payment-actions button:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+.modal-payment-header .payment-form-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.modal-payment-header .payment-form-inline input {
+    width: 90px;
+    padding: 5px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
 }
 .modal-split-left, .modal-split-right {
     padding: 20px 24px;
@@ -4056,23 +4302,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 
 /* === TIMELINE === */
 .timeline { flex: 1; overflow-y: auto; padding-top: 12px; }
-.timeline-item {
-    display: flex;
-    gap: 12px;
-    padding: 8px 0;
-    font-size: 13px;
-}
-.timeline-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--primary-color);
-    margin-top: 5px;
-    flex-shrink: 0;
-}
-.timeline-content { flex: 1; }
-.timeline-action { font-weight: 600; color: var(--text-color); }
-.timeline-time { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
 .timeline-sticky-input {
     position: sticky;
     top: 0;
@@ -4080,35 +4309,6 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     padding-bottom: 12px;
     z-index: 2;
 }
-
-/* === FILE CHIP === */
-.file-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    background: var(--primary-soft);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    font-size: 13px;
-    color: var(--text-color);
-}
-.file-chip-icon { color: var(--danger-color); }
-.file-chip-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-chip-remove {
-    width: 18px;
-    height: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 14px;
-}
-.file-chip-remove:hover { background: var(--danger-color); color: white; }
 
 /* === DROPZONE === */
 .dropzone {
@@ -4118,7 +4318,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     text-align: center;
     color: var(--text-muted);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: var(--transition-ui);
 }
 .dropzone:hover, .dropzone.dragover {
     border-color: var(--primary-color);
@@ -4224,11 +4424,6 @@ textarea.auto-expand-title:focus {
     .modal-split-right {
         padding: 16px 20px;
     }
-    .modal-split-actions {
-        grid-column: 1;
-        padding: 12px 20px;
-        border-top: 1px solid var(--border-color);
-    }
     .kanban-board {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -4248,8 +4443,8 @@ textarea.auto-expand-title:focus {
     .sidebar .nav-label { display: none; }
     .sidebar .nav-btn { justify-content: center; padding: 12px 0; margin: 2px 4px; }
     .sidebar .sidebar-toggle { display: none; }
-    .sidebar .sidebar-footer .admin-link-btn span,
-    .sidebar .sidebar-footer .logout-btn span { display: none; }
+    .sidebar .sidebar-footer .admin-link-btn span:not(.nav-icon),
+    .sidebar .sidebar-footer .logout-btn span:not(.nav-icon) { display: none; }
     .sidebar .sidebar-controls { justify-content: center; }
 
     /* Основной контент */
@@ -4302,12 +4497,6 @@ textarea.auto-expand-title:focus {
     .card-badges { flex-wrap: wrap; }
 }
 
-/* === SETTINGS PAGE === */
-.settings-container {
-    max-width: 800px;
-    margin: 0 auto;
-}
-
 .settings-tabs {
     display: flex;
     gap: 4px;
@@ -4325,7 +4514,7 @@ textarea.auto-expand-title:focus {
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
     margin-bottom: -1px;
 }
 
@@ -4358,136 +4547,64 @@ textarea.auto-expand-title:focus {
     margin-bottom: 16px;
 }
 
+/* --- УТИЛИТЫ ДЛЯ INLINE-СТИЛЕЙ (UI Audit, 2026-08-09, Спринт C) ---
+   Сотни дублирующихся style="flex:1;min-width:200px;padding:8px 12px;..."
+   в settings/workflows/custom_objects.html заменены семантическими классами. */
+
+.form-input-flex {
+    flex: 1;
+    min-width: 200px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--card-bg);
+    color: var(--text-color);
+    font-size: 14px;
+    transition: var(--transition-ui);
+}
+.form-input-flex:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.form-input-flex--narrow { min-width: 150px; }
+.form-input-flex--wide { min-width: 300px; }
+.form-input-flex--full { flex: 0 0 auto; width: 100%; min-width: 0; }
+
+.text-muted { color: var(--text-muted); }
+.text-muted-sm { color: var(--text-muted); font-size: 12px; }
+.text-muted-md { color: var(--text-muted); font-size: 13px; }
+
+.empty-state {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 20px;
+}
+.empty-state--sm { padding: 12px; }
+
+.flex-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.flex-row--wrap { flex-wrap: wrap; }
+.flex-row--between { justify-content: space-between; }
+.flex-row--mb { margin-bottom: 12px; }
+.flex-row--mb-lg { margin-bottom: 16px; }
+
+.h-no-margin { margin: 0; }
+
+.bg-subtle {
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
 .settings-card h3 {
     font-size: 16px;
     font-weight: 600;
     margin-bottom: 16px;
-    color: var(--text-primary);
-}
-
-.settings-form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.settings-option {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.settings-option:last-child {
-    border-bottom: none;
-}
-
-.settings-option-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.settings-option-title {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-primary);
-}
-
-.settings-option-desc {
-    font-size: 12px;
-    color: var(--text-muted);
-}
-
-.settings-option-meta {
-    font-size: 12px;
-    color: var(--text-muted);
-}
-
-.toggle-switch {
-    position: relative;
-    display: inline-block;
-    width: 44px;
-    height: 24px;
-    cursor: pointer;
-}
-
-.toggle-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-}
-
-.toggle-slider {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--border-color);
-    border-radius: 24px;
-    transition: var(--transition-fast);
-}
-
-.toggle-slider::before {
-    content: '';
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    left: 3px;
-    bottom: 3px;
-    background: white;
-    border-radius: 50%;
-    transition: var(--transition-fast);
-}
-
-.toggle-switch input:checked + .toggle-slider {
-    background: var(--primary-color);
-}
-
-.toggle-switch input:checked + .toggle-slider::before {
-    transform: translateX(20px);
-}
-
-.settings-instructions {
-    padding-left: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--text-secondary);
-}
-
-.settings-instructions li {
-    padding-left: 4px;
-}
-
-.about-info {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.about-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.about-row:last-child {
-    border-bottom: none;
-}
-
-.about-label {
-    font-size: 14px;
-    color: var(--text-muted);
-}
-
-.about-value {
-    font-size: 14px;
-    font-weight: 500;
     color: var(--text-primary);
 }
 
@@ -4511,19 +4628,13 @@ textarea.auto-expand-title:focus {
 .wf-connector { text-align: center; padding: 4px; color: var(--text-muted); }
 .wf-run-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border-color); }
 .wf-status-badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
-.wf-status-completed { background: #d1fae5; color: #065f46; }
-.wf-status-failed { background: #fee2e2; color: #991b1b; }
-.wf-status-running { background: #fef3c7; color: #92400e; }
 .wf-error-msg { color: var(--danger-color); font-size: 12px; }
 
 [data-theme="dark"] .wf-active { background: #064e3b !important; color: #a7f3d0 !important; }
-[data-theme="dark"] .wf-inactive { background: #252830 !important; color: #94a3b8 !important; }
-[data-theme="dark"] .wf-status-completed { background: #064e3b !important; color: #a7f3d0 !important; }
-[data-theme="dark"] .wf-status-failed { background: #7f1d1d !important; color: #fca5a5 !important; }
-[data-theme="dark"] .wf-status-running { background: #78350f !important; color: #fcd34d !important; }
-[data-theme="dark"] .wf-error-msg { color: #f87171 !important; }
-[data-theme="dark"] .settings-table th { color: #94a3b8 !important; border-bottom-color: #3d4350 !important; }
-[data-theme="dark"] .settings-table td { border-bottom-color: #3d4350 !important; }
+[data-theme="dark"] .wf-inactive { background: var(--table-row-hover) !important; color: var(--text-muted) !important; }
+[data-theme="dark"] .wf-error-msg { color: var(--danger-color) !important; }
+[data-theme="dark"] .settings-table th { color: var(--text-muted) !important; border-bottom-color: var(--border-interactive); }
+[data-theme="dark"] .settings-table td { border-bottom-color: var(--border-interactive); }
 
 /* === PAGINATION === */
 .pagination-bar { display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: var(--card-bg); border-bottom: 1px solid var(--border-color); }
@@ -4533,17 +4644,17 @@ textarea.auto-expand-title:focus {
 .pagination-active { background: var(--primary-color) !important; color: white !important; border-color: var(--primary-color) !important; }
 .pagination-dots { padding: 4px 6px; color: var(--text-muted); }
 
-[data-theme="dark"] .pagination-bar { background: #1a1d24 !important; }
-[data-theme="dark"] .pagination-btn { background: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .pagination-active { background: #818cf8 !important; color: #fff !important; border-color: #818cf8 !important; }
+[data-theme="dark"] .pagination-bar { background: var(--bg-color) !important; }
+[data-theme="dark"] .pagination-btn { background: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .pagination-active { background: var(--accent-indigo) !important; color: #fff !important; border-color: var(--accent-indigo) !important; }
 
 /* === PRIORITY LABELS === */
 .priority-low { color: #10b981; }
 .priority-mid { color: #f59e0b; }
 .priority-high { color: #ef4444; }
-[data-theme="dark"] .priority-low { color: #34d399 !important; }
-[data-theme="dark"] .priority-mid { color: #fbbf24 !important; }
-[data-theme="dark"] .priority-high { color: #f87171 !important; }
+[data-theme="dark"] .priority-low { color: var(--success-color) !important; }
+[data-theme="dark"] .priority-mid { color: var(--warning-color) !important; }
+[data-theme="dark"] .priority-high { color: var(--danger-color) !important; }
 
 /* === SETTINGS FORM INPUTS === */
 .input-settings {
@@ -4557,7 +4668,7 @@ textarea.auto-expand-title:focus {
     font-size: 14px;
 }
 .input-settings:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 2px var(--primary-soft); }
-[data-theme="dark"] .input-settings { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .input-settings { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 .select-settings {
     padding: 8px 12px;
@@ -4568,7 +4679,7 @@ textarea.auto-expand-title:focus {
     font-size: 14px;
     cursor: pointer;
 }
-[data-theme="dark"] .select-settings { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .select-settings { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 .settings-card {
     background: var(--card-bg);
@@ -4583,111 +4694,7 @@ textarea.auto-expand-title:focus {
 .settings-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .settings-row-bottom { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .settings-new-form { padding: 12px; background: var(--bg-color); border-radius: var(--radius-md); margin-bottom: 12px; }
-[data-theme="dark"] .settings-new-form { background: #1a1d24; }
-
-/* === SETTINGS GEAR === */
-.settings-gear {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: var(--transition-fast);
-}
-
-.settings-gear:hover {
-    background: rgba(255,255,255,0.1);
-    color: white;
-}
-
-/* === COUNTERPARTY TABS === */
-.counterparty-tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 16px;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.counterparty-tab {
-    padding: 10px 20px;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: var(--transition-fast);
-    margin-bottom: -1px;
-}
-
-.counterparty-tab:hover {
-    color: var(--text-primary);
-}
-
-.counterparty-tab.active {
-    color: var(--primary-color);
-    border-bottom-color: var(--primary-color);
-}
-
-.counterparty-pane {
-    display: none;
-}
-
-.counterparty-pane.active {
-    display: block;
-}
-
-/* === SETTINGS MODAL === */
-.settings-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.settings-modal.hidden {
-    display: none;
-}
-
-.settings-modal-content {
-    background: var(--card-bg);
-    border-radius: var(--radius-lg);
-    width: 500px;
-    max-width: 90vw;
-    max-height: 80vh;
-    overflow-y: auto;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-}
-
-.settings-modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.settings-modal-header h2 {
-    font-size: 18px;
-    font-weight: 600;
-    margin: 0;
-}
-
-.settings-modal-body {
-    padding: 24px;
-}
+[data-theme="dark"] .settings-new-form { background: var(--bg-color); }
 
 
 /* ============================================================
@@ -4703,24 +4710,27 @@ textarea.auto-expand-title:focus {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* --- Hover-эффект на карточках --- */
-.kanban-card {
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-.kanban-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
+/* --- Hover-эффект на карточках ---
+   UI Audit (2026-08-09): удалено дублирующее правило.
+   Финальный вариант .kanban-card:hover теперь описан в секции базовых
+   стилей канбан-карточки (после .kanban-card), не здесь, чтобы не
+   перебивать друг друга. Только box-shadow + border-color, без translateY. */
 
-/* --- Анимация модалок --- */
-.modal:not(.hidden) .modal-content,
+/* --- Анимация модалок ---
+   UI Audit (2026-08-09): единый вход 200мс, без bounce, ease-out-strong.
+   Раньше два конфликтующих keyframes (modalFadeIn 300мс + modalSlideUp 250мс)
+   применялись к .modal-content одновременно. Заменено на modalEnter.
+
+   NB: на .modal-content (одиночном) animation задан в его базовом правиле выше.
+   Здесь мы дублируем его на модалки других размеров, чтобы не плодить keyframes. */
 .modal:not(.hidden) .modal-content-split,
-.modal:not(.hidden) .modal-content-wide {
-    animation: modalSlideUp 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+.modal:not(.hidden) .modal-content-wide,
+.modal:not(.hidden) .modal-content-auto {
+    animation: modalEnter 200ms var(--ease-out-strong);
 }
-@keyframes modalSlideUp {
-    from { opacity: 0; transform: translateY(12px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes modalEnter {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
 /* --- Drag & drop визуальный фидбек --- */
@@ -4728,12 +4738,17 @@ input, select, textarea {
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* --- Skeleton loading --- */
+/* --- Skeleton loading ---
+   Единственное определение: раньше .skeleton-line объявлялся ещё и выше,
+   в блоке PREMIUM SKELETON LOADERS. Побеждали разные половины двух
+   правил, а хардкод-цвета первого не переключались в тёмной теме. */
 .skeleton-line {
     height: 14px;
+    width: 100%;
     background: linear-gradient(90deg, var(--border-color) 25%, var(--bg-color) 50%, var(--border-color) 75%);
     background-size: 200% 100%;
-    animation: skeleton-shimmer 1.5s infinite;
+    /* linear: равномерное движение не должно разгоняться и тормозить */
+    animation: skeleton-shimmer 1.5s infinite linear;
     border-radius: 4px;
 }
 .skeleton-line.medium { width: 60%; }
@@ -4776,19 +4791,14 @@ input, select, textarea {
     box-shadow: var(--shadow-md);
 }
 
-/* --- Плавное появление toast --- */
-.toast {
-    transition: opacity 0.3s ease, transform 0.3s ease;
-}
+/* --- Плавное появление toast ---
+   UI Audit (2026-08-09): transition уже задан в основном блоке .toast
+   (200мс, --ease-out-strong). Этот дубль удалён: переопределял на
+   `0.3s ease` и конфликтовал с --ease-out-strong. */
 
 /* --- Улучшенные таблицы --- */
 .data-table tbody tr {
     transition: background-color 0.15s ease;
-}
-
-/* --- Nav-btn hover --- */
-.nav-btn {
-    transition: background 0.15s ease, color 0.15s ease;
 }
 
 /* --- Smooth page transitions --- */
@@ -4876,10 +4886,8 @@ input, select, textarea {
 /* На мобильных — фильтры сворачиваемые */
 @media (max-width: 768px) {
     .filter-toggle { display: inline-flex; align-items: center; gap: 4px; }
-    .filter-bar { flex-direction: column; }
+    /* .filter-bar flex-direction и width заданы в блоке 768px выше */
     .filter-bar.collapsed { display: none; }
-    .filter-bar select,
-    .filter-bar input { width: 100%; }
 }
 
 /* Кнопка сброса фильтров */
@@ -4891,7 +4899,7 @@ input, select, textarea {
     color: var(--text-muted);
     font-size: 12px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: var(--transition-ui);
 }
 .filter-reset:hover {
     background: var(--danger-color);
@@ -4908,208 +4916,220 @@ input, select, textarea {
 
 /* Dark theme для новых элементов */
 [data-theme="dark"] .card-tag-badge { background: rgba(255,255,255,0.1); }
-[data-theme="dark"] .due-badge-ok { background: rgba(16,185,129,0.2); color: #34d399; }
-[data-theme="dark"] .due-badge-soon { background: rgba(245,158,11,0.2); color: #fbbf24; }
-[data-theme="dark"] .due-badge-overdue { background: rgba(239,68,68,0.2); color: #f87171; }
+[data-theme="dark"] .due-badge-ok { background: rgba(16,185,129,0.2); color: var(--success-color); }
+[data-theme="dark"] .due-badge-soon { background: rgba(245,158,11,0.2); color: var(--warning-color); }
+[data-theme="dark"] .due-badge-overdue { background: rgba(239,68,68,0.2); color: var(--danger-color); }
 [data-theme="dark"] .filter-bar { background: var(--card-bg); border-color: var(--border-color); }
 [data-theme="dark"] .filter-bar select,
-[data-theme="dark"] .filter-bar input { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .filter-bar input { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 /* === ПОЛНАЯ DARK THEME ДЛЯ ВСЕХ ЭЛЕМЕНТОВ === */
-
-/* Settings tabs */
-[data-theme="dark"] .settings-tab { color: var(--text-muted); }
-[data-theme="dark"] .settings-tab:hover { color: var(--text-color); }
-[data-theme="dark"] .settings-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
 
 /* Settings panes */
 [data-theme="dark"] .settings-pane { color: var(--text-color); }
 
 /* Buttons */
-[data-theme="dark"] .btn-ghost { background: transparent; color: var(--text-muted); border-color: #3d4350; }
-[data-theme="dark"] .btn-ghost:hover { background: #2d3340; }
-[data-theme="dark"] .btn-danger { background: #dc2626; color: white; }
+[data-theme="dark"] .btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border-interactive); }
+[data-theme="dark"] .btn-ghost:hover { background: var(--border-color); }
+[data-theme="dark"] .btn-danger { background: var(--danger-dark); color: white; }
 [data-theme="dark"] .btn-danger:hover { background: #b91c1c; }
 [data-theme="dark"] .btn-success { background: #059669; color: white; }
 [data-theme="dark"] .btn-success:hover { background: #047857; }
 
-/* Card elements */
-[data-theme="dark"] .card-progress { background: rgba(255,255,255,0.03); }
-[data-theme="dark"] .card-manager { color: var(--text-muted); }
-[data-theme="dark"] .card-amount { color: var(--primary-color); }
-[data-theme="dark"] .card-badges { color: var(--text-muted); }
-[data-theme="dark"] .card-tags .card-tag { background: rgba(255,255,255,0.1); }
-[data-theme="dark"] .card-title { color: var(--text-color); }
-
 /* Progress bars */
 [data-theme="dark"] .progress-track { background: rgba(255,255,255,0.1); }
-[data-theme="dark"] .progress-fill.paid { background: #34d399; }
-[data-theme="dark"] .progress-fill.came { background: #818cf8; }
 
 /* List items (custom objects, workflows, webhooks) */
-[data-theme="dark"] .list-item { background: #1e2128; border-color: #2d3340; }
-[data-theme="dark"] .list-item:hover { background: #252830; }
+[data-theme="dark"] .list-item { background: var(--table-row-odd); border-color: var(--border-color); }
+[data-theme="dark"] .list-item:hover { background: var(--table-row-hover); }
 [data-theme="dark"] .list-item-info strong { color: var(--text-color); }
 [data-theme="dark"] .list-item-info span { color: var(--text-muted); }
 
 /* Workflow items */
-[data-theme="dark"] .wf-item { background: #1e2128; border-color: #2d3340; }
-[data-theme="dark"] .wf-item:hover { background: #252830; }
+[data-theme="dark"] .wf-item { background: var(--table-row-odd); border-color: var(--border-color); }
+[data-theme="dark"] .wf-item:hover { background: var(--table-row-hover); }
 
 /* Trigger/Step items */
-[data-theme="dark"] .trigger-item { background: #1e2128; border-color: #2d3340; }
-[data-theme="dark"] .step-item { background: #1e2128; border-color: #2d3340; }
+[data-theme="dark"] .trigger-item { background: var(--table-row-odd); border-color: var(--border-color); }
+[data-theme="dark"] .step-item { background: var(--table-row-odd); border-color: var(--border-color); }
 
 /* Run status */
-[data-theme="dark"] .run-completed { background: rgba(16,185,129,0.2); color: #34d399; }
-[data-theme="dark"] .run-failed { background: rgba(239,68,68,0.2); color: #f87171; }
-[data-theme="dark"] .run-running { background: rgba(245,158,11,0.2); color: #fbbf24; }
+[data-theme="dark"] .run-completed { background: rgba(16,185,129,0.2); color: var(--success-color); }
+[data-theme="dark"] .run-failed { background: rgba(239,68,68,0.2); color: var(--danger-color); }
+[data-theme="dark"] .run-running { background: rgba(245,158,11,0.2); color: var(--warning-color); }
 
 /* Section cards */
-[data-theme="dark"] .section-card { background: #1e2128; border-color: #2d3340; }
+[data-theme="dark"] .section-card { background: var(--table-row-odd); border-color: var(--border-color); }
+
+/* ============================================================
+   UI Audit (2026-08-09, E.2) — Dark theme coverage gap.
+   Глобальный прогон выявил ~12 селекторов со светлым фоном/текстом,
+   не имеющих dark-правила. Всё, что ниже — патчи к ним.
+   ============================================================ */
+
+/* Бейджи со статусами (светлый фон + цветной текст) */
+[data-theme="dark"] .due-soon-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); border-color: rgba(245,158,11,0.3); }
+[data-theme="dark"] .status-active { background: rgba(16,185,129,0.2); color: var(--success-color); border-color: rgba(16,185,129,0.3); }
+[data-theme="dark"] .status-never { background: rgba(239,68,68,0.15); color: var(--danger-color); border-color: rgba(239,68,68,0.3); }
+[data-theme="dark"] .chk-sum-line { background: rgba(16,185,129,0.15); color: var(--text-color); }
+[data-theme="dark"] .sync-status { background: var(--table-row-odd); color: var(--text-color); border-color: var(--border-color); }
+[data-theme="dark"] .inv-empty { background: rgba(16,185,129,0.08); color: var(--success-color); }
+[data-theme="dark"] .inv-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); }
+[data-theme="dark"] .pay-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); }
+
+/* УЧЁТ/списание — file-dropzone, attachment — уже покрыто, но добавим явно */
+[data-theme="dark"] .checklist-invoice-add { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
+[data-theme="dark"] .checklist-invoice-dl { background: var(--table-row-hover); color: var(--primary-color); border-color: var(--border-interactive); }
+[data-theme="dark"] .checklist-invoice-dl:hover { background: var(--accent-indigo); color: #fff; }
+
+/* Sidebar header input-overdue уже покрыто через .input-overdue */
+[data-theme="dark"] .input-overdue { border-color: var(--danger-color); box-shadow: 0 0 0 2px rgba(239,68,68,0.2); }
+[data-theme="dark"] .old-card-badge { background: rgba(255,255,255,0.1); color: var(--text-muted); }
+
+/* Settings card headers */
+[data-theme="dark"] .settings-card h3 { color: var(--text-color); }
+
+/* Sidebar-header h2 в darke (если старая версия сплошного белого — градиентный текст уже удалён) */
+[data-theme="dark"] .sidebar-header h2 { color: var(--text-color); }
 
 /* Filter toggle */
-[data-theme="dark"] .filter-toggle { background: #252830; color: #e2e8f0; border-color: #3d4350; }
-[data-theme="dark"] .filter-toggle:hover { background: #3d4350; }
+[data-theme="dark"] .filter-toggle { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
+[data-theme="dark"] .filter-toggle:hover { background: var(--border-interactive); }
 
 /* Sidebar toggle */
-[data-theme="dark"] .sidebar-toggle { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .sidebar-toggle { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 [data-theme="dark"] .sidebar-toggle:hover { background: var(--primary-color); color: white; }
 
 /* Forms */
 [data-theme="dark"] .form-group label { color: var(--text-muted); }
-[data-theme="dark"] textarea { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] textarea { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 /* Calendar */
-[data-theme="dark"] #calendar-container td { border-color: #2d3340; }
+[data-theme="dark"] #calendar-container td { border-color: var(--border-color); }
 
 /* Toast notifications */
 [data-theme="dark"] .toast { color: white; }
 
 /* Overdue bar */
-[data-theme="dark"] .overdue-summary-bar { background: rgba(239,68,68,0.1); color: #f87171; }
+[data-theme="dark"] .overdue-summary-bar { background: rgba(239,68,68,0.1); color: var(--danger-color); }
 
 /* Skeleton */
-[data-theme="dark"] .skeleton-line { background: linear-gradient(90deg, #2d3340 25%, #1e2128 50%, #2d3340 75%); }
+[data-theme="dark"] .skeleton-line { background: linear-gradient(90deg, var(--border-color) 25%, var(--table-row-odd) 50%, var(--border-color) 75%); }
 
 /* Dropdowns */
-[data-theme="dark"] .dropdown-menu { background: #252830; border-color: #3d4350; }
-[data-theme="dark"] .dropdown-item { color: #e2e8f0; }
-[data-theme="dark"] .dropdown-item:hover { background: #2d3340; }
-[data-theme="dark"] .dropdown-toggle { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .dropdown-menu { background: var(--table-row-hover); border-color: var(--border-interactive); }
+[data-theme="dark"] .dropdown-item { color: var(--text-color); }
+[data-theme="dark"] .dropdown-item:hover { background: var(--border-color); }
+[data-theme="dark"] .dropdown-toggle { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 /* Modal */
 [data-theme="dark"] .modal-overlay { background: rgba(0,0,0,0.7); }
-[data-theme="dark"] .modal-content { background: #1e2128; border: 1px solid #2d3340; }
+[data-theme="dark"] .modal-content { background: var(--table-row-odd); border: 1px solid var(--border-color); }
 [data-theme="dark"] .modal-label { color: var(--text-muted); }
 [data-theme="dark"] .close-btn { color: var(--text-muted); }
 [data-theme="dark"] .close-btn:hover { color: white; }
 
 /* Activity log */
-[data-theme="dark"] .activity-item { border-color: #2d3340; }
+[data-theme="dark"] .activity-item { border-color: var(--border-color); }
 [data-theme="dark"] .activity-action { color: var(--text-color); }
 [data-theme="dark"] .activity-details { color: var(--text-muted); }
 
 /* Checklist */
-[data-theme="dark"] .checklist-item { border-color: #2d3340; }
-[data-theme="dark"] .checklist-item label { color: var(--text-color); }
+[data-theme="dark"] .checklist-item { border-color: var(--border-color); }
 
 /* Tags */
 [data-theme="dark"] .card-tag { background: rgba(255,255,255,0.1); }
 
 /* Priority badges */
-[data-theme="dark"] .card-priority-high { border-left-color: #f87171; }
-[data-theme="dark"] .card-priority-medium { border-left-color: #fbbf24; }
-[data-theme="dark"] .card-priority-low { border-left-color: #34d399; }
+[data-theme="dark"] .card-priority-high { border-left-color: var(--danger-color); }
+[data-theme="dark"] .card-priority-medium { border-left-color: var(--warning-color); }
+[data-theme="dark"] .card-priority-low { border-left-color: var(--success-color); }
 
 /* Kanban columns */
-[data-theme="dark"] .kanban-column { background: #1a1d24; }
-[data-theme="dark"] .kanban-column h3 { background: #252830; color: #e2e8f0; }
+[data-theme="dark"] .kanban-column { background: var(--bg-color); }
+[data-theme="dark"] .kanban-column h3 { background: var(--table-row-hover); color: var(--text-color); }
 
 /* Command palette */
-[data-theme="dark"] .cmd-palette { background: #1e2128; border-color: #2d3340; }
-[data-theme="dark"] .cmd-palette-input { background: #252830; color: #e2e8f0; border-color: #3d4350; }
-[data-theme="dark"] .cmd-palette-item:hover { background: #2d3340; }
+[data-theme="dark"] .cmd-palette { background: var(--table-row-odd); border-color: var(--border-color); }
+[data-theme="dark"] .cmd-palette-input { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
+[data-theme="dark"] .cmd-palette-item:hover { background: var(--border-color); }
 
 /* Admin panel */
 [data-theme="dark"] .admin-panel { background: var(--bg-color); color: var(--text-color); }
 [data-theme="dark"] .admin-header h1 { color: var(--text-color); }
 [data-theme="dark"] .stat-card { background: var(--card-bg); border-color: var(--border-color); }
 [data-theme="dark"] .stat-card .stat-label { color: var(--text-muted); }
-[data-theme="dark"] .login-card { background: #1e2128; border-color: #2d3340; }
+[data-theme="dark"] .login-card { background: var(--table-row-odd); border-color: var(--border-color); }
 [data-theme="dark"] .login-card h2 { color: var(--text-color); }
 
 /* Responsive dark */
 @media (max-width: 768px) {
-    [data-theme="dark"] .sidebar { background: #0b0e14; }
-    [data-theme="dark"] .filter-bar { background: #1e2128; border-color: #2d3340; }
+    [data-theme="dark"] .sidebar { background: var(--sidebar-bg); }
+    [data-theme="dark"] .filter-bar { background: var(--table-row-odd); border-color: var(--border-color); }
 }
 
 /* === DARK THEME ДЛЯ ЭЛЕМЕНТОВ С ЖЁСТКИМ БЕЛЫМ ФОНОМ === */
 
 /* Модалки и оверлеи */
-[data-theme="dark"] .confirm-box { background: #1e2128; border-color: #2d3340; }
-[data-theme="dark"] .confirm-message { color: #e2e8f0; }
+[data-theme="dark"] .confirm-box { background: var(--table-row-odd); border-color: var(--border-color); }
+[data-theme="dark"] .confirm-message { color: var(--text-color); }
 
 /* Карточки */
 [data-theme="dark"] .kanban-card {
-    background-color: #252830 !important;
-    border-color: #3d4350 !important;
+    background-color: var(--table-row-hover);
+    border-color: var(--border-interactive);
 }
-[data-theme="dark"] .kanban-card.old-card { background: #1e2128; }
+[data-theme="dark"] .kanban-card.old-card { background: var(--table-row-odd); }
 
 /* Кнопки архива */
-[data-theme="dark"] .btn-show-old { background: #252830; color: #e2e8f0; border-color: #3d4350; }
-[data-theme="dark"] .btn-show-old:hover { background: #3d4350; }
+[data-theme="dark"] .btn-show-old { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
+[data-theme="dark"] .btn-show-old:hover { background: var(--border-interactive) !important; }
 
 /* Формы создания */
 [data-theme="dark"] .create-modal input,
-[data-theme="dark"] .create-modal select { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .create-modal select { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 /* Таблица оплат/документов */
-[data-theme="dark"] .data-table td { color: #e2e8f0; border-color: #2d3340; }
-[data-theme="dark"] .data-table tr:hover { background: #252830; }
+[data-theme="dark"] .data-table td { color: var(--text-color); border-color: var(--border-color); }
+[data-theme="dark"] .data-table tr:hover { background: var(--table-row-hover); }
 
 /* Чек-листы в карточках */
-[data-theme="dark"] .checklist-item { background: #1e2128; border-color: #2d3340; }
-[data-theme="dark"] .checklist-item label { color: #e2e8f0; }
-[data-theme="dark"] .checklist-text { color: #e2e8f0; }
-[data-theme="dark"] .checklist-text.completed { color: #94a3b8; }
-[data-theme="dark"] .checklist-add-row input { background: #252830; color: #e2e8f0; border-color: #3d4350; }
-
-/* Вложения */
-[data-theme="dark"] .file-chip { background: #252830; border-color: #3d4350; color: #e2e8f0; }
+[data-theme="dark"] .checklist-item { background: var(--table-row-odd); border-color: var(--border-color); }
+[data-theme="dark"] .checklist-item label { color: var(--text-color); }
+[data-theme="dark"] .checklist-text { color: var(--text-color); }
+[data-theme="dark"] .checklist-text.completed { color: var(--text-muted); }
+[data-theme="dark"] .checklist-add-row input { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 /* Окно подтверждения */
 [data-theme="dark"] .confirm-overlay { background: rgba(0,0,0,0.7); }
-[data-theme="dark"] .confirm-box { background: #1e2128; border: 1px solid #2d3340; }
-[data-theme="dark"] .confirm-cancel { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .confirm-box { background: var(--table-row-odd); border: 1px solid var(--border-color); }
+[data-theme="dark"] .confirm-cancel { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 [data-theme="dark"] .confirm-ok { background: var(--primary-color); color: white; }
-[data-theme="dark"] .confirm-ok.danger { background: #dc2626; }
+[data-theme="dark"] .confirm-ok.danger { background: var(--danger-dark); }
 
 /* Модалка карточки */
-[data-theme="dark"] .modal-content-split { background: #1e2128; border-color: #2d3340; }
-[data-theme="dark"] .modal-split-header { border-color: #2d3340; }
-[data-theme="dark"] .modal-split-left { border-color: #2d3340; }
+[data-theme="dark"] .modal-content-split { background: var(--table-row-odd); border-color: var(--border-color); }
+[data-theme="dark"] .modal-split-header { border-color: var(--border-color); }
+[data-theme="dark"] .modal-split-left { border-color: var(--border-color); }
 
 /* Таймлайн/активность */
-[data-theme="dark"] .timeline { border-color: #2d3340; }
-[data-theme="dark"] .activity-item { border-color: #2d3340; background: #1a1d24; }
-[data-theme="dark"] .activity-time { color: #64748b; }
-[data-theme="dark"] .activity-user { color: #e2e8f0; }
-[data-theme="dark"] .activity-action { color: #94a3b8; }
+[data-theme="dark"] .timeline { border-color: var(--border-color); }
+[data-theme="dark"] .activity-item { border-color: var(--border-color); background: var(--bg-color); }
+[data-theme="dark"] .activity-time { color: var(--text-faint); }
+[data-theme="dark"] .activity-user { color: var(--text-color); }
+[data-theme="dark"] .activity-action { color: var(--text-muted); }
 
 /* Описание карточки */
-[data-theme="dark"] .card-description { color: #e2e8f0; background: #1a1d24; border-color: #2d3340; }
+[data-theme="dark"] .card-description { color: var(--text-color); background: var(--bg-color); border-color: var(--border-color); }
 
 /* Кнопки в модалке */
 [data-theme="dark"] .modal-actions .btn-primary { background: var(--primary-color); }
-[data-theme="dark"] .modal-actions .btn-secondary { background: #252830; color: #e2e8f0; border-color: #3d4350; }
+[data-theme="dark"] .modal-actions .btn-secondary { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
 
 /* Прогресс-бары в карточках */
 [data-theme="dark"] .progress-track { background: rgba(255,255,255,0.08); }
-[data-theme="dark"] .progress-fill.paid { background: #34d399; }
-[data-theme="dark"] .progress-fill.came { background: #818cf8; }
+[data-theme="dark"] .progress-fill.paid { background: var(--success-color); }
+[data-theme="dark"] .progress-fill.came { background: var(--accent-indigo); }
 
 /* Store badges */
 [data-theme="dark"] .store-badge { background: rgba(255,255,255,0.1); }
@@ -5118,15 +5138,15 @@ input, select, textarea {
 [data-theme="dark"] .store-badge.store-БН { background: rgba(15,118,110,0.2); color: #2dd4bf; }
 
 /* Стрелка навигации календаря */
-[data-theme="dark"] .calendar-nav { color: #e2e8f0; }
-[data-theme="dark"] .calendar-day { color: #e2e8f0; border-color: #2d3340; }
+[data-theme="dark"] .calendar-nav { color: var(--text-color); }
+[data-theme="dark"] .calendar-day { color: var(--text-color); border-color: var(--border-color); }
 [data-theme="dark"] .calendar-day.today { background: rgba(79,124,245,0.2); }
-[data-theme="dark"] .calendar-event { background: #252830; border-color: #3d4350; color: #e2e8f0; }
+[data-theme="dark"] .calendar-event { background: var(--table-row-hover); border-color: var(--border-interactive); color: var(--text-color); }
 
 /* Общие таблицы */
-[data-theme="dark"] table { border-color: #2d3340; }
-[data-theme="dark"] th { background: #161920; color: #e2e8f0; border-color: #2d3340; }
-[data-theme="dark"] td { color: #e2e8f0; border-color: #2d3340; }
+[data-theme="dark"] table { border-color: var(--border-color); }
+[data-theme="dark"] th { background: var(--table-header-bg); color: var(--text-color); border-color: var(--border-color); }
+[data-theme="dark"] td { color: var(--text-color); border-color: var(--border-color); }
 
 /* Поля ввода повсюду */
 [data-theme="dark"] input[type="text"],
@@ -5138,9 +5158,9 @@ input, select, textarea {
 [data-theme="dark"] input[type="search"],
 [data-theme="dark"] select,
 [data-theme="dark"] textarea {
-    background: #252830;
-    color: #e2e8f0;
-    border-color: #3d4350;
+    background: var(--table-row-hover);
+    color: var(--text-color);
+    border-color: var(--border-interactive);
 }
 
 [data-theme="dark"] input:focus,
@@ -5155,109 +5175,101 @@ input, select, textarea {
    ============================================================ */
 
 /* Кнопки */
-[data-theme="dark"] .btn-secondary { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .btn-secondary:hover { background-color: #3d4350 !important; }
+[data-theme="dark"] .btn-secondary { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .btn-secondary:hover { background-color: var(--border-interactive); }
 
 /* Кнопки архива/старых */
-[data-theme="dark"] .btn-show-old { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .btn-show-old:hover { background-color: #3d4350 !important; }
+[data-theme="dark"] .btn-show-old { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .btn-show-old:hover { background-color: var(--border-interactive); }
 
 /* Чекбоксы */
-[data-theme="dark"] .data-table input[type="checkbox"] { background-color: #252830 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .data-table input[type="checkbox"]:checked { background-color: var(--primary-color) !important; }
+[data-theme="dark"] .data-table input[type="checkbox"] { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .data-table input[type="checkbox"]:checked { background-color: var(--primary-color); }
 
 /* Селекты в таблицах */
-[data-theme="dark"] .data-table select { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .data-table select { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
 /* Карточки Kanban — ГЛАВНОЕ ИСПРАВЛЕНИЕ */
-[data-theme="dark"] .kanban-card { background-color: #252830 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .kanban-card:hover { background-color: #2d3340 !important; }
-[data-theme="dark"] .kanban-card.old-card { background-color: #1e2128 !important; }
+[data-theme="dark"] .kanban-card { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .kanban-card:hover { background-color: var(--border-color); }
+[data-theme="dark"] .kanban-card.old-card { background-color: var(--table-row-odd) !important; }
 [data-theme="dark"] .kanban-card.card-assembly { background-color: #1a2e1a !important; }
 
 /* Текст в карточках */
-[data-theme="dark"] .card-title { color: #e2e8f0 !important; }
-[data-theme="dark"] .card-amount { color: #818cf8 !important; }
-[data-theme="dark"] .card-manager { color: #94a3b8 !important; }
-[data-theme="dark"] .card-badges { color: #94a3b8 !important; }
-[data-theme="dark"] .card-description { color: #e2e8f0 !important; background-color: #1a1d24 !important; }
+[data-theme="dark"] .card-title { color: var(--text-color); }
+[data-theme="dark"] .card-amount { color: var(--accent-indigo); }
+[data-theme="dark"] .card-manager { color: var(--text-muted) !important; }
+[data-theme="dark"] .card-badges { color: var(--text-muted) !important; }
+[data-theme="dark"] .card-description { color: var(--text-color) !important; background-color: var(--bg-color) !important; }
 
 /* Тосты */
-[data-theme="dark"] .toast { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .toast { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 [data-theme="dark"] .toast-success { background-color: #065f46 !important; color: #d1fae5 !important; }
 [data-theme="dark"] .toast-error { background-color: #991b1b !important; color: #fee2e2 !important; }
 [data-theme="dark"] .toast-info { background-color: #1e40af !important; color: #dbeafe !important; }
 
 /* Модалки подтверждения */
-[data-theme="dark"] .confirm-box { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .confirm-message { color: #e2e8f0 !important; }
-[data-theme="dark"] .confirm-cancel { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .confirm-box { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .confirm-message { color: var(--text-color) !important; }
+[data-theme="dark"] .confirm-cancel { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
 /* Dropdown меню */
-[data-theme="dark"] .dropdown-menu { background-color: #252830 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .dropdown-item { color: #e2e8f0 !important; }
-[data-theme="dark"] .dropdown-item:hover { background-color: #3d4350 !important; }
-[data-theme="dark"] .dropdown-item.selected { background-color: rgba(79,124,245,0.2) !important; color: #818cf8 !important; }
-[data-theme="dark"] .dropdown-toggle { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .dropdown-menu { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .dropdown-item { color: var(--text-color) !important; }
+[data-theme="dark"] .dropdown-item:hover { background-color: var(--border-interactive); }
+[data-theme="dark"] .dropdown-item.selected { background-color: rgba(79,124,245,0.2) !important; color: var(--accent-indigo) !important; }
+[data-theme="dark"] .dropdown-toggle { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
 /* Таблицы — шапки и строки */
-[data-theme="dark"] .data-table th { background-color: #161920 !important; color: #e2e8f0 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .data-table td { color: #e2e8f0 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .data-table tr:hover { background-color: #252830 !important; }
+[data-theme="dark"] .data-table th { background-color: var(--table-header-bg) !important; color: var(--text-color) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .data-table td { color: var(--text-color) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .data-table tr:hover { background-color: var(--table-row-hover) !important; }
 
 /* Секции и карточки */
-[data-theme="dark"] .section-card { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .list-item { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .wf-item { background-color: #1e2128 !important; border-color: #2d3340 !important; }
+[data-theme="dark"] .section-card { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .list-item { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .wf-item { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
 
 /* Настройки */
-[data-theme="dark"] .settings-tab { color: #94a3b8 !important; }
-[data-theme="dark"] .settings-tab.active { color: #818cf8 !important; border-bottom-color: #818cf8 !important; }
+[data-theme="dark"] .settings-tab { color: var(--text-muted); }
+[data-theme="dark"] .settings-tab.active { color: var(--accent-indigo); border-bottom-color: var(--accent-indigo); }
 
 /* Формы */
-[data-theme="dark"] .form-group label { color: #94a3b8 !important; }
-[data-theme="dark"] .modal-label { color: #94a3b8 !important; }
-
-/* Toggle slider */
-[data-theme="dark"] .toggle-slider { background-color: #3d4350 !important; }
-[data-theme="dark"] .toggle-slider::before { background-color: #e2e8f0 !important; }
-[data-theme="dark"] .toggle-switch input:checked + .toggle-slider { background-color: #818cf8 !important; }
+[data-theme="dark"] .form-group label { color: var(--text-muted) !important; }
+[data-theme="dark"] .modal-label { color: var(--text-muted) !important; }
 
 /* Прогресс-бары */
 [data-theme="dark"] .progress-track { background-color: rgba(255,255,255,0.08) !important; }
-[data-theme="dark"] .progress-fill.paid { background-color: #34d399 !important; }
-[data-theme="dark"] .progress-fill.came { background-color: #818cf8 !important; }
-
-/* Файлы и вложения */
-[data-theme="dark"] .file-chip { background-color: #252830 !important; border-color: #3d4350 !important; color: #e2e8f0 !important; }
+[data-theme="dark"] .progress-fill.paid { background-color: var(--success-color) !important; }
+[data-theme="dark"] .progress-fill.came { background-color: var(--accent-indigo) !important; }
 
 /* Воронка продаж — текст */
-[data-theme="dark"] .dash-funnel-label { color: #e2e8f0 !important; }
-[data-theme="dark"] .dash-funnel-count { color: #e2e8f0 !important; }
-[data-theme="dark"] .dash-funnel-bar { background-color: #818cf8 !important; }
+[data-theme="dark"] .dash-funnel-label { color: var(--text-color); }
+[data-theme="dark"] .dash-funnel-count { color: var(--text-color); }
+[data-theme="dark"] .dash-funnel-bar { background-color: var(--accent-indigo) !important; }
 
 /* Страницы */
-[data-theme="dark"] .page-header h1 { color: #e2e8f0 !important; }
-[data-theme="dark"] .page-header .header-actions { color: #e2e8f0 !important; }
+[data-theme="dark"] .page-header h1 { color: var(--text-color) !important; }
+[data-theme="dark"] .page-header .header-actions { color: var(--text-color) !important; }
 
 /* Календарь */
-[data-theme="dark"] .calendar-day { color: #e2e8f0 !important; border-color: #2d3340 !important; }
+[data-theme="dark"] .calendar-day { color: var(--text-color) !important; border-color: var(--border-color) !important; }
 [data-theme="dark"] .calendar-day.today { background-color: rgba(79,124,245,0.2) !important; }
 
 /* Воркфлоу */
-[data-theme="dark"] .trigger-item { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .step-item { background-color: #1e2128 !important; border-color: #2d3340 !important; }
+[data-theme="dark"] .trigger-item { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .step-item { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
 
 /* Админка */
-[data-theme="dark"] .login-card { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .login-card h2 { color: #e2e8f0 !important; }
-[data-theme="dark"] .admin-header h1 { color: #e2e8f0 !important; }
-[data-theme="dark"] .stat-card { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .stat-card .stat-label { color: #94a3b8 !important; }
-[data-theme="dark"] .stat-card .stat-value { color: #818cf8 !important; }
+[data-theme="dark"] .login-card { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .login-card h2 { color: var(--text-color) !important; }
+[data-theme="dark"] .admin-header h1 { color: var(--text-color) !important; }
+[data-theme="dark"] .stat-card { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .stat-card .stat-label { color: var(--text-muted) !important; }
+[data-theme="dark"] .stat-card .stat-value { color: var(--accent-indigo) !important; }
 
 /* Бейджи */
-[data-theme="dark"] .store-badge { background-color: rgba(255,255,255,0.1) !important; color: #e2e8f0 !important; }
+[data-theme="dark"] .store-badge { background-color: rgba(255,255,255,0.1) !important; color: var(--text-color) !important; }
 [data-theme="dark"] .store-badge.store-Матусевича { background-color: rgba(3,105,161,0.2) !important; color: #38bdf8 !important; }
 [data-theme="dark"] .store-badge.store-Богдановича { background-color: rgba(124,58,237,0.2) !important; color: #a78bfa !important; }
 [data-theme="dark"] .store-badge.store-БН { background-color: rgba(15,118,110,0.2) !important; color: #2dd4bf !important; }
@@ -5266,131 +5278,145 @@ input, select, textarea {
 [data-theme="dark"] .card-tag { background-color: rgba(255,255,255,0.1) !important; }
 
 /* Приоритет */
-[data-theme="dark"] .card-priority-high { border-left-color: #f87171 !important; }
-[data-theme="dark"] .card-priority-medium { border-left-color: #fbbf24 !important; }
-[data-theme="dark"] .card-priority-low { border-left-color: #34d399 !important; }
+[data-theme="dark"] .card-priority-high { border-left-color: var(--danger-color) !important; }
+[data-theme="dark"] .card-priority-medium { border-left-color: var(--warning-color) !important; }
+[data-theme="dark"] .card-priority-low { border-left-color: var(--success-color) !important; }
 
 /* Дедлайн badge */
-[data-theme="dark"] .due-badge-ok { background-color: rgba(16,185,129,0.2) !important; color: #34d399 !important; }
-[data-theme="dark"] .due-badge-soon { background-color: rgba(245,158,11,0.2) !important; color: #fbbf24 !important; }
-[data-theme="dark"] .due-badge-overdue { background-color: rgba(239,68,68,0.2) !important; color: #f87171 !important; }
+[data-theme="dark"] .due-badge-ok { background-color: rgba(16,185,129,0.2) !important; color: var(--success-color) !important; }
+[data-theme="dark"] .due-badge-soon { background-color: rgba(245,158,11,0.2) !important; color: var(--warning-color) !important; }
+[data-theme="dark"] .due-badge-overdue { background-color: rgba(239,68,68,0.2) !important; color: var(--danger-color) !important; }
 
 /* Skeleton */
-[data-theme="dark"] .skeleton-line { background: linear-gradient(90deg, #2d3340 25%, #1e2128 50%, #2d3340 75%) !important; }
+[data-theme="dark"] .skeleton-line { background: linear-gradient(90deg, var(--border-color) 25%, var(--table-row-odd) 50%, var(--border-color) 75%) !important; }
 
 /* Overdue bar */
-[data-theme="dark"] .overdue-summary-bar { background-color: rgba(239,68,68,0.1) !important; color: #f87171 !important; }
+[data-theme="dark"] .overdue-summary-bar { background-color: rgba(239,68,68,0.1) !important; color: var(--danger-color) !important; }
 
 /* Фильтры */
-[data-theme="dark"] .filter-toggle { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .filter-toggle { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
 /* Sidebar toggle */
-[data-theme="dark"] .sidebar-toggle { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .sidebar-toggle { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
 /* Модалки */
-[data-theme="dark"] .modal-content { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .modal-content-split { background-color: #1e2128 !important; border-color: #2d3340 !important; }
+[data-theme="dark"] .modal-content { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .modal-content-split { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
 [data-theme="dark"] .modal-overlay { background-color: rgba(0,0,0,0.7) !important; }
 
 /* Активность */
-[data-theme="dark"] .activity-item { background-color: #1a1d24 !important; border-color: #2d3340 !important; }
+[data-theme="dark"] .activity-item { background-color: var(--bg-color) !important; border-color: var(--border-color) !important; }
 
 /* Чек-листы */
-[data-theme="dark"] .checklist-item { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .checklist-text { color: #e2e8f0 !important; }
-
-/* Вложения */
-[data-theme="dark"] .file-chip { background-color: #252830 !important; }
+[data-theme="dark"] .checklist-item { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .checklist-text { color: var(--text-color) !important; }
 
 /* Общие */
-[data-theme="dark"] h1, [data-theme="dark"] h2, [data-theme="dark"] h3 { color: #e2e8f0 !important; }
-[data-theme="dark"] p { color: #e2e8f0 !important; }
+[data-theme="dark"] h1, [data-theme="dark"] h2, [data-theme="dark"] h3 { color: var(--text-color) !important; }
+[data-theme="dark"] p { color: var(--text-color) !important; }
 [data-theme="dark"] span { color: inherit !important; }
-[data-theme="dark"] label { color: #94a3b8 !important; }
+[data-theme="dark"] label { color: var(--text-muted) !important; }
 
 /* === ДОПОЛНИТЕЛЬНЫЕ ИСПРАВЛЕНИЯ === */
 
 /* Зона загрузки файлов */
-[data-theme="dark"] .file-dropzone { background-color: #1a1d24 !important; border-color: #3d4350 !important; color: #94a3b8 !important; }
-[data-theme="dark"] .file-dropzone:hover { background-color: #252830 !important; border-color: #818cf8 !important; }
-[data-theme="dark"] .file-dropzone input[type="file"] { color: #e2e8f0 !important; }
+[data-theme="dark"] .file-dropzone { background-color: var(--bg-color) !important; border-color: var(--border-interactive) !important; color: var(--text-muted) !important; }
+[data-theme="dark"] .file-dropzone:hover { background-color: var(--table-row-hover) !important; border-color: var(--accent-indigo) !important; }
+[data-theme="dark"] .file-dropzone input[type="file"] { color: var(--text-color) !important; }
 
 /* Вложения/файлы */
-[data-theme="dark"] .attachment-item { background-color: #252830 !important; border-color: #3d4350 !important; color: #e2e8f0 !important; }
-[data-theme="dark"] .attachment-item:hover { background-color: #3d4350 !important; }
-[data-theme="dark"] .attachment-link { color: #818cf8 !important; }
+[data-theme="dark"] .attachment-item { background-color: var(--table-row-hover); border-color: var(--border-interactive); color: var(--text-color); }
+[data-theme="dark"] .attachment-item:hover { background-color: var(--border-interactive) !important; }
+[data-theme="dark"] .attachment-link { color: var(--accent-indigo); }
 
 /* Списание — карточки */
-[data-theme="dark"] .writeoff-card { background-color: #252830 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .writeoff-card .card-title { color: #e2e8f0 !important; }
-[data-theme="dark"] .writeoff-card .card-amount { color: #e2e8f0 !important; }
-[data-theme="dark"] .writeoff-column h4 { color: #e2e8f0 !important; }
-[data-theme="dark"] .writeoff-store-block h3 { color: #e2e8f0 !important; }
+[data-theme="dark"] .writeoff-card { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .writeoff-card .card-title { color: var(--text-color); }
+[data-theme="dark"] .writeoff-card .card-amount { color: var(--text-color) !important; }
+[data-theme="dark"] .writeoff-column h4 { color: var(--text-color) !important; }
+[data-theme="dark"] .writeoff-store-block h3 { color: var(--text-color); }
 
 /* Бейджи статуса документов */
-[data-theme="dark"] .print-badge { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .print-badge[data-print="Доверенность"] { background-color: rgba(245,158,11,0.2) !important; color: #fbbf24 !important; border-color: rgba(245,158,11,0.3) !important; }
+[data-theme="dark"] .print-badge { background-color: var(--table-row-hover); color: var(--text-color) !important; border-color: var(--border-interactive); }
+[data-theme="dark"] .print-badge[data-print="Доверенность"] { background-color: rgba(245,158,11,0.2) !important; color: var(--warning-color) !important; border-color: rgba(245,158,11,0.3) !important; }
 [data-theme="dark"] .print-badge[data-print="БН"] { background-color: rgba(15,118,110,0.2) !important; color: #2dd4bf !important; border-color: rgba(15,118,110,0.3) !important; }
 
 /* Воронка продаж — полосы */
 [data-theme="dark"] .dash-funnel-bar-track { background-color: rgba(255,255,255,0.05) !important; }
-[data-theme="dark"] .dash-funnel-bar { background: linear-gradient(90deg, #818cf8, #6366f1) !important; }
-[data-theme="dark"] .dash-funnel-closed .dash-funnel-bar { background: linear-gradient(90deg, #34d399, #10b981) !important; }
+[data-theme="dark"] .dash-funnel-bar { background: linear-gradient(90deg, var(--accent-indigo), var(--primary-hover)) !important; }
+[data-theme="dark"] .dash-funnel-closed .dash-funnel-bar { background: linear-gradient(90deg, var(--success-color), #10b981) !important; }
 
 /* Чек-листы в карточках — чекбоксы */
-[data-theme="dark"] .checklist-item input[type="checkbox"] { background-color: #252830 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .checklist-item input[type="checkbox"]:checked { background-color: #818cf8 !important; }
-[data-theme="dark"] .checklist-invoice { background-color: #252830 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .checklist-item input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--table-row-hover) !important;
+    border: 2px solid var(--border-interactive) !important;
+    border-radius: 4px;
+    position: relative;
+}
+[data-theme="dark"] .checklist-item input[type="checkbox"]:checked {
+    background-color: var(--accent-indigo) !important;
+    border-color: var(--accent-indigo) !important;
+}
+[data-theme="dark"] .checklist-item input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 0px;
+    width: 5px;
+    height: 10px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+[data-theme="dark"] .checklist-invoice { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
 
 /* Модалка карточки — левая часть */
-[data-theme="dark"] .modal-split-left { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .modal-split-right { background-color: #1e2128 !important; border-color: #2d3340 !important; }
+[data-theme="dark"] .modal-split-left { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .modal-split-right { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
 
 /* Dropzone в модалке */
-[data-theme="dark"] .dropzone { background-color: #1a1d24 !important; border-color: #3d4350 !important; color: #94a3b8 !important; }
-[data-theme="dark"] .dropzone:hover { background-color: #252830 !important; border-color: #818cf8 !important; }
+[data-theme="dark"] .dropzone { background-color: var(--bg-color) !important; border-color: var(--border-interactive) !important; color: var(--text-muted) !important; }
+[data-theme="dark"] .dropzone:hover { background-color: var(--table-row-hover); border-color: var(--accent-indigo) !important; }
 [data-theme="dark"] .attachments-container { background: transparent !important; }
-[data-theme="dark"] .attachment-item { background-color: #252830 !important; border-color: #3d4350 !important; color: #e2e8f0 !important; }
-[data-theme="dark"] .attachment-link { color: #818cf8 !important; }
+[data-theme="dark"] .attachment-item { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; color: var(--text-color) !important; }
+[data-theme="dark"] .attachment-link { color: var(--accent-indigo) !important; }
 
 /* Текст карточки — заголовок */
-[data-theme="dark"] .kanban-card .card-title { color: #e2e8f0 !important; }
-[data-theme="dark"] .card-title { color: #e2e8f0 !important; }
-[data-theme="dark"] .writeoff-card .card-title { color: #e2e8f0 !important; }
-[data-theme="dark"] .card-amount { color: #818cf8 !important; }
+[data-theme="dark"] .kanban-card .card-title { color: var(--text-color) !important; }
+[data-theme="dark"] .card-title { color: var(--text-color) !important; }
+[data-theme="dark"] .writeoff-card .card-title { color: var(--text-color) !important; }
+[data-theme="dark"] .card-amount { color: var(--accent-indigo) !important; }
 
 /* Общие стили текста */
-[data-theme="dark"] strong { color: #e2e8f0 !important; }
-[data-theme="dark"] b { color: #e2e8f0 !important; }
+[data-theme="dark"] strong { color: var(--text-color) !important; }
+[data-theme="dark"] b { color: var(--text-color) !important; }
 
 /* === СПИСАНИЕ — ПОЛНОЕ ИСПРАВЛЕНИЕ === */
 
 /* Колонки списания */
-[data-theme="dark"] .writeoff-column { background-color: #1a1d24 !important; }
+[data-theme="dark"] .writeoff-column { background-color: var(--bg-color) !important; }
 [data-theme="dark"] .writeoff-columns { background-color: transparent !important; }
 
 /* Карточки списания */
-[data-theme="dark"] .writeoff-cards > div { background-color: #252830 !important; border-color: #3d4350 !important; color: #e2e8f0 !important; }
-[data-theme="dark"] .writeoff-cards > div:hover { background-color: #2d3340 !important; }
+[data-theme="dark"] .writeoff-cards > div { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; color: var(--text-color) !important; }
+[data-theme="dark"] .writeoff-cards > div:hover { background-color: var(--border-color) !important; }
 
 /* Блок магазина */
-[data-theme="dark"] .writeoff-store-block { background-color: #1e2128 !important; border-color: #2d3340 !important; }
-[data-theme="dark"] .writeoff-store-block h3 { color: #e2e8f0 !important; }
+[data-theme="dark"] .writeoff-store-block { background-color: var(--table-row-odd) !important; border-color: var(--border-color) !important; }
+[data-theme="dark"] .writeoff-store-block h3 { color: var(--text-color) !important; }
 [data-theme="dark"] .writeoff-store-block[data-store="Матусевича"] { border-left: 4px solid #38bdf8 !important; }
 [data-theme="dark"] .writeoff-store-block[data-store="Богдановича"] { border-left: 4px solid #a78bfa !important; }
 
-/* Поля ввода списания */
-[data-theme="dark"] .writeoff-fields input { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .writeoff-fields input:focus { border-color: #818cf8 !important; }
-
 /* Кнопки списания */
-[data-theme="dark"] .btn-writeoff { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
-[data-theme="dark"] .btn-writeoff:hover { background-color: #3d4350 !important; }
-[data-theme="dark"] .btn-writeoff-action { background-color: #252830 !important; color: #e2e8f0 !important; border-color: #3d4350 !important; }
+[data-theme="dark"] .btn-writeoff { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
+[data-theme="dark"] .btn-writeoff:hover { background-color: var(--border-interactive) !important; }
+[data-theme="dark"] .btn-writeoff-action { background-color: var(--table-row-hover) !important; color: var(--text-color) !important; border-color: var(--border-interactive) !important; }
 
 /* Кнопка удаления списания */
-[data-theme="dark"] .btn-delete-writeoff { background-color: transparent !important; color: #f87171 !important; }
-[data-theme="dark"] .btn-delete-writeoff:hover { background-color: rgba(239,68,68,0.2) !important; color: #f87171 !important; }
+[data-theme="dark"] .btn-delete-writeoff { background-color: transparent !important; color: var(--danger-color) !important; }
+[data-theme="dark"] .btn-delete-writeoff:hover { background-color: rgba(239,68,68,0.2) !important; color: var(--danger-color); }
 
 /* === FILE INPUTS — скрыты, используется dropzone === */
 input[type="file"] {
@@ -5403,78 +5429,78 @@ input[type="file"] {
 
 /* Любой текст внутри .kanban-card */
 [data-theme="dark"] .kanban-card * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Исключения — элементы которые должны иметь другой цвет */
-[data-theme="dark"] .kanban-card .card-amount { color: #818cf8 !important; }
-[data-theme="dark"] .kanban-card .store-badge { color: #e2e8f0 !important; }
-[data-theme="dark"] .kanban-card .due-badge-ok { color: #34d399 !important; }
-[data-theme="dark"] .kanban-card .due-badge-soon { color: #fbbf24 !important; }
-[data-theme="dark"] .kanban-card .due-badge-overdue { color: #f87171 !important; }
-[data-theme="dark"] .kanban-card .old-card-badge { color: #94a3b8 !important; }
-[data-theme="dark"] .kanban-card .paperclip-badge { color: #94a3b8 !important; }
-[data-theme="dark"] .kanban-card .progress-fill.paid { background-color: #34d399 !important; }
-[data-theme="dark"] .kanban-card .progress-fill.came { background-color: #818cf8 !important; }
+[data-theme="dark"] .kanban-card .card-amount { color: var(--accent-indigo) !important; }
+[data-theme="dark"] .kanban-card .store-badge { color: var(--text-color) !important; }
+[data-theme="dark"] .kanban-card .due-badge-ok { color: var(--success-color) !important; }
+[data-theme="dark"] .kanban-card .due-badge-soon { color: var(--warning-color) !important; }
+[data-theme="dark"] .kanban-card .due-badge-overdue { color: var(--danger-color) !important; }
+[data-theme="dark"] .kanban-card .old-card-badge { color: var(--text-muted) !important; }
+[data-theme="dark"] .kanban-card .paperclip-badge { color: var(--text-muted) !important; }
+[data-theme="dark"] .kanban-card .progress-fill.paid { background-color: var(--success-color) !important; }
+[data-theme="dark"] .kanban-card .progress-fill.came { background-color: var(--accent-indigo) !important; }
 [data-theme="dark"] .kanban-card .progress-track { background-color: rgba(255,255,255,0.08) !important; }
 
 /* Любой текст внутри .writeoff-card */
 [data-theme="dark"] .writeoff-card * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Любой текст внутри .section-card */
 [data-theme="dark"] .section-card * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
-[data-theme="dark"] .section-card h2 { color: #e2e8f0 !important; }
-[data-theme="dark"] .section-card h3 { color: #e2e8f0 !important; }
+[data-theme="dark"] .section-card h2 { color: var(--text-color) !important; }
+[data-theme="dark"] .section-card h3 { color: var(--text-color) !important; }
 
 /* Любой текст внутри .list-item */
 [data-theme="dark"] .list-item * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Любой текст внутри .wf-item */
 [data-theme="dark"] .wf-item * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Любой текст внутри .trigger-item */
 [data-theme="dark"] .trigger-item * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Любой текст внутри .step-item */
 [data-theme="dark"] .step-item * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Текст в дашборде */
-[data-theme="dark"] .dash-funnel-label { color: #e2e8f0 !important; }
-[data-theme="dark"] .dash-funnel-count { color: #e2e8f0 !important; }
+[data-theme="dark"] .dash-funnel-label { color: var(--text-color) !important; }
+[data-theme="dark"] .dash-funnel-count { color: var(--text-color) !important; }
 
 /* Текст в модалках */
 [data-theme="dark"] .modal-content * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
-[data-theme="dark"] .modal-content h2 { color: #e2e8f0 !important; }
-[data-theme="dark"] .modal-content h3 { color: #e2e8f0 !important; }
-[data-theme="dark"] .modal-content label { color: #94a3b8 !important; }
+[data-theme="dark"] .modal-content h2 { color: var(--text-color) !important; }
+[data-theme="dark"] .modal-content h3 { color: var(--text-color) !important; }
+[data-theme="dark"] .modal-content label { color: var(--text-muted) !important; }
 
 /* Текст в активности */
 [data-theme="dark"] .activity-item * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Текст в чек-листе */
 [data-theme="dark"] .checklist-item * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* Текст в календаре */
 [data-theme="dark"] #calendar-container * {
-    color: #e2e8f0 !important;
+    color: var(--text-color) !important;
 }
 
 /* ============================================================
@@ -5519,7 +5545,6 @@ input[type="file"] {
         min-width: 44px;
         min-height: 44px;
     }
-    .writeoff-fields input { height: 40px !important; font-size: var(--font-base) !important; }
     .btn-writeoff { padding: 10px var(--space-sm); }
 }
 
@@ -5527,7 +5552,6 @@ input[type="file"] {
 .btn-primary:focus-visible,
 .btn-secondary:focus-visible,
 .nav-btn:focus-visible,
-.writeoff-fields input:focus-visible,
 .data-table input:focus-visible,
 .search-input:focus-visible,
 button:focus-visible,
@@ -5539,8 +5563,11 @@ textarea:focus-visible {
 }
 
 /* --- 4. Числа в таблицах: колонки сумм не выравнивались по разряду --- */
-.data-table td.amount-cell,
-.data-table td.num-cell,
+/* Было .data-table td.amount-cell / td.num-cell — таких классов разметка
+   никогда не создавала, правило не применялось. Вешаем на таблицу целиком:
+   tabular-nums действует только на цифры, поэтому текстовые колонки не
+   меняются, а даты, суммы и счётчики выстраиваются по разряду. */
+.data-table,
 .card-amount {
     font-variant-numeric: tabular-nums;
 }
@@ -5559,7 +5586,8 @@ textarea:focus-visible {
     background: var(--bg-secondary);
     border-radius: 9px;
 }
-[data-theme="dark"] .col-count { background: rgba(255,255,255,0.12); color: #cbd5e1; }
+[data-theme="dark"] .col-count { background: rgba(255,255,255,0.12); color: #cbd5e1 !important; }
+[data-theme="dark"] .kanban-column [class*="count"] { color: #cbd5e1 !important; }
 
 /* --- 6. Номер сделки на плитке накладной --- */
 .writeoff-card-meta {
@@ -5610,9 +5638,6 @@ textarea:focus-visible {
     z-index: 2;
 }
 /* на тач-устройствах крестик виден всегда, иначе до него не добраться */
-@media (hover: none) {
-    .writeoff-card .btn-delete-writeoff { opacity: 0.55; }
-}
 
 /* --- Метка «2 из 3 накладных» --- */
 .writeoff-card-meta {
@@ -5642,7 +5667,7 @@ textarea:focus-visible {
     border-color: rgba(56,189,248,0.3);
 }
 .related-head { margin-bottom: 6px; color: var(--text-color); }
-[data-theme="dark"] .related-head { color: #e2e8f0; }
+[data-theme="dark"] .related-head { color: var(--text-color); }
 .related-item {
     display: flex;
     align-items: center;
@@ -5726,7 +5751,7 @@ textarea:focus-visible {
 
 .inv-num-text { font-weight: 600; }
 .inv-item.is-done .inv-num-text { color: var(--text-color); }
-[data-theme="dark"] .inv-item .checklist-text { color: #e2e8f0; }
+[data-theme="dark"] .inv-item .checklist-text { color: var(--text-color); }
 
 .inv-right {
     display: flex;
@@ -5739,7 +5764,7 @@ textarea:focus-visible {
     font-variant-numeric: tabular-nums;
     color: var(--text-color);
 }
-[data-theme="dark"] .inv-amount-text { color: #e2e8f0; }
+[data-theme="dark"] .inv-amount-text { color: var(--text-color); }
 
 .inv-rest-hint {
     font-size: 11px;
@@ -5761,7 +5786,7 @@ textarea:focus-visible {
     background: var(--card-bg);
     border-color: var(--border-color);
 }
-[data-theme="dark"] .inv-draft { background: #252830; border-color: #3d4350; }
+[data-theme="dark"] .inv-draft { background: var(--table-row-hover); border-color: var(--border-interactive); }
 .inv-draft-title { color: var(--text-muted); font-weight: 500; }
 
 .inv-draft-fields {
@@ -5782,7 +5807,7 @@ textarea:focus-visible {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
     background: var(--card-bg);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .inv-in:focus {
     outline: none;
@@ -5794,7 +5819,7 @@ textarea:focus-visible {
     font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
-[data-theme="dark"] .inv-in { background: #1e2129; border-color: #3d4350; color: #e2e8f0; }
+[data-theme="dark"] .inv-in { background: #1e2129; border-color: var(--border-interactive); color: var(--text-color); }
 
 .inv-draft-actions {
     display: flex;
@@ -5816,7 +5841,7 @@ textarea:focus-visible {
     color: var(--text-muted);
 }
 .inv-sum-line b { color: var(--text-color); font-variant-numeric: tabular-nums; }
-[data-theme="dark"] .inv-sum-line b { color: #e2e8f0; }
+[data-theme="dark"] .inv-sum-line b { color: var(--text-color); }
 .inv-sum-money { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .inv-badge {
@@ -5977,7 +6002,7 @@ textarea:focus-visible {
     color: var(--text-muted);
 }
 .chk-sum-line b { color: var(--text-color); font-variant-numeric: tabular-nums; }
-[data-theme="dark"] .chk-sum-line b { color: #e2e8f0; }
+[data-theme="dark"] .chk-sum-line b { color: var(--text-color); }
 .pay-full { background: #d1fae5; color: #065f46; }
 [data-theme="dark"] .pay-full { background: rgba(16,185,129,0.2); color: #6ee7b7; }
 
@@ -6038,7 +6063,7 @@ textarea:focus-visible {
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .checklist-link-supplier:hover {
     background: #fef3c7;
@@ -6078,7 +6103,7 @@ textarea:focus-visible {
 .supplier-name-link {
     cursor: pointer;
     border-bottom: 1px dashed var(--border-color);
-    transition: var(--transition-fast);
+    transition: var(--transition-ui);
 }
 .supplier-name-link:hover {
     color: var(--primary-color);
@@ -6109,8 +6134,8 @@ textarea:focus-visible {
 }
 .sup-pur-stat-value.ok { color: var(--success-color); }
 .sup-pur-stat-value.warn { color: var(--warning-color); }
-[data-theme="dark"] .sup-pur-stat { background: rgba(255,255,255,0.04); }
-[data-theme="dark"] .sup-pur-stat-value { color: #e2e8f0; }
+[data-theme="dark"] .sup-pur-stat { background: rgba(255,255,255,0.04) !important; }
+[data-theme="dark"] .sup-pur-stat-value { color: var(--text-color); }
 
 .sup-pur-table { margin-top: 14px; }
 .sup-pur-row { cursor: pointer; }
@@ -6155,7 +6180,7 @@ textarea:focus-visible {
 .dropdown-menu::-webkit-scrollbar-thumb:hover { background: #9aa3b5; }
 [data-theme="dark"] .dropdown-menu::-webkit-scrollbar-thumb {
     background: #4b5563;
-    border-color: #252830;
+    border-color: var(--table-row-hover);
 }
 
 /* ============================================================
@@ -6285,6 +6310,8 @@ textarea:focus-visible {
 .sidebar-toggle::before{ content:""; position:absolute; inset:-6px; }
 .btn-delete-supplier:hover,
 .btn-delete-client:hover{ background:#fef2f2 !important; color: var(--danger-color) !important; }
+[data-theme="dark"] .btn-delete-supplier:hover,
+[data-theme="dark"] .btn-delete-client:hover{ background:rgba(239,68,68,0.15) !important; color: var(--danger-color) !important; }
 
 /* --- 9. Контраст: --text-faint 2.56:1 -> 4.76:1 --------------------- */
 :root{ --text-faint: #64748b; }
@@ -6311,12 +6338,24 @@ textarea:focus-visible {
 }
 
 /* --- 12. Зебра таблицы: было различие в 1% -------------------------- */
-:root{ --table-row-even: #f8fafc; }
+:root:not([data-theme="dark"]){ --table-row-even: #f8fafc; }
 
 /* --- 13. Радиусы и градиенты: главный признак «недоделано» ---------- */
 .btn-primary, .btn-secondary, .dropdown-toggle,
 .logout-btn, .admin-link-btn, .nav-btn{
   border-radius: 8px !important;
+}
+.logout-btn, .admin-link-btn:not(.hidden){
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+.sidebar.collapsed .sidebar-footer .logout-btn,
+.sidebar.collapsed .sidebar-footer .admin-link-btn:not(.hidden){
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 .btn-primary{
   background-image: none !important;
@@ -6350,7 +6389,7 @@ textarea:focus-visible {
 .sup-pur-stats{ gap: 12px !important; }
 .sup-pur-stat{
   padding: 12px !important;
-  background: #f8fafc !important;
+  background: var(--table-row-even) !important;
   border: 1px solid #f1f5f9;
 }
 .sup-pur-stat-label{ font-size: 12px !important; }
@@ -6378,11 +6417,8 @@ input, select, textarea, button{ font-family: inherit !important; }
   padding: 10px 16px; background:#fff; border-radius: 8px;
   box-shadow: 0 4px 8px -2px rgba(15,23,42,.15);
 }
-.skip-link:focus{ left: 8px; }
 
-@media (prefers-reduced-motion: reduce){
-  .card-hover-actions, .progress-fill{ transition: none !important; }
-}
+
 /* ============================================================
    AUDIT FIXES — часть 2, дизайн и палитра (6 августа 2026)
    Дописывается после блока «AUDIT FIXES — Спринт 0».
@@ -6390,7 +6426,7 @@ input, select, textarea, button{ font-family: inherit !important; }
    ============================================================ */
 
 /* --- 21. Единая шкала indigo вместо двух разных синих -------------- */
-/* было: --primary-color #4a57a4 и --primary-hover #4338ca из разных шкал */
+/* было: --primary-color #4a57a4 и --primary-hover var(--primary-700) из разных шкал */
 :root{
   --primary-50:  #eef2ff;
   --primary-100: #e0e7ff;
@@ -6417,7 +6453,7 @@ input, select, textarea, button{ font-family: inherit !important; }
 [data-theme="dark"]{
   --danger-color: #b91c1c;   /* было #f87171: белый текст давал 2.77:1 */
   --success-color:#059669;
-  --text-muted:   #94a3b8;
+  --text-muted: #94a3b8;
   --text-faint:   #8595ab;
 }
 [data-theme="dark"] .theme-toggle,
@@ -6502,12 +6538,11 @@ input::placeholder, textarea::placeholder{ color:#94a3b8; }
   color: var(--text-muted) !important;
   margin-left: 4px;
 }
-.dash-stat-label{ font-size: 12px !important; color: var(--text-muted) !important; }
 
 /* --- 30. Шапка таблицы: тёмная -> светлая, как у Stripe ----------- */
 .data-table thead th{
   background: #f1f5f9 !important;
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
   padding: 12px !important;
   border-bottom: 1px solid #e2e8f0 !important;
 }
@@ -6528,11 +6563,12 @@ input::placeholder, textarea::placeholder{ color:#94a3b8; }
 .kanban-column [class*="count"]{
   font-size: 12px !important;
   font-weight: 600 !important;
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
   background: #f1f5f9 !important;
   padding: 2px 8px !important;
   border-radius: 999px !important;
 }
+[data-theme="dark"] .kanban-column [class*="count"]{ background: rgba(255,255,255,0.08) !important; }
 
 /* --- 32. Индикация горизонтального скролла канбана ---------------- */
 .kanban-board{ position: relative; }
@@ -6596,7 +6632,7 @@ input[type="number"]::-webkit-inner-spin-button{
 .kanban-cards::-webkit-scrollbar{ width: 6px; }
 .kanban-cards::-webkit-scrollbar-thumb{ background: #cbd5e1; border-radius: 999px; }
 .kanban-cards::-webkit-scrollbar-track{ background: transparent; }
-[data-theme="dark"] .kanban-cards::-webkit-scrollbar-thumb{ background: #3d4350; }
+[data-theme="dark"] .kanban-cards::-webkit-scrollbar-thumb{ background: var(--border-interactive); }
 .kanban-card{ max-width: 100%; box-sizing: border-box; }
 
 /* --- 39. Плашка «Просрочено» больше не колонка -------------------- */
@@ -6993,7 +7029,7 @@ textarea.auto-expand-title{
   color: #cbd5e1 !important;          /* было приглушённое: 3.54:1 */
 }
 [data-theme="dark"] .settings-tab:hover{
-  color: #f1f5f9 !important;
+  color: #f1f5f9;
   background: rgba(255,255,255,.06) !important;
 }
 [data-theme="dark"] .settings-tab.active{
@@ -7002,8 +7038,11 @@ textarea.auto-expand-title{
 }
 .settings-tab.active{ font-weight: 600 !important; }
 
-/* --- 56. Canvas-график подхватывает фон темы -------------------- */
-[data-theme="dark"] canvas{ filter: invert(.92) hue-rotate(180deg); }
+/* --- 56. Canvas-график подхватывает фон темы --------------------
+   UI Audit (2026-08-09, C.3): цвета Chart.js теперь берутся из CSS-переменных
+   напрямую в js/dashboard.js (renderMonthlyChart). Глобальный `filter: invert`
+   на всех <canvas> был хрупким: инвертировал точки данных, текст подписей и
+   любые будущие canvas-элементы (аватары, превью). Удалён. */
 /* ============================================================
    AUDIT FIXES — часть 7: последние хвосты консистентности
    ============================================================ */
@@ -7095,7 +7134,7 @@ textarea.auto-expand-title{
 
 /* тёмная тема */
 [data-theme="dark"] .close-btn,
-[data-theme="dark"] .modal-split-header .close-btn{ color: #94a3b8 !important; }
+[data-theme="dark"] .modal-split-header .close-btn{ color: var(--text-muted) !important; }
 [data-theme="dark"] .close-btn:hover,
 [data-theme="dark"] .modal-split-header .close-btn:hover{
   background: rgba(255,255,255,.10) !important;
@@ -7113,24 +7152,53 @@ textarea.auto-expand-title{
 /* --- 64. ГЛАВНОЕ: дрожание мыши --------------------------------- */
 /* причина: глобальное button:hover{transform:translateY(-1px)}
    кнопка уезжает из-под курсора → hover слетает → возвращается → цикл.
-   Особенно бьёт по чекбоксам в чек-листе: галочка ставится не с первого раза. */
-button:hover,
-.btn-primary:hover,
-.logout-btn:hover,
-.admin-link-btn:hover,
-.btn-writeoff:hover,
-.btn-delete-card:hover,
-.close-btn:hover{
-  transform: none !important;
-  filter: none !important;
+   Особенно бьёт по чекбоксам в чек-листе: галочка ставится не с первого раза.
+
+   UI Audit (2026-08-09): hover больше НЕ двигает кнопки (это и есть фикс
+   дрожания). Вместо мёртвого `transform: none !important` используем:
+   - hover → только цвет/тень (здесь не трогаем, свои стили у каждой кнопки)
+   - :active → press-feedback scale(0.97) с ускорением transition до 60 мс.
+   Это возвращает тактильный отклик и не ломает позицию курсора. */
+button,
+.btn-primary,
+.btn-secondary,
+.btn-action,
+.logout-btn,
+.admin-link-btn,
+.btn-writeoff,
+.btn-delete-card,
+.close-btn{
+  transition: var(--transition-ui);
+}
+button:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-action:active,
+.logout-btn:active,
+.admin-link-btn:active,
+.btn-writeoff:active,
+.btn-delete-card:active,
+.close-btn:active{
+  transform: scale(0.97);
+  transition-duration: 60ms;
 }
 /* карточки поднимаются только на канбан-доске, где это уместно и безопасно */
 .kanban-cards > div:hover,
 .dash-stat:hover{ transform: none !important; }
-.kanban-card:hover{ transform: none !important; box-shadow: var(--shadow-md) !important; }
+/* UI Audit (2026-08-09): .kanban-card:hover{ box-shadow: ... !important } удалён
+   отсюда — это дубль. Смотри строку ~3074: там добавлен border-color, иначе этот
+   блок перебывал бы важность у !important и border-color не срабатывал. */
 
-/* внутри модалки ничего не должно двигаться под курсором */
+/* внутри модалки ничего не должно двигаться под курсором (но press-feedback на
+   кнопках модалки разрешён — он не конфликтует с курсором) */
 .modal *:hover{ transform: none !important; }
+.modal button:active,
+.modal .btn-primary:active,
+.modal .btn-secondary:active,
+.modal .btn-action:active,
+.modal .btn-delete-card:active{
+  transform: scale(0.97) !important;
+}
 
 /* --- 65. Чек-лист оплаты: клик с первого раза -------------------- */
 /* чекбоксы 13×13 в строке 17px — промахнуться проще, чем попасть */
@@ -7525,29 +7593,29 @@ td.td-center > .btn-edit-row .ui-icon{
    (#34d399 / #818cf8), но НЕ цвет подписи — там остались токены
    светлой темы, рассчитанные на белый фон:
      .progress-label.done      success #059669 на #22262e -> 4.02:1
-     .progress-label.done.blue primary #4f46e5 на #22262e -> 2.41:1
+     .progress-label.done.blue primary var(--primary-600) на #22262e -> 2.41:1
    Кегль 11px, порог AA = 4.5. Берём светлые тона тех же шкал,
    чтобы подпись совпадала по цвету со своей заливкой. */
 [data-theme="dark"] .progress-label.done{
   color: #34d399 !important;                 /* 7.89:1, = .progress-fill.paid */
 }
 [data-theme="dark"] .progress-label.done.blue{
-  color: #a5b4fc !important;                 /* 7.61:1, светлее .came #818cf8 */
+  color: #a5b4fc !important;                 /* 7.61:1, светлее .came var(--accent-indigo) */
 }
 [data-theme="dark"] .progress-label{
-  color: #94a3b8 !important;                 /* 5.91:1 — незакрытая часть шкалы */
+  color: var(--text-muted) !important;                 /* 5.91:1 — незакрытая часть шкалы */
 }
 
 /* --- 85. Активный переключатель вида: 4.47:1 -------------------- */
-/* Белый на #6366f1 = 4.47 — не хватало 0.03 до порога.
-   Затемняем подложку до --primary-600 (#4338ca): белый = 7.90:1.
+/* Белый на var(--primary-500) = 4.47 — не хватало 0.03 до порога.
+   Затемняем подложку до --primary-600 (var(--primary-700)): белый = 7.90:1.
    В светлой теме тот же тон — переключатель выглядит одинаково. */
 [data-theme="dark"] .view-toggle-btn.active{
-  background: #4338ca !important;
+  background: var(--primary-700) !important;
   color: #ffffff !important;
 }
 .view-toggle-btn.active{
-  background: var(--primary-600) !important;  /* белый на #4f46e5 = 6.29:1 */
+  background: var(--primary-600) !important;  /* белый на var(--primary-600) = 6.29:1 */
   color: #ffffff !important;
 }
 
@@ -7743,14 +7811,14 @@ td.td-center > .btn-edit-row .ui-icon{
   border-color: rgba(255,255,255,.10);
 }
 [data-theme="dark"] .contact-row input{
-  background: #1e2128 !important;
+  background: var(--table-row-odd) !important;
   border-color: rgba(255,255,255,.12) !important;
-  color: #e2e8f0;
+  color: var(--text-color);
 }
 [data-theme="dark"] .contact-row-num{
-  background: #1e2128;
+  background: var(--table-row-odd);
   border-color: rgba(255,255,255,.12);
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 [data-theme="dark"] .btn-add-contact{
   background: rgba(99,102,241,.18) !important;
@@ -7758,9 +7826,9 @@ td.td-center > .btn-edit-row .ui-icon{
   color: #c7d2fe !important;              /* 8.16:1 */
 }
 [data-theme="dark"] .btn-add-contact:hover{
-  background: #4338ca !important;
-  border-color: #4338ca !important;
-  color: #fff !important;                 /* 7.90:1 */
+  background: var(--primary-700) !important;
+  border-color: var(--primary-700) !important;
+  color: #fff;                 /* 7.90:1 */
 }
 [data-theme="dark"] .contact-del:hover{
   color: #fca5a5 !important;
@@ -7829,15 +7897,29 @@ td.td-center > .btn-edit-row .ui-icon{
   border-radius: 10px !important;
   font-size: 14px !important;
 }
-.admin-link-btn .nav-ico,
-.logout-btn .nav-ico{
+/* Fix (2026-08-10): в разметке используется .nav-icon (не .nav-ico) и голый
+   <span> для подписи (не .nav-label). Правила ниже приведены к реальным
+   классам HTML — раньше этот блок был мёртвым из-за опечаток в селекторах,
+   поэтому иконки пропадали, а текст не скрывался при сворачивании. */
+.admin-link-btn .nav-icon,
+.logout-btn .nav-icon{
   flex: 0 0 auto;
-  width: 18px !important;
+  flex-shrink: 0;             /* не сжиматься ни при каких условиях */
+  width: 18px !important;    /* квадратная flex-обёртка → иконка не сжимается */
   height: 18px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;                  /* база; collapsed правило 7708 дублирует !important */
+}
+.admin-link-btn .nav-icon svg,
+.logout-btn .nav-icon svg{
+  width: 18px;
+  height: 18px;
   display: block;
 }
-.admin-link-btn .nav-label,
-.logout-btn .nav-label{
+.admin-link-btn span:not(.nav-icon),
+.logout-btn span:not(.nav-icon){
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7852,11 +7934,13 @@ td.td-center > .btn-edit-row .ui-icon{
   width: 40px;
   margin: 0 auto;
 }
-/* правило было только для `span`, а .nav-label — тот же span,
-   но так надёжнее и не зависит от разметки */
-.sidebar.collapsed .admin-link-btn .nav-label,
-.sidebar.collapsed .logout-btn .nav-label{ display: none !important; }
-.sidebar.collapsed .sidebar-footer .nav-ico{ margin: 0 !important; }
+/* скрываем подпись: матчим голый <span> (в HTML нет класса nav-label) */
+.sidebar.collapsed .admin-link-btn span:not(.nav-icon),
+.sidebar.collapsed .logout-btn span:not(.nav-icon){ display: none !important; }
+/* иконка по центру, без margin и без gap-сжатия */
+.sidebar.collapsed .sidebar-footer .nav-icon{ margin: 0 !important; }
+.sidebar.collapsed .admin-link-btn,
+.sidebar.collapsed .logout-btn{ gap: 0 !important; }
 
 /* --- 95. Облагороженное поле суммы в чек-листе ------------------- */
 /* было: узкое поле впритык к тексту, валюта отдельным словом */
@@ -7938,9 +8022,6 @@ td.td-center > .btn-edit-row .ui-icon{
   25%{ transform: translateX(-3px); }
   75%{ transform: translateX(3px); }
 }
-@media (prefers-reduced-motion: reduce){
-  .checklist-amount.amount-invalid{ animation: none; }
-}
 
 /* оплачено — плашка гаснет, но остаётся правимой */
 .checklist-text.completed .amount-field{ opacity: .65; }
@@ -7950,10 +8031,37 @@ td.td-center > .btn-edit-row .ui-icon{
 }
 
 [data-theme="dark"] .amount-field{
-  background: #1e2128;
+  background: var(--table-row-odd);
   border-color: rgba(255,255,255,.12);
 }
 [data-theme="dark"] .amount-field:hover,
 [data-theme="dark"] .amount-field:focus-within{ border-color: var(--primary-500); }
-[data-theme="dark"] .amount-field .checklist-amount{ color: #e2e8f0 !important; }
+[data-theme="dark"] .amount-field .checklist-amount{ color: var(--text-color) !important; }
 [data-theme="dark"] .amount-cur{ border-left-color: rgba(255,255,255,.14); }
+
+/* ============================================================
+   ТАЧ-УСТРОЙСТВА: действия, скрытые до наведения
+   ------------------------------------------------------------
+   Часть управляющих элементов показывалась только по :hover
+   (opacity:0 / visibility:hidden в базовом состоянии). На устройстве
+   без указателя события hover нет вообще, поэтому эти кнопки были
+   недостижимы физически — не косметика, а потерянная функциональность.
+   Блок стоит в конце файла намеренно: правила .card-hover-actions
+   объявлены ниже по тексту и иначе выигрывают каскад.
+
+   UI Audit (2026-08-09, C.5): .card-hover-actions больше НЕ показываются
+   на постоянке (это был визуальный шум на всех карточках). Вместо этого
+   они открываются как popover по тапу на .card-menu-trigger (⋯).
+   Здесь остаются только десктопные override для старых hover-elements.
+   ============================================================ */
+@media (hover: none) {
+    /* card-hover-actions на тачах показываются только по тапу на ⋯ (см. 3890) */
+
+    /* Удаление строки чек-листа в модалке сделки */
+    .delete-checklist {
+        opacity: 1;
+    }
+
+    /* на тач-устройствах крестик виден всегда, иначе до него не добраться */
+    .writeoff-card .btn-delete-writeoff { opacity: 0.55; }
+}

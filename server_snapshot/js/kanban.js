@@ -19,6 +19,24 @@ let showOldCards = { "Новый запрос": false, "В работе": false,
 // а при возврате из архива статус пересчитывается сервером.
 const KANBAN_COLUMNS = ["Новый запрос", "В работе", "Ждет оплаты", "Сборка"];
 const OLD_CARD_DAYS = 15;
+
+const PAYMENT_STATUS_CLASSES = {
+    'Не оплачен': 'pay-unpaid',
+    'Частично': 'pay-partial',
+    'Оплачен': 'pay-paid',
+    'Отсрочка': 'pay-deferred'
+};
+
+function renderPaymentBadge(card) {
+    const total = parseFloat(card.total_amount) || 0;
+    if (total <= 0) return '';
+    const paid = parseFloat(card.paid_amount) || 0;
+    const status = card.payment_status || 'Не оплачен';
+    const cls = PAYMENT_STATUS_CLASSES[status] || 'pay-unpaid';
+    const text = paid >= total - 0.01 ? `${paid.toFixed(2)} BYN` : `${paid.toFixed(2)} / ${total.toFixed(2)} BYN`;
+    return `<span class="pay-badge pay-badge-kanban ${cls}" title="Оплата: ${status}, ${paid.toFixed(2)} / ${total.toFixed(2)} BYN"><span class="pay-icon">💰</span>${text}</span>`;
+}
+
 let _isDropping = false;
 let _kanbanSearchQuery = '';
 let _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '' };
@@ -86,14 +104,11 @@ async function loadKanbanBoard() {
 
             let colCards = cards.filter(c => c.status === colName);
 
-            // Сортировка: новые сверху, просроченные внизу
-            const now = new Date();
-            colCards.sort((a, b) => {
-                const aOverdue = a.due_date && new Date(a.due_date + 'T00:00:00') < now && a.status !== 'Закрыто';
-                const bOverdue = b.due_date && new Date(b.due_date + 'T00:00:00') < now && b.status !== 'Закрыто';
-                if (aOverdue !== bOverdue) return aOverdue ? 1 : -1;
-                return new Date(b.created_at) - new Date(a.created_at);
-            });
+            // Порядок карточек задаёт сервер (поле position). Просроченные
+            // всё ещё подсвечиваются классом card-overdue, но не сдвигаются
+            // вглубь колонки — иначе пользователь не видит результат
+            // перетаскивания: после перерисовки карточка возвращалась в
+            // сортированную позицию, а не на место броска.
 
             const visibleCards = colCards.filter(c => {
                 const diffDays = Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24));
@@ -264,16 +279,20 @@ function fillCardHTML(cardEl, card) {
         : '';
 
     cardEl.innerHTML = `
-        <div class="card-hover-actions">
+        <div class="card-hover-actions" data-card-menu>
             <button class="card-hover-btn btn-edit-card" title="Редактировать" data-card-id="${card.id}">✎</button>
             <button class="card-hover-btn btn-delete-card" title="Удалить">&times;</button>
         </div>
+        <!-- UI Audit (2026-08-09, C.5): touch-only trigger для мобильных.
+             На десктопе скрыт, на тачах заменяет постоянно видимые hover-actions. -->
+        <button class="card-menu-trigger" title="Действия с карточкой" aria-label="Действия с карточкой" aria-haspopup="menu">⋯</button>
         <div class="card-header">
             <strong class="card-title">${escapeHtml(card.title)}</strong>
         </div>
         <div class="card-amount">${escapeHtml(String(card.total_amount || 0))} BYN</div>
         <div class="card-badges">
             ${card.store_location ? `<span class="store-badge store-${escapeHtml(card.store_location)}">${escapeHtml(card.store_location)}</span>` : ''}
+            ${renderPaymentBadge(card)}
             ${invoiceCount > 0 ? `<span class="paperclip-badge" title="Прикреплённых счетов: ${invoiceCount}">${ICON_CLIP}${invoiceCount}</span>` : ''}
             ${isOld ? `<span class="old-card-badge" title="Создана более ${OLD_CARD_DAYS} дней назад">СТАРАЯ (${diffDays}д)</span>` : ''}
             ${isOverdue ? `<span class="overdue-badge-card">ПРОСРОЧЕНО</span>` : ''}
@@ -293,6 +312,21 @@ function fillCardHTML(cardEl, card) {
         </div>` : ''}
     `;
 
+    // UI Audit (2026-08-09, C.5): ⋯-триггер для touch-устройств.
+    // На десктопе он скрыт (display:none), на тачах заменяет постоянно
+    // видимые hover-actions. Открывает popover с теми же кнопками.
+    const menuTrigger = cardEl.querySelector('.card-menu-trigger');
+    if (menuTrigger) {
+        menuTrigger.onclick = (e) => {
+            e.stopPropagation();
+            const actions = cardEl.querySelector('.card-hover-actions');
+            if (actions) {
+                const isOpen = actions.classList.toggle('popover-open');
+                menuTrigger.setAttribute('aria-expanded', isOpen);
+            }
+        };
+    }
+
     cardEl.querySelector('.btn-delete-card').onclick = async (e) => {
         e.stopPropagation();
         if (await confirmDialog("Удалить карточку?")) {
@@ -307,6 +341,15 @@ function fillCardHTML(cardEl, card) {
         openCardModal(card.id);
     };
 }
+
+// Закрытие popover при клике вне карточки (чтобы не оставался открытым)
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.kanban-card')) {
+        document.querySelectorAll('.card-hover-actions.popover-open').forEach(el => {
+            el.classList.remove('popover-open');
+        });
+    }
+});
 
 window.refreshCardOnBoard = async function(cardId) {
     try {
@@ -339,11 +382,40 @@ async function handleDrop(e) {
     const oldColumn = cardEl.closest('.kanban-column');
     const oldStatus = oldColumn ? oldColumn.getAttribute('data-status') : null;
 
-    targetContainer.appendChild(cardEl);
+    // Визначаємо позицію вставки: шукаємо картку, над якою відпустили
+    const cards = Array.from(targetContainer.querySelectorAll('.kanban-card'));
+    const afterElement = cards.reduce((closest, child) => {
+        if (child === cardEl) return closest;
+        const box = child.getBoundingClientRect();
+        const offset = e.clientY - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+
+    if (afterElement == null) {
+        targetContainer.appendChild(cardEl);
+    } else {
+        targetContainer.insertBefore(cardEl, afterElement);
+    }
     cardEl.classList.toggle('card-assembly', newStatus === 'Сборка');
 
     try {
-        await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: newStatus }) });
+        // Зміна статусу, якщо потрібно
+        if (oldStatus !== newStatus) {
+            await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: newStatus }) });
+        }
+
+        // Сохранение позиции внутри колонки
+        const allCardsInColumn = Array.from(targetContainer.querySelectorAll('.kanban-card'));
+        const cardIds = allCardsInColumn.map(c => parseInt(c.dataset.id));
+        await apiFetch('/kanban/cards/reorder', {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ status: newStatus, card_ids: cardIds })
+        });
 
         // Уход из «Сборки» ВПЕРЁД (на списание / закрытие) — это нормальный ход
         // сделки, реестр трогать нельзя. Раньше запись удалялась при любом
@@ -387,9 +459,7 @@ function setupCreateCardButton() {
     // нативный <select>, который выпадал из оформления сайта.
     const STORE_OPTIONS = [
         { value: '', label: 'Не выбран' },
-        { value: 'Матусевича', label: 'Матусевича' },
-        { value: 'Богдановича', label: 'Богдановича' },
-        { value: 'БН', label: 'Безнал (БН)' }
+        ...APP_STORES
     ];
     const PRIORITY_OPTIONS = [
         { value: '0', label: 'Без приоритета' },
@@ -712,11 +782,14 @@ function renderListView() {
             }
             tr.appendChild(td);
         });
-        // Delete button cell
+        // UI Audit (2026-08-09, B.6): унификация крестика в списке с канбан-доской.
+        // title для доступности, явный font для cross-platform рендера ✕.
         const delTd = document.createElement('td');
         const delBtn = document.createElement('button');
         delBtn.className = 'btn btn-danger btn-sm';
         delBtn.textContent = '✕';
+        delBtn.title = 'Удалить сделку';
+        delBtn.setAttribute('aria-label', 'Удалить сделку');
         delBtn.onclick = (e) => { e.stopPropagation(); deleteCardFromList(c.id); };
         delTd.appendChild(delBtn);
         tr.appendChild(delTd);

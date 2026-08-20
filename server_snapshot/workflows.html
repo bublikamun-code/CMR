@@ -4,7 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Воркфлоу — CRM</title>
-    <link rel="stylesheet" href="css/style.css?v=30">
+    <link rel="stylesheet" href="css/style.css?v=2074de1879">
+    <script>
+        // UI Audit (2026-08-09, D.1): инициализация темы до отрисовки.
+        (function() {
+            var theme = localStorage.getItem('crm_theme');
+            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
     <style>
         .workflows-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
         .workflows-page h1 { margin-bottom: 24px; }
@@ -42,6 +49,11 @@
                 <a href="/custom_objects.html" class="nav-btn"><span class="nav-icon">⚙</span><span class="nav-label">Объекты</span></a>
                 <a href="/workflows.html" class="nav-btn active"><span class="nav-icon">⚡</span><span class="nav-label">Воркфлоу</span></a>
             </nav>
+            <div class="sidebar-footer">
+                <button id="theme-toggle" class="nav-btn" title="Переключить тему" aria-label="Переключить тему">
+                    <span class="nav-icon">☀</span><span class="nav-label">Тема</span>
+                </button>
+            </div>
         </aside>
 
         <main class="main-content">
@@ -50,12 +62,12 @@
                 <!-- Список воркфлоу -->
                 <div id="wf-list">
                     <h1>Воркфлоу</h1>
-                    <p style="color:var(--text-muted);margin-bottom:20px;">Автоматизируйте бизнес-процессы: уведомления, создание задач, интеграции.</p>
+                    <p class="text-muted-md" style="margin-bottom:20px;">Автоматизируйте бизнес-процессы: уведомления, создание задач, интеграции.</p>
 
                     <div class="section-card">
                         <h2>Создать воркфлоу</h2>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <input type="text" id="new-wf-name" placeholder="Название (например: Уведомление о новом заказе)" style="flex:1;min-width:300px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                        <div class="flex-row flex-row--wrap">
+                            <input type="text" id="new-wf-name" placeholder="Название (например: Уведомление о новом заказе)" class="form-input-flex form-input-flex--wide">
                             <button class="btn btn-primary" onclick="workflowsUI.createWorkflow()">Создать</button>
                         </div>
                     </div>
@@ -66,9 +78,9 @@
                 <!-- Детали воркфлоу -->
                 <div id="wf-detail" class="hidden">
                     <button class="btn btn-secondary back-btn" onclick="workflowsUI.backToList()">← Назад к списку</button>
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                        <h1 id="wf-detail-title" style="margin:0"></h1>
-                        <div style="display:flex;gap:8px;">
+                    <div class="flex-row flex-row--between flex-row--mb-lg">
+                        <h1 id="wf-detail-title" class="h-no-margin"></h1>
+                        <div class="flex-row">
                             <button id="wf-toggle-btn" class="btn btn-success btn-sm" onclick="workflowsUI.toggleActive()">Включить</button>
                             <button class="btn btn-danger btn-sm" onclick="workflowsUI.deleteWorkflow()">Удалить</button>
                         </div>
@@ -77,19 +89,19 @@
                     <!-- Триггеры -->
                     <div class="section-card">
                         <h2>Триггеры (Что запускает)</h2>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-                            <select id="new-trigger-type" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                        <div class="flex-row flex-row--wrap flex-row--mb">
+                            <select id="new-trigger-type" class="form-input-flex">
                                 <option value="record_event">Изменение записи</option>
                                 <option value="manual">Ручной запуск</option>
                                 <option value="schedule">По расписанию</option>
                                 <option value="webhook">Webhook</option>
                             </select>
-                            <select id="new-trigger-object" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <select id="new-trigger-object" class="form-input-flex">
                                 <option value="card">Сделка</option>
                                 <option value="client">Клиент</option>
                                 <option value="payment">Оплата</option>
                             </select>
-                            <select id="new-trigger-event" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <select id="new-trigger-event" class="form-input-flex">
                                 <option value="created">Создана</option>
                                 <option value="updated">Обновлена</option>
                                 <option value="deleted">Удалена</option>
@@ -102,19 +114,19 @@
                     <!-- Шаги -->
                     <div class="section-card">
                         <h2>Шаги (Что происходит)</h2>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-                            <select id="new-step-type" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                        <div class="flex-row flex-row--wrap flex-row--mb">
+                            <select id="new-step-type" class="form-input-flex">
                                 <option value="action">Действие</option>
                                 <option value="condition">Условие</option>
                                 <option value="delay">Задержка</option>
                             </select>
-                            <select id="new-step-action" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <select id="new-step-action" class="form-input-flex">
                                 <option value="create_record">Создать запись</option>
                                 <option value="update_record">Обновить запись</option>
                                 <option value="send_email">Отправить email</option>
                                 <option value="http_request">HTTP-запрос</option>
                             </select>
-                            <input type="text" id="new-step-config" placeholder="Параметры (JSON)" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                            <input type="text" id="new-step-config" placeholder="Параметры (JSON)" class="form-input-flex">
                             <button class="btn btn-primary btn-sm" onclick="workflowsUI.createStep()">Добавить</button>
                         </div>
                         <div id="steps-list"></div>
@@ -131,27 +143,17 @@
         </main>
     </div>
 
+    <script src="js/api.js?v=401b0a5f34"></script>
+    <script src="js/features.js?v=c55d4713fd"></script>
     <script>
     const WORKFLOWS_API = '/workflows';
     let currentWF = null;
 
+    // Тонкая обёртка над каноническим apiFetch: добавляет префикс /workflows.
+    // Теперь все вызовы wfFetch(path) получают таймаут, 401-обработку,
+    // 422-декодирование и проверку content-type из api.js.
     async function wfFetch(path, options = {}) {
-        let token;
-        try { token = localStorage.getItem('crm_token'); } catch(e) { token = null; }
-        const headers = { ...options.headers };
-        if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const res = await fetch(`${WORKFLOWS_API}${path}`, { ...options, headers });
-        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Ошибка'); }
-        return res.json();
-    }
-
-    function showToast(msg, type) {
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type || 'info'}`;
-        toast.textContent = msg;
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
+        return apiFetch(WORKFLOWS_API + path, options);
     }
 
     const workflowsUI = {
@@ -160,7 +162,7 @@
             const list = document.getElementById('workflows-list');
             list.innerHTML = '';
             if (wfs.length === 0) {
-                list.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px;">Нет воркфлоу. Создайте первый!</p>';
+                list.innerHTML = '<p class="empty-state">Нет воркфлоу. Создайте первый!</p>';
                 return;
             }
             wfs.forEach(wf => {
@@ -169,7 +171,7 @@
                 div.innerHTML = `
                     <div class="wf-info">
                         <strong>${escapeHtml(wf.name)}</strong>
-                        <span style="color:var(--text-muted);font-size:12px;">${escapeHtml(wf.description || '')}</span>
+                        <span class="text-muted-sm">${escapeHtml(wf.description || '')}</span>
                     </div>
                     <div class="wf-actions">
                         <span class="wf-badge ${wf.is_active ? 'wf-active' : 'wf-inactive'}">${wf.is_active ? 'Активен' : 'Выкл'}</span>
@@ -244,12 +246,12 @@
                 const div = document.createElement('div');
                 div.className = 'trigger-item';
                 div.innerHTML = `
-                    <div style="display:flex;align-items:center;">
+                    <div class="flex-row" style="gap:0;">
                         <div class="trigger-icon ${classes[t.trigger_type] || ''}">${icons[t.trigger_type] || '?'}</div>
                         <div>
                             <strong>${labels[t.trigger_type] || t.trigger_type}</strong>
-                            ${config.object ? `<span style="color:var(--text-muted);font-size:12px;"> — ${objLabels[config.object] || config.object} ${eventLabels[config.event] || ''}</span>` : ''}
-                            ${config.cron ? `<span style="color:var(--text-muted);font-size:12px;"> — ${config.cron}</span>` : ''}
+                            ${config.object ? `<span class="text-muted-sm"> — ${objLabels[config.object] || config.object} ${eventLabels[config.event] || ''}</span>` : ''}
+                            ${config.cron ? `<span class="text-muted-sm"> — ${config.cron}</span>` : ''}
                         </div>
                     </div>
                     <button class="btn btn-danger btn-sm" onclick="workflowsUI.deleteTrigger(${t.id})">Удалить</button>
@@ -298,10 +300,10 @@
                 const div = document.createElement('div');
                 div.className = 'step-item';
                 div.innerHTML = `
-                    <div style="display:flex;align-items:center;gap:12px;">
-                        <span style="color:var(--text-muted);font-size:13px;">#${i + 1}</span>
+                    <div class="flex-row" style="gap:12px;">
+                        <span class="text-muted-md">#${i + 1}</span>
                         <span>${icons[s.action_type] || '⚡'} <strong>${typeLabels[s.step_type] || s.step_type}</strong> — ${actionLabels[s.action_type] || s.action_type}</span>
-                        ${s.config && Object.keys(s.config).length > 0 ? `<span style="color:var(--text-muted);font-size:12px;">${JSON.stringify(s.config).substring(0, 60)}...</span>` : ''}
+                        ${s.config && Object.keys(s.config).length > 0 ? `<span class="text-muted-sm">${JSON.stringify(s.config).substring(0, 60)}...</span>` : ''}
                     </div>
                     <button class="btn btn-danger btn-sm" onclick="workflowsUI.deleteStep(${s.id})">Удалить</button>
                 `;
@@ -341,7 +343,7 @@
             const runs = await wfFetch(`/${currentWF.id}/runs`);
             const list = document.getElementById('runs-list');
             if (runs.length === 0) {
-                list.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:12px;">Запусков пока нет</p>';
+                list.innerHTML = '<p class="empty-state empty-state--sm">Запусков пока нет</p>';
                 return;
             }
             list.innerHTML = '';
@@ -359,12 +361,30 @@
         }
     };
 
-    function escapeHtml(v) {
-        if (v === null || v === undefined) return '';
-        return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
     document.addEventListener('DOMContentLoaded', () => {
+        // UI Audit (2026-08-09, D.1): theme toggle
+        (function initTheme() {
+            const toggle = document.getElementById('theme-toggle');
+            if (!toggle) return;
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            toggle.querySelector('.nav-icon').textContent = isDark ? '☾' : '☀';
+            toggle.title = isDark ? 'Светлая тема' : 'Тёмная тема';
+            toggle.addEventListener('click', () => {
+                const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+                if (dark) {
+                    document.documentElement.removeAttribute('data-theme');
+                    try { localStorage.setItem('crm_theme', 'light'); } catch(e) {}
+                    toggle.querySelector('.nav-icon').textContent = '☀';
+                    toggle.title = 'Тёмная тема';
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    try { localStorage.setItem('crm_theme', 'dark'); } catch(e) {}
+                    toggle.querySelector('.nav-icon').textContent = '☾';
+                    toggle.title = 'Светлая тема';
+                }
+            });
+        })();
+
         workflowsUI.loadWorkflows();
     });
     </script>

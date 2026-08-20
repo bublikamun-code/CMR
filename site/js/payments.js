@@ -3,6 +3,38 @@ let currentPayments = [];    // то, что сейчас показано (дл
 let paymentsMonth = 'all';   // выбранный месяц фильтра
 let paymentsSort = { key: null, dir: 1 };
 
+const PAYMENT_STATUS_CLASSES = {
+    'Не оплачен': 'pay-unpaid',
+    'Частично': 'pay-partial',
+    'Оплачен': 'pay-paid',
+    'Отсрочка': 'pay-deferred'
+};
+
+function renderPaymentStatusBadge(status) {
+    const s = status || 'Не оплачен';
+    const cls = PAYMENT_STATUS_CLASSES[s] || 'pay-unpaid';
+    return `<span class="pay-badge ${cls}">${escapeHtml(s)}</span>`;
+}
+
+function renderPaymentCell(tr) {
+    const total = parseFloat(tr.amount) || 0;
+    const paid = parseFloat(tr.paid_amount) || 0;
+    const status = tr.payment_status || 'Не оплачен';
+    const cls = PAYMENT_STATUS_CLASSES[status] || 'pay-unpaid';
+    const rest = Math.max(0, total - paid).toFixed(2);
+    const percent = total > 0 ? Math.min(100, (paid / total) * 100) : 0;
+    return `
+        <span class="pay-badge ${cls}">${escapeHtml(status)}</span>
+        <div class="payment-cell-amounts">
+            <span class="pay-cell-paid">${paid.toFixed(2)}</span>
+            <span class="pay-cell-divider">/</span>
+            <span class="pay-cell-total">${total.toFixed(2)}</span>
+            <span class="pay-cell-rest">(ост. ${rest})</span>
+        </div>
+        <div class="payment-cell-progress"><div class="payment-progress-bar" style="width:${percent}%"></div></div>
+    `;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const paymentsBtn = document.querySelector('[data-target="page-payments"]');
     if (paymentsBtn) paymentsBtn.addEventListener('click', loadPaymentsTable);
@@ -121,6 +153,9 @@ function renderPayments() {
                 if (amountSpan) amountSpan.textContent = String(tr.amount || 0);
             }
 
+            const paymentCell = existing.querySelector('td:nth-child(5)');
+            if (paymentCell) paymentCell.innerHTML = renderPaymentCell(tr);
+
             const noteCell = existing.querySelector('.inline-edit-cell[data-field="note"]');
             if (noteCell && !noteCell.querySelector('input')) {
                 const noteSpan = noteCell.querySelector('.inline-edit');
@@ -147,10 +182,11 @@ function renderPayments() {
                     <span class="inline-edit font-mono text-right">${escapeHtml(String(tr.amount || 0))}</span>
                     <span class="text-muted text-sm">BYN</span>
                 </td>
+                <td class="td-center payment-cell">${renderPaymentCell(tr)}</td>
                 <td>${escapeHtml(tr.store_location) || '—'}</td>
-                <td class="td-center"><input type="checkbox" class="cb-calc" data-id="${tr.id}" ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
-                <td class="td-center"><input type="checkbox" class="cb-invoice" data-id="${tr.id}" ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>
-                <td class="td-center"><input type="checkbox" class="cb-written-off" data-id="${tr.id}" ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
+                <td class="td-center"><input type="checkbox" class="cb-calc" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
+                <td class="td-center"><input type="checkbox" class="cb-invoice" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>
+                <td class="td-center"><input type="checkbox" class="cb-written-off" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
                 <td class="print-cell"></td>
                 <td class="inline-edit-cell" data-field="note" data-id="${tr.id}"><span class="inline-edit">${escapeHtml(tr.note) || '<span class="text-muted">Нет данных</span>'}</span></td>
                 <td class="td-center">
@@ -315,11 +351,13 @@ function setupPaymentsAutoSave() {
 
         if (Object.keys(updateData).length > 0) {
             try {
-                await apiFetch(`/payments/transactions/${id}`, {
+                const partIds = JSON.parse(e.target.dataset.partIds || '[]');
+                const ids = Array.isArray(partIds) && partIds.length > 0 ? partIds : [id];
+                await Promise.all(ids.map(txId => apiFetch(`/payments/transactions/${txId}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updateData)
-                });
+                })));
             } catch (error) {
                 showToast("Не удалось сохранить: " + error.message, 'error');
                 if (e.target.type === 'checkbox') e.target.checked = !e.target.checked;

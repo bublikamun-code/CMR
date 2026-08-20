@@ -6,8 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (suppliersBtn) suppliersBtn.addEventListener('click', loadSuppliersTable);
     if (document.getElementById('page-suppliers')?.classList.contains('active')) loadSuppliersTable();
 
-    const search = document.getElementById('suppliers-search');
-    if (search) search.addEventListener('input', (e) => filterTableRows('suppliers-table', e.target.value));
+    bindTableSearch('suppliers-search', 'suppliers-table');
 
     document.getElementById('btn-create-supplier').onclick = () => openSupplierModal();
     document.getElementById('supplier-cancel').onclick = () => document.getElementById('supplier-modal').classList.add('hidden');

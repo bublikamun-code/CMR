@@ -246,6 +246,12 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             card.due_date = card_update.due_date
         if 'priority' in card_update.model_fields_set:
             card.priority = card_update.priority
+        if 'paid_amount' in card_update.model_fields_set:
+            card.paid_amount = card_update.paid_amount
+        if 'payment_status' in card_update.model_fields_set:
+            card.payment_status = card_update.payment_status
+        if 'payment_due_date' in card_update.model_fields_set:
+            card.payment_due_date = card_update.payment_due_date
         if 'tag_ids' in card_update.model_fields_set:
             tags = session.query(models.Tag).filter(models.Tag.id.in_(card_update.tag_ids)).all()
             card.tags = tags
@@ -265,6 +271,43 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
                 {"id": card.id, "title": card.title, "status": card.status}
             ))
         except Exception: pass
+        return card
+    finally:
+        if tdb is not db:
+            tdb.close()
+
+@router.patch("/cards/{card_id}/payment", response_model=schemas.CardResponse)
+def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    tdb = _db(current_user, db)
+    try:
+        session = tdb
+        if current_user.role == "superadmin" and current_user.tenant_id is None:
+            session = db
+        card = session.query(models.Card).filter(models.Card.id == card_id).first()
+        if not card:
+            raise HTTPException(status_code=404, detail="Карточка не найдена")
+
+        if payload.paid_amount is not None:
+            card.paid_amount = max(0, payload.paid_amount)
+        if payload.payment_due_date is not None:
+            card.payment_due_date = payload.payment_due_date
+        if payload.payment_status is not None:
+            card.payment_status = payload.payment_status
+        else:
+            # автоопределение статуса по сумме
+            total = float(card.total_amount or 0)
+            paid = float(card.paid_amount or 0)
+            if total <= 0:
+                card.payment_status = "Не оплачен"
+            elif paid >= total - 0.01:
+                card.payment_status = "Оплачен"
+            elif paid > 0.01:
+                card.payment_status = "Частично"
+            else:
+                card.payment_status = "Не оплачен"
+
+        session.commit()
+        session.refresh(card)
         return card
     finally:
         if tdb is not db:

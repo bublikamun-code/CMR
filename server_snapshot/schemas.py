@@ -177,6 +177,9 @@ class CardBase(BaseModel):
     description: Optional[str] = None
     status: str = "Новый запрос"
     total_amount: float = 0.0
+    paid_amount: float = 0.0
+    payment_status: str = "Не оплачен"
+    payment_due_date: Optional[date] = None
     store_location: Optional[str] = None
     due_date: Optional[date] = None
     priority: Optional[int] = 0
@@ -195,6 +198,14 @@ class CardBase(BaseModel):
         VALID = {"Новый запрос", "В работе", "Ждет оплаты", "Сборка", "На списание", "Закрыто"}
         if v not in VALID:
             raise ValueError(f"Недопустимый статус: {v}")
+        return v
+
+    @field_validator("payment_status")
+    @classmethod
+    def validate_payment_status(cls, v):
+        VALID = {"Не оплачен", "Частично", "Оплачен", "Отсрочка"}
+        if v not in VALID:
+            raise ValueError(f"Недопустимый статус оплаты: {v}")
         return v
 
 class CardCreate(CardBase):
@@ -290,6 +301,7 @@ class TransactionResponse(TransactionBase):
     # В обычном (несгруппированном) ответе остаются None и ни на что не влияют.
     parts_count: Optional[int] = None      # сколько записей списания скрыто за строкой
     invoices_count: Optional[int] = None   # из них выписанных накладных
+    part_ids: Optional[List[int]] = None   # id всех частей сделки для массового обновления флагов
     # Поля ниже оставлены ради совместимости и всегда пусты: реестр оплат
     # больше не читает чек-лист карточки — тот про закупку у поставщиков.
     paid_amount: Optional[float] = None
@@ -315,9 +327,37 @@ class CardUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     total_amount: Optional[float] = None
+    paid_amount: Optional[float] = None
+    payment_status: Optional[str] = None
+    payment_due_date: Optional[date] = None
     store_location: Optional[str] = None
     client_id: Optional[int] = None
     due_date: Optional[date] = None
     priority: Optional[int] = None
     sender_email: Optional[str] = None
     tag_ids: Optional[List[int]] = None
+
+    @field_validator("payment_status")
+    @classmethod
+    def validate_payment_status(cls, v):
+        if v is None:
+            return v
+        VALID = {"Не оплачен", "Частично", "Оплачен", "Отсрочка"}
+        if v not in VALID:
+            raise ValueError(f"Недопустимый статус оплаты: {v}")
+        return v
+
+class CardPaymentUpdate(BaseModel):
+    paid_amount: Optional[float] = None
+    payment_status: Optional[str] = None
+    payment_due_date: Optional[date] = None
+
+    @field_validator("payment_status")
+    @classmethod
+    def validate_payment_status(cls, v):
+        if v is None:
+            return v
+        VALID = {"Не оплачен", "Частично", "Оплачен", "Отсрочка"}
+        if v not in VALID:
+            raise ValueError(f"Недопустимый статус оплаты: {v}")
+        return v

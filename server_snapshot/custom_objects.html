@@ -4,7 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Кастомные объекты — CRM</title>
-    <link rel="stylesheet" href="css/style.css?v=30">
+    <link rel="stylesheet" href="css/style.css?v=2074de1879">
+    <script>
+        // UI Audit (2026-08-09, D.1): инициализация темы до отрисовки.
+        (function() {
+            var theme = localStorage.getItem('crm_theme');
+            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
     <style>
         .custom-objects-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
         .custom-objects-page h1 { margin-bottom: 24px; }
@@ -30,6 +37,11 @@
                 <a href="/#clients" class="nav-btn"><span class="nav-icon">👥</span><span class="nav-label">Клиенты</span></a>
                 <a href="/custom_objects.html" class="nav-btn active"><span class="nav-icon">⚙</span><span class="nav-label">Объекты</span></a>
             </nav>
+            <div class="sidebar-footer">
+                <button id="theme-toggle" class="nav-btn" title="Переключить тему" aria-label="Переключить тему">
+                    <span class="nav-icon">☀</span><span class="nav-label">Тема</span>
+                </button>
+            </div>
         </aside>
 
         <main class="main-content">
@@ -38,13 +50,13 @@
                 <!-- Список объектов -->
                 <div id="objects-list">
                     <h1>Кастомные объекты</h1>
-                    <p style="color:var(--text-muted);margin-bottom:20px;">Создавайте собственные сущности: Товары, Заказы, Проекты и т.д.</p>
+                    <p class="text-muted-md" style="margin-bottom:20px;">Создавайте собственные сущности: Товары, Заказы, Проекты и т.д.</p>
 
                     <div class="section-card">
                         <h2>Создать объект</h2>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <input type="text" id="new-object-label" placeholder="Название (например: Товар)" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
-                            <input type="text" id="new-object-name" placeholder="Имя (латиницей: product)" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                        <div class="flex-row flex-row--wrap">
+                            <input type="text" id="new-object-label" placeholder="Название (например: Товар)" class="form-input-flex">
+                            <input type="text" id="new-object-name" placeholder="Имя (латиницей: product)" class="form-input-flex">
                             <button class="btn btn-primary" onclick="customObjects.createObject()">Создать</button>
                         </div>
                     </div>
@@ -59,10 +71,10 @@
 
                     <div class="section-card">
                         <h2>Поля</h2>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-                            <input type="text" id="new-field-label" placeholder="Название поля" style="flex:1;min-width:150px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
-                            <input type="text" id="new-field-name" placeholder="Имя (латиницей)" style="flex:1;min-width:150px;padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
-                            <select id="new-field-type" style="padding:8px 12px;border:1px solid var(--border-color);border-radius:var(--radius-md);background:var(--card-bg);color:var(--text-color);">
+                        <div class="flex-row flex-row--wrap flex-row--mb">
+                            <input type="text" id="new-field-label" placeholder="Название поля" class="form-input-flex form-input-flex--narrow">
+                            <input type="text" id="new-field-name" placeholder="Имя (латиницей)" class="form-input-flex form-input-flex--narrow">
+                            <select id="new-field-type" class="form-input-flex">
                                 <option value="text">Текст</option>
                                 <option value="number">Число</option>
                                 <option value="select">Выбор</option>
@@ -76,11 +88,11 @@
                     </div>
 
                     <div class="section-card">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                            <h2 style="margin:0">Записи</h2>
+                        <div class="flex-row flex-row--between flex-row--mb">
+                            <h2 class="h-no-margin">Записи</h2>
                             <button class="btn btn-primary btn-sm" onclick="customObjects.showNewRecordForm()">+ Новая запись</button>
                         </div>
-                        <div id="new-record-form" class="hidden" style="padding:16px;background:var(--bg-color);border-radius:var(--radius-md);margin-bottom:12px;"></div>
+                        <div id="new-record-form" class="hidden" class="bg-subtle"></div>
                         <div id="records-container"></div>
                     </div>
                 </div>
@@ -89,7 +101,32 @@
         </main>
     </div>
 
-    <script src="js/api.js?v=30"></script>
-    <script src="js/custom_objects.js?v=1784928639"></script>
+    <script src="js/api.js?v=401b0a5f34"></script>
+    <script src="js/features.js?v=c55d4713fd"></script>
+    <script src="js/custom_objects.js?v=d2a0dc8a60"></script>
+    <script>
+        // UI Audit (2026-08-09, D.1): theme toggle для страницы кастомных объектов
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggle = document.getElementById('theme-toggle');
+            if (!toggle) return;
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            toggle.querySelector('.nav-icon').textContent = isDark ? '☾' : '☀';
+            toggle.title = isDark ? 'Светлая тема' : 'Тёмная тема';
+            toggle.addEventListener('click', () => {
+                const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+                if (dark) {
+                    document.documentElement.removeAttribute('data-theme');
+                    try { localStorage.setItem('crm_theme', 'light'); } catch(e) {}
+                    toggle.querySelector('.nav-icon').textContent = '☀';
+                    toggle.title = 'Тёмная тема';
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    try { localStorage.setItem('crm_theme', 'dark'); } catch(e) {}
+                    toggle.querySelector('.nav-icon').textContent = '☾';
+                    toggle.title = 'Светлая тема';
+                }
+            });
+        });
+    </script>
 </body>
 </html>

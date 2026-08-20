@@ -5,9 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CRM: Снабжение и Продажи</title>
     <style>
-/* CRITICAL: sidebar layout - inline to prevent cache issues */
+/* CRITICAL: раскладка сайдбара до загрузки style.css.
+   Значения обязаны совпадать с итоговым состоянием в style.css, иначе
+   сайдбар перекрашивается на первой отрисовке. Переменные продублированы
+   здесь намеренно: :root из style.css ещё не применён. */
+:root { --sidebar-bg: #0f172a; --sidebar-bg-2: #020617; --primary-color: #4f46e5; }
+[data-theme="dark"] { --sidebar-bg: #0b0e14; --sidebar-bg-2: #080a0f; }
 .app-container { display: flex; flex-direction: row; height: 100vh; width: 100%; overflow: hidden; }
-.sidebar { width: 230px; min-width: 230px; max-width: 230px; flex: 0 0 230px; background: linear-gradient(180deg, #1f2937, #111827); color: white; display: flex; flex-direction: column; box-shadow: 2px 0 16px rgba(16,24,40,0.12); z-index: 50; overflow-y: auto; overflow-x: hidden; }
+.sidebar { width: 230px; min-width: 230px; max-width: 230px; flex: 0 0 230px; background: linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-2) 100%); color: white; display: flex; flex-direction: column; box-shadow: 2px 0 16px rgba(16,24,40,0.12); z-index: 50; overflow-y: auto; overflow-x: hidden; }
 .main-content { flex: 1 1 0%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .sidebar-nav { flex: 1; display: flex; flex-direction: column; padding: 15px 0; }
 .nav-btn { display: flex; align-items: center; gap: 12px; background: none; border: none; color: #aeb8c7; padding: 12px 14px; margin: 2px 8px; border-radius: 6px; text-align: left; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; }
@@ -17,9 +22,9 @@
 .sidebar-header { padding: 22px 20px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
 .sidebar-header h2 { font-size: 18px; background: linear-gradient(90deg, #fff, #c7d2fe); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .sidebar-footer { padding: 20px; }
-.nav-btn.active { background: linear-gradient(90deg, #4f7cf5, #3b63d4); color: white; font-weight: 600; box-shadow: 0 4px 12px rgba(79,124,245,0.35); }
+.nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
 </style>
-    <link rel="stylesheet" href="css/style.css?v=1785023000">
+    <link rel="stylesheet" href="css/style.css?v=2074de1879-20260820a">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1f2937">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -89,8 +94,8 @@
                 <button id="compact-toggle" class="compact-toggle" title="Плотный режим" aria-label="Плотный режим">⊞</button>
             </div>
             <div class="sidebar-footer">
-                <a href="/admin" id="admin-link" class="admin-link-btn hidden" target="_blank">Админ-панель</a>
-                <button id="logout-btn" class="logout-btn">Выйти</button>
+                <a href="/admin" id="admin-link" class="admin-link-btn hidden" target="_blank" rel="noopener noreferrer" title="Админ-панель"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span>Админ-панель</span></a>
+                <button id="logout-btn" class="logout-btn" title="Выйти"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span><span>Выйти</span></button>
             </div>
         </aside>
 
@@ -113,16 +118,13 @@
                 <button class="filter-toggle" onclick="toggleFilters()">🔍 Фильтры ▾</button>
                 <div class="filter-bar" id="kanban-filters">
                     <span class="filter-label">Фильтры:</span>
-                    <select id="filter-store" onchange="applyKanbanFilters()">
+                    <select id="filter-store" aria-label="Магазин" onchange="applyKanbanFilters()">
                         <option value="">Все магазины</option>
-                        <option value="Матусевича">Матусевича</option>
-                        <option value="Богдановича">Богдановича</option>
-                        <option value="БН">Безнал (БН)</option>
                     </select>
-                    <input type="number" id="filter-amount-min" placeholder="Сумма от" style="width:100px;" onchange="applyKanbanFilters()">
-                    <input type="number" id="filter-amount-max" placeholder="Сумма до" style="width:100px;" onchange="applyKanbanFilters()">
-                    <input type="text" id="filter-client" placeholder="Клиент" style="width:120px;" onchange="applyKanbanFilters()">
-                    <select id="filter-priority" onchange="applyKanbanFilters()">
+                    <input type="number" id="filter-amount-min" aria-label="Сумма от" placeholder="Сумма от" style="width:100px;" onchange="applyKanbanFilters()">
+                    <input type="number" id="filter-amount-max" aria-label="Сумма до" placeholder="Сумма до" style="width:100px;" onchange="applyKanbanFilters()">
+                    <input type="text" id="filter-client" aria-label="Клиент" placeholder="Клиент" style="width:120px;" onchange="applyKanbanFilters()">
+                    <select id="filter-priority" aria-label="Приоритет" onchange="applyKanbanFilters()">
                         <option value="">Все приоритеты</option>
                         <option value="3">Высокий</option>
                         <option value="2">Средний</option>
@@ -168,6 +170,7 @@
                                 <th class="sortable" data-sort="date">Дата</th>
                                 <th class="sortable" data-sort="company_name">Название</th>
                                 <th class="sortable" data-sort="amount">Сумма</th>
+                                <th class="sortable" data-sort="paid_amount">Оплата</th>
                                 <th class="sortable" data-sort="store_location">Магазин</th>
                                 <th>Просчет</th>
                                 <th>Выписка ТН</th>
@@ -360,8 +363,8 @@
                         <div class="settings-card">
                             <h3>Создать объект</h3>
                             <div class="settings-row">
-                                <input type="text" id="sobj-label" placeholder="Название (Товар)" class="input-settings">
-                                <input type="text" id="sobj-name" placeholder="Имя (product)" class="input-settings">
+                                <input type="text" id="sobj-label" aria-label="Название объекта" placeholder="Название (Товар)" class="input-settings">
+                                <input type="text" id="sobj-name" aria-label="Системное имя объекта латиницей" placeholder="Имя (product)" class="input-settings">
                                 <button class="btn btn-primary" onclick="SettingsUI.createObj()">Создать</button>
                             </div>
                         </div>
@@ -373,9 +376,9 @@
                         <div class="settings-card">
                             <h3>Поля</h3>
                             <div class="settings-row-bottom">
-                                <input type="text" id="sfield-label" placeholder="Название поля" class="input-settings">
-                                <input type="text" id="sfield-name" placeholder="Имя (латиницей)" class="input-settings">
-                                <select id="sfield-type" class="select-settings">
+                                <input type="text" id="sfield-label" aria-label="Название поля" placeholder="Название поля" class="input-settings">
+                                <input type="text" id="sfield-name" aria-label="Системное имя поля латиницей" placeholder="Имя (латиницей)" class="input-settings">
+                                <select id="sfield-type" aria-label="Тип поля" class="select-settings">
                                     <option value="text">Текст</option><option value="number">Число</option><option value="select">Выбор</option>
                                     <option value="date">Дата</option><option value="currency">Валюта</option><option value="boolean">Да/Нет</option>
                                 </select>
@@ -397,8 +400,8 @@
                  <!-- ВОРКФЛОУ -->
                  <div id="stab-workflows" class="settings-pane hidden">
                     <div class="settings-card" style="text-align:center;padding:40px;">
-                        <h2 style="color:#888;">Воркфлоу</h2>
-                        <p style="color:#aaa;">Функционал автоматизации в разработке. Скоро будет доступен.</p>
+                        <h2 style="color:var(--text-muted);">Воркфлоу</h2>
+                        <p style="color:var(--text-muted);">Функционал автоматизации в разработке. Скоро будет доступен.</p>
                     </div>
                 </div>
 
@@ -408,20 +411,20 @@
                         <div class="settings-card">
                             <h3>Настройки IMAP</h3>
                             <div class="form-group">
-                                <label>IMAP-сервер</label>
+                                <label for="email-imap-server">IMAP-сервер</label>
                                 <input type="text" id="email-imap-server" placeholder="imap.yandex.ru" value="imap.yandex.ru">
                             </div>
                             <div class="form-group">
-                                <label>Электронная почта</label>
+                                <label for="email-username">Электронная почта</label>
                                 <input type="email" id="email-username" placeholder="email@yandex.ru">
                             </div>
                             <div class="form-group">
-                                <label>Пароль приложения</label>
+                                <label for="email-password">Пароль приложения</label>
                                 <input type="password" id="email-password" placeholder="Пароль приложения">
                                 <span class="field-hint">Специальный пароль приложения, не обычный пароль.</span>
                             </div>
                             <div class="form-group">
-                                <label>Колонка для новых лидов</label>
+                                <label for="email-target-status">Колонка для новых лидов</label>
                                 <select id="email-target-status">
                                     <option value="Новый запрос">Новый запрос</option>
                                     <option value="В работе">В работе</option>
@@ -445,7 +448,7 @@
                     <div class="settings-card">
                         <h3>Создать webhook</h3>
                         <div class="form-group">
-                            <label>URL-адрес</label>
+                            <label for="wh-url">URL-адрес</label>
                             <input type="url" id="wh-url" placeholder="https://example.com/webhook">
                         </div>
                         <div class="form-group">
@@ -475,6 +478,7 @@
         <div class="modal-content modal-content-split">
             <div class="modal-split-header">
                 <h2 id="modal-title">Детали карточки</h2>
+                <div id="modal-payment-header" class="modal-payment-header"></div>
                 <button class="close-btn" aria-label="Закрыть">&times;</button>
             </div>
             <div class="modal-split-left" id="modal-body-left"></div>
@@ -586,25 +590,28 @@
         </div>
     </div>
 
-    <script defer src="js/crm_store.js?v=30"></script>
-    <script defer src="js/api.js?v=30"></script>
-    <script defer src="js/features.js?v=30"></script>
-    <script defer src="js/auth.js?v=30"></script>
-    <script defer src="js/kanban.js?v=1784934588"></script>
-    <script defer src="js/card_modal.js?v=1785023000"></script>
-    <script defer src="js/payments.js?v=30"></script>
-    <script defer src="js/writeoffs.js?v=30"></script>
-    <script defer src="js/documents.js?v=30"></script>
-    <script defer src="js/contacts.js?v=1"></script>
-    <script defer src="js/clients.js?v=1785020000"></script>
-    <script defer src="js/suppliers.js?v=1785020000"></script>
-    <script defer src="js/dashboard.js?v=30"></script>
-    <script defer src="js/email_parser.js?v=30"></script>
-    <script defer src="js/realtime.js?v=30"></script>
-    <script defer src="js/settings.js?v=1784931906"></script>
-    <script defer src="js/calendar.js?v=30"></script>
-    <script defer src="js/ui-polish.js?v=8"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script defer src="js/constants.js?v=9a719d2d21"></script>
+    <script defer src="js/crm_store.js?v=dd6baeb897"></script>
+    <script defer src="js/api.js?v=401b0a5f34"></script>
+    <script defer src="js/features.js?v=c55d4713fd"></script>
+    <script defer src="js/auth.js?v=27700e2c8d"></script>
+    <script defer src="js/kanban.js?v=15b685bcd8-20260820a"></script>
+    <script defer src="js/card_modal.js?v=7a6c762cf3-20260820a"></script>
+    <script defer src="js/payments.js?v=d854d73168-20260820a"></script>
+    <script defer src="js/writeoffs.js?v=692a26f93f-20260820"></script>
+    <script defer src="js/documents.js?v=f8e58e4372"></script>
+    <script defer src="js/contacts.js?v=970449b785"></script>
+    <script defer src="js/clients.js?v=e5c450a234"></script>
+    <script defer src="js/suppliers.js?v=135eb020ae"></script>
+    <script defer src="js/dashboard.js?v=cba06140ed"></script>
+    <script defer src="js/email_parser.js?v=16324033df"></script>
+    <script defer src="js/realtime.js?v=611380c094"></script>
+    <script defer src="js/settings.js?v=3cdd14c4bd"></script>
+    <script defer src="js/calendar.js?v=1ef62c88ef"></script>
+    <script defer src="js/ui-polish.js?v=8dc903b511"></script>
+    <!-- Chart.js размещён локально: внешний CDN был единой точкой отказа для
+         дашборда и мог подменить код, имеющий доступ к токену сессии. -->
+    <script defer src="js/vendor/chart.umd.min.js?v=31298e4d34"></script>
 
     <div id="client-cards-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="client-cards-title">
         <div class="modal-content">
@@ -616,7 +623,7 @@
 
     <div id="cmd-palette-overlay" class="cmd-palette-overlay hidden" role="dialog" aria-modal="true" aria-label="Быстрый поиск">
         <div class="cmd-palette">
-            <input type="text" id="cmd-palette-input" class="cmd-palette-input" placeholder="Поиск сделок, клиентов, страниц..." autocomplete="off">
+            <input type="text" id="cmd-palette-input" class="cmd-palette-input" aria-label="Поиск сделок, клиентов, страниц" placeholder="Поиск сделок, клиентов, страниц..." autocomplete="off">
             <div id="cmd-palette-results" class="cmd-palette-results"></div>
         </div>
     </div>
@@ -660,7 +667,9 @@
         setTimeout(requestNotificationPermission, 3000);
     });
 
-    // Уведомления о новых сделках через WebSocket
+    // Уведомления о новых сделках. Источник данных — периодический опрос
+    // в js/realtime.js (WebSocket не используется), событие приходит после
+    // каждой успешной загрузки доски.
     if (window.crmOn) {
         crmOn('kanban:loaded', (data) => {
             const prev = parseInt(sessionStorage.getItem('kanban_card_count') || '0');

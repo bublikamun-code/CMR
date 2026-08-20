@@ -28,10 +28,19 @@
 
   function setIcon(el, name, label) {
     if (!el) return;
-    el.innerHTML = ICONS[name];
+    // innerHTML порождает childList-мутацию даже при идентичной строке.
+    // На body висит MutationObserver, который вызывает runAll() → setIcon,
+    // поэтому безусловная запись зацикливала обход DOM ~8 раз в секунду.
+    // Пишем разметку только когда иконка реально сменилась.
+    if (el.dataset.uiIcon !== name || !el.firstElementChild) {
+      el.innerHTML = ICONS[name];
+      el.dataset.uiIcon = name;
+    }
     if (label) {
-      el.setAttribute('title', label);
-      el.setAttribute('aria-label', label);
+      // title/aria-label не входят в attributeFilter наблюдателя,
+      // но лишние записи всё равно ни к чему.
+      if (el.getAttribute('title') !== label) el.setAttribute('title', label);
+      if (el.getAttribute('aria-label') !== label) el.setAttribute('aria-label', label);
     }
   }
 
@@ -224,18 +233,31 @@
   function addTitles(root) {
     var sel = '.clickable-company, .supplier-name-link, th, .checklist-invoice-link';
     var nodes = (root || document).querySelectorAll(sel);
+
+    // Две фазы. Раньше чтение scrollWidth и запись title шли вперемешку:
+    // каждая запись инвалидировала layout, и следующее чтение форсировало
+    // полный пересчёт. На реестре с 500 строками это давало сотни
+    // forced reflow за один проход, а проход шёл каждые 120 мс.
+    var plan = [];
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
-      var cut = el.scrollWidth > el.clientWidth + 2;
-      if (cut) {
-        var full = (el.textContent || '').trim();
-        if (full && el.getAttribute('title') !== full) {
-          el.setAttribute('title', full);
-          el.setAttribute('data-auto-title', '1');
+      plan.push({
+        el: el,
+        cut: el.scrollWidth > el.clientWidth + 2,
+        text: (el.textContent || '').trim()
+      });
+    }
+
+    for (var j = 0; j < plan.length; j++) {
+      var p = plan[j];
+      if (p.cut) {
+        if (p.text && p.el.getAttribute('title') !== p.text) {
+          p.el.setAttribute('title', p.text);
+          p.el.setAttribute('data-auto-title', '1');
         }
-      } else if (el.getAttribute('data-auto-title') === '1') {
-        el.removeAttribute('title');
-        el.removeAttribute('data-auto-title');
+      } else if (p.el.getAttribute('data-auto-title') === '1') {
+        p.el.removeAttribute('title');
+        p.el.removeAttribute('data-auto-title');
       }
     }
   }
@@ -333,14 +355,28 @@
   }
 
   var pending = null;
-  new MutationObserver(function () {
+  var scheduleRunAll = function () {
     if (pending) return;
-    pending = setTimeout(function () { pending = null; runAll(); }, 120);
-  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    pending = setTimeout(function () { pending = null; runAll(); }, 250);
+  };
+
+  // Слушаем только childList: перерисовки таблиц и досок нам нужны.
+  // attributeFilter:['class'] убран намеренно — класс здесь меняется
+  // постоянно (активный раздел, состояния, drag-over на каждое событие
+  // dragover ~60 раз в секунду), и каждая такая смена дёргала полный
+  // обход DOM. Смена темы и сайдбара покрыта отдельным обработчиком ниже.
+  new MutationObserver(scheduleRunAll)
+    .observe(document.body, { childList: true, subtree: true });
 
   // тема/сайдбар переключаются чужим кодом — обновляем иконку после клика
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('.sidebar-toggle, #theme-toggle, .theme-toggle, #compact-toggle');
-    if (t) setTimeout(replaceGlyphs, 60);
+    if (!e.target.closest) return;
+    if (e.target.closest('.sidebar-toggle, #theme-toggle, .theme-toggle, #compact-toggle')) {
+      setTimeout(replaceGlyphs, 60);
+    }
+    // Раньше смену раздела ловил наблюдатель за классом .active.
+    // Теперь вызываем явно: на новой странице надо пересчитать обрезку
+    // заголовков и подтянуть иконки.
+    if (e.target.closest('.nav-btn[data-target]')) scheduleRunAll();
   });
 })();

@@ -3,6 +3,38 @@ let currentPayments = [];    // то, что сейчас показано (дл
 let paymentsMonth = 'all';   // выбранный месяц фильтра
 let paymentsSort = { key: null, dir: 1 };
 
+const PAYMENT_STATUS_CLASSES = {
+    'Не оплачен': 'pay-unpaid',
+    'Частично': 'pay-partial',
+    'Оплачен': 'pay-paid',
+    'Отсрочка': 'pay-deferred'
+};
+
+function renderPaymentStatusBadge(status) {
+    const s = status || 'Не оплачен';
+    const cls = PAYMENT_STATUS_CLASSES[s] || 'pay-unpaid';
+    return `<span class="pay-badge ${cls}">${escapeHtml(s)}</span>`;
+}
+
+function renderPaymentCell(tr) {
+    const total = parseFloat(tr.amount) || 0;
+    const paid = parseFloat(tr.paid_amount) || 0;
+    const status = tr.payment_status || 'Не оплачен';
+    const cls = PAYMENT_STATUS_CLASSES[status] || 'pay-unpaid';
+    const rest = Math.max(0, total - paid).toFixed(2);
+    const percent = total > 0 ? Math.min(100, (paid / total) * 100) : 0;
+    return `
+        <span class="pay-badge ${cls}">${escapeHtml(status)}</span>
+        <div class="payment-cell-amounts">
+            <span class="pay-cell-paid">${paid.toFixed(2)}</span>
+            <span class="pay-cell-divider">/</span>
+            <span class="pay-cell-total">${total.toFixed(2)}</span>
+            <span class="pay-cell-rest">(ост. ${rest})</span>
+        </div>
+        <div class="payment-cell-progress"><div class="payment-progress-bar" style="width:${percent}%"></div></div>
+    `;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const paymentsBtn = document.querySelector('[data-target="page-payments"]');
     if (paymentsBtn) paymentsBtn.addEventListener('click', loadPaymentsTable);
@@ -13,8 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPayments();
     });
 
-    const search = document.getElementById('payments-search');
-    if (search) search.addEventListener('input', (e) => filterTableRows('payments-table', e.target.value));
+    bindTableSearch('payments-search', 'payments-table');
 
     const exportBtn = document.getElementById('payments-export');
     if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentPayments, 'reestr_oplat.csv'));
@@ -103,13 +134,41 @@ function renderPayments() {
         const existing = existingRows[tr.id];
 
         if (existing) {
-            existing.querySelector('.cb-calc').checked = tr.is_calculated;
-            existing.querySelector('.cb-invoice').checked = tr.is_invoice_issued;
-            existing.querySelector('.cb-written-off').checked = tr.is_written_off;
-            existing.querySelector('.input-note').value = tr.note || '';
+            // Каждый querySelector проверяется: раньше здесь висел несуществующий
+            // .input-note, из-за него бросался TypeError, обрывался цикл и реестр
+            // молча перестал обновляться со второго опроса.
+            const cbCalc = existing.querySelector('.cb-calc');
+            if (cbCalc) cbCalc.checked = tr.is_calculated;
+            const cbInvoice = existing.querySelector('.cb-invoice');
+            if (cbInvoice) cbInvoice.checked = tr.is_invoice_issued;
+            const cbWrittenOff = existing.querySelector('.cb-written-off');
+            if (cbWrittenOff) cbWrittenOff.checked = tr.is_written_off;
+
+            // Сумма и примечание — inline-edit ячейки. Пока пользователь их
+            // редактирует, <span> подменён на <input>: в этот момент не трогаем,
+            // иначе опрос затрёт незакоммиченный ввод.
+            const amountCell = existing.querySelector('.inline-edit-cell[data-field="amount"]');
+            if (amountCell && !amountCell.querySelector('input')) {
+                const amountSpan = amountCell.querySelector('.inline-edit');
+                if (amountSpan) amountSpan.textContent = String(tr.amount || 0);
+            }
+
+            const paymentCell = existing.querySelector('td:nth-child(5)');
+            if (paymentCell) paymentCell.innerHTML = renderPaymentCell(tr);
+
+            const noteCell = existing.querySelector('.inline-edit-cell[data-field="note"]');
+            if (noteCell && !noteCell.querySelector('input')) {
+                const noteSpan = noteCell.querySelector('.inline-edit');
+                if (noteSpan) {
+                    if (tr.note) noteSpan.textContent = tr.note;
+                    else noteSpan.innerHTML = '<span class="text-muted">Нет данных</span>';
+                }
+            }
+
             // Реестр оплат показывает счёт клиента. Закупка у поставщиков
             // (чек-лист карточки) сюда не подмешивается.
-            existing.querySelector('.clickable-company').textContent = tr.company_name;
+            const companyCell = existing.querySelector('.clickable-company');
+            if (companyCell) companyCell.textContent = tr.company_name;
             tbody.appendChild(existing);
         } else {
             const row = document.createElement('tr');
@@ -123,10 +182,11 @@ function renderPayments() {
                     <span class="inline-edit font-mono text-right">${escapeHtml(String(tr.amount || 0))}</span>
                     <span class="text-muted text-sm">BYN</span>
                 </td>
+                <td class="td-center payment-cell">${renderPaymentCell(tr)}</td>
                 <td>${escapeHtml(tr.store_location) || '—'}</td>
-                <td class="td-center"><input type="checkbox" class="cb-calc" data-id="${tr.id}" ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
-                <td class="td-center"><input type="checkbox" class="cb-invoice" data-id="${tr.id}" ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>
-                <td class="td-center"><input type="checkbox" class="cb-written-off" data-id="${tr.id}" ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
+                <td class="td-center"><input type="checkbox" class="cb-calc" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
+                <td class="td-center"><input type="checkbox" class="cb-invoice" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>
+                <td class="td-center"><input type="checkbox" class="cb-written-off" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
                 <td class="print-cell"></td>
                 <td class="inline-edit-cell" data-field="note" data-id="${tr.id}"><span class="inline-edit">${escapeHtml(tr.note) || '<span class="text-muted">Нет данных</span>'}</span></td>
                 <td class="td-center">
@@ -219,6 +279,10 @@ document.addEventListener('click', (e) => {
     if (!span) return;
     
     const currentValue = span.textContent.trim();
+    // Запоминаем классы: у суммы это 'inline-edit font-mono text-right'.
+    // Ниже span пересоздаётся, и без этого после правки число теряло
+    // выравнивание по правому краю и уезжало влево.
+    const spanClass = span.className;
     const input = document.createElement('input');
     input.type = field === 'amount' ? 'number' : 'text';
     input.className = 'inline-edit-input';
@@ -232,7 +296,7 @@ document.addEventListener('click', (e) => {
     const save = async () => {
         const newVal = input.value.trim();
         const spanNew = document.createElement('span');
-        spanNew.className = 'inline-edit';
+        spanNew.className = spanClass;
         
         if (field === 'amount') {
             const numVal = parseFloat(newVal) || 0;
@@ -281,15 +345,19 @@ function setupPaymentsAutoSave() {
         else if (e.target.classList.contains('cb-written-off')) {
             // Ручная галочка реестра (стр.2) — независима от доски списаний (стр.3)
             updateData.is_written_off = e.target.checked;
-        } else if (e.target.classList.contains('input-note')) updateData.note = e.target.value;
+        }
+        // Примечание сохраняется не здесь, а через inline-edit (см. блок
+        // INLINE EDIT выше): в разметке строки нет поля .input-note.
 
         if (Object.keys(updateData).length > 0) {
             try {
-                await apiFetch(`/payments/transactions/${id}`, {
+                const partIds = JSON.parse(e.target.dataset.partIds || '[]');
+                const ids = Array.isArray(partIds) && partIds.length > 0 ? partIds : [id];
+                await Promise.all(ids.map(txId => apiFetch(`/payments/transactions/${txId}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updateData)
-                });
+                })));
             } catch (error) {
                 showToast("Не удалось сохранить: " + error.message, 'error');
                 if (e.target.type === 'checkbox') e.target.checked = !e.target.checked;

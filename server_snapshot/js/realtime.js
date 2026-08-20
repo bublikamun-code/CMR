@@ -16,6 +16,28 @@
         'page-dashboard':  () => typeof loadDashboard      === 'function' && loadDashboard(),
     };
 
+    // Максимальное время, которое опрос может простаивать из-за активного
+    // ввода. Без этого ограничения курсор, забытый в поле, останавливал
+    // обновление навсегда — пользователь часами смотрел на устаревшие данные
+    // и никак об этом не узнавал.
+    const MAX_BLOCKED_MS = 3 * 60 * 1000;
+    let blockedSince = null;
+
+    /**
+     * Держит ли пользователь несохранённое состояние, которое перерисовка
+     * затрёт. Поля поиска и фильтров сюда НЕ относятся: их значение
+     * восстанавливается после обновления в reapplySearch().
+     */
+    function hasUnsavedInput() {
+        const el = document.activeElement;
+        if (!el) return false;
+        if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) return false;
+        // Поиск и фильтры переживают перерисовку без потерь.
+        if (el.classList.contains('search-input')) return false;
+        if (el.closest('.filter-bar, .month-filter')) return false;
+        return true;
+    }
+
     function isBusy() {
         if (document.hidden) return true;
         if (typeof hasToken === 'function' && !hasToken()) return true;
@@ -23,8 +45,7 @@
         if (document.querySelector('.dropdown.open')) return true;
         if (document.querySelector('.dragging')) return true;
         if (document.querySelector('.tag-dropdown-menu')) return true;
-        const el = document.activeElement;
-        if (el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) return true;
+        if (hasUnsavedInput()) return true;
         return false;
     }
 
@@ -40,15 +61,26 @@
 
     async function tick() {
         if (ticking) return;
-        if (isBusy()) return;
+        if (isBusy()) {
+            // Обновление осознанно пропущено. Отслеживаем, как долго —
+            // затянувшийся простой означает, что на экране устаревшие данные,
+            // и об этом должен узнать хотя бы остальной код.
+            if (blockedSince === null) blockedSince = Date.now();
+            else if (Date.now() - blockedSince > MAX_BLOCKED_MS && window.CRM_STORE) {
+                crmEmit('realtime:stale', { blockedMs: Date.now() - blockedSince });
+            }
+            return;
+        }
+        blockedSince = null;
         ticking = true;
         try {
             const activePage = document.querySelector('.page-section.active');
             if (!activePage) return;
 
+            // Первый тик после смены страницы только запоминает её: данные
+            // уже загружены обработчиком перехода, повторный запрос не нужен.
             if (activePage.id !== lastActivePage) {
                 lastActivePage = activePage.id;
-                ticking = false;
                 return;
             }
 

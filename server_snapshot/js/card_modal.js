@@ -86,6 +86,7 @@ async function openCardModal(cardId) {
         });
 
         renderModalContent(card, document.getElementById('modal-body-left'), document.getElementById('modal-body-right'));
+        renderModalPaymentHeader(card);
     } catch (error) {
         modalBody.innerHTML = `<p class="modal-error">Ошибка: ${escapeHtml(error.message)}</p>`;
     } finally {
@@ -319,11 +320,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     };
     container.addEventListener('change', container._modalChangeHandler);
 
-    const STORE_OPTIONS = [
-        { value: 'Матусевича', label: 'Матусевича' },
-        { value: 'Богдановича', label: 'Богдановича' },
-        { value: 'БН', label: 'Безнал (БН)' }
-    ];
+    const STORE_OPTIONS = APP_STORES;
     const storeDropdown = createDropdown({
         options: STORE_OPTIONS,
         value: card.store_location || '',
@@ -583,8 +580,8 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     const fileInput = document.getElementById('file-input');
     dropzone.onclick = () => fileInput.click();
     fileInput.onchange = (e) => uploadFiles(card.id, e.target.files);
-    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.style.borderColor = '#333'; };
-    dropzone.ondragleave = () => dropzone.style.borderColor = '#ccc';
+    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.style.borderColor = 'var(--border-interactive)'; };
+    dropzone.ondragleave = () => dropzone.style.borderColor = 'var(--border-color)';
     dropzone.ondrop = (e) => { e.preventDefault(); uploadFiles(card.id, e.dataTransfer.files); };
 
     document.getElementById('btn-to-assembly').onclick = async () => {
@@ -648,7 +645,11 @@ async function loadCardTags(card) {
                 pill.className = 'tag-pill';
                 const c = sanitizeColor(tag.color);
                 const r = parseInt(c.slice(1,3),16), g = parseInt(c.slice(3,5),16), b = parseInt(c.slice(5,7),16);
-                const bg = `rgb(${Math.round(r+(255-r)*0.8)},${Math.round(g+(255-g)*0.8)},${Math.round(b+(255-b)*0.8)})`;
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                const blend = isDark ? 0.3 : 0.8;
+                const bg = isDark
+                    ? `rgba(${r},${g},${b},${blend})`
+                    : `rgb(${Math.round(r+(255-r)*blend)},${Math.round(g+(255-g)*blend)},${Math.round(b+(255-b)*blend)})`;
                 pill.style.color = c;
                 pill.style.background = bg;
                 pill.innerHTML = `${escapeHtml(tag.name)} <button class="tag-remove" data-id="${tag.id}" title="Удалить тег">&times;</button>`;
@@ -919,6 +920,112 @@ async function downloadFile(filename, niceName) {
     }
 }
 
+
+/* ============================================================
+   ОПЛАТА В КАРТОЧКЕ
+   ============================================================ */
+
+function statusClassForPayment(status) {
+    const map = {
+        'Не оплачен': 'pay-unpaid',
+        'Частично': 'pay-partial',
+        'Оплачен': 'pay-paid',
+        'Отсрочка': 'pay-deferred'
+    };
+    return map[status] || 'pay-unpaid';
+}
+
+async function saveCardPayment(card, payload) {
+    try {
+        const updated = await apiFetch(`/cards/${card.id}/payment`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        Object.assign(card, updated);
+        renderModalPaymentHeader(card);
+        showToast('Оплата сохранена', 'success');
+        if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+        if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+        if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+    } catch (err) {
+        showToast('Ошибка сохранения: ' + err.message, 'error');
+    }
+}
+
+function renderModalPaymentHeader(card) {
+    const mount = document.getElementById('modal-payment-header');
+    if (!mount) return;
+
+    const total = parseFloat(card.total_amount) || 0;
+    const paid = parseFloat(card.paid_amount) || 0;
+    const status = card.payment_status || 'Не оплачен';
+    const due = card.payment_due_date || '';
+    const cls = statusClassForPayment(status);
+    const dueStr = due ? new Date(due + 'T00:00:00').toLocaleDateString('ru-RU') : '';
+
+    mount.innerHTML = `
+        <div class="payment-total">${total.toFixed(2)} BYN</div>
+        <div class="payment-status-line">
+            <span class="pay-badge ${cls}" id="modal-pay-status">${status}</span>
+            ${paid > 0.01 ? `<span class="pay-amount">${paid.toFixed(2)} BYN</span>` : ''}
+            ${dueStr ? `<span class="pay-due">до ${dueStr}</span>` : ''}
+        </div>
+        <div class="payment-actions" id="modal-pay-actions">
+            <button data-action="paid" class="btn-pay-paid">✓ Оплачено</button>
+            <button data-action="partial" class="btn-pay-partial">Частично</button>
+            <button data-action="deferred" class="btn-pay-deferred">Отсрочка</button>
+        </div>
+    `;
+
+    const actions = mount.querySelector('#modal-pay-actions');
+    if (!actions) return;
+
+    actions.querySelector('[data-action="paid"]').onclick = () => {
+        if (total <= 0) return showToast('Укажите сумму сделки', 'error');
+        saveCardPayment(card, { paid_amount: total, payment_status: 'Оплачен' });
+    };
+
+    actions.querySelector('[data-action="partial"]').onclick = () => {
+        actions.innerHTML = `
+            <div class="payment-form-inline">
+                <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 && paid < total ? paid.toFixed(2) : ''}" placeholder="Сумма">
+                <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
+                <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
+            </div>
+        `;
+        const amountInput = actions.querySelector('#modal-pay-amount');
+        actions.querySelector('#modal-pay-confirm').onclick = () => {
+            const amount = parseFloat(amountInput.value) || 0;
+            if (amount <= 0) return showToast('Укажите сумму оплаты', 'error');
+            if (amount > total + 0.01) return showToast('Сумма оплаты не может превышать сумму сделки', 'error');
+            const newStatus = amount >= total - 0.01 ? 'Оплачен' : 'Частично';
+            saveCardPayment(card, { paid_amount: amount, payment_status: newStatus });
+        };
+        actions.querySelector('#modal-pay-cancel').onclick = () => renderModalPaymentHeader(card);
+        amountInput.focus();
+    };
+
+    actions.querySelector('[data-action="deferred"]').onclick = () => {
+        actions.innerHTML = `
+            <div class="payment-form-inline">
+                <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 ? paid.toFixed(2) : ''}" placeholder="Сумма">
+                <input type="date" id="modal-pay-due" value="${due}">
+                <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
+                <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
+            </div>
+        `;
+        const amountInput = actions.querySelector('#modal-pay-amount');
+        const dueInput = actions.querySelector('#modal-pay-due');
+        actions.querySelector('#modal-pay-confirm').onclick = () => {
+            const amount = parseFloat(amountInput.value) || 0;
+            if (!dueInput.value) return showToast('Укажите дату отсрочки', 'error');
+            saveCardPayment(card, { paid_amount: amount, payment_status: 'Отсрочка', payment_due_date: dueInput.value });
+        };
+        actions.querySelector('#modal-pay-cancel').onclick = () => renderModalPaymentHeader(card);
+        amountInput.focus();
+    };
+}
 
 /* ============================================================
    НАКЛАДНЫЕ В КАРТОЧКЕ (добавлено 05.08.2026)
