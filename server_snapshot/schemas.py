@@ -307,6 +307,7 @@ class TransactionResponse(TransactionBase):
     # Поля ниже оставлены ради совместимости и всегда пусты: реестр оплат
     # больше не читает чек-лист карточки — тот про закупку у поставщиков.
     paid_amount: Optional[float] = None
+    payment_status: Optional[str] = None
     is_partial_payment: Optional[bool] = None
     model_config = ConfigDict(from_attributes=True)
 
