@@ -157,6 +157,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             <div id="invoices-container"></div>
             <div class="invoices-summary" id="invoices-summary"></div>
         </div>
+        <div class="modal-section" id="group-writeoff-section" hidden>
+            <h3>Групповое списание</h3>
+            <div id="group-writeoff-container"></div>
+        </div>
         <div class="modal-actions">
             <button id="btn-to-assembly" class="btn-action btn-assembly">В Сборку (+Реестр)</button>
             <button id="btn-trigger-payment" class="btn-action btn-writeoff-action">В Списание</button>
@@ -167,6 +171,8 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     applyStageButtons(card);
     // Накладные показываем только когда сделка дошла до списания
     renderCardInvoices(card);
+    // Групповое списание: две карточки одного клиента под одной накладной
+    renderCardGroupBlock(card);
     // Прошлые сделки того же отправителя — предложить связать
     renderRelatedCards(card);
 
@@ -1207,6 +1213,205 @@ function declOf(n, forms) {
     if (b > 1 && b < 5) return forms[1];
     if (b === 1) return forms[0];
     return forms[2];
+}
+
+
+/* ============================================================
+   ГРУППОВОЕ СПИСАНИЕ В КАРТОЧКЕ
+   ============================================================ */
+async function renderCardGroupBlock(card) {
+    const section = document.getElementById('group-writeoff-section');
+    const container = document.getElementById('group-writeoff-container');
+    if (!section || !container) return;
+    section.hidden = false;
+    container.innerHTML = '<p class="text-muted">Загрузка...</p>';
+
+    try {
+        const [cards, groups] = await Promise.all([
+            (window.CRM_STORE && CRM_STORE.get('cards')) || apiFetch('/kanban/cards'),
+            apiFetch('/writeoffs/groups/')
+        ]);
+
+        if (card.writeoff_group_id) {
+            const group = groups.find(g => g.id === card.writeoff_group_id);
+            if (!group) {
+                container.innerHTML = '<p class="text-muted">Группа не найдена</p>';
+                return;
+            }
+            renderExistingGroup(card, group, container);
+            return;
+        }
+
+        // Карточка не в группе — предлагаем кандидатов
+        const canGroup = card.status === 'На списание' && card.client_id && card.store_location;
+        if (!canGroup) {
+            section.hidden = true;
+            return;
+        }
+
+        const candidates = cards.filter(c =>
+            c.id !== card.id &&
+            c.status === 'На списание' &&
+            c.client_id === card.client_id &&
+            c.store_location === card.store_location &&
+            !c.writeoff_group_id
+        );
+
+        if (!candidates.length) {
+            container.innerHTML = '<p class="text-muted">Нет других сделок этого клиента для группового списания</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <p class="text-muted">Выберите сделки того же клиента, которые хотите объединить в одну накладную:</p>
+            <div class="group-candidates">
+                ${candidates.map(c => `
+                    <label class="group-candidate">
+                        <input type="checkbox" value="${c.id}" data-group-candidate>
+                        <span class="gw-cand-title">${escapeHtml(c.title)}</span>
+                        <span class="gw-cand-amount">${(parseFloat(c.total_amount) || 0).toFixed(2)} BYN</span>
+                    </label>
+                `).join('')}
+            </div>
+            <div class="group-actions">
+                <input type="text" id="new-group-name" class="group-name-input" placeholder="Название группы (необязательно)">
+                <button id="btn-create-group" class="btn-primary btn-sm">Создать группу</button>
+            </div>
+        `;
+
+        container.querySelector('#btn-create-group').onclick = async () => {
+            const selected = Array.from(container.querySelectorAll('[data-group-candidate]:checked')).map(cb => parseInt(cb.value));
+            if (selected.length === 0) return showToast('Выберите хотя бы одну сделку', 'error');
+            const name = container.querySelector('#new-group-name').value.trim() || null;
+            try {
+                await apiFetch('/writeoffs/groups/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ card_ids: [card.id, ...selected], name })
+                });
+                showToast('Группа создана', 'success');
+                await refreshAndRerenderGroup(card);
+                if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+            } catch (err) {
+                showToast('Ошибка: ' + err.message, 'error');
+            }
+        };
+    } catch (e) {
+        container.innerHTML = `<p class="text-muted">Не удалось загрузить группы: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function renderExistingGroup(card, group, container) {
+    const total = parseFloat(group.total_amount) || 0;
+    const cardItems = (group.cards || []).map(c => `
+        <div class="group-member">
+            <span class="gm-title">${escapeHtml(c.title)}</span>
+            <span class="gm-amount">${(parseFloat(c.total_amount) || 0).toFixed(2)} BYN</span>
+            ${!group.written_off && c.id === card.id ? `<button class="btn-link btn-sm btn-leave-group" data-id="${c.id}">выйти</button>` : ''}
+        </div>
+    `).join('');
+
+    const closedInfo = group.written_off ? `
+        <div class="group-invoice-info">
+            <span class="inv-badge badge-ok">закрыто общей накладной</span>
+            <div class="gm-invoice">№ ${escapeHtml(group.invoice_number || '—')} · ${total.toFixed(2)} BYN</div>
+            ${group.invoice_date ? `<div class="gm-invoice-date">${new Date(group.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')}</div>` : ''}
+        </div>
+    ` : '';
+
+    container.innerHTML = `
+        <div class="group-card">
+            <div class="group-card-header">
+                <strong>${escapeHtml(group.name)}</strong>
+                <span class="col-count">${group.cards ? group.cards.length : 0}</span>
+            </div>
+            <div class="group-card-total">${total.toFixed(2)} BYN</div>
+            <div class="group-members">${cardItems}</div>
+            ${closedInfo}
+            ${!group.written_off ? `
+                <div class="group-invoice-form" id="group-invoice-form">
+                    <input type="text" id="group-inv-num" class="inv-in inv-in-num" placeholder="№ накладной">
+                    <input type="date" id="group-inv-date" class="inv-in inv-in-date" value="${new Date().toISOString().slice(0, 10)}">
+                    <input type="number" step="0.01" id="group-inv-amount" class="inv-in inv-in-amount" value="${total.toFixed(2)}" readonly title="Сумма группы">
+                </div>
+                <div class="group-actions">
+                    <button id="btn-issue-group-invoice" class="btn-primary btn-sm">Выписать общую накладную</button>
+                    <button id="btn-disband-group" class="btn-secondary btn-sm btn-danger">Распустить группу</button>
+                </div>
+            ` : ''}
+        </div>
+    `;
+
+    if (!group.written_off) {
+        const numEl = container.querySelector('#group-inv-num');
+        const dateEl = container.querySelector('#group-inv-date');
+
+        container.querySelector('#btn-issue-group-invoice').onclick = async () => {
+            const number = numEl.value.trim();
+            if (!number) { numEl.focus(); return showToast('Укажите номер накладной', 'error'); }
+            try {
+                await apiFetch(`/writeoffs/groups/${group.id}/issue-invoice`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoice_number: number, invoice_date: dateEl.value || null })
+                });
+                showToast('Общая накладная выписана', 'success');
+                await refreshAndRerenderGroup(card);
+                if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+                if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+                if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+            } catch (err) {
+                showToast('Ошибка: ' + err.message, 'error');
+            }
+        };
+
+        container.querySelector('#btn-disband-group').onclick = async () => {
+            if (!await confirmDialog('Распустить группу? Сделки останутся на списании по отдельности.', { okText: 'Распустить', danger: true })) return;
+            try {
+                await apiFetch(`/writeoffs/groups/${group.id}`, { method: 'DELETE' });
+                showToast('Группа распущена', 'success');
+                card.writeoff_group_id = null;
+                await renderCardGroupBlock(card);
+                if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+            } catch (err) {
+                showToast('Ошибка: ' + err.message, 'error');
+            }
+        };
+
+        container.querySelectorAll('.btn-leave-group').forEach(btn => {
+            btn.onclick = async (e) => {
+                e.stopPropagation();
+                const cid = parseInt(btn.dataset.id);
+                try {
+                    await apiFetch(`/writeoffs/groups/${group.id}/cards/${cid}`, { method: 'DELETE' });
+                    showToast('Карточка выведена из группы', 'success');
+                    if (cid === card.id) {
+                        card.writeoff_group_id = null;
+                        await renderCardGroupBlock(card);
+                    } else {
+                        await refreshAndRerenderGroup(card);
+                    }
+                    if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                    if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+                } catch (err) {
+                    showToast('Ошибка: ' + err.message, 'error');
+                }
+            };
+        });
+    }
+}
+
+async function refreshAndRerenderGroup(card) {
+    try {
+        const fresh = await apiFetch(`/kanban/cards/${card.id}`);
+        Object.assign(card, fresh);
+        await renderCardGroupBlock(card);
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 

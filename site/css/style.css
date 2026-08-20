@@ -8065,3 +8065,194 @@ td.td-center > .btn-edit-row .ui-icon{
     /* на тач-устройствах крестик виден всегда, иначе до него не добраться */
     .writeoff-card .btn-delete-writeoff { opacity: 0.55; }
 }
+
+/* ============================================================
+   ГРУППОВОЕ СПИСАНИЕ
+   ============================================================ */
+.group-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--primary-color);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+#group-writeoff-section h3 {
+    margin-bottom: 10px;
+}
+
+.group-candidates {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.group-candidate {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--card-bg);
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.group-candidate:hover {
+    border-color: var(--border-interactive);
+}
+
+.gw-cand-title {
+    flex: 1;
+}
+
+.gw-cand-amount {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.group-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.group-name-input {
+    flex: 1;
+    min-width: 140px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+}
+
+.group-card {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    background: var(--card-bg);
+}
+
+.group-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.group-card-total {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.group-members {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.group-member {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border-color);
+}
+
+.group-member:last-child {
+    border-bottom: none;
+}
+
+.gm-amount {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.group-invoice-form {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.group-invoice-form .inv-in {
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+}
+
+.group-invoice-form .inv-in-num {
+    flex: 1;
+    min-width: 120px;
+}
+
+.group-invoice-form .inv-in-date {
+    width: 130px;
+}
+
+.group-invoice-form .inv-in-amount {
+    width: 100px;
+    background: var(--bg-color);
+}
+
+.writeoff-group {
+    border-left: 3px solid var(--primary-color);
+}
+
+.writeoff-group .card-title {
+    color: var(--primary-color);
+}
+
+.group-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--primary-color);
+    color: #fff;
+}
+
+.wo-group-members {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.wo-group-member {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.gm-invoice {
+    font-weight: 700;
+    color: var(--success-color);
+}
+
+.gm-invoice-date {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.group-invoice-info {
+    margin: 8px 0;
+}

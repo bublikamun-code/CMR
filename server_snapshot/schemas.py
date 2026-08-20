@@ -246,6 +246,7 @@ class CardResponse(CardBase):
     id: int
     owner_id: Optional[int] = None
     client_id: Optional[int] = None
+    writeoff_group_id: Optional[int] = None
     created_at: datetime
     is_deleted: bool = False
     attachments: List[AttachmentResponse] = []
@@ -296,6 +297,7 @@ class TransactionResponse(TransactionBase):
     id: int
     date: Optional[datetime] = None
     card_id: Optional[int] = None
+    writeoff_group_id: Optional[int] = None
     is_document: bool = False
     # Сводные поля для СГРУППИРОВАННОГО реестра оплат (одна строка = одна сделка).
     # В обычном (несгруппированном) ответе остаются None и ни на что не влияют.
@@ -361,3 +363,28 @@ class CardPaymentUpdate(BaseModel):
         if v not in VALID:
             raise ValueError(f"Недопустимый статус оплаты: {v}")
         return v
+
+
+class WriteoffGroupCard(BaseModel):
+    id: int
+    title: str
+    total_amount: float
+    status: str
+    model_config = ConfigDict(from_attributes=True)
+
+class WriteoffGroupCreate(BaseModel):
+    card_ids: List[int]
+    name: Optional[str] = None
+
+class WriteoffGroupResponse(BaseModel):
+    id: int
+    name: str
+    client_id: Optional[int] = None
+    store_location: Optional[str] = None
+    total_amount: float
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
+    written_off: bool
+    cards: List[WriteoffGroupCard] = []
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)

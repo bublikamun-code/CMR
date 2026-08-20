@@ -58,6 +58,23 @@ class CardTag(Base):
     card_id = Column(Integer, ForeignKey("cards.id", ondelete="CASCADE"), primary_key=True)
     tag_id = Column(Integer, ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
+class WriteoffGroup(Base):
+    __tablename__ = "writeoff_groups"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True)
+    store_location = Column(String, nullable=True)
+    total_amount = Column(Numeric(12, 2), default=0.0)
+    invoice_number = Column(String, nullable=True)
+    invoice_date = Column(String, nullable=True)
+    written_off = Column(Boolean, default=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    cards = relationship("Card", back_populates="writeoff_group")
+    transactions = relationship("Transaction", back_populates="writeoff_group")
+
 class Card(Base):
     __tablename__ = "cards"
     id = Column(Integer, primary_key=True, index=True)
@@ -78,10 +95,12 @@ class Card(Base):
     due_date = Column(Date, nullable=True)
     priority = Column(Integer, default=0)
     position = Column(Integer, default=0, index=True)
+    writeoff_group_id = Column(Integer, ForeignKey("writeoff_groups.id", ondelete="SET NULL"), nullable=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
 
     owner = relationship("User", back_populates="cards")
     client = relationship("Client", back_populates="cards")
+    writeoff_group = relationship("WriteoffGroup", back_populates="cards")
     attachments = relationship("CardAttachment", back_populates="card", cascade="all, delete-orphan")
     checklists = relationship("CardChecklist", back_populates="card", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="card")
@@ -141,10 +160,12 @@ class Transaction(Base):
     is_bill_doc = Column(Boolean, default=False)
     is_warehouse_writeoff = Column(Boolean, default=False)
     card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True, index=True)
+    writeoff_group_id = Column(Integer, ForeignKey("writeoff_groups.id", ondelete="SET NULL"), nullable=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     card = relationship("Card", back_populates="transactions")
+    writeoff_group = relationship("WriteoffGroup", back_populates="transactions")
 
 class ActivityLog(Base):
     __tablename__ = "activity_log"

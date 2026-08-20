@@ -36,6 +36,8 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
         card = query.first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
+        if card.writeoff_group_id is not None:
+            raise HTTPException(status_code=400, detail="Карточка объединена в групповое списание. Управляйте ей через группу.")
         # ИДЕМПОТЕНТНО: кнопки «В Сборку» / «В Списание» могут нажиматься многократно,
         # и каждое нажатие раньше плодило дубль. Если запись уже есть — возвращаем её.
         # Для осознанного добавления ВТОРОЙ накладной есть отдельный эндпоинт
@@ -232,6 +234,10 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
         tx = query.first()
         if not tx:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
+        if tx.card_id and not tx.is_document:
+            card = session.query(models.Card).filter(models.Card.id == tx.card_id).first()
+            if card and card.writeoff_group_id is not None:
+                raise HTTPException(status_code=400, detail="Сначала выведите карточку из группы")
 
         card_id = tx.card_id
         number = (tx.invoice_number or "").strip()
@@ -409,6 +415,8 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
+        if card.writeoff_group_id is not None:
+            raise HTTPException(status_code=400, detail="Карточка объединена в групповое списание. Добавляйте накладную по группе.")
 
         existing = session.query(models.Transaction).filter(
             models.Transaction.card_id == card_id,
@@ -496,6 +504,8 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
+        if card.writeoff_group_id is not None:
+            raise HTTPException(status_code=400, detail="Карточка объединена в групповое списание. Выписывайте накладную по группе.")
 
         amount = round(float(payload.amount or 0), 2)
         if amount <= 0:
@@ -671,6 +681,8 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card and not rows:
             raise HTTPException(status_code=404, detail="Сделка не найдена")
+        if card and card.writeoff_group_id is not None:
+            raise HTTPException(status_code=400, detail="Сначала выведите карточку из группы")
 
         # 404 больше не бросаем: если записей нет, значит их уже удалили
         # (двойной клик, параллельная вкладка). Карточку всё равно нужно

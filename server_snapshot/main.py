@@ -17,6 +17,7 @@ from routers import kanban_router
 from routers import card_details_router
 from routers import payments_router
 from routers import writeoffs_router
+from routers import writeoff_groups_router
 from routers import clients_router
 from routers import tags_router
 from routers import suppliers_router
@@ -77,6 +78,7 @@ app.include_router(kanban_router.router)
 app.include_router(card_details_router.router)
 app.include_router(payments_router.router)
 app.include_router(writeoffs_router.router)
+app.include_router(writeoff_groups_router.router)
 app.include_router(clients_router.router)
 app.include_router(tags_router.router)
 app.include_router(suppliers_router.router)

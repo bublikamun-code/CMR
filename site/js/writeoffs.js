@@ -11,14 +11,23 @@ async function loadWriteoffsBoard() {
     if (!boardExists) return;
 
     try {
-        const [transactions, cards] = await Promise.all([
+        const [transactions, cards, groups] = await Promise.all([
             // grouped=false — доске нужны СЫРЫЕ записи (накладные + остаток),
             // а не схлопнутые строки реестра оплат
             apiFetch('/payments/transactions?grouped=false'),
-            apiFetch('/kanban/cards')
+            apiFetch('/kanban/cards'),
+            apiFetch('/writeoffs/groups/')
         ]);
 
         document.querySelectorAll('.writeoff-cards').forEach(col => col.innerHTML = '');
+
+        // Сначала групповые плитки — они отображают несколько сделок одной накладной.
+        (groups || []).forEach(g => {
+            if (!g.store_location) return;
+            const container = document.querySelector(`.writeoff-column[data-store="${g.store_location}"][data-status="${g.written_off}"] .writeoff-cards`);
+            if (!container) return;
+            renderGroupTile(g, container);
+        });
 
         // Накладные одной сделки держим вместе: сортируем по card_id, внутри — по id.
         // Раньше сортировка шла по дате, и новая накладная разрывала группу.
@@ -35,6 +44,9 @@ async function loadWriteoffsBoard() {
             if ((parseFloat(t.amount) || 0) <= 0) return;
 
             const linkedCard = cards.find(c => c.id === t.card_id);
+            // Сделки, объединённые в группу, показываются одной групповой плиткой.
+            if (linkedCard && linkedCard.writeoff_group_id) return;
+
             const siblings = t.card_id
                 ? ordered.filter(x => x.card_id === t.card_id && !x.is_document)
                 : [];
@@ -163,10 +175,71 @@ async function loadWriteoffsBoard() {
     }
 }
 
+function renderGroupTile(group, container) {
+    const total = parseFloat(group.total_amount) || 0;
+    const count = group.cards ? group.cards.length : 0;
+    const dateStr = group.invoice_date
+        ? new Date(group.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
+        : '';
+
+    const el = document.createElement('div');
+    el.className = 'kanban-card writeoff-card writeoff-group' + (group.written_off ? ' writeoff-done' : '');
+    el.dataset.groupId = group.id;
+
+    const membersHtml = (group.cards || []).map(c =>
+        `<div class="wo-group-member"><span>${escapeHtml(c.title)}</span><span>${(parseFloat(c.total_amount) || 0).toFixed(2)} BYN</span></div>`
+    ).join('');
+
+    el.innerHTML = `
+        <div class="card-header">
+            <strong class="card-title">${escapeHtml(group.name)}</strong>
+            <span class="group-count-badge" title="Сделок в группе">+${count}</span>
+        </div>
+        <div class="card-amount">${total.toFixed(2)} BYN</div>
+        <div class="wo-group-members">${membersHtml}</div>
+        ${group.written_off
+            ? `<div class="wo-invoice"><span class="wo-inv-num">${escapeHtml(group.invoice_number || '—')}</span>${dateStr ? `<span class="wo-inv-date">${dateStr}</span>` : ''}</div>`
+            : `<div class="wo-note wo-note-empty">общая накладная не выписана</div>`}
+    `;
+
+    if (!group.written_off) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-writeoff';
+        btn.innerText = 'Выписать накладную';
+        btn.onclick = async (e) => {
+            e.stopPropagation();
+            const number = window.prompt(`Номер общей накладной для «${group.name}»`);
+            if (!number || !number.trim()) return;
+            try {
+                await apiFetch(`/writeoffs/groups/${group.id}/issue-invoice`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoice_number: number.trim() })
+                });
+                showToast('Общая накладная выписана', 'success');
+                loadWriteoffsBoard();
+                if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+                if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+                if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+            } catch (err) {
+                showToast('Ошибка: ' + err.message, 'error');
+            }
+        };
+        el.appendChild(btn);
+    }
+
+    el.onclick = (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+        if (group.cards && group.cards.length) openCardModal(group.cards[0].id);
+    };
+
+    container.appendChild(el);
+}
+
 // saveFieldWithFeedback() удалена: на доске списаний нет редактируемых
 // полей (см. комментарий выше — номер и сумма накладной правятся только
 // внутри карточки сделки), поэтому функция не вызывалась ни разу.
-// Вместе с ней снят мёртвый CSS .writeoff-fields в style.css.
+// Вместе с ней снят мёртвий CSS .writeoff-fields в style.css.
 
 function updateWriteoffCounters() {
     document.querySelectorAll('.writeoff-column').forEach(col => {

@@ -292,6 +292,7 @@ function fillCardHTML(cardEl, card) {
         <div class="card-amount">${escapeHtml(String(card.total_amount || 0))} BYN</div>
         <div class="card-badges">
             ${card.store_location ? `<span class="store-badge store-${escapeHtml(card.store_location)}">${escapeHtml(card.store_location)}</span>` : ''}
+            ${card.writeoff_group_id ? `<span class="group-badge" title="В групповом списании">Группа ${card.writeoff_group_id}</span>` : ''}
             ${renderPaymentBadge(card)}
             ${invoiceCount > 0 ? `<span class="paperclip-badge" title="Прикреплённых счетов: ${invoiceCount}">${ICON_CLIP}${invoiceCount}</span>` : ''}
             ${isOld ? `<span class="old-card-badge" title="Создана более ${OLD_CARD_DAYS} дней назад">СТАРАЯ (${diffDays}д)</span>` : ''}
