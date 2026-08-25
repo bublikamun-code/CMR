@@ -3240,6 +3240,32 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 .activity-details {
     color: var(--text-muted);
 }
+/* Длинные детали (текст импортированного письма) — свёрнуты в 4 строки,
+   разворачиваются кнопкой «показать полностью». */
+.activity-details-long {
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: none;
+}
+.activity-details-long.is-clamped {
+    max-height: 6em;
+    overflow: hidden;
+}
+.activity-details-toggle {
+    background: none;
+    border: none;
+    padding: 2px 0;
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--primary-color);
+    cursor: pointer;
+    text-align: left;
+}
+.activity-details-toggle:hover { text-decoration: underline; }
 .activity-time {
     color: var(--text-muted);
     font-size: 11px;

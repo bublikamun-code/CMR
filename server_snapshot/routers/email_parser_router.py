@@ -6,7 +6,7 @@ import re
 import hashlib
 import logging
 import base64
-from email.header import decode_header
+from email.header import decode_header, make_header
 from email.utils import collapse_rfc2231_value
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -174,14 +174,23 @@ def _encrypt_password(password: str) -> str:
 def _decode_attachment_filename(part) -> Optional[str]:
     """Декодирует имя файла вложения из RFC 2047 / RFC 2231.
 
-    Python 3 email.Message.get_filename() уже раскодирует оба стандарта.
-    Ручной decode_header() на уже декодированной строке ломает кириллицу,
-    поэтому используем значение от get_filename() как есть.
+    get_filename() раскрывает RFC 2231 (filename*=utf-8''...), но НЕ трогает
+    encoded-words RFC 2047 (=?UTF-8?B?...?=), которыми Outlook кодирует имена
+    вложений в нарушение стандарта. Без ручного декодирования такие имена
+    попадают в БД сырыми: с переносами строк и base64-мусором, ломают
+    заголовок Content-Disposition при скачивании и нечитаемы в интерфейсе.
     """
     filename = part.get_filename()
     if not filename:
         return None
-    return filename
+    if "=?" in filename:
+        try:
+            filename = str(make_header(decode_header(filename)))
+        except Exception:
+            logger.warning("Failed to decode attachment filename %r", filename)
+    # в encoded-word могут остаться переносы строк между частями
+    filename = re.sub(r"[\r\n\t]+", " ", filename).strip()
+    return filename or None
 
 def save_settings(settings, tenant_id: int = None):
     settings_file = _get_settings_path(tenant_id)
@@ -350,13 +359,16 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                 models.Card.is_deleted == False
                             ).order_by(models.Card.id.desc()).limit(5).all()
 
+                        # Описание карточки держим коротким (отправитель + связи) —
+                        # полный текст письма живёт в ленте активности записи
+                        # «Импорт почты», как commit-сообщение: разворачивается
+                        # по клику и не занимает место в шапке карточки.
                         desc = f"Отправитель: {sender}"
                         if sender_email_addr and sender_email_addr != sender:
                             desc += f" <{sender_email_addr}>"
-                        desc += f"\n\n{body}"
                         if related:
                             refs = ", ".join(f"#{c.id}" for c in related)
-                            desc += f"\n\n— Ранее от этого отправителя: {refs}"
+                            desc += f"\n— Ранее от этого отправителя: {refs}"
 
                         new_card = models.Card(
                             title=title_str,
@@ -391,10 +403,10 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             tdb.commit()
 
                         log_entry = models.ActivityLog(
-                            user_id=tenant_id or 0,
+                            user_id=None,
                             card_id=new_card.id,
-                            action="Импорт из почты (cron)",
-                            details=f"Импортировано письмо от {sender}: {subject}"
+                            action="Импорт почты",
+                            details=f"Тема: {subject or '—'}\n\n{body}"[:4000]
                         )
                         tdb.add(log_entry)
                         tdb.commit()

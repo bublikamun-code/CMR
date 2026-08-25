@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
@@ -333,6 +334,25 @@ def download_file(filename: str, current_user: models.User = Depends(get_current
     return FileResponse(file_path, filename=safe_name)
 
 
+def _sanitize_download_name(name: str) -> str:
+    """Чистит имя файла для заголовка Content-Disposition.
+
+    Старые вложения, импортированные из почты, могли сохранить имя сырой
+    MIME-строкой (=?UTF-8?B?...?= с переносами строк). CRLF внутри имени
+    ломает установку заголовка (header injection), и скачивание падает 500.
+    """
+    if not name:
+        return "attachment"
+    if "=?" in name:
+        try:
+            from email.header import decode_header, make_header
+            name = str(make_header(decode_header(name)))
+        except Exception:
+            pass
+    name = re.sub(r"[\r\n\t]+", " ", name).strip()
+    return name or "attachment"
+
+
 def _resolve_file_path(stored_path: str) -> str:
     """Превращает путь из БД (относительный или абсолютный) в абсолютный путь
     внутри UPLOAD_DIR. Если файл не найден по указанному пути, ищем по basename."""
@@ -375,7 +395,7 @@ def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db),
         file_path = _resolve_file_path(attachment.file_path)
         if not file_path:
             raise HTTPException(status_code=404, detail="Файл не найден на сервере")
-        return FileResponse(file_path, filename=attachment.file_name or os.path.basename(file_path))
+        return FileResponse(file_path, filename=_sanitize_download_name(attachment.file_name or os.path.basename(file_path)))
     finally:
         if tdb is not db:
             tdb.close()

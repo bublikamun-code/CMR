@@ -840,6 +840,17 @@ async function loadCardActivity(cardId) {
         });
 
         container.innerHTML = '';
+        // Раскрытие/сворачивание длинных деталей (тексты писем) — один
+        // делегированный обработчик на всю ленту.
+        container.onclick = (e) => {
+            const btn = e.target.closest('.activity-details-toggle');
+            if (!btn) return;
+            const wrap = btn.closest('.activity-content');
+            const long = wrap && wrap.querySelector('.activity-details-long');
+            if (!long) return;
+            const clamped = long.classList.toggle('is-clamped');
+            btn.textContent = clamped ? 'показать полностью' : 'свернуть';
+        };
         activities.forEach(act => {
             const item = document.createElement('div');
             const isCancelAct = /отмен|удал/i.test(act.action || '');
@@ -853,15 +864,30 @@ async function loadCardActivity(cardId) {
                              + (isCancelAct ? ' activity-cancel' : '')
                              + (isSystem ? ' activity-system' : '');
             const time = new Date(act.created_at).toLocaleString('ru-RU');
-            const details = act.details ? `<span class="activity-details">${escapeHtml(act.details)}</span>` : '';
+            // Длинные детали (например, текст импортированного письма)
+            // сворачиваем до нескольких строк с кнопкой «показать полностью» —
+            // лента остаётся компактной, как история коммитов.
+            const LONG_DETAILS = 160;
+            let details = '';
+            if (act.details) {
+                const text = act.details;
+                if (text.length > LONG_DETAILS || text.includes('\n')) {
+                    details = `
+                        <div class="activity-details activity-details-long is-clamped" data-expand="details">${escapeHtml(text)}</div>
+                        <button type="button" class="activity-details-toggle" data-target="details">показать полностью</button>
+                    `;
+                } else {
+                    details = `<span class="activity-details">${escapeHtml(text)}</span>`;
+                }
+            }
             item.innerHTML = `
                 <div class="activity-avatar ${avatar.className}" title="${escapeAttrLocal(avatar.title)}">${avatar.initials}</div>
                 <div class="activity-content">
                     <div class="activity-line">
                         <span class="activity-action">${escapeHtml(act.action)}</span>
-                        ${details}
                         <span class="activity-time">${time}</span>
                     </div>
+                    ${details}
                 </div>
             `;
             container.appendChild(item);
