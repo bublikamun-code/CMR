@@ -1,0 +1,11 @@
+email_settings.json
+crm_app.db*
+__pycache__/
+.venv/
+backups/
+tenants/
+uploads/
+tmp/
+.secret_key
+.cron_token
+*.bak_*

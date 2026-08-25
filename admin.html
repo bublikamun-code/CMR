@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Админ-панель</title>
+    <style>
+/* CRITICAL: раскладка сайдбара до загрузки style.css.
+   Значения обязаны совпадать с итоговым состоянием в style.css, иначе
+   сайдбар перекрашивается на первой отрисовке. Переменные продублированы
+   здесь намеренно: :root из style.css ещё не применён. */
+:root { --sidebar-bg: #0f172a; --sidebar-bg-2: #020617; --primary-color: #4f46e5; }
+[data-theme="dark"] { --sidebar-bg: #0b0e14; --sidebar-bg-2: #080a0f; }
+.app-container { display: flex; flex-direction: row; height: 100vh; width: 100%; overflow: hidden; }
+.sidebar { width: 230px; min-width: 230px; max-width: 230px; flex: 0 0 230px; background: linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-2) 100%); color: white; display: flex; flex-direction: column; box-shadow: 2px 0 16px rgba(16,24,40,0.12); z-index: 50; overflow-y: auto; overflow-x: hidden; }
+.main-content { flex: 1 1 0%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-nav { flex: 1; display: flex; flex-direction: column; padding: 15px 0; }
+.nav-btn { display: flex; align-items: center; gap: 12px; background: none; border: none; color: #aeb8c7; padding: 12px 14px; margin: 2px 8px; border-radius: 6px; text-align: left; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.nav-icon { flex-shrink: 0; width: 20px; min-width: 20px; display: flex; align-items: center; justify-content: center; }
+.nav-icon svg { width: 19px; height: 19px; display: block; }
+.nav-label { overflow: hidden; text-overflow: ellipsis; }
+.sidebar-header { padding: 22px 20px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sidebar-header h2 { font-size: 18px; background: linear-gradient(90deg, #fff, #c7d2fe); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.sidebar-footer { padding: 20px; }
+.nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
+</style>
+    <link rel="stylesheet" href="css/style.css?v=20260826c">
+    <script>
+        (function() {
+            var theme = localStorage.getItem('crm_theme');
+            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
+</head>
+<body>
+    <div id="login-screen" class="login-screen">
+        <div class="login-brand">
+            <div class="login-brand__logo">
+                <img src="/static/logo.svg" alt="CRM Свет в доме" width="56" height="56">
+            </div>
+            <div class="login-brand__name">CRM «Снабжение и Продажи»</div>
+            <div class="login-brand__tagline">Управление пользователями и системой</div>
+        </div>
+        <div class="login-card">
+            <div class="login-card__header">
+                <h1 class="login-card__title">Админ-панель CRM</h1>
+                <p class="login-card__subtitle">Вход только для администраторов</p>
+            </div>
+            <div id="login-alert" class="login-alert">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span id="login-alert-text"></span>
+            </div>
+            <form id="login-form" novalidate>
+                <div class="login-form-group">
+                    <label for="login-username">Логин</label>
+                    <input type="text" id="login-username" class="login-input" placeholder="user@example" autocomplete="username">
+                </div>
+                <div class="login-form-group">
+                    <label for="login-password">Пароль</label>
+                    <div class="login-input-wrap">
+                        <input type="password" id="login-password" class="login-input" placeholder="••••••" autocomplete="current-password">
+                        <button type="button" id="login-toggle-password" class="login-password-toggle" aria-label="Показать пароль">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" id="login-submit" class="btn-primary btn-login">
+                    <span class="btn-text">Войти</span>
+                </button>
+            </form>
+        </div>
+        <div class="login-footer">© CRM Свет в доме</div>
+    </div>
+
+    <div id="admin-app" class="app-container hidden">
+        <aside class="sidebar" id="app-sidebar">
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <div class="sidebar-header">
+                <h2>CRM Система</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-btn" data-target="page-kanban" title="Канбан-доска" aria-label="Канбан-доска">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg></span>
+                    <span class="nav-label">Канбан-доска</span>
+                </button>
+                <button class="nav-btn" data-target="page-payments" title="Реестр оплат" aria-label="Реестр оплат">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></span>
+                    <span class="nav-label">Реестр оплат</span>
+                </button>
+                <button class="nav-btn" data-target="page-writeoffs" title="Списание" aria-label="Списание">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
+                    <span class="nav-label">Списание</span>
+                </button>
+                <button class="nav-btn" data-target="page-documents" title="Документы" aria-label="Документы">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+                    <span class="nav-label">Документы</span>
+                </button>
+                <button class="nav-btn" data-target="page-clients" title="Клиенты" aria-label="Клиенты">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+                    <span class="nav-label">Клиенты</span>
+                </button>
+                <button class="nav-btn" data-target="page-suppliers" title="Поставщики" aria-label="Поставщики">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span>
+                    <span class="nav-label">Поставщики</span>
+                </button>
+                <button class="nav-btn" data-target="page-dashboard" title="Дашборд" aria-label="Дашборд">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg></span>
+                    <span class="nav-label">Дашборд</span>
+                </button>
+                <button class="nav-btn" data-target="page-calendar" title="Календарь" aria-label="Календарь">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                    <span class="nav-label">Календарь</span>
+                </button>
+                <button class="nav-btn" data-target="page-settings" title="Настройки" aria-label="Настройки">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+                    <span class="nav-label">Настройки</span>
+                </button>
+                <a href="/admin" class="nav-btn active" title="Админ-панель" aria-label="Админ-панель">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+                    <span class="nav-label">Админ-панель</span>
+                </a>
+            </nav>
+            <div class="sidebar-controls">
+                <button id="theme-toggle" class="theme-toggle" title="Переключить тему" aria-label="Переключить тему"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg></button>
+                <button id="compact-toggle" class="compact-toggle" title="Плотный режим" aria-label="Плотный режим"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+            </div>
+            <div class="sidebar-footer">
+                <button id="logout-btn" class="logout-btn" title="Выйти"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span><span>Выйти</span></button>
+            </div>
+        </aside>
+
+        <main class="main-content" id="main-content" tabindex="-1">
+            <header class="page-header reveal reveal-fast">
+                <h1>Админ-панель</h1>
+                <div class="header-actions">
+                    <span id="current-user" class="text-muted-sm"></span>
+                </div>
+            </header>
+
+            <div class="admin-main">
+                <div id="stats-error-container" class="hidden"></div>
+
+                <div class="admin-stats reveal">
+                    <div class="admin-stat">
+                        <div class="admin-stat__icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        </div>
+                        <div>
+                            <div class="admin-stat__value" id="stat-users">0</div>
+                            <div class="admin-stat__label">Пользователей</div>
+                        </div>
+                    </div>
+                    <div class="admin-stat">
+                        <div class="admin-stat__icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg>
+                        </div>
+                        <div>
+                            <div class="admin-stat__value" id="stat-cards">0</div>
+                            <div class="admin-stat__label">Карточек</div>
+                        </div>
+                    </div>
+                    <div class="admin-stat">
+                        <div class="admin-stat__icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        </div>
+                        <div>
+                            <div class="admin-stat__value" id="stat-clients">0</div>
+                            <div class="admin-stat__label">Клиентов</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="admin-card reveal" style="--d:80ms">
+                    <div class="admin-card__header">
+                        <h2>Пользователи</h2>
+                        <div style="display:flex;gap:8px;">
+                            <button class="btn-primary btn-sm" onclick="showCreateModal()">+ Добавить</button>
+                            <button id="btn-create-admin" class="btn-primary btn-sm hidden" onclick="showCreateAdminModal()">+ Создать админа</button>
+                        </div>
+                    </div>
+                    <div id="users-empty" class="admin-empty hidden"></div>
+                    <div class="table-container admin-table-wrap" id="users-table-wrap">
+                        <table class="data-table" id="users-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Логин</th>
+                                    <th>Роль</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="create-modal" class="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+        <div class="admin-modal">
+            <h3 id="create-modal-title">Новый пользователь</h3>
+            <div class="admin-form-group">
+                <label for="new-username">Логин</label>
+                <input type="text" id="new-username" placeholder="Введите логин" required minlength="3">
+            </div>
+            <div class="admin-form-group">
+                <label for="new-password">Пароль</label>
+                <input type="password" id="new-password" placeholder="Минимум 6 символов" required minlength="6">
+            </div>
+            <div class="admin-form-group">
+                <label for="new-role">Роль</label>
+                <select id="new-role">
+                    <option value="manager">Менеджер</option>
+                    <option value="warehouse">Склад</option>
+                    <option value="documents">Документы</option>
+                </select>
+            </div>
+            <div class="admin-modal-actions">
+                <button class="btn-secondary" onclick="closeCreateModal()">Отмена</button>
+                <button class="btn-primary" onclick="createUser()">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="create-admin-modal" class="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="create-admin-modal-title">
+        <div class="admin-modal">
+            <h3 id="create-admin-modal-title">Новый администратор</h3>
+            <p class="text-muted-sm" style="margin-bottom:16px;">Будет создана новая пустая CRM-система</p>
+            <div class="admin-form-group">
+                <label for="admin-username">Логин</label>
+                <input type="text" id="admin-username" placeholder="Введите логин" required minlength="3">
+            </div>
+            <div class="admin-form-group">
+                <label for="admin-password">Пароль</label>
+                <input type="password" id="admin-password" placeholder="Минимум 6 символов" required minlength="6">
+            </div>
+            <div class="admin-modal-actions">
+                <button class="btn-secondary" onclick="closeCreateAdminModal()">Отмена</button>
+                <button class="btn-primary" onclick="createAdmin()">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="edit-modal" class="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+        <div class="admin-modal">
+            <h3 id="edit-modal-title">Редактировать пользователя</h3>
+            <input type="hidden" id="edit-user-id">
+            <div class="admin-form-group">
+                <label for="edit-username">Логин</label>
+                <input type="text" id="edit-username" placeholder="Логин" readonly class="input-readonly">
+            </div>
+            <div class="admin-form-group">
+                <label for="edit-password">Новый пароль</label>
+                <input type="password" id="edit-password" placeholder="Оставьте пустым, чтобы не менять">
+            </div>
+            <div class="admin-form-group">
+                <label for="edit-role">Роль</label>
+                <select id="edit-role">
+                    <option value="manager">Менеджер</option>
+                    <option value="warehouse">Склад</option>
+                    <option value="documents">Документы</option>
+                </select>
+            </div>
+            <div class="admin-modal-actions">
+                <button class="btn-secondary" onclick="closeEditModal()">Отмена</button>
+                <button class="btn-primary" onclick="updateUser()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api.js?v=20260826c"></script>
+    <script src="js/features.js?v=20260826c"></script>
+    <script src="js/ui-polish.js?v=20260826c"></script>
+    <script defer src="js/reveal.js?v=20260826c"></script>
+    <script>
+        const API = '';
+        const ADMIN_TOKEN_KEY = 'admin_token';
+        const ADMIN_ROLE_KEY = 'admin_role';
+
+        window.__onApiUnauthorized = function(tokenKey) {
+            logout();
+        };
+
+        let token = getToken(ADMIN_TOKEN_KEY);
+        let currentRole = '';
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('app-sidebar');
+            sidebar.classList.toggle('collapsed');
+            try {
+                localStorage.setItem('crm_sidebar_collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+            } catch (e) {}
+        }
+
+        function restoreSidebarState() {
+            try {
+                const collapsed = localStorage.getItem('crm_sidebar_collapsed') === '1';
+                const sidebar = document.getElementById('app-sidebar');
+                if (collapsed) sidebar.classList.add('collapsed');
+            } catch (e) {}
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            restoreSidebarState();
+            initLogin();
+            if (token) showAdminPanel();
+
+            document.getElementById('logout-btn')?.addEventListener('click', logout);
+
+            document.getElementById('compact-toggle')?.addEventListener('click', () => {
+                document.body.classList.toggle('compact-mode');
+                try {
+                    localStorage.setItem('crm_compact', document.body.classList.contains('compact-mode') ? 'true' : 'false');
+                } catch (e) {}
+            });
+
+            try {
+                if (localStorage.getItem('crm_compact') === 'true') document.body.classList.add('compact-mode');
+            } catch (e) {}
+        });
+
+        function initLogin() {
+            const form = document.getElementById('login-form');
+            const alertBox = document.getElementById('login-alert');
+            const alertText = document.getElementById('login-alert-text');
+            const usernameInput = document.getElementById('login-username');
+            const passwordInput = document.getElementById('login-password');
+            const toggleBtn = document.getElementById('login-toggle-password');
+            const submitBtn = document.getElementById('login-submit');
+
+            if (!form) return;
+
+            function showError(msg) {
+                alertText.textContent = msg;
+                alertBox.classList.add('visible');
+                usernameInput.classList.add('login-input--error');
+                passwordInput.classList.add('login-input--error');
+            }
+            function clearError() {
+                alertBox.classList.remove('visible');
+                usernameInput.classList.remove('login-input--error');
+                passwordInput.classList.remove('login-input--error');
+            }
+
+            toggleBtn.addEventListener('click', () => {
+                const isPass = passwordInput.type === 'password';
+                passwordInput.type = isPass ? 'text' : 'password';
+                toggleBtn.setAttribute('aria-label', isPass ? 'Скрыть пароль' : 'Показать пароль');
+                toggleBtn.innerHTML = isPass
+                    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+                    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+            });
+
+            [usernameInput, passwordInput].forEach(el => el.addEventListener('input', clearError));
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                clearError();
+                const username = usernameInput.value.trim();
+                const password = passwordInput.value;
+                if (!username || !password) { showError('Введите логин и пароль'); return; }
+
+                submitBtn.disabled = true;
+                const originalText = submitBtn.querySelector('.btn-text').textContent;
+                submitBtn.querySelector('.btn-text').textContent = 'Вход…';
+                submitBtn.insertAdjacentHTML('afterbegin', '<span class="spinner"></span>');
+
+                try {
+                    const params = new URLSearchParams();
+                    params.append('username', username);
+                    params.append('password', password);
+                    const res = await fetch(`${API}/auth/login`, { method: 'POST', body: params });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.detail || 'Неверный логин или пароль');
+                    if (data.role !== 'superadmin' && data.role !== 'admin') {
+                        throw new Error('Недостаточно прав для доступа к админке');
+                    }
+                    token = data.access_token;
+                    currentRole = data.role;
+                    localStorage.setItem(ADMIN_TOKEN_KEY, token);
+                    localStorage.setItem(ADMIN_ROLE_KEY, currentRole);
+                    showAdminPanel();
+                } catch (err) {
+                    showError(err.message);
+                    submitBtn.disabled = false;
+                    submitBtn.querySelector('.spinner')?.remove();
+                    submitBtn.querySelector('.btn-text').textContent = originalText;
+                }
+            });
+        }
+
+        const _globalApiFetch = apiFetch;
+        async function apiFetch(path, options = {}) {
+            return _globalApiFetch(`${API}${path}`, options, ADMIN_TOKEN_KEY);
+        }
+
+        async function showAdminPanel() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('admin-app').classList.remove('hidden');
+            currentRole = localStorage.getItem(ADMIN_ROLE_KEY) || '';
+            document.getElementById('current-user').textContent = `Роль: ${currentRole}`;
+            if (currentRole === 'superadmin') {
+                document.getElementById('btn-create-admin').classList.remove('hidden');
+            }
+            await loadUsers();
+            await loadStats();
+        }
+
+        async function loadUsers() {
+            const users = await apiFetch('/auth/users');
+            document.getElementById('stat-users').textContent = users.length;
+            const tbody = document.getElementById('users-table-body');
+            const wrap = document.getElementById('users-table-wrap');
+            const empty = document.getElementById('users-empty');
+            tbody.innerHTML = '';
+
+            if (users.length === 0) {
+                wrap.classList.add('hidden');
+                empty.classList.remove('hidden');
+                empty.innerHTML = '';
+                empty.appendChild(renderEmptyState({
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+                    title: 'Пользователи не найдены',
+                    description: 'Добавьте первого пользователя, чтобы начать работу.'
+                }));
+                return;
+            }
+
+            wrap.classList.remove('hidden');
+            empty.classList.add('hidden');
+            users.forEach(u => {
+                const tr = document.createElement('tr');
+                const roleClass = `role-${u.role}`;
+                const canDelete = u.role !== 'superadmin' && (currentRole === 'superadmin' || u.tenant_id);
+                const canEdit = (u.role !== 'superadmin' || currentRole === 'superadmin');
+                tr.innerHTML = `
+                    <td>${u.id}</td>
+                    <td><b>${escapeHtml(u.username)}</b></td>
+                    <td><span class="role-badge ${roleClass}">${u.role}</span></td>
+                    <td class="actions">
+                        ${canEdit ? `<button class="btn-secondary btn-sm" onclick="editUser(${u.id}, '${escapeHtml(u.username).replace(/'/g, "\\'")}', '${u.role}')">Изменить</button>` : ''}
+                        ${canDelete ? `<button class="btn-danger btn-sm" onclick="deleteUser(${u.id}, '${escapeHtml(u.username).replace(/'/g, "\\'")}')">Удалить</button>` : ''}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadStats() {
+            const container = document.getElementById('stats-error-container');
+            container.innerHTML = '';
+            container.classList.add('hidden');
+            try {
+                const [cards, clients] = await Promise.all([
+                    apiFetch('/kanban/cards').catch(() => { throw new Error('cards'); }),
+                    apiFetch('/clients').catch(() => { throw new Error('clients'); })
+                ]);
+                document.getElementById('stat-cards').textContent = Array.isArray(cards) ? cards.length : 0;
+                document.getElementById('stat-clients').textContent = Array.isArray(clients) ? clients.length : 0;
+            } catch (e) {
+                container.classList.remove('hidden');
+                container.appendChild(renderAlert({
+                    type: 'error',
+                    title: 'Не удалось загрузить статистику',
+                    message: 'Проверьте подключение к серверу и попробуйте снова.',
+                    onRetry: loadStats
+                }));
+            }
+        }
+
+        function showCreateModal() {
+            document.getElementById('create-modal').classList.add('active');
+            document.getElementById('new-username').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('new-role').value = 'manager';
+        }
+        function closeCreateModal() { document.getElementById('create-modal').classList.remove('active'); }
+
+        function showCreateAdminModal() {
+            document.getElementById('create-admin-modal').classList.add('active');
+            document.getElementById('admin-username').value = '';
+            document.getElementById('admin-password').value = '';
+        }
+        function closeCreateAdminModal() { document.getElementById('create-admin-modal').classList.remove('active'); }
+
+        async function createUser() {
+            const username = document.getElementById('new-username').value.trim();
+            const password = document.getElementById('new-password').value;
+            const role = document.getElementById('new-role').value;
+            if (!username || !password) { showToast('Заполните все поля', 'error'); return; }
+            try {
+                await apiFetch('/auth/users', { method: 'POST', body: JSON.stringify({ username, password, role }) });
+                closeCreateModal();
+                showToast('Пользователь создан', 'success');
+                await loadUsers();
+            } catch(e) { showToast(e.message, 'error'); }
+        }
+
+        async function createAdmin() {
+            const username = document.getElementById('admin-username').value.trim();
+            const password = document.getElementById('admin-password').value;
+            if (!username || !password) { showToast('Заполните все поля', 'error'); return; }
+            try {
+                await apiFetch('/auth/create-tenant', { method: 'POST', body: JSON.stringify({ username, password, role: 'admin' }) });
+                closeCreateAdminModal();
+                showToast('Админ создан с пустой CRM', 'success');
+                await loadUsers();
+            } catch(e) { showToast(e.message, 'error'); }
+        }
+
+        function editUser(id, username, role) {
+            document.getElementById('edit-modal').classList.add('active');
+            document.getElementById('edit-user-id').value = id;
+            document.getElementById('edit-username').value = username;
+            document.getElementById('edit-password').value = '';
+            document.getElementById('edit-role').value = role;
+        }
+        function closeEditModal() { document.getElementById('edit-modal').classList.remove('active'); }
+
+        async function updateUser() {
+            const id = document.getElementById('edit-user-id').value;
+            const password = document.getElementById('edit-password').value;
+            const role = document.getElementById('edit-role').value;
+            const body = { role };
+            if (password) body.password = password;
+            try {
+                await apiFetch(`/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+                closeEditModal();
+                showToast('Пользователь обновлён', 'success');
+                await loadUsers();
+            } catch(e) { showToast(e.message, 'error'); }
+        }
+
+        async function deleteUser(id, username) {
+            if (!await confirmDialog(`Удалить пользователя "${username}"?`, { okText: 'Удалить', danger: true })) return;
+            try {
+                await apiFetch(`/auth/users/${id}`, { method: 'DELETE' });
+                showToast('Пользователь удалён', 'success');
+                await loadUsers();
+            } catch(e) { showToast(e.message, 'error'); }
+        }
+
+        function logout() {
+            clearToken(ADMIN_TOKEN_KEY, ADMIN_ROLE_KEY);
+            token = null;
+            document.getElementById('login-screen').classList.remove('hidden');
+            document.getElementById('admin-app').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

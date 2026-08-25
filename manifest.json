@@ -1,0 +1,15 @@
+{
+  "short_name": "CRM Свет в доме",
+  "name": "CRM «Снабжение и Продажи»",
+  "icons": [
+    {
+      "src": "/static/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#4f46e5",
+  "background_color": "#ffffff"
+}

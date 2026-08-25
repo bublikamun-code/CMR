@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Кастомные объекты — CRM</title>
+    <style>
+/* CRITICAL: раскладка сайдбара до загрузки style.css.
+   Значения обязаны совпадать с итоговым состоянием в style.css, иначе
+   сайдбар перекрашивается на первой отрисовке. Переменные продублированы
+   здесь намеренно: :root из style.css ещё не применён. */
+:root { --sidebar-bg: #0f172a; --sidebar-bg-2: #020617; --primary-color: #4f46e5; }
+[data-theme="dark"] { --sidebar-bg: #0b0e14; --sidebar-bg-2: #080a0f; }
+.app-container { display: flex; flex-direction: row; height: 100vh; width: 100%; overflow: hidden; }
+.sidebar { width: 230px; min-width: 230px; max-width: 230px; flex: 0 0 230px; background: linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-2) 100%); color: white; display: flex; flex-direction: column; box-shadow: 2px 0 16px rgba(16,24,40,0.12); z-index: 50; overflow-y: auto; overflow-x: hidden; }
+.main-content { flex: 1 1 0%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-nav { flex: 1; display: flex; flex-direction: column; padding: 15px 0; }
+.nav-btn { display: flex; align-items: center; gap: 12px; background: none; border: none; color: #aeb8c7; padding: 12px 14px; margin: 2px 8px; border-radius: 6px; text-align: left; font-size: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.nav-icon { flex-shrink: 0; width: 20px; min-width: 20px; display: flex; align-items: center; justify-content: center; }
+.nav-icon svg { width: 19px; height: 19px; display: block; }
+.nav-label { overflow: hidden; text-overflow: ellipsis; }
+.sidebar-header { padding: 22px 20px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sidebar-header h2 { font-size: 18px; background: linear-gradient(90deg, #fff, #c7d2fe); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.sidebar-footer { padding: 20px; }
+.nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
+</style>
+    <link rel="stylesheet" href="css/style.css?v=20260826c">
+    <script>
+        // UI Audit (2026-08-09, D.1): инициализация темы до отрисовки.
+        (function() {
+            var theme = localStorage.getItem('crm_theme');
+            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
+    <style>
+        .custom-objects-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .custom-objects-page h1 { margin-bottom: 24px; }
+        .custom-object-item { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 8px; }
+        .custom-object-info { display: flex; flex-direction: column; gap: 4px; }
+        .custom-object-actions { display: flex; gap: 8px; }
+        .field-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-md); margin-bottom: 8px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 14px; background: var(--card-bg); color: var(--text-color); }
+        .section-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+        .section-card h2 { font-size: 18px; margin-bottom: 16px; }
+        .back-btn { margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar" id="app-sidebar">
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <div class="sidebar-header">
+                <h2>CRM Система</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/" class="nav-btn" title="Канбан" aria-label="Канбан">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg></span>
+                    <span class="nav-label">Канбан</span>
+                </a>
+                <a href="/#payments" class="nav-btn" title="Оплаты" aria-label="Оплаты">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></span>
+                    <span class="nav-label">Оплаты</span>
+                </a>
+                <a href="/#clients" class="nav-btn" title="Клиенты" aria-label="Клиенты">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+                    <span class="nav-label">Клиенты</span>
+                </a>
+                <a href="/custom_objects.html" class="nav-btn active" title="Объекты" aria-label="Объекты">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+                    <span class="nav-label">Объекты</span>
+                </a>
+            </nav>
+            <div class="sidebar-controls">
+                <button id="theme-toggle" class="theme-toggle" title="Переключить тему" aria-label="Переключить тему"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg></button>
+                <button id="compact-toggle" class="compact-toggle" title="Плотный режим" aria-label="Плотный режим"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+            </div>
+            <div class="sidebar-footer">
+                <a href="/admin" id="admin-link" class="admin-link-btn hidden" target="_blank" rel="noopener noreferrer" title="Админ-панель"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span>Админ-панель</span></a>
+                <button id="logout-btn" class="logout-btn" title="Выйти"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span><span>Выйти</span></button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="custom-objects-page">
+
+                <!-- Список объектов -->
+                <div id="objects-list">
+                    <h1>Кастомные объекты</h1>
+                    <p class="text-muted-md" style="margin-bottom:20px;">Создавайте собственные сущности: Товары, Заказы, Проекты и т.д.</p>
+
+                    <div class="section-card reveal">
+                        <h2>Создать объект</h2>
+                        <div class="flex-row flex-row--wrap">
+                            <input type="text" id="new-object-label" placeholder="Название (например: Товар)" class="form-input-flex">
+                            <input type="text" id="new-object-name" placeholder="Имя (латиницей: product)" class="form-input-flex">
+                            <button class="btn btn-primary" onclick="customObjects.createObject()">Создать</button>
+                        </div>
+                    </div>
+
+                    <div id="custom-objects-list"></div>
+                </div>
+
+                <!-- Детали объекта -->
+                <div id="object-detail" class="hidden">
+                    <button class="btn btn-secondary back-btn" onclick="customObjects.backToList()">← Назад к списку</button>
+                    <h1 id="object-detail-title"></h1>
+
+                    <div class="section-card reveal">
+                        <h2>Поля</h2>
+                        <div class="flex-row flex-row--wrap flex-row--mb">
+                            <input type="text" id="new-field-label" placeholder="Название поля" class="form-input-flex form-input-flex--narrow">
+                            <input type="text" id="new-field-name" placeholder="Имя (латиницей)" class="form-input-flex form-input-flex--narrow">
+                            <select id="new-field-type" class="form-input-flex">
+                                <option value="text">Текст</option>
+                                <option value="number">Число</option>
+                                <option value="select">Выбор</option>
+                                <option value="date">Дата</option>
+                                <option value="currency">Валюта</option>
+                                <option value="boolean">Да/Нет</option>
+                            </select>
+                            <button class="btn btn-primary" onclick="customObjects.createField()">Добавить</button>
+                        </div>
+                        <div id="fields-list"></div>
+                    </div>
+
+                    <div class="section-card reveal" style="--d:80ms">
+                        <div class="flex-row flex-row--between flex-row--mb">
+                            <h2 class="h-no-margin">Записи</h2>
+                            <button class="btn btn-primary btn-sm" onclick="customObjects.showNewRecordForm()">+ Новая запись</button>
+                        </div>
+                        <div id="new-record-form" class="hidden" class="bg-subtle"></div>
+                        <div id="records-container"></div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="js/api.js?v=20260826c"></script>
+    <script src="js/features.js?v=20260826c"></script>
+    <script src="js/custom_objects.js?v=20260826c"></script>
+    <script defer src="js/reveal.js?v=20260826c"></script>
+    <script>
+        // UI Audit (2026-08-09, D.1): theme toggle для страницы кастомных объектов
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggle = document.getElementById('theme-toggle');
+            if (!toggle) return;
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            toggle.querySelector('.nav-icon').textContent = isDark ? '☾' : '☀';
+            toggle.title = isDark ? 'Светлая тема' : 'Тёмная тема';
+            toggle.addEventListener('click', () => {
+                const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+                if (dark) {
+                    document.documentElement.removeAttribute('data-theme');
+                    try { localStorage.setItem('crm_theme', 'light'); } catch(e) {}
+                    toggle.querySelector('.nav-icon').textContent = '☀';
+                    toggle.title = 'Тёмная тема';
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    try { localStorage.setItem('crm_theme', 'dark'); } catch(e) {}
+                    toggle.querySelector('.nav-icon').textContent = '☾';
+                    toggle.title = 'Светлая тема';
+                }
+            });
+        });
+    </script>
+    <script>
+    // === SIDEBAR TOGGLE (shared sidebar markup from index.html) ===
+    function toggleSidebar() {
+        const sidebar = document.getElementById('app-sidebar');
+        const toggle = sidebar.querySelector('.sidebar-toggle');
+        sidebar.classList.toggle('collapsed');
+        const isCollapsed = sidebar.classList.contains('collapsed');
+        toggle.innerHTML = isCollapsed
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+        toggle.setAttribute('aria-label', isCollapsed ? 'Развернуть меню' : 'Свернуть меню');
+        try { localStorage.setItem('crm_sidebar_collapsed', isCollapsed); }
+        catch(e) {}
+    }
+    (function() {
+        const saved = localStorage.getItem('crm_sidebar_collapsed');
+        if (saved === 'true') {
+            const sidebar = document.getElementById('app-sidebar');
+            if (sidebar) {
+                sidebar.classList.add('collapsed');
+                const toggle = sidebar.querySelector('.sidebar-toggle');
+                if (toggle) {
+                    toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+                    toggle.setAttribute('aria-label', 'Развернуть меню');
+                }
+            }
+        }
+    })();
+    </script>
+    <script defer src="js/ui-polish.js?v=20260826c"></script>
+</body>
+</html>
