@@ -373,14 +373,12 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                 models.Card.is_deleted == False
                             ).order_by(models.Card.id.desc()).limit(5).all()
 
-                        # Description карточки не заполняем: отправитель хранится
-                        # в поле sender_email и в записи ленты, а текст письма
-                        # живёт в ленте активности «Импорт почты» (см. ниже).
-                        # Здесь — только ссылки на прошлые сделки отправителя.
+                        # Description (поле заметки) не заполняем: отправитель
+                        # хранится в sender_email и в записи ленты, текст письма —
+                        # в ленте «Импорт почты». Прошлые сделки отправителя
+                        # показываются отдельным блоком в карточке
+                        # (renderRelatedCards) — дублировать их в заметке не нужно.
                         desc = ""
-                        if related:
-                            refs = ", ".join(f"#{c.id}" for c in related)
-                            desc = f"— Ранее от этого отправителя: {refs}"
 
                         new_card = models.Card(
                             title=title_str,

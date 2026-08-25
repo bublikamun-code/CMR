@@ -11008,8 +11008,10 @@ h2, h3 {
 }
 .comment-input-box textarea {
     flex: 1 1 auto;
-    min-height: 38px;
-    max-height: 120px;
+    height: 58px;          /* фиксированная высота: длинный текст скроллится */
+    min-height: 58px;
+    max-height: 58px;
+    overflow-y: auto;
     padding: 9px 12px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);

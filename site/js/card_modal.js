@@ -237,22 +237,13 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             <div class="activity-loading">Загрузка...</div>
         </div>
         <div class="comment-input-box">
-            <textarea id="input-description" rows="1" class="auto-expand" placeholder="Заметка к сделке...">${escapeHtml(card.description || '')}</textarea>
+            <textarea id="input-description" rows="2" placeholder="Заметка к сделке...">${escapeHtml(card.description || '')}</textarea>
             <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку">${ICON_CHECK}</button>
         </div>
     `;
 
-    requestAnimationFrame(() => {
-        var ta = document.getElementById('input-description');
-        if (ta) {
-            ta.style.height = 'auto';
-            ta.style.height = ta.scrollHeight + 'px';
-            ta.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = this.scrollHeight + 'px';
-            });
-        }
-    });
+    // Поле заметки фиксированной высоты: длинный текст скроллится внутри,
+    // а не растягивает панель комментариев на полкарточки.
 
     const sendCommentBtn = document.getElementById('btn-send-comment');
     if (sendCommentBtn) {
