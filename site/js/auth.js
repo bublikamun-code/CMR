@@ -221,6 +221,9 @@ function initNavigation() {
         if (typeof window.revealRefresh === 'function') {
             window.revealRefresh(document.getElementById(targetId));
         }
+        // Раздел показывается мгновенно из текущего DOM (кеш последнего
+        // состояния); если данные устарели — обновятся плавно в фоне.
+        if (window.CRM_FRESHNESS) window.CRM_FRESHNESS.refreshIfStale(targetId);
     }
 
     navButtons.forEach(btn => {

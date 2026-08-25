@@ -464,6 +464,16 @@ a.nav-btn { text-decoration: none; }
     to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Плавное фоновое обновление раздела: контент слегка затухает на время
+   загрузки свежих данных и проявляется обратно — вместо резкой подмены. */
+.page-section.page-refreshing > *:not(.page-header) {
+    opacity: 0.45;
+    transition: opacity 180ms var(--ease-out-strong);
+}
+.page-section > * {
+    transition: opacity 180ms var(--ease-out-strong);
+}
+
 /* Индикатор сетевой активности: полоска сверху, пока идут запросы.
    Появляется с задержкой 150мс (в JS) — быстрые ответы не мерцают. */
 #net-activity-bar {

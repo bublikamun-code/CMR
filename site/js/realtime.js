@@ -6,15 +6,9 @@
     const isMobile = window.matchMedia('(max-width: 900px)').matches;
     const POLL_INTERVAL = isMobile ? 30000 : 15000;
 
-    const PAGE_LOADERS = {
-        'page-kanban':     () => typeof loadKanbanBoard    === 'function' && loadKanbanBoard(),
-        'page-payments':   () => typeof loadPaymentsTable  === 'function' && loadPaymentsTable(),
-        'page-writeoffs':  () => typeof loadWriteoffsBoard === 'function' && loadWriteoffsBoard(),
-        'page-documents':  () => typeof loadDocumentsTable === 'function' && loadDocumentsTable(),
-        'page-clients':    () => typeof loadClientsTable   === 'function' && loadClientsTable(),
-        'page-suppliers':  () => typeof loadSuppliersTable === 'function' && loadSuppliersTable(),
-        'page-dashboard':  () => typeof loadDashboard      === 'function' && loadDashboard(),
-    };
+    // Карта лоадеров вынесена в page-freshness.js (общая с переключением
+    // разделов); здесь остаётся только ссылка.
+    const PAGE_LOADERS = window.CRM_PAGE_LOADERS || {};
 
     // Максимальное время, которое опрос может простаивать из-за активного
     // ввода. Без этого ограничения курсор, забытый в поле, останавливал
@@ -88,6 +82,7 @@
             if (!loader) return;
             await loader();
             reapplySearch(activePage);
+            if (window.CRM_FRESHNESS) window.CRM_FRESHNESS.markFresh(activePage.id);
             if (window.CRM_STORE) crmEmit('realtime:tick', { page: activePage.id });
         } catch (e) {
             if (window.CRM_STORE) crmEmit('realtime:error', { error: e.message });
