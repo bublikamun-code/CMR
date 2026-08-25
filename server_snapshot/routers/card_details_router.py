@@ -242,6 +242,19 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             for tx in card.transactions:
                 tx.store_location = card_update.store_location
         if 'description' in card_update.model_fields_set:
+            old_note = (card.description or '').strip()
+            new_note = (card_update.description or '').strip()
+            # Заметка — единственное поле, которое пользователь редактирует
+            # ради самого текста, поэтому её изменения попадают в ленту
+            # активности отдельной записью «Комментарий».
+            if new_note != old_note and new_note:
+                session.add(models.ActivityLog(
+                    user_id=current_user.id,
+                    card_id=card_id,
+                    action="Комментарий",
+                    details=new_note[:4000],
+                    tenant_id=current_user.tenant_id
+                ))
             card.description = card_update.description
         if 'client_id' in card_update.model_fields_set:
             card.client_id = card_update.client_id

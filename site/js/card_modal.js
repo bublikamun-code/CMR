@@ -259,9 +259,17 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         sendCommentBtn.onclick = async () => {
             const ta = document.getElementById('input-description');
             if (!ta) return;
+            const note = ta.value.trim();
+            if (!note) {
+                showToast('Заметка пустая — нечего сохранять', 'error');
+                return;
+            }
             try {
                 await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: ta.value }) });
                 showToast('Заметка сохранена', 'success');
+                // заметка ушла в ленту активности — показываем её сразу,
+                // без переоткрытия карточки
+                loadCardActivity(card.id);
                 ta.focus();
             } catch (err) {
                 showToast('Не удалось сохранить заметку: ' + err.message, 'error');
@@ -390,13 +398,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             } catch (err) {
                 showToast('Не удалось сохранить дату: ' + err.message, 'error');
             }
-        } else if (e.target.id === 'input-description') {
-            try {
-                await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: e.target.value }) });
-            } catch (err) {
-                showToast('Не удалось сохранить комментарий: ' + err.message, 'error');
-            }
         }
+        // description (заметка) сохраняется ТОЛЬКО кнопкой с галочкой:
+        // раньше blur тоже отправлял PATCH, и клик по кнопке давал
+        // двойной запрос + двойную запись в ленту активности.
     };
     container.addEventListener('change', container._modalChangeHandler);
 

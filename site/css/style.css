@@ -3200,7 +3200,10 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border: 1px solid var(--border-color);
 }
 .activity-item.activity-system {
-    opacity: 0.72;
+    /* Полупрозрачность всей записи (opacity .72) выглядела как «пелена»
+       поверх текста письма — читать невозможно. Системность показываем
+       только приглушённым фоном аватара, текст остаётся полноконтрастным. */
+    opacity: 1;
 }
 .activity-avatar {
     flex: 0 0 auto;
@@ -3241,7 +3244,8 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     color: var(--text-muted);
 }
 /* Длинные детали (текст импортированного письма) — свёрнуты в 4 строки,
-   разворачиваются кнопкой «показать полностью». */
+   разворачиваются кнопкой «показать полностью». Цвет — полноконтрастный:
+   это основной контент записи, а не подпись. */
 .activity-details-long {
     white-space: pre-wrap;
     word-break: break-word;
@@ -3249,6 +3253,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-size: 12px;
     line-height: 1.5;
     max-height: none;
+    color: var(--text-color);
 }
 .activity-details-long.is-clamped {
     max-height: 6em;
@@ -5629,6 +5634,7 @@ input, select, textarea {
 [data-theme="dark"] .activity-item { border-color: var(--border-color); }
 [data-theme="dark"] .activity-action { color: var(--text-color); }
 [data-theme="dark"] .activity-details { color: var(--text-muted); }
+[data-theme="dark"] .activity-details-long { color: var(--text-color); }
 
 /* Checklist */
 [data-theme="dark"] .checklist-item { border-color: var(--border-color); }
