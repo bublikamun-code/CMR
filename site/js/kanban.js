@@ -93,8 +93,6 @@ async function loadKanbanBoard() {
             crmEmit('kanban:loaded', { count: cards.length });
         }
 
-        if (typeof window.revealRefresh === 'function') window.revealRefresh();
-
         if (!board.querySelector('.kanban-column')) {
             board.innerHTML = '';
             const columnsContainer = document.createElement('div');
@@ -247,6 +245,13 @@ async function loadKanbanBoard() {
         } else if (overdueBar) {
             overdueBar.style.display = 'none';
         }
+
+        // Reveal-анимация: вызывается В КОНЦЕ рендера. Раньше вызов стоял
+        // до создания колонок — колонки рождались с классом .reveal
+        // (opacity: 0) уже ПОСЛЕ отработки revealRefresh, observer их не
+        // подхватывал, и доска оставалась невидимой/некликабельной
+        // (проявлялось при пересоздании колонок: Доска/Список, смена раздела).
+        if (typeof window.revealRefresh === 'function') window.revealRefresh();
     } catch (error) {
         console.error("Ошибка загрузки карточек:", error);
         if (board) {
