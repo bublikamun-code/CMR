@@ -89,8 +89,9 @@ def get_trash(db: Session = Depends(get_db), current_user: models.User = Depends
 def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
-        data = card.model_dump(exclude={"tag_ids"})
-        new_card = models.Card(**data, owner_id=current_user.id)
+        data = card.model_dump(exclude={"tag_ids", "owner_id"})
+        owner_id = card.owner_id if card.owner_id else current_user.id
+        new_card = models.Card(**data, owner_id=owner_id)
         if card.tag_ids:
             tags = tdb.query(models.Tag).filter(models.Tag.id.in_(card.tag_ids)).all()
             new_card.tags = tags

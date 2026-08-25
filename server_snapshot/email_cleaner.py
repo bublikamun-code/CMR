@@ -5,6 +5,7 @@
 (рекорд — 42 000 символов на одну карточку).
 """
 import re
+import html
 
 # Маркеры начала цитируемой истории переписки
 _QUOTE_MARKERS = [
@@ -65,10 +66,26 @@ def clean_email_body(body: str) -> str:
     # 3. Схлопываем трекинговые ссылки
     text = _shorten_urls(text)
 
-    # 4. Убираем пустые строки-простыни и хвостовые пробелы
-    text = re.sub(r'[ \t]+\n', '\n', text)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    text = text.strip()
+    # 4. Нормализуем пробелы, но сохраняем структуру отступов:
+    #    - убираем только хвостовые пробелы в строках,
+    #    - схлопываем серии пустых строк до двух,
+    #    - не трогаем начальные пробелы (они формируют отступы в списках/таблицах).
+    lines = text.split('\n')
+    cleaned_lines = []
+    blank_count = 0
+    for line in lines:
+        line = line.rstrip()
+        if line == '':
+            blank_count += 1
+            if blank_count <= 2:
+                cleaned_lines.append(line)
+        else:
+            blank_count = 0
+            cleaned_lines.append(line)
+    # убираем лишние пустые строки в конце
+    while cleaned_lines and cleaned_lines[-1] == '':
+        cleaned_lines.pop()
+    text = '\n'.join(cleaned_lines)
 
     # 5. Жёсткий предел длины
     if len(text) > _MAX_LEN:
@@ -81,19 +98,48 @@ def clean_email_body(body: str) -> str:
 
 
 def html_to_text(html: str) -> str:
-    """Fallback, когда у письма нет text/plain части (частый случай форм с сайта)."""
+    """Fallback, когда у письма нет text/plain части (частый случай форм с сайта).
+    Сохраняем структуру: абзацы, списки, таблицы, отступы."""
     if not html:
         return ''
     h = re.sub(r'(?is)<(script|style|head).*?</\1>', ' ', html)
     h = re.sub(r'(?i)<br\s*/?>', '\n', h)
-    h = re.sub(r'(?i)</(p|div|tr|h[1-6]|li)>', '\n', h)
+    # Списки: каждый li — на новой строке с маркером
+    h = re.sub(r'(?i)<li[^>]*>', '\n• ', h)
+    # Блочные элементы — перевод строки
+    h = re.sub(r'(?i)</(p|div|tr|h[1-6]|section|article|blockquote|pre)>', '\n', h)
+    h = re.sub(r'(?i)<(p|div|h[1-6]|section|article|blockquote)\b[^>]*>', '\n', h)
+    # Таблицы: ячейки через табуляцию
     h = re.sub(r'(?i)</td>', '\t', h)
+    h = re.sub(r'(?i)<th[^>]*>', '\n', h)
+    # Ссылки: оставляем текст + URL в скобках, если текст не равен URL
+    def link_repl(m):
+        href = (m.group(2) or '').strip()
+        txt = (m.group(1) or '').strip()
+        if not txt or txt == href:
+            return href or ''
+        return f'{txt} ({href})'
+    h = re.sub(r'(?i)<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', link_repl, h, flags=re.DOTALL)
+    # Остальные теги удаляем
     h = re.sub(r'<[^>]+>', '', h)
-    h = (h.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<')
-          .replace('&gt;', '>').replace('&quot;', '"').replace('&#39;', "'"))
-    h = re.sub(r'[ \t]{2,}', ' ', h)
-    h = re.sub(r'\n{3,}', '\n\n', h)
-    return h.strip()
+    # HTML-сущности — полный decode
+    h = html.unescape(h)
+    # Нормализуем пробелы, сохраняя структуру отступов
+    lines = h.split('\n')
+    out = []
+    blank = 0
+    for line in lines:
+        line = line.rstrip()
+        if line == '':
+            blank += 1
+            if blank <= 2:
+                out.append(line)
+        else:
+            blank = 0
+            out.append(line)
+    while out and out[-1] == '':
+        out.pop()
+    return '\n'.join(out).strip()
 
 
 def normalize_subject(subject: str) -> str:

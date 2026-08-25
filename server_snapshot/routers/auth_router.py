@@ -38,6 +38,11 @@ def list_users(db: Session = Depends(get_db), current_user: models.User = Depend
         return [current_user]
 
 
+@router.get("/me", response_model=schemas.UserResponse)
+def get_me(current_user: models.User = Depends(auth.get_current_user)):
+    return current_user
+
+
 @router.post("/users", response_model=schemas.UserResponse)
 def create_user(data: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_admin())):
     if current_user.role != "superadmin" and data.role == "admin":

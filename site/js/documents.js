@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const exportBtn = document.getElementById('documents-export');
     if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentDocuments, 'dokumenty.csv'));
+
+    setupTableScrollShadow('page-documents');
 });
 
 async function loadDocumentsTable() {
@@ -49,7 +51,7 @@ async function loadDocumentsTable() {
         renderDocuments();
     } catch (error) {
         if (!tbody.querySelector('tr[data-id]')) {
-            tbody.innerHTML = `<tr><td colspan="10" class="td-error">Ошибка: ${escapeHtml(error.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10">${renderAlert({ type: 'error', title: 'Ошибка загрузки', message: error.message, onRetry: () => loadDocumentsTable() }).outerHTML}</td></tr>`;
         }
     }
 }
@@ -120,24 +122,31 @@ function renderDocuments() {
             existing.querySelector('.input-note').value = tr.note || '';
             const markersCell = existing.querySelector('.markers-cell');
             if (markersCell) {
-                const storeBadge = markersCell.querySelector('.store-badge');
-                const printBadge = markersCell.querySelector('.print-badge');
+                const storeBadge = markersCell.querySelector('.badge-neutral[data-kind="store"]') || markersCell.querySelector('.store-badge');
+                const printBadge = markersCell.querySelector('.badge-neutral[data-kind="print"]') || markersCell.querySelector('.print-badge');
                 if (storeBadge) {
                     if (tr.store_location) {
                         storeBadge.textContent = tr.store_location;
-                        storeBadge.className = `store-badge store-${escapeHtml(tr.store_location)}`;
+                        storeBadge.className = 'badge-neutral';
+                        storeBadge.setAttribute('data-kind', 'store');
+                        storeBadge.setAttribute('title', tr.store_location);
                     } else {
                         storeBadge.remove();
                     }
                 } else if (tr.store_location) {
                     const badge = document.createElement('span');
-                    badge.className = `store-badge store-${escapeHtml(tr.store_location)}`;
+                    badge.className = 'badge-neutral';
+                    badge.setAttribute('data-kind', 'store');
+                    badge.setAttribute('title', tr.store_location);
                     badge.textContent = tr.store_location;
-                    markersCell.insertBefore(badge, printBadge);
+                    markersCell.insertBefore(badge, printBadge || markersCell.firstChild);
                 }
                 if (printBadge) {
                     printBadge.textContent = tr.print_status || '—';
                     printBadge.setAttribute('data-print', tr.print_status || '');
+                    printBadge.setAttribute('data-kind', 'print');
+                    printBadge.setAttribute('title', tr.print_status || 'Не выбрано');
+                    printBadge.className = 'badge-neutral';
                 }
             }
             tbody.appendChild(existing);
@@ -152,18 +161,18 @@ function renderDocuments() {
             const invoiceDateStr = tr.invoice_date ? (() => { const d = new Date(tr.invoice_date + 'T00:00:00'); return d.toLocaleDateString('ru-RU'); })() : '—';
             row.innerHTML = `
                 <td>${dateStr}</td>
-                <td class="clickable-company" data-card-id="${tr.card_id || ''}">
+                <td class="clickable-company" data-card-id="${tr.card_id || ''}" title="${escapeHtml(tr.company_name)}">
                     ${escapeHtml(tr.company_name)}
                     ${grpTotal > 1 ? `<span class="doc-group" title="С этой сделки выписано ${grpTotal} накладных">${grpIdx}/${grpTotal}</span>` : ''}
                 </td>
-                <td><b>${escapeHtml(String(tr.amount || 0))}</b> BYN</td>
+                <td class="amount-cell"><b class="tabular-nums">${formatMoneyBYN(tr.amount || 0)}</b></td>
                 <td>${escapeHtml(tr.invoice_number) || '—'}</td>
                 <td>${invoiceDateStr}</td>
-                <td class="td-center"><input type="checkbox" class="cb-nakladnaya" data-id="${tr.id}" ${tr.is_invoice_doc ? 'checked' : ''} aria-label="Накладная"></td>
-                <td class="td-center"><input type="checkbox" class="cb-schet" data-id="${tr.id}" ${tr.is_bill_doc ? 'checked' : ''} aria-label="Счет на оплату"></td>
+                <td class="td-center cb-col"><input type="checkbox" class="cb-nakladnaya cb-custom" data-id="${tr.id}" ${tr.is_invoice_doc ? 'checked' : ''} aria-label="Накладная"></td>
+                <td class="td-center cb-col"><input type="checkbox" class="cb-schet cb-custom" data-id="${tr.id}" ${tr.is_bill_doc ? 'checked' : ''} aria-label="Счет на оплату"></td>
                 <td class="markers-cell">
-                    ${tr.store_location ? `<span class="store-badge store-${escapeHtml(tr.store_location)}">${escapeHtml(tr.store_location)}</span>` : ''}
-                    <span class="print-badge" data-print="${escapeHtml(tr.print_status)}">${escapeHtml(tr.print_status) || '—'}</span>
+                    ${tr.store_location ? `<span class="badge-neutral" data-kind="store" title="${escapeHtml(tr.store_location)}">${escapeHtml(tr.store_location)}</span>` : ''}
+                    <span class="badge-neutral" data-kind="print" data-print="${escapeHtml(tr.print_status)}" title="${escapeHtml(tr.print_status || 'Не выбрано')}">${escapeHtml(tr.print_status) || '—'}</span>
                 </td>
                 <td><input type="text" class="input-note" data-id="${tr.id}" value="${escapeHtml(tr.note)}" placeholder="Заметка..."></td>
                 <td class="td-center">
@@ -241,7 +250,7 @@ function updateDocumentsTotals(transactions) {
     const countEl = document.getElementById('documents-count');
     const totalEl = document.getElementById('documents-total');
     if (countEl) countEl.textContent = `${transactions.length} шт.`;
-    if (totalEl) totalEl.textContent = `${formatMoney(sumAmount(transactions))} BYN`;
+    if (totalEl) totalEl.textContent = formatMoneyBYN(sumAmount(transactions));
 }
 
 function setupDocumentsAutoSave() {

@@ -126,7 +126,8 @@ async function apiFetch(endpoint, options = {}, tokenKey = DEFAULT_TOKEN_KEY) {
             // Хук для 401: основное приложение перезагружает страницу,
             // админ-панель показывает экран входа без reload.
             // Переопределяется через window.__onApiUnauthorized.
-            if (!window.__reloading) {
+            const onLoginPage = !token || !!document.getElementById('login-screen');
+            if (!window.__reloading && !onLoginPage) {
                 window.__reloading = true;
                 if (typeof window.__onApiUnauthorized === 'function') {
                     window.__onApiUnauthorized(tokenKey);
@@ -134,7 +135,6 @@ async function apiFetch(endpoint, options = {}, tokenKey = DEFAULT_TOKEN_KEY) {
                     showToast('Сессия истекла. Пожалуйста, войдите снова.', 'error');
                     setTimeout(() => window.location.reload(), 500);
                 }
-                window.__reloading = false;
             }
             throw new Error("Не авторизован");
         }

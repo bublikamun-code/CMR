@@ -4,6 +4,20 @@
 (function() {
     let curObj = null, curFields = [], curRecords = [], curWf = null;
 
+    const ICON_CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    const ICON_CROSS = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    const ICON_ARROW_DOWN = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>';
+    const ICON_TRIGGER_RECORD = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+    const ICON_TRIGGER_SCHEDULE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+    const ICON_TRIGGER_WEBHOOK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+    const ICON_TRIGGER_MANUAL = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
+    const ICON_ACTION_CREATE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+    const ICON_ACTION_UPDATE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>';
+    const ICON_ACTION_EMAIL = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1 .9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>';
+    const ICON_ACTION_HTTP = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+    const ICON_LIGHTNING = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10"/></svg>';
+    const ICON_CONSTRUCTION = '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 22h20"/><path d="M6.36 9.05L3 22h18l-3.36-12.95a2 2 0 0 0-3.64 0L12 17l-2-7.95a2 2 0 0 0-3.64 0z"/><path d="M12 2v5"/><path d="M9 5h6"/></svg>';
+
     const SettingsUI = {
         switchTab(tab) {
             document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
@@ -22,7 +36,17 @@
             try {
                 const objs = await apiFetch('/custom/objects');
                 const c = document.getElementById('sobj-container');
-                c.innerHTML = objs.length === 0 ? '<p class="empty-msg">Нет объектов</p>' : '';
+                if (objs.length === 0) {
+                    c.innerHTML = '';
+                    c.appendChild(renderEmptyState({
+                        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+                        title: 'Нет кастомных объектов',
+                        description: 'Создайте первый объект, чтобы хранить собственные данные: товары, заявки, контракты и т.д.',
+                        action: { text: 'Создать объект', onClick: () => document.getElementById('sobj-label').focus() }
+                    }));
+                } else {
+                    c.innerHTML = '';
+                }
                 objs.forEach(o => {
                     const d = document.createElement('div'); d.className = 'list-item';
                     d.innerHTML = `<div class="list-item-info"><strong>${escapeHtml(o.label)}</strong><span class="text-muted-sm">${escapeHtml(o.name)}</span></div>
@@ -70,8 +94,25 @@
         async loadRecords() {
             curRecords = await apiFetch(`/custom/objects/${curObj.id}/records`);
             const c = document.getElementById('srecords-container');
-            if (curFields.length === 0) { c.innerHTML = '<p class="empty-msg">Добавьте поля</p>'; return; }
-            if (curRecords.length === 0) { c.innerHTML = '<p class="empty-msg">Нет записей</p>'; return; }
+            if (curFields.length === 0) {
+                c.innerHTML = '';
+                c.appendChild(renderEmptyState({
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+                    title: 'Добавьте поля',
+                    description: 'Чтобы создавать записи объекта, сначала определите его поля.'
+                }));
+                return;
+            }
+            if (curRecords.length === 0) {
+                c.innerHTML = '';
+                c.appendChild(renderEmptyState({
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+                    title: 'Нет записей',
+                    description: 'Нажмите «+ Новая», чтобы добавить первую запись.',
+                    action: { text: 'Новая запись', onClick: () => this.showNewRec() }
+                }));
+                return;
+            }
             let h = '<table class="settings-table"><thead><tr>';
             curFields.forEach(f => { h += `<th>${escapeHtml(f.label)}</th>`; });
             h += '<th></th></tr></thead><tbody>';
@@ -80,13 +121,13 @@
                 curFields.forEach(f => {
                     const v = r.data[f.name]; let d = '';
                     if (v !== undefined && v !== null) {
-                        if (f.field_type === 'boolean') d = v ? '✓' : '✕';
-                        else if (f.field_type === 'currency') d = Number(v).toLocaleString('ru-RU') + ' BYN';
+                        if (f.field_type === 'boolean') d = v ? ICON_CHECK : ICON_CROSS;
+                        else if (f.field_type === 'currency') d = formatMoneyBYN(v);
                         else d = escapeHtml(String(v));
                     }
                     h += `<td>${d}</td>`;
                 });
-                h += `<td><button class="btn btn-danger btn-sm" onclick="SettingsUI.delRec(${r.id})">✕</button></td></tr>`;
+                h += `<td><button class="btn btn-danger btn-sm" onclick="SettingsUI.delRec(${r.id})" title="Удалить">${ICON_CROSS}</button></td></tr>`;
             });
             h += '</tbody></table>';
             c.innerHTML = h;
@@ -128,7 +169,16 @@
             try {
                 const wfs = await apiFetch('/workflows');
                 const c = document.getElementById('swf-container');
-                c.innerHTML = wfs.length === 0 ? '<p class="empty-msg">Нет воркфлоу</p>' : '';
+                if (wfs.length === 0) {
+                    c.innerHTML = '';
+                    c.appendChild(renderEmptyState({
+                        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><path d="M22 12h-2"/><path d="M12 22v-2"/></svg>',
+                        title: 'Нет воркфлоу',
+                        description: 'Автоматизация пока не настроена. Создайте первый сценарий.'
+                    }));
+                } else {
+                    c.innerHTML = '';
+                }
                 wfs.forEach(w => {
                     const d = document.createElement('div'); d.className = 'list-item';
                     d.innerHTML = `<div class="list-item-info"><strong>${escapeHtml(w.name)}</strong><span class="text-muted-sm">${escapeHtml(w.description||'')}</span></div>
@@ -163,7 +213,7 @@
         async loadTriggers() {
             const ts = await apiFetch(`/workflows/${curWf.id}/triggers`);
             const c = document.getElementById('str-container'); c.innerHTML = '';
-            const icons = {record_event:'📋',schedule:'⏰',webhook:'🌐',manual:'👆'};
+            const icons = {record_event:ICON_TRIGGER_RECORD,schedule:ICON_TRIGGER_SCHEDULE,webhook:ICON_TRIGGER_WEBHOOK,manual:ICON_TRIGGER_MANUAL};
             const lbl = {record_event:'Изменение записи',schedule:'По расписанию',webhook:'Webhook',manual:'Ручной'};
             const obj = {card:'Сделка',client:'Клиент',payment:'Оплата'};
             const evt = {created:'создана',updated:'обновлена',deleted:'удалена'};
@@ -185,12 +235,12 @@
         async loadSteps() {
             const ss = await apiFetch(`/workflows/${curWf.id}/steps`);
             const c = document.getElementById('sst-container'); c.innerHTML = '';
-            const icons = {create_record:'➕',update_record:'✏️',send_email:'📧',http_request:'🌐'};
+            const icons = {create_record:ICON_ACTION_CREATE,update_record:ICON_ACTION_UPDATE,send_email:ICON_ACTION_EMAIL,http_request:ICON_ACTION_HTTP};
             const al = {create_record:'Создать запись',update_record:'Обновить',send_email:'Email',http_request:'HTTP'};
             ss.forEach((s, i) => {
-                if (i > 0) { const conn = document.createElement('div'); conn.className='wf-connector'; conn.textContent='↓'; c.appendChild(conn); }
+                if (i > 0) { const conn = document.createElement('div'); conn.className='wf-connector'; conn.innerHTML=ICON_ARROW_DOWN; c.appendChild(conn); }
                 const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<div class="flex-center-gap"><span class="text-muted-sm">#${i+1}</span><span>${icons[s.action_type]||'⚡'} <strong>${s.step_type}</strong> — ${al[s.action_type]||s.action_type}</span></div><button class="btn btn-danger btn-sm" onclick="SettingsUI.delStep(${s.id})">Удалить</button>`;
+                d.innerHTML = `<div class="flex-center-gap"><span class="text-muted-sm">#${i+1}</span><span>${icons[s.action_type]||ICON_LIGHTNING} <strong>${s.step_type}</strong> — ${al[s.action_type]||s.action_type}</span></div><button class="btn btn-danger btn-sm" onclick="SettingsUI.delStep(${s.id})">Удалить</button>`;
                 c.appendChild(d);
             });
         },
@@ -209,7 +259,15 @@
         async loadRuns() {
             const rs = await apiFetch(`/workflows/${curWf.id}/runs`);
             const c = document.getElementById('sruns-container');
-            if (rs.length === 0) { c.innerHTML = '<p class="empty-msg-sm">Запусков пока нет</p>'; return; }
+            if (rs.length === 0) {
+                c.innerHTML = '';
+                c.appendChild(renderEmptyState({
+                    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+                    title: 'Запусков пока нет',
+                    description: 'История запусков появится после первого срабатывания воркфлоу.'
+                }));
+                return;
+            }
             c.innerHTML = '';
             rs.forEach(r => {
                 const d = document.createElement('div');
@@ -220,13 +278,36 @@
         },
 
         // === ПОЧТА ===
+        _updateEmailSyncUI(lastSync, prevSync) {
+            const lastEl = document.getElementById('email-last-sync');
+            const prevEl = document.getElementById('email-prev-sync');
+            const badge = document.getElementById('email-sync-badge');
+            if (lastEl) {
+                lastEl.textContent = lastSync ? new Date(lastSync).toLocaleString('ru-RU') : '—';
+                lastEl.dataset.iso = lastSync || '';
+            }
+            if (prevEl) {
+                prevEl.textContent = prevSync ? new Date(prevSync).toLocaleString('ru-RU') : '—';
+                prevEl.dataset.iso = prevSync || '';
+            }
+            if (badge) {
+                if (lastSync) {
+                    badge.textContent = 'Активна';
+                    badge.className = 'email-sync-badge email-sync-badge--active';
+                } else {
+                    badge.textContent = 'Не выполнялась';
+                    badge.className = 'email-sync-badge email-sync-badge--never';
+                }
+            }
+        },
         async loadEmailSettings() {
             try {
                 const s = await apiFetch('/email-parser/settings');
                 if (s.imap_server) document.getElementById('email-imap-server').value = s.imap_server;
                 if (s.email || s.username) document.getElementById('email-username').value = s.email || s.username || '';
                 if (s.target_status) document.getElementById('email-target-status').value = s.target_status;
-                if (s.last_sync) document.getElementById('email-sync-status-text').textContent = new Date(s.last_sync).toLocaleString('ru-RU');
+                const prevSync = localStorage.getItem('crm_email_prev_sync');
+                this._updateEmailSyncUI(s.last_sync, prevSync);
             } catch(e) { console.error(e); }
         },
         async saveEmail() {
@@ -243,9 +324,20 @@
         async syncEmail() {
             try {
                 showToast('Синхронизация...','info');
+                const lastEl = document.getElementById('email-last-sync');
+                const lastBefore = lastEl && lastEl.dataset.iso ? lastEl.dataset.iso : null;
+                const prevBefore = localStorage.getItem('crm_email_prev_sync');
                 const r = await apiFetch('/email-parser/sync', { method:'POST' });
-                document.getElementById('email-sync-status-text').textContent = new Date().toLocaleString('ru-RU');
-                document.getElementById('email-sync-results').innerHTML = `<p class="sync-result-msg">Импортировано: <strong>${r.imported || 0}</strong> писем</p>`;
+                const nowIso = new Date().toISOString();
+                const prevToStore = lastBefore || prevBefore || null;
+                if (prevToStore) localStorage.setItem('crm_email_prev_sync', prevToStore);
+                this._updateEmailSyncUI(nowIso, prevToStore);
+                const results = document.getElementById('email-sync-results');
+                results.innerHTML = `
+                    <div class="email-sync-result">
+                        <span class="email-sync-result__icon">${ICON_CHECK}</span>
+                        <span>Импортировано писем: <strong>${Number(r.imported || 0).toLocaleString('ru-RU')}</strong></span>
+                    </div>`;
                 showToast('Готово','success');
             } catch(e) { showToast(e.message,'error'); }
         },
@@ -255,7 +347,17 @@
             try {
                 const hooks = await apiFetch('/webhooks/');
                 const c = document.getElementById('webhooks-container');
-                c.innerHTML = hooks.length === 0 ? '<p class="empty-msg-sm">Нет webhooks</p>' : '';
+                if (hooks.length === 0) {
+                    c.innerHTML = '';
+                    c.appendChild(renderEmptyState({
+                        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+                        title: 'Нет webhooks',
+                        description: 'Настройте интеграцию: выберите события и URL для получения уведомлений.',
+                        action: { text: 'Создать webhook', onClick: () => document.getElementById('wh-url').focus() }
+                    }));
+                } else {
+                    c.innerHTML = '';
+                }
                 hooks.forEach(h => {
                     const d = document.createElement('div'); d.className = 'list-item';
                     d.innerHTML = `<div class="list-item-info"><strong class="word-break-all">${escapeHtml(h.url)}</strong><span class="text-muted-sm">События: ${h.events.join(', ')}</span></div>

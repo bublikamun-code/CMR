@@ -109,6 +109,29 @@
     return { text: label, title: title, extra: list.length - 1 };
   }
 
+  var ICON_PHONE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.3 12.3 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.3 12.3 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
+  var ICON_MAIL = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>';
+
+  /* Ячейка таблицы: имя + иконки телефона/почты со ссылками. */
+  function renderCell(raw, fallbackPhone, fallbackEmail) {
+    var list = parseContacts(raw, fallbackPhone, fallbackEmail);
+    if (!list.length) return '—';
+    var first = list[0];
+    var html = '<div class="contact-cell">';
+    html += '<span class="contact-name" title="' + escAttr((first.name || '') + (first.role ? ' · ' + first.role : '')) + '">' + escHtml(first.name || '—') + '</span>';
+    var links = '';
+    if (first.phone) {
+      links += '<a class="contact-link" href="tel:' + escAttr(first.phone) + '" title="Позвонить: ' + escAttr(first.phone) + '">' + ICON_PHONE + '</a>';
+    }
+    if (first.email) {
+      links += '<a class="contact-link" href="mailto:' + escAttr(first.email) + '" title="Написать: ' + escAttr(first.email) + '">' + ICON_MAIL + '</a>';
+    }
+    if (links) html += '<span class="contact-links">' + links + '</span>';
+    if (list.length > 1) html += '<span class="contact-more" title="' + escAttr(list.slice(1).map(function(c, i){ return (i+1)+'. '+(c.name||'(без имени)')+(c.role?' · '+c.role:'')+(c.phone?' · '+c.phone:'')+(c.email?' · '+c.email:''); }).join('\n')) + '">+' + (list.length - 1) + '</span>';
+    html += '</div>';
+    return html;
+  }
+
   /* ---------- редактор в модалке ---------- */
 
   var ICON_TRASH = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none"' +
@@ -120,20 +143,32 @@
     c = c || {};
     return '' +
       '<div class="contact-row" data-idx="' + idx + '">' +
-        '<div class="contact-row-head">' +
+        '<div class="contact-row-top">' +
           '<span class="contact-row-num">' + (idx + 1) + '</span>' +
-          '<input type="text" class="contact-name" placeholder="Имя и фамилия"' +
-            ' value="' + escAttr(c.name) + '">' +
-          '<input type="text" class="contact-role" placeholder="Должность"' +
-            ' value="' + escAttr(c.role) + '">' +
           '<button type="button" class="contact-del" title="Удалить контакт"' +
             ' aria-label="Удалить контакт">' + ICON_TRASH + '</button>' +
         '</div>' +
-        '<div class="contact-row-body">' +
-          '<input type="tel" class="contact-phone" placeholder="+375 XX XXX-XX-XX"' +
-            ' value="' + escAttr(c.phone) + '">' +
-          '<input type="email" class="contact-email" placeholder="email@company.by"' +
-            ' value="' + escAttr(c.email) + '">' +
+        '<div class="contact-row-grid">' +
+          '<div class="contact-field">' +
+            '<label>Имя и фамилия</label>' +
+            '<input type="text" class="contact-name" placeholder="Иван Иванов"' +
+              ' value="' + escAttr(c.name) + '">' +
+          '</div>' +
+          '<div class="contact-field">' +
+            '<label>Должность</label>' +
+            '<input type="text" class="contact-role" placeholder="Менеджер"' +
+              ' value="' + escAttr(c.role) + '">' +
+          '</div>' +
+          '<div class="contact-field">' +
+            '<label>Телефон</label>' +
+            '<input type="tel" class="contact-phone" placeholder="+375 XX XXX-XX-XX"' +
+              ' value="' + escAttr(c.phone) + '">' +
+          '</div>' +
+          '<div class="contact-field">' +
+            '<label>Email</label>' +
+            '<input type="email" class="contact-email" placeholder="email@company.by"' +
+              ' value="' + escAttr(c.email) + '">' +
+          '</div>' +
         '</div>' +
       '</div>';
   }
@@ -142,6 +177,13 @@
     return (v == null ? '' : String(v))
       .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
       .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function escHtml(v) {
+    return (v == null ? '' : String(v))
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   function renumber(box) {
@@ -214,6 +256,7 @@
     parse: parseContacts,
     serialize: serializeContacts,
     summary: summary,
+    renderCell: renderCell,
     render: render,
     add: add,
     collect: collect

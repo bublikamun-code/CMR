@@ -15,30 +15,64 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+function updateEmailSyncStatus(lastSync) {
+    // Старый UI (если ещё используется где-то)
+    const oldLastSyncEl = document.getElementById('email-last-sync-time');
+    const oldStatusTextEl = document.getElementById('email-sync-status-text');
+    if (oldLastSyncEl && oldStatusTextEl) {
+        if (lastSync) {
+            oldLastSyncEl.textContent = new Date(lastSync).toLocaleString('ru-RU');
+            oldStatusTextEl.textContent = 'Активна';
+            oldStatusTextEl.className = 'status-active';
+        } else {
+            oldLastSyncEl.textContent = 'Никогда';
+            oldStatusTextEl.textContent = 'Не выполнялась';
+            oldStatusTextEl.className = 'status-never';
+        }
+    }
+
+    // Новый UI настроек
+    const lastEl = document.getElementById('email-last-sync');
+    const prevEl = document.getElementById('email-prev-sync');
+    const badge = document.getElementById('email-sync-badge');
+    if (lastEl) {
+        lastEl.textContent = lastSync ? new Date(lastSync).toLocaleString('ru-RU') : '—';
+        lastEl.dataset.iso = lastSync || '';
+    }
+    if (badge) {
+        if (lastSync) {
+            badge.textContent = 'Активна';
+            badge.className = 'email-sync-badge email-sync-badge--active';
+        } else {
+            badge.textContent = 'Не выполнялась';
+            badge.className = 'email-sync-badge email-sync-badge--never';
+        }
+    }
+    // Предыдущая синхронизация берётся из localStorage, если есть
+    if (prevEl) {
+        const prevSync = localStorage.getItem('crm_email_prev_sync');
+        prevEl.textContent = prevSync ? new Date(prevSync).toLocaleString('ru-RU') : '—';
+        prevEl.dataset.iso = prevSync || '';
+    }
+}
+
 async function loadEmailSettings() {
     if (!hasToken()) return;
-    
+
     try {
         const settings = await apiFetch('/email-parser/settings');
-        
-        document.getElementById('email-imap-server').value = settings.imap_server || 'imap.yandex.ru';
-        document.getElementById('email-username').value = settings.email || '';
-        document.getElementById('email-password').value = settings.password || '';
-        document.getElementById('email-target-status').value = settings.target_status || 'Новый запрос';
-        
-        const lastSyncEl = document.getElementById('email-last-sync-time');
-        const statusTextEl = document.getElementById('email-sync-status-text');
-        
-        if (settings.last_sync) {
-            const date = new Date(settings.last_sync);
-            lastSyncEl.textContent = date.toLocaleString('ru-RU');
-            statusTextEl.textContent = 'Активна';
-            statusTextEl.className = 'status-active';
-        } else {
-            lastSyncEl.textContent = 'Никогда';
-            statusTextEl.textContent = 'Не выполнялась';
-            statusTextEl.className = 'status-never';
-        }
+
+        const imapServerEl = document.getElementById('email-imap-server');
+        const usernameEl = document.getElementById('email-username');
+        const passwordEl = document.getElementById('email-password');
+        const targetStatusEl = document.getElementById('email-target-status');
+
+        if (imapServerEl) imapServerEl.value = settings.imap_server || 'imap.yandex.ru';
+        if (usernameEl) usernameEl.value = settings.email || '';
+        if (passwordEl) passwordEl.value = settings.password || '';
+        if (targetStatusEl) targetStatusEl.value = settings.target_status || 'Новый запрос';
+
+        updateEmailSyncStatus(settings.last_sync);
     } catch (err) {
         showToast('Не удалось загрузить настройки почты: ' + err.message, 'error');
     }
@@ -118,12 +152,12 @@ async function runEmailSync() {
                 res.cards.forEach(card => {
                     html += `
                         <div class="imported-item clickable-card-row" onclick="openCardModal(${card.id})">
-                            <span class="imported-icon">✉</span>
+                            <span class="imported-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span>
                             <div class="imported-details">
                                 <span class="imported-title">${escapeHtml(card.title)}</span>
                                 <span class="imported-sender">Отправитель: ${escapeHtml(card.sender)}</span>
                             </div>
-                            <span class="imported-link-arrow">Открыть карту →</span>
+                            <span class="imported-link-arrow">Открыть карту <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
                         </div>
                     `;
                 });

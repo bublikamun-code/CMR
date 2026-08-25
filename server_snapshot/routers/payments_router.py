@@ -588,6 +588,10 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
         if new_remainder is None:
             card.status = "Закрыто"
             card_closed = True
+        else:
+            # Если остаток остался — сделка должна быть видна на доске списания.
+            # Раньше карточка могла зависнуть в «Сборке» и пропасть со списания.
+            card.status = "На списание"
 
         session.add(models.ActivityLog(
             user_id=current_user.id, card_id=card_id, action="Выписана накладная",

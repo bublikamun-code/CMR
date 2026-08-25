@@ -166,13 +166,13 @@
         html += '<th>Действия</th></tr></thead><tbody>';
 
         currentRecords.forEach(rec => {
-            html += '<tr>';
+            html += '<tr class="reveal reveal-fast">';
             currentFields.forEach(f => {
                 const val = rec.data[f.name];
                 let display = '';
                 if (val !== undefined && val !== null) {
-                    if (f.field_type === 'boolean') display = val ? '✓' : '✕';
-                    else if (f.field_type === 'currency') display = `${Number(val).toLocaleString('ru-RU')} BYN`;
+                    if (f.field_type === 'boolean') display = val ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+                    else if (f.field_type === 'currency') display = formatMoneyBYN(val);
                     else display = escapeHtml(String(val));
                 }
                 html += `<td>${display}</td>`;
@@ -182,6 +182,7 @@
         });
         html += '</tbody></table>';
         container.innerHTML = html;
+        if (typeof window.revealRefresh === 'function') window.revealRefresh();
     }
 
     async function createRecord() {

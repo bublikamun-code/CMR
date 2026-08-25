@@ -97,7 +97,7 @@
             item.className = 'dropdown-item';
             item.innerHTML = `
                 <span>${escapeHtml(v.name)}</span>
-                <button class="view-delete-btn" data-id="${v.id}" title="Удалить">&times;</button>
+                <button class="view-delete-btn" data-id="${v.id}" title="Удалить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             `;
             item.addEventListener('click', (e) => {
                 if (e.target.classList.contains('view-delete-btn')) {
@@ -119,7 +119,7 @@
         if (headerActions) {
             const saveBtn = document.createElement('button');
             saveBtn.className = 'btn-secondary';
-            saveBtn.innerHTML = '💾 Сохранить вид';
+            saveBtn.innerHTML = '<svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Сохранить вид';
             saveBtn.title = 'Сохранить текущий фильтр';
             saveBtn.onclick = () => {
                 const searchInput = document.getElementById('kanban-search');
@@ -139,7 +139,7 @@
             dropdown.id = 'views-dropdown';
             dropdown.className = 'dropdown hidden';
             dropdown.innerHTML = `
-                <button class="btn-secondary dropdown-toggle">📂 Мои виды ▾</button>
+                <button class="btn-secondary dropdown-toggle"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Мои виды <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
                 <div class="dropdown-menu"></div>
             `;
             headerActions2.insertBefore(dropdown, headerActions2.firstChild);

@@ -12,7 +12,57 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function closeModal() {
-    document.getElementById('card-modal').classList.add('hidden');
+    const modal = document.getElementById('card-modal');
+    if (window.closeModalSmooth) window.closeModalSmooth(modal);
+    else modal.classList.add('hidden');
+}
+
+/* ---------- helpers: date wrapper + activity avatar ---------- */
+const ICON_UPLOAD = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+
+function formatDateRU(isoDate) {
+    if (!isoDate) return '';
+    const d = new Date(isoDate + 'T00:00:00');
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('ru-RU');
+}
+
+function dateInputHTML({ id, value, className = '' }) {
+    const display = value ? formatDateRU(value) : 'дд.мм.гггг';
+    return `
+        <div class="date-input-wrapper ${className} ${!value ? 'date-empty' : ''}" id="${id}-wrapper">
+            <input type="date" id="${id}" value="${value || ''}">
+            <span class="date-display">${display}</span>
+            <span class="date-calendar-icon">${ICON_CALENDAR}</span>
+        </div>
+    `;
+}
+
+function syncDateWrapper(input) {
+    const wrapper = input && input.closest('.date-input-wrapper');
+    if (!wrapper) return;
+    const display = wrapper.querySelector('.date-display');
+    if (display) display.textContent = input.value ? formatDateRU(input.value) : 'дд.мм.гггг';
+    wrapper.classList.toggle('date-empty', !input.value);
+}
+
+function escapeAttrLocal(v) {
+    return (v == null ? '' : String(v))
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function getActivityAvatar(action, userId) {
+    const text = (action || '').toLowerCase();
+    const isSystem = userId == null || /импорт|cron|автоматически/.test(text);
+    if (isSystem) {
+        return { initials: 'CRM', className: 'activity-avatar-system', title: 'Системное действие' };
+    }
+    const words = (action || '').split(/\s+/).filter(Boolean);
+    const initials = words.slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('') || 'П';
+    return { initials, className: 'activity-avatar-user', title: action };
 }
 
 async function openCardModal(cardId) {
@@ -103,41 +153,41 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     // LEFT COLUMN: Static fields
     leftContainer.innerHTML = `
-        <div class="modal-section">
-            <label class="modal-label">Итоговая сумма сделки (BYN)</label>
+        <div class="modal-section card-info-section">
+            <label class="modal-label">${ICON_WALLET} Итоговая сумма сделки (BYN)</label>
             <div class="modal-input-row">
-                <input type="number" id="input-total-amount" value="${escapeHtml(String(card.total_amount || 0))}" placeholder="Сумма">
+                <input type="number" id="input-total-amount" value="${escapeHtml(String(card.total_amount || 0))}" placeholder="0,00">
             </div>
         </div>
-        <div class="modal-section">
-            <label class="modal-label">Дата окончания</label>
-            <div class="modal-input-row">
-                <input type="date" id="input-due-date" value="${dueDateStr}" class="${isOverdue ? 'input-overdue' : ''}">
-                ${isOverdue ? '<span class="overdue-badge">ПРОСРОЧЕНО</span>' : ''}
+        <div class="modal-section card-info-section">
+            <label class="modal-label">${ICON_CALENDAR} Дата окончания</label>
+            <div class="modal-input-row date-input-row">
+                ${dateInputHTML({ id: 'input-due-date', value: dueDateStr, className: isOverdue ? 'input-overdue' : '' })}
+                ${isOverdue ? `<span class="overdue-badge">${ICON_CLOCK} Просрочено</span>` : ''}
             </div>
         </div>
-        <div class="modal-section">
+        <div class="modal-section card-info-section">
             <label class="modal-label">Email отправителя</label>
             <div class="modal-input-row">
                 <input type="email" id="input-sender-email" value="${escapeHtml(card.sender_email || '')}" placeholder="email@company.com" readonly>
             </div>
         </div>
-        <div class="modal-section">
+        <div class="modal-section card-info-section">
             <label class="modal-label">Клиент</label>
             <div id="client-mount"></div>
         </div>
-        <div class="modal-section">
+        <div class="modal-section card-info-section">
             <label class="modal-label">Теги</label>
             <div id="tags-mount" class="tags-container"></div>
         </div>
-        <div class="modal-section">
+        <div class="modal-section card-info-section">
             <label class="modal-label">Привязка к магазину</label>
             <div id="store-mount" class="store-dropdown"></div>
         </div>
         <div class="modal-section">
-            <h3>Чек-лист к оплате</h3>
-            <div id="checklist-container"></div>
+            <h3 class="section-title">${ICON_WALLET} Чек-лист к оплате</h3>
             <div id="checklist-summary" class="checklist-summary"></div>
+            <div id="checklist-container"></div>
             <div class="modal-input-row checklist-add-row checklist-add-align">
                 <div id="new-supplier-mount" class="input-company"></div>
                 <input type="number" id="new-amount" placeholder="Сумма к оплате" class="input-amount">
@@ -145,25 +195,26 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             </div>
         </div>
         <div class="modal-section">
-            <h3>Счета (Вложения)</h3>
-            <div id="file-dropzone" class="dropzone">
-                Перетащите файлы сюда или кликните
+            <h3 class="section-title">${ICON_CLIP} Счета (вложения)</h3>
+            <div id="file-dropzone" class="dropzone dropzone-upload">
+                <span class="dropzone-icon">${ICON_UPLOAD}</span>
+                <span class="dropzone-text">Перетащите файлы сюда или кликните для загрузки</span>
                 <input type="file" id="file-input" multiple>
             </div>
             <div id="attachments-container" class="attachments-container"></div>
         </div>
         <div class="modal-section" id="invoices-section" hidden>
-            <h3>Накладные <span id="invoices-badge" class="col-count"></span></h3>
+            <h3 class="section-title">Накладные <span id="invoices-badge" class="col-count"></span></h3>
             <div id="invoices-container"></div>
             <div class="invoices-summary" id="invoices-summary"></div>
         </div>
         <div class="modal-section" id="group-writeoff-section" hidden>
-            <h3>Групповое списание</h3>
+            <h3 class="section-title">Групповое списание</h3>
             <div id="group-writeoff-container"></div>
         </div>
-        <div class="modal-actions">
-            <button id="btn-to-assembly" class="btn-action btn-assembly">В Сборку (+Реестр)</button>
-            <button id="btn-trigger-payment" class="btn-action btn-writeoff-action">В Списание</button>
+        <div class="modal-actions modal-actions-stacked">
+            <button id="btn-to-assembly" class="btn-action btn-assembly" title="Сделка попадёт в реестр оплат">${ICON_BOX} Передать в сборку</button>
+            <button id="btn-trigger-payment" class="btn-action btn-writeoff-action">${ICON_TRUCK} В списание</button>
         </div>
     `;
 
@@ -179,12 +230,15 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     // RIGHT COLUMN: Timeline
     rightContainer.innerHTML = `
         <div id="related-cards-mount"></div>
-        <div class="timeline-sticky-input">
-            <label class="modal-label">Комментарий</label>
-            <textarea id="input-description" rows="1" class="auto-expand" placeholder="Заметка к сделке...">${escapeHtml(card.description || '')}</textarea>
+        <div class="timeline-header">
+            <h3 class="section-title">${ICON_COMMENT} Комментарии</h3>
         </div>
         <div class="timeline" id="activity-container">
             <div class="activity-loading">Загрузка...</div>
+        </div>
+        <div class="comment-input-box">
+            <textarea id="input-description" rows="1" class="auto-expand" placeholder="Заметка к сделке...">${escapeHtml(card.description || '')}</textarea>
+            <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку">${ICON_CHECK}</button>
         </div>
     `;
 
@@ -199,6 +253,21 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             });
         }
     });
+
+    const sendCommentBtn = document.getElementById('btn-send-comment');
+    if (sendCommentBtn) {
+        sendCommentBtn.onclick = async () => {
+            const ta = document.getElementById('input-description');
+            if (!ta) return;
+            try {
+                await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: ta.value }) });
+                showToast('Заметка сохранена', 'success');
+                ta.focus();
+            } catch (err) {
+                showToast('Не удалось сохранить заметку: ' + err.message, 'error');
+            }
+        };
+    }
 
     // Load activity log
     loadCardActivity(card.id);
@@ -215,32 +284,34 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         card.checklists.forEach(item => {
             const isCompleted = item.is_paid && item.is_secondary_check;
             const div = document.createElement('div');
-            div.className = 'checklist-item';
+            div.className = `checklist-item ${isCompleted ? 'is-done' : ''}`;
             const invoiceRow = item.invoice_file_path
                 ? `<div class="checklist-invoice has-file">
-                       <a href="#" class="checklist-invoice-link" data-download="${escapeHtml(item.invoice_file_path.split('/').pop())}" data-nice-name="${escapeHtml(item.invoice_file_name)}" title="${escapeHtml(item.invoice_file_name)}">${ICON_FILE} ${escapeHtml(item.invoice_file_name)}</a>
-                       <a href="#" class="checklist-invoice-dl" data-download="${escapeHtml(item.invoice_file_path.split('/').pop())}" data-nice-name="${escapeHtml(item.invoice_file_name)}" title="Скачать">↓</a>
-                       <button class="checklist-invoice-del" data-id="${item.id}" title="Открепить счёт">&times;</button>
+                       <a href="#" class="checklist-invoice-link" data-checklist-id="${item.id}" data-nice-name="${escapeHtml(item.invoice_file_name)}" title="${escapeHtml(item.invoice_file_name)}">${ICON_FILE} ${escapeHtml(item.invoice_file_name)}</a>
+                       <a href="#" class="checklist-invoice-dl" data-checklist-id="${item.id}" data-nice-name="${escapeHtml(item.invoice_file_name)}" title="Скачать">${ICON_DOWNLOAD}</a>
+                       <button class="checklist-invoice-del" data-id="${item.id}" title="Открепить счёт">${ICON_TRASH}</button>
                    </div>`
                 : `<button type="button" class="checklist-invoice-add" data-id="${item.id}">${ICON_CLIP} Прикрепить счёт</button>`;
 
             div.innerHTML = `
-                <div class="checklist-item-header">
-                    <label class="checklist-label">
+                <div class="checklist-row">
+                    <label class="checklist-cb-label" title="Оплачено">
                         <input type="checkbox" class="checklist-cb-main" data-id="${item.id}" ${item.is_paid ? 'checked' : ''}>
-                        <input type="checkbox" class="checklist-cb-sec" data-id="${item.id}" ${item.is_secondary_check ? 'checked' : ''}>
-                        <span class="checklist-text ${isCompleted ? 'completed' : ''}">
-                            <span class="checklist-company">${escapeHtml(item.company_name)}</span>
-                            <span class="amount-field">
-                                <input type="text" inputmode="decimal" autocomplete="off" class="checklist-amount" data-id="${item.id}" value="${formatMoney(item.amount)}" title="Сумма к оплате — нажмите, чтобы изменить" aria-label="Сумма к оплате">
-                                <span class="amount-cur">BYN</span>
-                            </span>
-                        </span>
+                        <span class="checklist-cb-text">Опл.</span>
                     </label>
+                    <label class="checklist-cb-label" title="Пришло">
+                        <input type="checkbox" class="checklist-cb-sec" data-id="${item.id}" ${item.is_secondary_check ? 'checked' : ''}>
+                        <span class="checklist-cb-text">Приш.</span>
+                    </label>
+                    <span class="checklist-company ${isCompleted ? 'completed' : ''}" title="${escapeHtml(item.company_name)}">${escapeHtml(item.company_name)}</span>
+                    <span class="amount-field">
+                        <input type="text" inputmode="decimal" autocomplete="off" class="checklist-amount" data-id="${item.id}" value="${formatMoney(item.amount)}" title="Сумма к оплате — нажмите, чтобы изменить" aria-label="Сумма к оплате">
+                        <span class="amount-cur">BYN</span>
+                    </span>
                     ${!item.supplier_id
                         ? `<button type="button" class="checklist-link-supplier" data-id="${item.id}" title="Записан текстом. Привязать к поставщику из справочника">не привязан</button>`
                         : ''}
-                    <button class="delete-checklist" data-id="${item.id}">&times;</button>
+                    <button class="delete-checklist" data-id="${item.id}" title="Удалить">${ICON_TRASH}</button>
                 </div>
                 <div class="checklist-supplier-picker" data-id="${item.id}" hidden></div>
                 <input type="text" class="checklist-note" data-id="${item.id}" value="${escapeHtml(item.note)}" placeholder="Примечание...">
@@ -279,10 +350,12 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     if (card.attachments) {
         card.attachments.forEach(file => {
             const fileDiv = document.createElement('div');
-            fileDiv.className = 'attachment-item';
+            fileDiv.className = 'file-chip attachment-chip';
             fileDiv.innerHTML = `
-                <a href="#" class="attachment-link" data-download="${escapeHtml(file.file_path.split('/').pop())}" data-nice-name="${escapeHtml(file.file_name)}">${ICON_FILE} ${escapeHtml(file.file_name)}</a>
-                <button class="btn-delete-attachment" data-file-id="${file.id}" data-card-id="${card.id}">&times;</button>
+                <span class="file-chip__icon">${ICON_FILE}</span>
+                <span class="file-chip__name" title="${escapeHtml(file.file_name)}">${escapeHtml(file.file_name)}</span>
+                <a href="#" class="file-chip__action file-chip__download" data-attachment-id="${file.id}" data-nice-name="${escapeHtml(file.file_name)}" title="Скачать">${ICON_DOWNLOAD}</a>
+                <button class="file-chip__action file-chip__delete" data-file-id="${file.id}" data-card-id="${card.id}" title="Удалить вложение">${ICON_TRASH}</button>
             `;
             attachmentsContainer.appendChild(fileDiv);
         });
@@ -292,7 +365,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     container.removeEventListener('click', container._modalClickHandler);
     container._modalClickHandler = (e) => {
-        if (e.target.classList.contains('btn-delete-attachment')) {
+        if (e.target.classList.contains('btn-delete-attachment') || e.target.classList.contains('file-chip__delete')) {
             deleteAttachment(parseInt(e.target.dataset.fileId), parseInt(e.target.dataset.cardId));
         }
     };
@@ -308,6 +381,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
                 showToast('Не удалось сохранить сумму: ' + err.message, 'error');
             }
         } else if (e.target.id === 'input-due-date') {
+            syncDateWrapper(e.target);
             try {
                 const val = e.target.value || null;
                 await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ due_date: val }) });
@@ -325,6 +399,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         }
     };
     container.addEventListener('change', container._modalChangeHandler);
+
+    container.addEventListener('input', (e) => {
+        if (e.target && e.target.closest('.date-input-wrapper')) syncDateWrapper(e.target);
+    });
 
     const STORE_OPTIONS = APP_STORES;
     const storeDropdown = createDropdown({
@@ -468,14 +546,19 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     container.removeEventListener('click', container._downloadHandler);
     container._downloadHandler = async (e) => {
-        const downloadEl = e.target.closest('[data-download]');
-        if (downloadEl) {
-            // настоящее имя лежит в data-nice-name (или title / тексте ссылки)
+        const attEl = e.target.closest('[data-attachment-id]');
+        const chkEl = e.target.closest('[data-checklist-id]');
+        if (attEl || chkEl) {
             e.preventDefault();
-            const nice = downloadEl.dataset.niceName
-                || downloadEl.getAttribute('title')
-                || (downloadEl.textContent || '').trim();
-            downloadFile(downloadEl.dataset.download, nice);
+            const el = attEl || chkEl;
+            const nice = el.dataset.niceName
+                || el.getAttribute('title')
+                || (el.textContent || '').trim();
+            if (attEl) {
+                downloadAttachment(parseInt(attEl.dataset.attachmentId), nice);
+            } else {
+                downloadChecklistInvoice(parseInt(chkEl.dataset.checklistId), nice);
+            }
         }
     };
     container.addEventListener('click', container._downloadHandler);
@@ -658,7 +741,7 @@ async function loadCardTags(card) {
                     : `rgb(${Math.round(r+(255-r)*blend)},${Math.round(g+(255-g)*blend)},${Math.round(b+(255-b)*blend)})`;
                 pill.style.color = c;
                 pill.style.background = bg;
-                pill.innerHTML = `${escapeHtml(tag.name)} <button class="tag-remove" data-id="${tag.id}" title="Удалить тег">&times;</button>`;
+                pill.innerHTML = `${escapeHtml(tag.name)} <button class="tag-remove" data-id="${tag.id}" title="Удалить тег">${ICON_TRASH}</button>`;
                 pill.querySelector('.tag-remove').onclick = async (e) => {
                     e.stopPropagation();
                     try {
@@ -728,7 +811,8 @@ async function loadCardTags(card) {
 
         renderTagPills();
     } catch (err) {
-        tagsMount.innerHTML = '<span class="tag-error">Не удалось загрузить теги</span>';
+        tagsMount.innerHTML = '';
+        tagsMount.appendChild(renderAlert({ type: 'error', title: 'Не удалось загрузить теги', message: err.message }));
     }
 }
 
@@ -763,19 +847,28 @@ async function loadCardActivity(cardId) {
             // зачёркиваем только исходное действие, не саму запись об отмене
             const isStale = !isCancelAct && /накладн/i.test(act.action || '')
                             && key && cancelled.has(key);
+            const isSystem = act.user_id == null;
+            const avatar = getActivityAvatar(act.action, act.user_id);
             item.className = 'activity-item' + (isStale ? ' activity-stale' : '')
-                             + (isCancelAct ? ' activity-cancel' : '');
+                             + (isCancelAct ? ' activity-cancel' : '')
+                             + (isSystem ? ' activity-system' : '');
             const time = new Date(act.created_at).toLocaleString('ru-RU');
             const details = act.details ? `<span class="activity-details">${escapeHtml(act.details)}</span>` : '';
             item.innerHTML = `
-                <span class="activity-action">${escapeHtml(act.action)}</span>
-                ${details}
-                <span class="activity-time">${time}</span>
+                <div class="activity-avatar ${avatar.className}" title="${escapeAttrLocal(avatar.title)}">${avatar.initials}</div>
+                <div class="activity-content">
+                    <div class="activity-line">
+                        <span class="activity-action">${escapeHtml(act.action)}</span>
+                        ${details}
+                        <span class="activity-time">${time}</span>
+                    </div>
+                </div>
             `;
             container.appendChild(item);
         });
     } catch (err) {
-        container.innerHTML = `<div class="activity-error">Ошибка загрузки: ${escapeHtml(err.message)}</div>`;
+        container.innerHTML = '';
+        container.appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки активности', message: err.message }));
     }
 }
 
@@ -899,7 +992,12 @@ async function downloadFile(filename, niceName) {
         const resp = await fetch(API_BASE_URL + '/files/' + encodeURIComponent(filename), {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (!resp.ok) throw new Error('Ошибка ' + resp.status);
+        if (!resp.ok) {
+            if (resp.status === 404) {
+                throw new Error('Файл не найден на сервере. Возможно, вложение было утеряно при переносе данных.');
+            }
+            throw new Error('Ошибка ' + resp.status);
+        }
         const blob = await resp.blob();
 
         // выбираем имя для сохранения
@@ -924,6 +1022,53 @@ async function downloadFile(filename, niceName) {
     } catch (err) {
         showToast('Не удалось скачать файл: ' + err.message, 'error');
     }
+}
+
+async function downloadById(endpoint, id, niceName) {
+    const token = getToken();
+    try {
+        const resp = await fetch(`${API_BASE_URL}${endpoint}/${id}/download`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!resp.ok) {
+            if (resp.status === 404) {
+                throw new Error('Файл не найден на сервере. Возможно, вложение было утеряно при переносе данных.');
+            }
+            throw new Error('Ошибка ' + resp.status);
+        }
+        const blob = await resp.blob();
+        const disposition = resp.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        let serverName = match ? match[1].replace(/['"]/g, '') : '';
+
+        let outName = (niceName || serverName || '').trim();
+        if (window.CRM_DECODE_MIME) outName = window.CRM_DECODE_MIME(outName) || outName;
+        outName = outName.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim();
+
+        const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(outName);
+        if (!hasExt) {
+            outName += (await sniffExt(blob));
+        }
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = outName || 'download';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        showToast('Не удалось скачать файл: ' + err.message, 'error');
+    }
+}
+
+function downloadAttachment(attachmentId, niceName) {
+    return downloadById('/attachments', attachmentId, niceName);
+}
+
+function downloadChecklistInvoice(checklistId, niceName) {
+    return downloadById('/checklists', checklistId, niceName);
 }
 
 
@@ -971,65 +1116,79 @@ function renderModalPaymentHeader(card) {
     const dueStr = due ? new Date(due + 'T00:00:00').toLocaleDateString('ru-RU') : '';
 
     mount.innerHTML = `
-        <div class="payment-total">${total.toFixed(2)} BYN</div>
+        <div class="payment-total">${ICON_WALLET} <span class="tabular-nums">${formatMoneyBYN(total)}</span></div>
         <div class="payment-status-line">
-            <span class="pay-badge ${cls}" id="modal-pay-status">${status}</span>
-            ${paid > 0.01 ? `<span class="pay-amount">${paid.toFixed(2)} BYN</span>` : ''}
+            <select id="modal-pay-select" class="pay-badge pay-select ${cls}">
+                <option value="Не оплачен" ${status === 'Не оплачен' ? 'selected' : ''}>Не оплачен</option>
+                <option value="Оплачен" ${status === 'Оплачен' ? 'selected' : ''}>Оплачен</option>
+                <option value="Частично" ${status === 'Частично' ? 'selected' : ''}>Частично</option>
+                <option value="Отсрочка" ${status === 'Отсрочка' ? 'selected' : ''}>Отсрочка</option>
+            </select>
+            ${paid > 0.01 ? `<span class="pay-amount tabular-nums">${formatMoneyBYN(paid)}</span>` : ''}
             ${dueStr ? `<span class="pay-due">до ${dueStr}</span>` : ''}
         </div>
-        <div class="payment-actions" id="modal-pay-actions">
-            <button data-action="paid" class="btn-pay-paid">✓ Оплачено</button>
-            <button data-action="partial" class="btn-pay-partial">Частично</button>
-            <button data-action="deferred" class="btn-pay-deferred">Отсрочка</button>
-        </div>
+        <div class="payment-actions" id="modal-pay-actions"></div>
     `;
 
+    const select = mount.querySelector('#modal-pay-select');
     const actions = mount.querySelector('#modal-pay-actions');
-    if (!actions) return;
+    if (!select || !actions) return;
 
-    actions.querySelector('[data-action="paid"]').onclick = () => {
-        if (total <= 0) return showToast('Укажите сумму сделки', 'error');
-        saveCardPayment(card, { paid_amount: total, payment_status: 'Оплачен' });
-    };
-
-    actions.querySelector('[data-action="partial"]').onclick = () => {
-        actions.innerHTML = `
-            <div class="payment-form-inline">
-                <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 && paid < total ? paid.toFixed(2) : ''}" placeholder="Сумма">
-                <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
-                <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
-            </div>
-        `;
-        const amountInput = actions.querySelector('#modal-pay-amount');
-        actions.querySelector('#modal-pay-confirm').onclick = () => {
-            const amount = parseFloat(amountInput.value) || 0;
-            if (amount <= 0) return showToast('Укажите сумму оплаты', 'error');
-            if (amount > total + 0.01) return showToast('Сумма оплаты не может превышать сумму сделки', 'error');
-            const newStatus = amount >= total - 0.01 ? 'Оплачен' : 'Частично';
-            saveCardPayment(card, { paid_amount: amount, payment_status: newStatus });
-        };
-        actions.querySelector('#modal-pay-cancel').onclick = () => renderModalPaymentHeader(card);
-        amountInput.focus();
-    };
-
-    actions.querySelector('[data-action="deferred"]').onclick = () => {
-        actions.innerHTML = `
-            <div class="payment-form-inline">
-                <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 ? paid.toFixed(2) : ''}" placeholder="Сумма">
-                <input type="date" id="modal-pay-due" value="${due}">
-                <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
-                <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
-            </div>
-        `;
-        const amountInput = actions.querySelector('#modal-pay-amount');
-        const dueInput = actions.querySelector('#modal-pay-due');
-        actions.querySelector('#modal-pay-confirm').onclick = () => {
-            const amount = parseFloat(amountInput.value) || 0;
-            if (!dueInput.value) return showToast('Укажите дату отсрочки', 'error');
-            saveCardPayment(card, { paid_amount: amount, payment_status: 'Отсрочка', payment_due_date: dueInput.value });
-        };
-        actions.querySelector('#modal-pay-cancel').onclick = () => renderModalPaymentHeader(card);
-        amountInput.focus();
+    select.onchange = () => {
+        const newStatus = select.value;
+        select.className = `pay-badge pay-select ${PAYMENT_STATUS_CLASSES[newStatus] || 'pay-unpaid'}`;
+        if (newStatus === 'Оплачен') {
+            if (total <= 0) {
+                showToast('Укажите сумму сделки', 'error');
+                renderModalPaymentHeader(card);
+                return;
+            }
+            saveCardPayment(card, { paid_amount: total, payment_status: 'Оплачен' });
+        } else if (newStatus === 'Частично') {
+            actions.innerHTML = `
+                <div class="payment-form-inline">
+                    <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 && paid < total ? paid.toFixed(2) : ''}" placeholder="0,00">
+                    <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
+                    <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
+                </div>
+            `;
+            const amountInput = actions.querySelector('#modal-pay-amount');
+            actions.querySelector('#modal-pay-confirm').onclick = () => {
+                const amount = parseFloat(amountInput.value) || 0;
+                if (amount <= 0) return showToast('Укажите сумму оплаты', 'error');
+                if (amount > total + 0.01) return showToast('Сумма оплаты не может превышать сумму сделки', 'error');
+                const newStatus = amount >= total - 0.01 ? 'Оплачен' : 'Частично';
+                saveCardPayment(card, { paid_amount: amount, payment_status: newStatus });
+            };
+            actions.querySelector('#modal-pay-cancel').onclick = () => renderModalPaymentHeader(card);
+            amountInput.focus();
+        } else if (newStatus === 'Отсрочка') {
+            actions.innerHTML = `
+                <div class="payment-form-inline">
+                    <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 ? paid.toFixed(2) : ''}" placeholder="0,00">
+                    ${dateInputHTML({ id: 'modal-pay-due', value: due })}
+                    <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
+                    <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
+                </div>
+            `;
+            const amountInput = actions.querySelector('#modal-pay-amount');
+            const dueInput = actions.querySelector('#modal-pay-due');
+            if (dueInput) {
+                dueInput.addEventListener('input', () => syncDateWrapper(dueInput));
+            }
+            actions.querySelector('#modal-pay-confirm').onclick = () => {
+                const amount = parseFloat(amountInput.value) || 0;
+                if (!dueInput.value) return showToast('Укажите дату отсрочки', 'error');
+                saveCardPayment(card, { paid_amount: amount, payment_status: 'Отсрочка', payment_due_date: dueInput.value });
+            };
+            actions.querySelector('#modal-pay-cancel').onclick = () => renderModalPaymentHeader(card);
+            amountInput.focus();
+        } else {
+            actions.innerHTML = '';
+            if (paid > 0.01 || card.payment_status !== 'Не оплачен') {
+                saveCardPayment(card, { paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null });
+            }
+        }
     };
 }
 
@@ -1061,7 +1220,8 @@ async function renderCardInvoices(card) {
     try {
         data = await apiFetch(`/payments/cards/${card.id}/invoices`);
     } catch (e) {
-        container.innerHTML = `<div class="inv-empty">Не удалось загрузить: ${escapeHtml(e.message)}</div>`;
+        container.innerHTML = '';
+        container.appendChild(renderAlert({ type: 'error', title: 'Не удалось загрузить накладные', message: e.message }));
         return;
     }
 
@@ -1084,8 +1244,8 @@ async function renderCardInvoices(card) {
                     <span class="checklist-text inv-num-text">${escapeHtml(inv.invoice_number || '№ не указан')}</span>
                 </label>
                 <span class="inv-right">
-                    <span class="inv-amount-text">${inv.amount.toFixed(2)} BYN</span>
-                    <button class="delete-checklist inv-del" data-id="${inv.id}" title="Удалить накладную">&times;</button>
+                    <span class="inv-amount-text tabular-nums">${formatMoneyBYN(inv.amount)}</span>
+                    <button class="delete-checklist inv-del" data-id="${inv.id}" title="Удалить накладную">${ICON_TRASH}</button>
                 </span>
             </div>
             <div class="inv-sub">${dateStr ? escapeHtml(dateStr) + ' · ' : ''}${escapeHtml(inv.store_location || '')}${inv.store_location ? ' · ' : ''}${inv.written_off ? 'списана' : 'ждёт списания'}</div>
@@ -1103,12 +1263,12 @@ async function renderCardInvoices(card) {
                     <span class="inv-check inv-check-empty" aria-hidden="true"></span>
                     <span class="checklist-text inv-draft-title">Накладная ${data.issued.length + 1}</span>
                 </label>
-                <span class="inv-right"><span class="inv-rest-hint">остаток ${data.rest.toFixed(2)} BYN</span></span>
+                <span class="inv-right"><span class="inv-rest-hint tabular-nums">остаток ${formatMoneyBYN(data.rest)}</span></span>
             </div>
             <div class="inv-draft-fields">
                 <input type="text" id="new-inv-num" class="inv-in inv-in-num" placeholder="№ накладной">
                 <input type="date" id="new-inv-date" class="inv-in inv-in-date" value="${new Date().toISOString().slice(0, 10)}">
-                <input type="number" step="0.01" id="new-inv-amount" class="inv-in inv-in-amount" value="${data.rest.toFixed(2)}" placeholder="0.00">
+                <input type="number" step="0.01" id="new-inv-amount" class="inv-in inv-in-amount" value="${data.rest.toFixed(2)}" placeholder="0,00">
             </div>
             <div class="inv-draft-actions">
                 <button id="btn-cancel-invoice" class="btn-secondary btn-sm">Отменить</button>
@@ -1134,7 +1294,7 @@ async function renderCardInvoices(card) {
             if (!amount || amount <= 0) { amtEl.focus(); return showToast('Укажите сумму накладной', 'error'); }
             if (amount > data.rest + 0.01) {
                 amtEl.focus();
-                return showToast(`Сумма больше остатка (${data.rest.toFixed(2)} BYN)`, 'error');
+                return showToast(`Сумма больше остатка (${formatMoneyBYN(data.rest)})`, 'error');
             }
             const btn = draft.querySelector('#btn-save-invoice');
             btn.disabled = true;
@@ -1166,7 +1326,12 @@ async function renderCardInvoices(card) {
             });
         });
     } else if (!data.issued.length) {
-        container.innerHTML = '<div class="inv-empty">Накладных пока нет</div>';
+        container.innerHTML = '';
+        container.appendChild(renderEmptyState({
+            icon: ICON_FILE,
+            title: 'Накладных пока нет',
+            description: 'Выписанные накладные будут отображаться здесь.'
+        }));
     }
 
     // --- удаление выписанной накладной ---
@@ -1198,10 +1363,10 @@ async function renderCardInvoices(card) {
     summaryEl.innerHTML = `
         <div class="inv-sum-line">
             <span>Выписано <b>${data.issued.length}</b> ${declOf(data.issued.length, ['накладная', 'накладные', 'накладных'])}</span>
-            <span class="inv-sum-money"><b>${data.issued_amount.toFixed(2)}</b> / ${data.card_amount.toFixed(2)} BYN</span>
+            <span class="inv-sum-money tabular-nums"><b>${formatMoney(data.issued_amount)}</b> / ${formatMoneyBYN(data.card_amount)}</span>
             ${full
                 ? '<span class="inv-badge badge-ok">закрыто полностью</span>'
-                : `<span class="inv-badge badge-warn">остаток ${data.rest.toFixed(2)}</span>`}
+                : `<span class="inv-badge badge-warn tabular-nums">остаток ${formatMoney(data.rest)}</span>`}
         </div>
         <div class="inv-progress"><div class="inv-progress-fill${full ? ' fill-done' : ''}" style="width:${pct}%"></div></div>
     `;
@@ -1269,7 +1434,7 @@ async function renderCardGroupBlock(card) {
                     <label class="group-candidate">
                         <input type="checkbox" value="${c.id}" data-group-candidate>
                         <span class="gw-cand-title">${escapeHtml(c.title)}</span>
-                        <span class="gw-cand-amount">${(parseFloat(c.total_amount) || 0).toFixed(2)} BYN</span>
+                        <span class="gw-cand-amount tabular-nums">${formatMoneyBYN(parseFloat(c.total_amount) || 0)}</span>
                     </label>
                 `).join('')}
             </div>
@@ -1298,7 +1463,8 @@ async function renderCardGroupBlock(card) {
             }
         };
     } catch (e) {
-        container.innerHTML = `<p class="text-muted">Не удалось загрузить группы: ${escapeHtml(e.message)}</p>`;
+        container.innerHTML = '';
+        container.appendChild(renderAlert({ type: 'error', title: 'Не удалось загрузить группы', message: e.message }));
     }
 }
 
@@ -1307,7 +1473,7 @@ function renderExistingGroup(card, group, container) {
     const cardItems = (group.cards || []).map(c => `
         <div class="group-member">
             <span class="gm-title">${escapeHtml(c.title)}</span>
-            <span class="gm-amount">${(parseFloat(c.total_amount) || 0).toFixed(2)} BYN</span>
+            <span class="gm-amount tabular-nums">${formatMoneyBYN(parseFloat(c.total_amount) || 0)}</span>
             ${!group.written_off && c.id === card.id ? `<button class="btn-link btn-sm btn-leave-group" data-id="${c.id}">выйти</button>` : ''}
         </div>
     `).join('');
@@ -1315,7 +1481,7 @@ function renderExistingGroup(card, group, container) {
     const closedInfo = group.written_off ? `
         <div class="group-invoice-info">
             <span class="inv-badge badge-ok">закрыто общей накладной</span>
-            <div class="gm-invoice">№ ${escapeHtml(group.invoice_number || '—')} · ${total.toFixed(2)} BYN</div>
+            <div class="gm-invoice">№ ${escapeHtml(group.invoice_number || '—')} · ${formatMoneyBYN(total)}</div>
             ${group.invoice_date ? `<div class="gm-invoice-date">${new Date(group.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')}</div>` : ''}
         </div>
     ` : '';
@@ -1326,14 +1492,14 @@ function renderExistingGroup(card, group, container) {
                 <strong>${escapeHtml(group.name)}</strong>
                 <span class="col-count">${group.cards ? group.cards.length : 0}</span>
             </div>
-            <div class="group-card-total">${total.toFixed(2)} BYN</div>
+            <div class="group-card-total tabular-nums">${formatMoneyBYN(total)}</div>
             <div class="group-members">${cardItems}</div>
             ${closedInfo}
             ${!group.written_off ? `
                 <div class="group-invoice-form" id="group-invoice-form">
                     <input type="text" id="group-inv-num" class="inv-in inv-in-num" placeholder="№ накладной">
                     <input type="date" id="group-inv-date" class="inv-in inv-in-date" value="${new Date().toISOString().slice(0, 10)}">
-                    <input type="number" step="0.01" id="group-inv-amount" class="inv-in inv-in-amount" value="${total.toFixed(2)}" readonly title="Сумма группы">
+                    <input type="number" step="0.01" id="group-inv-amount" class="inv-in inv-in-amount" value="${total.toFixed(2)}" readonly title="Сумма группы" placeholder="0,00">
                 </div>
                 <div class="group-actions">
                     <button id="btn-issue-group-invoice" class="btn-primary btn-sm">Выписать общую накладную</button>
@@ -1498,11 +1664,16 @@ function renderChecklistSummary(card) {
     const full = rest <= 0.01;
 
     el.innerHTML = `
-        <div class="chk-sum-line">
-            <span>Поставщикам <b>${total.toFixed(2)}</b> BYN · заказано ${paidItems.length}/${items.length} · пришло ${camePaid}/${items.length}</span>
-            ${full ? '' : `<span class="pay-badge pay-partial">осталось оплатить ${rest.toFixed(2)}</span>`}
+        <div class="chk-sum-card">
+            <div class="chk-sum-main">
+                <div class="chk-sum-row"><span class="chk-sum-label">Заказано</span><b class="tabular-nums">${paidItems.length} из ${items.length}</b></div>
+                <div class="chk-sum-row"><span class="chk-sum-label">Пришло</span><b class="tabular-nums">${camePaid} из ${items.length}</b></div>
+                ${full ? '' : `<div class="chk-sum-row"><span class="chk-sum-label">Осталось оплатить</span><span class="pay-badge pay-partial tabular-nums">${formatMoneyBYN(rest)}</span></div>`}
+            </div>
+            <div class="chk-sum-progress" title="Оплачено ${pct}%">
+                <div class="chk-sum-progress__fill${full ? ' is-done' : ''}" style="width:${pct}%"></div>
+            </div>
         </div>
-        <div class="inv-progress"><div class="inv-progress-fill${full ? ' fill-done' : ''}" style="width:${pct}%"></div></div>
     `;
 }
 
@@ -1545,8 +1716,10 @@ function updateChecklistItemState(input, item) {
     if (!item) return;
     const row = input.closest('.checklist-item');
     if (!row) return;
-    const text = row.querySelector('.checklist-text');
-    if (text) text.classList.toggle('completed', !!(item.is_paid && item.is_secondary_check));
+    const completed = !!(item.is_paid && item.is_secondary_check);
+    const text = row.querySelector('.checklist-company');
+    if (text) text.classList.toggle('completed', completed);
+    row.classList.toggle('is-done', completed);
 }
 
 

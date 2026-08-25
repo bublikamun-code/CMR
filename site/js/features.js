@@ -70,10 +70,10 @@ function showToast(message, type = 'info', timeout = 3200) {
         document.body.appendChild(container);
     }
     announceToScreenReader(message, type);
-    const icon = type === 'success' ? '✓' : (type === 'error' ? '!' : 'i');
+    const icon = type === 'success' ? ICON_CHECK : (type === 'error' ? ICON_ALERT : ICON_INFO);
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escapeHtml(message)}</span><button type="button" class="toast-close" aria-label="Закрыть уведомление">✕</button>`;
+    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escapeHtml(message)}</span><button type="button" class="toast-close" aria-label="Закрыть уведомление">${ICON_CROSS}</button>`;
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('show'));
 
@@ -197,10 +197,11 @@ function createDropdown({ options, value, onChange, searchable = false }) {
 
     const current = options.find(o => o.value === value);
     const caret = `<svg class="dropdown-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+    const renderCurrent = (opt) => opt?.html ? opt.html : escapeHtml(opt ? opt.label : '— выбрать —');
 
     root.innerHTML = `
         <button type="button" class="dropdown-toggle">
-            <span class="dropdown-value">${escapeHtml(current ? current.label : '— выбрать —')}</span>
+            <span class="dropdown-value">${renderCurrent(current)}</span>
             ${caret}
         </button>
         <div class="dropdown-menu" role="listbox">
@@ -216,12 +217,13 @@ function createDropdown({ options, value, onChange, searchable = false }) {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'dropdown-item' + (opt.value === value ? ' selected' : '');
-        item.textContent = opt.label;
+        if (opt.html) item.innerHTML = opt.html;
+        else item.textContent = opt.label;
         item.dataset.value = opt.value;
         item.addEventListener('click', (e) => {
             e.stopPropagation();
             root.dataset.value = opt.value;
-            valueLabel.textContent = opt.label;
+            valueLabel.innerHTML = opt.html ? opt.html : escapeHtml(opt.label);
             menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.toggle('selected', i === item));
             root.classList.remove('open');
             if (onChange) onChange(opt.value);
@@ -276,6 +278,35 @@ function createDropdown({ options, value, onChange, searchable = false }) {
 // Минималистичные монохромные SVG-иконки (вместо эмодзи)
 const ICON_CLIP = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 const ICON_FILE = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+const ICON_WALLET = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4h-4z"/></svg>';
+const ICON_CALENDAR = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+const ICON_COMMENT = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+const ICON_BOX = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
+const ICON_TRUCK = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>';
+const ICON_CHECK = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+const ICON_CLOCK = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+const ICON_CROSS = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const ICON_INFO = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+const ICON_ALERT = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+const ICON_DOWNLOAD = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+const ICON_TRASH = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+const ICON_SUN = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>';
+const ICON_MOON = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+const ICON_PLUS = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+const ICON_ARROW_LEFT = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>';
+const ICON_FILTER = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>';
+const ICON_CHEVRON_DOWN = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+const ICON_CHEVRON_UP = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>';
+const ICON_CHEVRON_LEFT = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+const ICON_CHEVRON_RIGHT = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+const ICON_BOARD = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg>';
+const ICON_LIST = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>';
+const ICON_DENSITY_DETAILED = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="8" rx="1"/><rect x="3" y="15" width="18" height="6" rx="1"/></svg>';
+const ICON_DENSITY_COMPACT = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>';
+const ICON_CARD = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+const ICON_CLIENT = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+const ICON_ELLIPSIS = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>';
+const ICON_PENCIL = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 1 1 3 3L12 15l-4 1 1-4z"/></svg>';
 
 // === СОРТИРОВКА ТАБЛИЦ ===
 function sortRows(rows, key, dir) {
@@ -376,19 +407,123 @@ function filterTableRows(tableId, query) {
  * принудительным пересчётом раскладки. На нескольких сотнях строк ввод
  * начинал заметно отставать от клавиатуры.
  *
- * @param {string} inputId  id поля поиска
- * @param {string} tableId  id таблицы
- * @param {number} delay    задержка в мс
+ * @param {string} inputId   id поля поиска
+ * @param {string} tableId   id таблицы
+ * @param {number} delay     задержка в мс
+ * @param {function|null} onSearch  опциональный колбэк вместо filterTableRows
  */
-function bindTableSearch(inputId, tableId, delay = 200) {
+function bindTableSearch(inputId, tableId, delay = 200, onSearch = null) {
     const input = document.getElementById(inputId);
     if (!input) return;
     let timer = null;
     input.addEventListener('input', (e) => {
         const value = e.target.value;
         clearTimeout(timer);
-        timer = setTimeout(() => filterTableRows(tableId, value), delay);
+        timer = setTimeout(() => {
+            if (typeof onSearch === 'function') {
+                onSearch(value);
+            } else {
+                filterTableRows(tableId, value);
+            }
+        }, delay);
     });
+}
+
+/**
+ * Обновить счётчик «Найдено: N» рядом с полем поиска.
+ *
+ * @param {string} inputId  id поля поиска (ожидается span с id "{inputId}-count")
+ * @param {number} count    количество найденных записей
+ * @param {number} total    общее количество записей (для скрытия при полном отсутствии)
+ */
+function updateSearchCount(inputId, count, total) {
+    const countEl = document.getElementById(inputId + '-count');
+    if (!countEl) return;
+    if (total === 0) {
+        countEl.textContent = '';
+        countEl.classList.add('hidden');
+    } else {
+        countEl.textContent = `Найдено: ${count}`;
+        countEl.classList.remove('hidden');
+    }
+}
+
+/**
+ * Отрисовать пагинацию для таблицы.
+ *
+ * @param {string} containerId  id контейнера пагинации
+ * @param {number} currentPage  текущая страница (1-based)
+ * @param {number} totalPages   общее число страниц
+ * @param {function} onChange   callback(page)
+ */
+function renderTablePagination(containerId, currentPage, totalPages, onChange) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (totalPages <= 1) return;
+
+    const frag = document.createDocumentFragment();
+
+    const info = document.createElement('span');
+    info.className = 'pagination-info';
+    info.textContent = `Показано ${currentPage} из ${totalPages}`;
+    frag.appendChild(info);
+
+    if (currentPage > 1) {
+        const prev = document.createElement('button');
+        prev.className = 'pagination-btn';
+        prev.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>';
+        prev.setAttribute('aria-label', 'Назад');
+        prev.title = 'Назад';
+        prev.onclick = () => onChange(currentPage - 1);
+        frag.appendChild(prev);
+    }
+
+    for (let p = 1; p <= totalPages; p++) {
+        if (totalPages > 7 && Math.abs(p - currentPage) > 2 && p !== 1 && p !== totalPages) {
+            if (p === currentPage - 3 || p === currentPage + 3) {
+                const dots = document.createElement('span');
+                dots.className = 'pagination-dots';
+                dots.textContent = '…';
+                frag.appendChild(dots);
+            }
+            continue;
+        }
+        const pg = document.createElement('button');
+        pg.className = 'pagination-btn' + (p === currentPage ? ' pagination-active' : '');
+        pg.textContent = p;
+        pg.setAttribute('aria-label', `Страница ${p}`);
+        pg.title = `Перейти на страницу ${p}`;
+        pg.onclick = () => onChange(p);
+        frag.appendChild(pg);
+    }
+
+    if (currentPage < totalPages) {
+        const next = document.createElement('button');
+        next.className = 'pagination-btn';
+        next.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
+        next.setAttribute('aria-label', 'Вперёд');
+        next.title = 'Вперёд';
+        next.onclick = () => onChange(currentPage + 1);
+        frag.appendChild(next);
+    }
+
+    container.appendChild(frag);
+}
+
+/**
+ * Индикатор тени справа у горизонтально прокручиваемой таблицы.
+ */
+function setupTableScrollShadow(pageId) {
+    const page = document.getElementById(pageId);
+    if (!page) return;
+    const container = page.querySelector('.table-container');
+    if (!container) return;
+    const update = () => container.classList.toggle('is-scrolled', container.scrollLeft + container.clientWidth < container.scrollWidth - 1);
+    container.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
 }
 
 /**
@@ -457,6 +592,63 @@ function formatMoney(value) {
     return (value || 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function formatMoneyBYN(value) {
+    return `${formatMoney(value)} BYN`;
+}
+
+/**
+ * Единый компонент Alert для ошибок и предупреждений.
+ * Возвращает DOM-элемент.
+ */
+function renderAlert({ type = 'error', title, message, onRetry }) {
+    const el = document.createElement('div');
+    el.className = `alert alert-${type}`;
+    const ICONS = {
+        error: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+        warning: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+        success: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        info: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+    };
+    const iconSvg = ICONS[type] || ICONS.error;
+    el.innerHTML = `
+        <div class="alert-icon">${iconSvg}</div>
+        <div class="alert-content">
+            ${title ? `<div class="alert-title">${escapeHtml(title)}</div>` : ''}
+            <div class="alert-message">${escapeHtml(message || '')}</div>
+        </div>
+    `;
+    if (typeof onRetry === 'function') {
+        const btn = document.createElement('button');
+        btn.className = 'alert-retry btn-secondary btn-sm';
+        btn.textContent = 'Повторить';
+        btn.onclick = onRetry;
+        el.appendChild(btn);
+    }
+    return el;
+}
+
+/**
+ * Единый компонент EmptyState.
+ * Возвращает DOM-элемент.
+ */
+function renderEmptyState({ icon, title, description, action }) {
+    const el = document.createElement('div');
+    el.className = 'empty-state';
+    el.innerHTML = `
+        ${icon ? `<div class="empty-state-icon">${icon}</div>` : ''}
+        <div class="empty-state-title">${escapeHtml(title)}</div>
+        ${description ? `<div class="empty-state-desc">${escapeHtml(description)}</div>` : ''}
+    `;
+    if (action && typeof action.onClick === 'function') {
+        const btn = document.createElement('button');
+        btn.className = 'btn-primary btn-sm';
+        btn.textContent = action.text || 'Добавить';
+        btn.onclick = action.onClick;
+        el.appendChild(btn);
+    }
+    return el;
+}
+
 /**
  * Разобрать сумму, введённую человеком.
  * Принимает «1 744,49», «1744.49», «1 744,49 BYN» — возвращает число
@@ -479,22 +671,22 @@ function parseMoney(value) {
 (function initTheme() {
     const toggle = document.getElementById('theme-toggle');
     if (!toggle) return;
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    toggle.textContent = isDark ? '☾' : '☀';
-    toggle.title = isDark ? 'Светлая тема' : 'Тёмная тема';
+    function setThemeIcon() {
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        toggle.innerHTML = isDark ? ICON_MOON : ICON_SUN;
+        toggle.title = isDark ? 'Светлая тема' : 'Тёмная тема';
+    }
+    setThemeIcon();
     toggle.addEventListener('click', () => {
         const dark = document.documentElement.getAttribute('data-theme') === 'dark';
         if (dark) {
             document.documentElement.removeAttribute('data-theme');
             try { localStorage.setItem('crm_theme', 'light'); } catch(e) {}
-            toggle.textContent = '☀';
-            toggle.title = 'Тёмная тема';
         } else {
             document.documentElement.setAttribute('data-theme', 'dark');
             try { localStorage.setItem('crm_theme', 'dark'); } catch(e) {}
-            toggle.textContent = '☾';
-            toggle.title = 'Светлая тема';
         }
+        setThemeIcon();
         // UI Audit (2026-08-09, C.3): после смены темы перерендерим Chart.js
         // с новыми цветами из CSS-переменных. Событие themeChanged
         // ловится в dashboard.js.
@@ -528,12 +720,12 @@ function parseMoney(value) {
     let loaded = false;
 
     const PAGES = [
-        { id: 'page-kanban', label: 'Канбан-доска', icon: '◫' },
-        { id: 'page-payments', label: 'Реестр оплат', icon: '≡' },
-        { id: 'page-writeoffs', label: 'Списание', icon: '⬡' },
-        { id: 'page-documents', label: 'Документы', icon: '📄' },
-        { id: 'page-counterparties', label: 'Контрагенты', icon: '👥' },
-        { id: 'page-dashboard', label: 'Дашборд', icon: '📊' },
+        { id: 'page-kanban', label: 'Канбан-доска', icon: ICON_BOARD },
+        { id: 'page-payments', label: 'Реестр оплат', icon: ICON_LIST },
+        { id: 'page-writeoffs', label: 'Списание', icon: ICON_BOX },
+        { id: 'page-documents', label: 'Документы', icon: ICON_FILE },
+        { id: 'page-counterparties', label: 'Контрагенты', icon: ICON_CLIENT },
+        { id: 'page-dashboard', label: 'Дашборд', icon: '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>' },
     ];
 
     async function ensureData() {
@@ -583,7 +775,7 @@ function parseMoney(value) {
                 html += '<div class="cmd-palette-group-label">Сделки</div>';
                 matchedCards.forEach(c => {
                     html += `<div class="cmd-palette-item" data-type="card" data-id="${c.id}">
-                        <span class="cmd-palette-item-icon">◧</span>
+                        <span class="cmd-palette-item-icon">${ICON_CARD}</span>
                         <span class="cmd-palette-item-label">${escapeHtml(c.title)}</span>
                         <span class="cmd-palette-item-hint">${c.total_amount || 0} BYN</span>
                     </div>`;
@@ -595,7 +787,7 @@ function parseMoney(value) {
                 html += '<div class="cmd-palette-group-label">Клиенты</div>';
                 matchedClients.forEach(c => {
                     html += `<div class="cmd-palette-item" data-type="client" data-id="${c.id}">
-                        <span class="cmd-palette-item-icon">👤</span>
+                        <span class="cmd-palette-item-icon">${ICON_CLIENT}</span>
                         <span class="cmd-palette-item-label">${escapeHtml(c.name)}</span>
                         <span class="cmd-palette-item-hint">${c.unp || ''}</span>
                     </div>`;

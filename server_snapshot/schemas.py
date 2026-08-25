@@ -210,6 +210,7 @@ class CardBase(BaseModel):
 
 class CardCreate(CardBase):
     client_id: Optional[int] = None
+    owner_id: Optional[int] = None
     tag_ids: Optional[List[int]] = []
 
 class CardReorder(BaseModel):

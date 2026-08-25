@@ -7,6 +7,7 @@ import hashlib
 import logging
 import base64
 from email.header import decode_header
+from email.utils import collapse_rfc2231_value
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -25,6 +26,14 @@ from auth import get_current_user, require_role, require_cron_token
 from email_cleaner import clean_email_body, html_to_text, normalize_subject
 
 logger = logging.getLogger(__name__)
+
+# Абсолютный путь к папке загрузок. Раньше использовался относительный "uploads",
+# и при смене CWD (cron, тесты, разные способы запуска) файлы сохранялись не туда,
+# а в БД оставался путь относительно корня приложения. Теперь всегда привязываемся
+# к директории, где лежит main.py (server_snapshot / app root).
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPLOAD_DIR = os.path.join(_APP_DIR, "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # This key encrypts stored mailbox passwords and is DIFFERENT from the JWT key in
 # auth.py. It must survive image rebuilds, otherwise saved email credentials can no
@@ -116,7 +125,7 @@ def _get_settings_path(tenant_id: int = None) -> str:
 class EmailSettingsSchema(BaseModel):
     email: str
     password: str
-    imap_server: str = "imap.yandex.ru"
+    imap_server: str = ""
     target_status: str = "Новый запрос"
 
 def load_settings(tenant_id: int = None):
@@ -125,7 +134,7 @@ def load_settings(tenant_id: int = None):
         return {
             "email": "",
             "password": "",
-            "imap_server": "imap.yandex.ru",
+            "imap_server": "",
             "target_status": "Новый запрос",
             "last_sync": None
         }
@@ -136,7 +145,7 @@ def load_settings(tenant_id: int = None):
         return {
             "email": "",
             "password": "",
-            "imap_server": "imap.yandex.ru",
+            "imap_server": "",
             "target_status": "Новый запрос",
             "last_sync": None
         }
@@ -161,6 +170,19 @@ def _encrypt_password(password: str) -> str:
         return password
     return _fernet.encrypt(password.encode()).decode()
 
+
+def _decode_attachment_filename(part) -> Optional[str]:
+    """Декодирует имя файла вложения из RFC 2047 / RFC 2231.
+
+    Python 3 email.Message.get_filename() уже раскодирует оба стандарта.
+    Ручной decode_header() на уже декодированной строке ломает кириллицу,
+    поэтому используем значение от get_filename() как есть.
+    """
+    filename = part.get_filename()
+    if not filename:
+        return None
+    return filename
+
 def save_settings(settings, tenant_id: int = None):
     settings_file = _get_settings_path(tenant_id)
     if _fernet is not None and settings.get("password"):
@@ -179,7 +201,7 @@ def get_settings(current_user: models.User = Depends(get_current_user)):
     return {
         "email": settings.get("email", ""),
         "password": masked_pw,
-        "imap_server": settings.get("imap_server", "imap.yandex.ru"),
+        "imap_server": settings.get("imap_server", ""),
         "target_status": settings.get("target_status", "Новый запрос"),
         "last_sync": settings.get("last_sync")
     }
@@ -188,10 +210,20 @@ def get_settings(current_user: models.User = Depends(get_current_user)):
 def update_settings(data: EmailSettingsSchema, current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)
+    # Раньше пустой imap_server молча сохранялся (или в форму подставлялся дефолт
+    # imap.yandex.ru и уезжал в POST), после чего /sync ломался с AUTHENTICATIONFAILED
+    # на чужом сервере. Отклоняем заведомо нерабочую конфигурацию сразу.
+    if not data.imap_server.strip():
+        raise HTTPException(status_code=400, detail="IMAP-сервер не указан")
+    if not data.email.strip():
+        raise HTTPException(status_code=400, detail="Электронная почта не указана")
+    new_password_provided = data.password and data.password != "********"
+    if not new_password_provided and not settings.get("password"):
+        raise HTTPException(status_code=400, detail="Пароль не указан: введите пароль почтового ящика")
     settings["email"] = data.email
-    if data.password and data.password != "********":
+    if new_password_provided:
         settings["password"] = data.password
-    settings["imap_server"] = data.imap_server
+    settings["imap_server"] = data.imap_server.strip()
     settings["target_status"] = data.target_status
     save_settings(settings, tenant_id)
     return {"detail": "Настройки успешно сохранены"}
@@ -292,10 +324,8 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             for part in msg.walk():
                                 content_disposition = str(part.get("Content-Disposition", ""))
                                 if "attachment" in content_disposition:
-                                    filename = part.get_filename()
+                                    filename = _decode_attachment_filename(part)
                                     if filename:
-                                        if isinstance(filename, bytes):
-                                            filename = filename.decode("utf-8", errors="ignore")
                                         attachments.append((filename, part.get_payload(decode=True)))
 
                         title_str = f"Письмо: {subject}" if subject else f"Письмо без темы от {sender}"
@@ -344,12 +374,16 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                         for att_name, att_data in attachments:
                             if att_data:
                                 safe_name = hashlib.md5(f"{new_card.id}_{att_name}".encode()).hexdigest()[:8] + "_" + re.sub(r'[^a-zA-Z0-9._-]', '_', att_name)
-                                att_path = os.path.join("uploads", safe_name)
-                                with open(att_path, "wb") as f:
-                                    f.write(att_data)
+                                att_path = os.path.join(UPLOAD_DIR, safe_name)
+                                try:
+                                    with open(att_path, "wb") as f:
+                                        f.write(att_data)
+                                except Exception as e:
+                                    logger.error(f"Failed to save attachment {att_name!r} for card {new_card.id}: {e}")
+                                    raise
                                 attachment = models.CardAttachment(
                                     file_name=att_name,
-                                    file_path=att_path,
+                                    file_path=os.path.join("uploads", safe_name),
                                     card_id=new_card.id
                                 )
                                 tdb.add(attachment)
@@ -481,7 +515,7 @@ def get_related_cards(card_id: int, db: Session = Depends(get_db), current_user:
             ],
         }
     finally:
-        if tenant_id:
+        if tdb is not db:
             tdb.close()
 
 
@@ -510,5 +544,5 @@ def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = 
         tdb.commit()
         return {"success": True, "target_card_id": dst.id, "message": f"Письмо добавлено в сделку #{dst.id}"}
     finally:
-        if tenant_id:
+        if tdb is not db:
             tdb.close()

@@ -1,12 +1,19 @@
 let allSuppliers = [];
 let editingSupplierId = null;
+let suppliersSearchQuery = '';
+let suppliersCurrentPage = 1;
+const SUPPLIERS_PAGE_SIZE = 50;
 
 document.addEventListener('DOMContentLoaded', () => {
     const suppliersBtn = document.querySelector('[data-target="page-suppliers"]');
     if (suppliersBtn) suppliersBtn.addEventListener('click', loadSuppliersTable);
     if (document.getElementById('page-suppliers')?.classList.contains('active')) loadSuppliersTable();
 
-    bindTableSearch('suppliers-search', 'suppliers-table');
+    bindTableSearch('suppliers-search', 'suppliers-table', 200, (value) => {
+        suppliersSearchQuery = (value || '').trim().toLowerCase();
+        suppliersCurrentPage = 1;
+        renderSuppliers();
+    });
 
     document.getElementById('btn-create-supplier').onclick = () => openSupplierModal();
     document.getElementById('supplier-cancel').onclick = () => document.getElementById('supplier-modal').classList.add('hidden');
@@ -43,28 +50,58 @@ async function loadSuppliersTable() {
         }
         renderSuppliers();
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="8" class="td-error">Ошибка: ${escapeHtml(error.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="td-error">Ошибка: ${escapeHtml(error.message)}</td></tr>`;
     }
+}
+
+function getFilteredSuppliers() {
+    const q = suppliersSearchQuery;
+    if (!q) return allSuppliers;
+    return allSuppliers.filter(s => {
+        const text = [s.name, s.unp, s.phone, s.email, s.contact_person, s.address, s.note]
+            .map(v => (v || '').toLowerCase())
+            .join(' ');
+        return text.includes(q);
+    });
 }
 
 function renderSuppliers() {
     const tbody = document.querySelector('#suppliers-table tbody');
     if (!tbody) return;
 
-    if (allSuppliers.length === 0) {
+    const filtered = getFilteredSuppliers();
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / SUPPLIERS_PAGE_SIZE));
+    if (suppliersCurrentPage > totalPages) suppliersCurrentPage = totalPages;
+    if (suppliersCurrentPage < 1) suppliersCurrentPage = 1;
+    const start = (suppliersCurrentPage - 1) * SUPPLIERS_PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + SUPPLIERS_PAGE_SIZE);
+
+    updateSearchCount('suppliers-search', total, allSuppliers.length);
+    renderTablePagination('suppliers-pagination-top', suppliersCurrentPage, totalPages, (p) => {
+        suppliersCurrentPage = p;
+        renderSuppliers();
+    });
+    renderTablePagination('suppliers-pagination-bottom', suppliersCurrentPage, totalPages, (p) => {
+        suppliersCurrentPage = p;
+        renderSuppliers();
+    });
+
+    if (total === 0) {
+        const isSearch = suppliersSearchQuery.length > 0;
         tbody.innerHTML = `
             <tr>
-                <td colspan="8">
+                <td colspan="6">
                     <div class="empty-state-wrapper">
                         <div class="empty-state-icon">
                             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
                         </div>
-                        <div class="empty-state-title">Поставщики не найдены</div>
-                        <div class="empty-state-desc">В базе данных пока нет ни одного поставщика. Добавьте первого поставщика, чтобы начать работу.</div>
-                        <button class="empty-state-btn" onclick="openSupplierModal()">
+                        <div class="empty-state-title">${isSearch ? 'Поставщики не найдены' : 'Поставщики не найдены'}</div>
+                        <div class="empty-state-desc">${isSearch ? 'Попробуйте изменить запрос поиска.' : 'В базе данных пока нет ни одного поставщика. Добавьте первого поставщика, чтобы начать работу.'}</div>
+                        ${isSearch ? '' : `<button class="empty-state-btn" onclick="openSupplierModal()">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             Новый поставщик
-                        </button>
+                        </button>`}
                     </div>
                 </td>
             </tr>
@@ -73,26 +110,22 @@ function renderSuppliers() {
     }
 
     tbody.innerHTML = '';
-    allSuppliers.forEach(s => {
+    pageItems.forEach(s => {
         const row = document.createElement('tr');
         row.dataset.id = s.id;
-        const ct = CRM_CONTACTS.summary(s.contact_person, s.phone, s.email);
-        const ctCell = escapeHtml(ct.text) +
-            (ct.extra > 0 ? ` <span class="contact-more">+${ct.extra}</span>` : '');
+        const ctCell = CRM_CONTACTS.renderCell(s.contact_person, s.phone, s.email);
         row.innerHTML = `
             <td><b class="supplier-name-link" data-id="${s.id}" title="Показать закупки этого поставщика">${escapeHtml(s.name)}</b></td>
             <td>${escapeHtml(s.unp) || '—'}</td>
-            <td>${escapeHtml(s.phone) || '—'}</td>
-            <td>${escapeHtml(s.email) || '—'}</td>
-            <td title="${escapeHtml(ct.title)}">${ctCell}</td>
+            <td>${ctCell}</td>
             <td>${escapeHtml(s.address) || '—'}</td>
             <td>${escapeHtml(s.note) || ''}</td>
-            <td class="td-center" style="display: inline-flex; gap: 6px; border: none; align-items: center; justify-content: center; height: 100%;">
-                <button class="btn-delete-row btn-edit-supplier" data-id="${s.id}" title="Редактировать">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/></svg>
+            <td class="td-center row-actions">
+                <button class="row-action-btn btn-edit-supplier" data-id="${s.id}" title="Редактировать">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/></svg>
                 </button>
-                <button class="btn-delete-row btn-delete-supplier" data-id="${s.id}" title="Удалить">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                <button class="row-action-btn btn-delete-supplier" data-id="${s.id}" title="Удалить">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
             </td>
         `;
@@ -209,7 +242,7 @@ async function openSupplierPurchases(supplierId) {
         modal.className = 'modal hidden';
         modal.innerHTML = `
             <div class="modal-content modal-content-auto">
-                <button class="close-btn" aria-label="Закрыть">&times;</button>
+                <button class="close-btn" aria-label="Закрыть">${ICON_CROSS}</button>
                 <h2 id="sup-pur-title">Закупки</h2>
                 <div id="sup-pur-summary"></div>
                 <div id="sup-pur-body"></div>
@@ -253,15 +286,15 @@ async function openSupplierPurchases(supplierId) {
             </div>
             <div class="sup-pur-stat">
                 <div class="sup-pur-stat-label">Сумма</div>
-                <div class="sup-pur-stat-value">${data.total_amount.toFixed(2)}</div>
+                <div class="sup-pur-stat-value">${formatMoneyBYN(data.total_amount || 0)}</div>
             </div>
             <div class="sup-pur-stat">
                 <div class="sup-pur-stat-label">Оплачено</div>
-                <div class="sup-pur-stat-value ok">${data.paid_amount.toFixed(2)}</div>
+                <div class="sup-pur-stat-value ok">${formatMoneyBYN(data.paid_amount || 0)}</div>
             </div>
             <div class="sup-pur-stat">
                 <div class="sup-pur-stat-label">Осталось</div>
-                <div class="sup-pur-stat-value ${data.unpaid_amount > 0.01 ? 'warn' : ''}">${data.unpaid_amount.toFixed(2)}</div>
+                <div class="sup-pur-stat-value ${data.unpaid_amount > 0.01 ? 'warn' : ''}">${formatMoneyBYN(data.unpaid_amount || 0)}</div>
             </div>
         </div>
         <div class="inv-progress"><div class="inv-progress-fill${pct >= 100 ? ' fill-done' : ''}" style="width:${pct}%"></div></div>
@@ -284,10 +317,10 @@ async function openSupplierPurchases(supplierId) {
                     <tr class="sup-pur-row" data-card-id="${i.card_id}">
                         <td><b>${escapeHtml(i.card_title || '—')}</b>${i.note ? `<div class="sup-pur-note">${escapeHtml(i.note)}</div>` : ''}</td>
                         <td><span class="sup-pur-status">${escapeHtml(i.card_status || '—')}</span></td>
-                        <td class="td-right font-mono">${i.amount.toFixed(2)}</td>
-                        <td class="td-center">${i.is_paid ? '✓' : '—'}</td>
-                        <td class="td-center">${i.is_secondary_check ? '✓' : '—'}</td>
-                        <td class="td-center">${i.has_invoice ? '📎' : '—'}</td>
+                        <td class="td-right font-mono">${formatMoneyBYN(i.amount || 0)}</td>
+                        <td class="td-center">${i.is_paid ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : '—'}</td>
+                        <td class="td-center">${i.is_secondary_check ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : '—'}</td>
+                        <td class="td-center">${i.has_invoice ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' : '—'}</td>
                     </tr>`).join('')}
             </tbody>
         </table>`;
@@ -296,8 +329,11 @@ async function openSupplierPurchases(supplierId) {
         row.onclick = () => {
             const cardId = parseInt(row.dataset.cardId);
             if (!cardId) return;
-            modal.classList.add('hidden');
-            if (typeof openCardModal === 'function') openCardModal(cardId);
+            if (window.closeModalSmooth) window.closeModalSmooth(modal, () => { if (typeof openCardModal === 'function') openCardModal(cardId); });
+            else {
+                modal.classList.add('hidden');
+                if (typeof openCardModal === 'function') openCardModal(cardId);
+            }
         };
     });
 }

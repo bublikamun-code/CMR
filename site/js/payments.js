@@ -3,13 +3,6 @@ let currentPayments = [];    // то, что сейчас показано (дл
 let paymentsMonth = 'all';   // выбранный месяц фильтра
 let paymentsSort = { key: null, dir: 1 };
 
-const PAYMENT_STATUS_CLASSES = {
-    'Не оплачен': 'pay-unpaid',
-    'Частично': 'pay-partial',
-    'Оплачен': 'pay-paid',
-    'Отсрочка': 'pay-deferred'
-};
-
 function renderPaymentStatusBadge(status) {
     const s = status || 'Не оплачен';
     const cls = PAYMENT_STATUS_CLASSES[s] || 'pay-unpaid';
@@ -22,16 +15,27 @@ function renderPaymentCell(tr) {
     const status = tr.payment_status || 'Не оплачен';
     const cls = PAYMENT_STATUS_CLASSES[status] || 'pay-unpaid';
     const rest = Math.max(0, total - paid).toFixed(2);
-    const percent = total > 0 ? Math.min(100, (paid / total) * 100) : 0;
+    const percent = total > 0 ? Math.min(100, (paid / total) * 100) : (status === 'Оплачен' ? 100 : 0);
+
+    const title = `Оплачено ${formatMoneyBYN(paid)} из ${formatMoneyBYN(total)}. Остаток: ${formatMoneyBYN(rest)} (${percent.toFixed(0)}%)`;
+
+    let amountText;
+    if (status === 'Оплачен') {
+        amountText = formatMoneyBYN(total);
+    } else if (status === 'Не оплачен') {
+        amountText = `0,00 из ${formatMoney(total)}`;
+    } else {
+        amountText = `${formatMoney(paid)} из ${formatMoney(total)}`;
+    }
+
     return `
-        <span class="pay-badge ${cls}">${escapeHtml(status)}</span>
-        <div class="payment-cell-amounts">
-            <span class="pay-cell-paid">${paid.toFixed(2)}</span>
-            <span class="pay-cell-divider">/</span>
-            <span class="pay-cell-total">${total.toFixed(2)}</span>
-            <span class="pay-cell-rest">(ост. ${rest})</span>
+        <span class="pay-badge pay-badge-payments ${cls}">${escapeHtml(status)}</span>
+        <div class="payment-cell-line" title="${escapeHtml(title)}">
+            <span class="tabular-nums">${amountText}</span>
         </div>
-        <div class="payment-cell-progress"><div class="payment-progress-bar" style="width:${percent}%"></div></div>
+        <div class="payment-mini-bar" title="${escapeHtml(title)}">
+            <div class="payment-mini-bar-fill" style="width:${percent.toFixed(0)}%"></div>
+        </div>
     `;
 }
 
@@ -49,6 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const exportBtn = document.getElementById('payments-export');
     if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentPayments, 'reestr_oplat.csv'));
+
+    setupTableScrollShadow('page-payments');
 });
 
 async function loadPaymentsTable() {
@@ -62,7 +68,8 @@ async function loadPaymentsTable() {
             tbody.innerHTML = getSkeletonHTML(10, 5);
         }
 
-        allPayments = await apiFetch('/payments/transactions');
+        const raw = await apiFetch('/payments/transactions');
+        allPayments = Array.isArray(raw) ? raw : [];
         if (window.CRM_STORE) {
             CRM_STORE.set('transactions', allPayments);
             crmEmit('payments:loaded', { count: allPayments.length });
@@ -81,7 +88,7 @@ async function loadPaymentsTable() {
     } catch (error) {
         console.error('loadPaymentsTable error:', error);
         if (!tbody.querySelector('tr[data-id]')) {
-            tbody.innerHTML = `<tr><td colspan="11" class="td-error">Ошибка: ${escapeHtml(error.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11">${renderAlert({ type: 'error', title: 'Ошибка загрузки', message: error.message, onRetry: () => loadPaymentsTable() }).outerHTML}</td></tr>`;
         }
     }
 }
@@ -152,7 +159,7 @@ function renderPayments() {
                 const amountCell = existing.querySelector('.inline-edit-cell[data-field="amount"]');
                 if (amountCell && !amountCell.querySelector('input')) {
                     const amountSpan = amountCell.querySelector('.inline-edit');
-                    if (amountSpan) amountSpan.textContent = String(tr.amount || 0);
+                    if (amountSpan) amountSpan.textContent = formatMoneyBYN(tr.amount || 0);
                 }
 
                 const paymentCell = existing.querySelector('td:nth-child(4)');
@@ -175,20 +182,20 @@ function renderPayments() {
             } else {
                 const row = document.createElement('tr');
                 row.setAttribute('data-id', tr.id);
+                row.className = 'reveal reveal-fast';
                 row.innerHTML = `
                     <td>${dateStr}</td>
-                    <td class="clickable-company" data-card-id="${tr.card_id || ''}">
+                    <td class="clickable-company" data-card-id="${tr.card_id || ''}" title="${escapeHtml(tr.company_name)}">
                         ${escapeHtml(tr.company_name)}
                     </td>
-                    <td class="inline-edit-cell" data-field="amount" data-id="${tr.id}">
-                        <span class="inline-edit font-mono text-right">${escapeHtml(String(tr.amount || 0))}</span>
-                        <span class="text-muted text-sm">BYN</span>
+                    <td class="inline-edit-cell amount-cell" data-field="amount" data-id="${tr.id}">
+                        <span class="inline-edit font-mono text-right tabular-nums">${escapeHtml(formatMoneyBYN(tr.amount || 0))}</span>
                     </td>
                     <td class="td-center payment-cell">${renderPaymentCell(tr)}</td>
                     <td>${escapeHtml(tr.store_location) || '—'}</td>
-                    <td class="td-center"><input type="checkbox" class="cb-calc" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
-                    <td class="td-center"><input type="checkbox" class="cb-invoice" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>
-                    <td class="td-center"><input type="checkbox" class="cb-written-off" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
+                    <td class="td-center cb-col"><input type="checkbox" class="cb-calc cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
+                    <td class="td-center cb-col"><input type="checkbox" class="cb-invoice cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>
+                    <td class="td-center cb-col"><input type="checkbox" class="cb-written-off cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
                     <td class="print-cell"></td>
                     <td class="inline-edit-cell" data-field="note" data-id="${tr.id}"><span class="inline-edit">${escapeHtml(tr.note) || '<span class="text-muted">Нет данных</span>'}</span></td>
                     <td class="td-center">
@@ -246,6 +253,8 @@ function renderPayments() {
 
         const search = document.getElementById('payments-search');
         if (search && search.value) filterTableRows('payments-table', search.value);
+
+        if (typeof window.revealRefresh === 'function') window.revealRefresh();
     } catch (err) {
         console.error('renderPayments error:', err);
         tbody.innerHTML = `<tr><td colspan="11" class="td-error">Ошибка отрисовки: ${escapeHtml(err.message)}</td></tr>`;
@@ -270,7 +279,7 @@ function updatePaymentsTotals(transactions) {
     const countEl = document.getElementById('payments-count');
     const totalEl = document.getElementById('payments-total');
     if (countEl) countEl.textContent = `${transactions.length} шт.`;
-    if (totalEl) totalEl.textContent = `${formatMoney(sumAmount(transactions))} BYN`;
+    if (totalEl) totalEl.textContent = formatMoneyBYN(sumAmount(transactions));
 }
 
 
@@ -306,8 +315,8 @@ document.addEventListener('click', (e) => {
         
         if (field === 'amount') {
             const numVal = parseFloat(newVal) || 0;
-            spanNew.textContent = numVal;
-            if (String(numVal) !== currentValue) {
+            spanNew.textContent = formatMoneyBYN(numVal);
+            if (formatMoneyBYN(numVal) !== currentValue) {
                 try {
                     await apiFetch('/payments/transactions/' + id, {
                         method: 'PATCH',

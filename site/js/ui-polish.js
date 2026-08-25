@@ -23,7 +23,23 @@
     moon:         S + '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
     rows:         S + '<path d="M3 6h18M3 12h18M3 18h18"/></svg>',
     pencil:       S + '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 1 1 3 3L12 15l-4 1 1-4z"/></svg>',
-    close:        S + '<path d="M18 6 6 18M6 6l12 12"/></svg>'
+    close:        S + '<path d="M18 6 6 18M6 6l12 12"/></svg>',
+    layoutGrid:   S + '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
+    list:         S + '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
+    users:        S + '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    barChart:     S + '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>',
+    settings:     S + '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    plus:         S + '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    mail:         S + '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
+    globe:        S + '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+    zap:          S + '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+    check:        S + '<polyline points="20 6 9 17 4 12"/></svg>',
+    arrowLeft:    S + '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
+    arrowRight:   S + '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+    arrowDown:    S + '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>',
+    clipboard:    S + '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>',
+    clock:        S + '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    mousePointer: S + '<path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>'
   };
 
   function setIcon(el, name, label) {
@@ -56,10 +72,14 @@
               collapsed ? 'Развернуть меню' : 'Свернуть меню');
     });
 
-    // тема
+    // тема (иконка — внутри .nav-icon, если есть)
     root.querySelectorAll('#theme-toggle, .theme-toggle').forEach(function (b) {
       var dark = document.documentElement.getAttribute('data-theme') === 'dark';
-      setIcon(b, dark ? 'moon' : 'sun', dark ? 'Светлая тема' : 'Тёмная тема');
+      var iconEl = b.querySelector('.nav-icon') || b;
+      setIcon(iconEl, dark ? 'moon' : 'sun');
+      var label = dark ? 'Светлая тема' : 'Тёмная тема';
+      if (b.getAttribute('title') !== label) b.setAttribute('title', label);
+      if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
     });
 
     // плотный режим
@@ -85,6 +105,38 @@
       if (t === '×' || t === '\u00d7' || t === 'x' || t === '') {
         setIcon(b, 'close', 'Закрыть');
       }
+    });
+
+    // глифы в навигации и вспомогательных страницах (settings/workflows/custom_objects)
+    var GLYPH_MAP = {
+      '\u25eb': 'layoutGrid',  // ◫
+      '\u2261': 'list',        // ≡
+      '\ud83d\udc65': 'users', // 👥
+      '\ud83d\udcca': 'barChart', // 📊
+      '\u2699': 'settings',    // ⚙
+      '\u2600': 'sun',         // ☀
+      '\u263e': 'moon',        // ☾
+      '\u2190': 'arrowLeft',   // ←
+      '\u2192': 'arrowRight',  // →
+      '\u2193': 'arrowDown',   // ↓
+      '\u2713': 'check',       // ✓
+      '\u2715': 'close',       // ✕
+      '\u00d7': 'close',       // ×
+      '\u2795': 'plus',        // ➕
+      '\u270f': 'pencil',      // ✏️ (без вариационного селектора)
+      '\u270f\ufe0f': 'pencil', // ✏️ (с вариационным селектором)
+      '\ud83d\udce7': 'mail',  // 📧
+      '\ud83c\udf10': 'globe', // 🌐
+      '\u26a1': 'zap',         // ⚡
+      '\ud83d\udccb': 'clipboard', // 📋
+      '\u23f0': 'clock',       // ⏰
+      '\ud83d\udc46': 'mousePointer' // 👆
+    };
+    root.querySelectorAll('.nav-icon, .back-btn, .step-connector, .wf-action-icon, .trigger-icon, .boolean-icon, .btn-icon').forEach(function (el) {
+      if (el.querySelector('svg')) return;
+      var t = (el.textContent || '').trim();
+      var name = GLYPH_MAP[t];
+      if (name) setIcon(el, name);
     });
   }
 
@@ -221,7 +273,8 @@
   /* ---------- 4. Защита от двойной отправки ---------- */
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('.btn-primary[type="submit"], form .btn-primary');
-    if (!b || b.disabled) return;
+    // Не трогаем кнопку входа — у неё свой обработчик с таймаутом
+    if (!b || b.disabled || b.id === 'login-submit') return;
     b.disabled = true;
     setTimeout(function () { b.disabled = false; }, 1200);
   }, true);
@@ -379,4 +432,49 @@
     // заголовков и подтянуть иконки.
     if (e.target.closest('.nav-btn[data-target]')) scheduleRunAll();
   });
+
+  /* ---------- Плавное закрытие модалок ----------
+     Публичный хелпер. JS вызывает closeModalSmooth(modal) вместо
+     modal.classList.add('hidden') — модалка плавно исчезает,
+     затем скрывается полностью. Если transition не сработал,
+     fallback через 300мс. */
+  function closeModalSmooth(modal, onFinish) {
+    if (!modal || modal.classList.contains('hidden') || modal.classList.contains('closing')) {
+      if (typeof onFinish === 'function') onFinish();
+      return;
+    }
+    modal.classList.add('closing');
+    var done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      modal.classList.add('hidden');
+      modal.classList.remove('closing');
+      modal.removeEventListener('transitionend', onTransitionEnd);
+      if (typeof onFinish === 'function') onFinish();
+    }
+    function onTransitionEnd(e) {
+      if (e.target === modal) finish();
+    }
+    modal.addEventListener('transitionend', onTransitionEnd);
+    setTimeout(finish, 300);
+  }
+  window.closeModalSmooth = closeModalSmooth;
+
+  /* ---------- Ловим overlay-click и крестики на модалках ----------
+     Делегирование в фазе capture: если цель — overlay .modal или
+     .close-btn / id$="-cancel", закрываем плавно и останавливаем
+     всплытие, чтобы не сработал немедленный обработчик в другом файле. */
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest) return;
+    var modal = e.target.closest('.modal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    var isOverlay = e.target === modal;
+    var isClose = e.target.classList.contains('close-btn') ||
+                  (e.target.id && /-cancel$/.test(e.target.id));
+    if (!isOverlay && !isClose) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    closeModalSmooth(modal);
+  }, true);
 })();

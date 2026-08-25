@@ -14,6 +14,14 @@ const APP_STORES = [
     { value: 'БН', label: 'Безнал (БН)' }
 ];
 
+// Классы бейджей статуса оплаты. Используются в kanban.js и payments.js.
+const PAYMENT_STATUS_CLASSES = {
+    'Не оплачен': 'pay-unpaid',
+    'Частично': 'pay-partial',
+    'Оплачен': 'pay-paid',
+    'Отсрочка': 'pay-deferred'
+};
+
 // Заполняем фильтр магазинов из APP_STORES, чтобы набор совпадал
 // с дропдаунами в карточке сделки и модалке создания.
 document.addEventListener('DOMContentLoaded', function() {

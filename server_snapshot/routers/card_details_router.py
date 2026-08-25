@@ -15,7 +15,9 @@ router = APIRouter(
 )
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-UPLOAD_DIR = "uploads"
+# Абсолютный путь к uploads: не зависит от CWD процесса.
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPLOAD_DIR = os.path.join(_APP_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/cards/{card_id}/checklists", response_model=schemas.ChecklistResponse)
@@ -320,5 +322,81 @@ def download_file(filename: str, current_user: models.User = Depends(get_current
     if not file_path.startswith(os.path.realpath(UPLOAD_DIR)):
         raise HTTPException(status_code=403, detail="Доступ запрещён")
     if not os.path.isfile(file_path):
+        # Диагностика: логируем запрошенное имя и папку, чтобы понять расхождение
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "File not found: requested=%r resolved=%r upload_dir=%r cwd=%r",
+            filename, file_path, os.path.realpath(UPLOAD_DIR), os.getcwd()
+        )
         raise HTTPException(status_code=404, detail="Файл не найден")
     return FileResponse(file_path, filename=safe_name)
+
+
+def _resolve_file_path(stored_path: str) -> str:
+    """Превращает путь из БД (относительный или абсолютный) в абсолютный путь
+    внутри UPLOAD_DIR. Если файл не найден по указанному пути, ищем по basename."""
+    if not stored_path:
+        return ''
+    # Сначала пробуем как записано в БД
+    candidates = []
+    if os.path.isabs(stored_path):
+        candidates.append(stored_path)
+    else:
+        candidates.append(os.path.join(UPLOAD_DIR, stored_path))
+        candidates.append(os.path.join(UPLOAD_DIR, os.path.basename(stored_path)))
+    # Fallback: поиск по basename среди файлов в UPLOAD_DIR
+    base = os.path.basename(stored_path)
+    for fname in os.listdir(UPLOAD_DIR):
+        if fname == base:
+            candidates.append(os.path.join(UPLOAD_DIR, fname))
+            break
+    seen = set()
+    for p in candidates:
+        real = os.path.realpath(p)
+        if real in seen:
+            continue
+        seen.add(real)
+        if real.startswith(os.path.realpath(UPLOAD_DIR)) and os.path.isfile(real):
+            return real
+    return ''
+
+
+@router.get("/attachments/{attachment_id}/download")
+def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    tdb = _db(current_user, db)
+    try:
+        session = tdb
+        if current_user.role == "superadmin" and current_user.tenant_id is None:
+            session = db
+        attachment = session.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
+        if not attachment:
+            raise HTTPException(status_code=404, detail="Вложение не найдено")
+        file_path = _resolve_file_path(attachment.file_path)
+        if not file_path:
+            raise HTTPException(status_code=404, detail="Файл не найден на сервере")
+        return FileResponse(file_path, filename=attachment.file_name or os.path.basename(file_path))
+    finally:
+        if tdb is not db:
+            tdb.close()
+
+
+@router.get("/checklists/{checklist_id}/invoice/download")
+def download_checklist_invoice_by_id(checklist_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    tdb = _db(current_user, db)
+    try:
+        session = tdb
+        if current_user.role == "superadmin" and current_user.tenant_id is None:
+            session = db
+        item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
+        if not item.invoice_file_path:
+            raise HTTPException(status_code=404, detail="Счёт не прикреплён")
+        file_path = _resolve_file_path(item.invoice_file_path)
+        if not file_path:
+            raise HTTPException(status_code=404, detail="Файл счёта не найден на сервере")
+        return FileResponse(file_path, filename=item.invoice_file_name or os.path.basename(file_path))
+    finally:
+        if tdb is not db:
+            tdb.close()

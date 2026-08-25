@@ -1,12 +1,19 @@
 let allClients = [];
 let editingClientId = null;
+let clientsSearchQuery = '';
+let clientsCurrentPage = 1;
+const CLIENTS_PAGE_SIZE = 50;
 
 document.addEventListener('DOMContentLoaded', () => {
     const clientsBtn = document.querySelector('[data-target="page-clients"]');
     if (clientsBtn) clientsBtn.addEventListener('click', loadClientsTable);
     if (document.getElementById('page-clients')?.classList.contains('active')) loadClientsTable();
 
-    bindTableSearch('clients-search', 'clients-table');
+    bindTableSearch('clients-search', 'clients-table', 200, (value) => {
+        clientsSearchQuery = (value || '').trim().toLowerCase();
+        clientsCurrentPage = 1;
+        renderClients();
+    });
 
     document.getElementById('btn-create-client').onclick = () => openClientModal();
     document.getElementById('client-cancel').onclick = () => document.getElementById('client-modal').classList.add('hidden');
@@ -52,28 +59,58 @@ async function loadClientsTable() {
         }
         renderClients();
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="7" class="td-error">Ошибка: ${escapeHtml(error.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="td-error">Ошибка: ${escapeHtml(error.message)}</td></tr>`;
     }
+}
+
+function getFilteredClients() {
+    const q = clientsSearchQuery;
+    if (!q) return allClients;
+    return allClients.filter(c => {
+        const text = [c.name, c.unp, c.phone, c.email, c.contact_person, c.address, c.note]
+            .map(v => (v || '').toLowerCase())
+            .join(' ');
+        return text.includes(q);
+    });
 }
 
 function renderClients() {
     const tbody = document.querySelector('#clients-table tbody');
     if (!tbody) return;
 
-    if (allClients.length === 0) {
+    const filtered = getFilteredClients();
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / CLIENTS_PAGE_SIZE));
+    if (clientsCurrentPage > totalPages) clientsCurrentPage = totalPages;
+    if (clientsCurrentPage < 1) clientsCurrentPage = 1;
+    const start = (clientsCurrentPage - 1) * CLIENTS_PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + CLIENTS_PAGE_SIZE);
+
+    updateSearchCount('clients-search', total, allClients.length);
+    renderTablePagination('clients-pagination-top', clientsCurrentPage, totalPages, (p) => {
+        clientsCurrentPage = p;
+        renderClients();
+    });
+    renderTablePagination('clients-pagination-bottom', clientsCurrentPage, totalPages, (p) => {
+        clientsCurrentPage = p;
+        renderClients();
+    });
+
+    if (total === 0) {
+        const isSearch = clientsSearchQuery.length > 0;
         tbody.innerHTML = `
             <tr>
-                <td colspan="7">
+                <td colspan="6">
                     <div class="empty-state-wrapper">
                         <div class="empty-state-icon">
                             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                         </div>
-                        <div class="empty-state-title">Клиенты не найдены</div>
-                        <div class="empty-state-desc">В базе данных пока нет ни одного клиента. Добавьте первого клиента, чтобы начать работу.</div>
-                        <button class="empty-state-btn" onclick="openClientModal()">
+                        <div class="empty-state-title">${isSearch ? 'Клиенты не найдены' : 'Клиенты не найдены'}</div>
+                        <div class="empty-state-desc">${isSearch ? 'Попробуйте изменить запрос поиска.' : 'В базе данных пока нет ни одного клиента. Добавьте первого клиента, чтобы начать работу.'}</div>
+                        ${isSearch ? '' : `<button class="empty-state-btn" onclick="openClientModal()">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             Новый клиент
-                        </button>
+                        </button>`}
                     </div>
                 </td>
             </tr>
@@ -82,25 +119,22 @@ function renderClients() {
     }
 
     tbody.innerHTML = '';
-    allClients.forEach(c => {
+    pageItems.forEach(c => {
         const row = document.createElement('tr');
         row.dataset.id = c.id;
-        const ct = CRM_CONTACTS.summary(c.contact_person, c.phone, c.email);
-        const ctCell = escapeHtml(ct.text) +
-            (ct.extra > 0 ? ` <span class="contact-more">+${ct.extra}</span>` : '');
+        const ctCell = CRM_CONTACTS.renderCell(c.contact_person, c.phone, c.email);
         row.innerHTML = `
-            <td class="clickable-company" data-id="${c.id}" style="cursor:pointer">${escapeHtml(c.name)}</td>
+            <td class="clickable-company" data-id="${c.id}" style="cursor:pointer" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</td>
             <td>${escapeHtml(c.unp) || '—'}</td>
-            <td>${escapeHtml(c.phone) || '—'}</td>
-            <td>${escapeHtml(c.email) || '—'}</td>
-            <td title="${escapeHtml(ct.title)}">${ctCell}</td>
+            <td>${ctCell}</td>
+            <td>${escapeHtml(c.address) || '—'}</td>
             <td>${escapeHtml(c.note) || ''}</td>
-            <td class="td-center" style="display: inline-flex; gap: 6px; border: none; align-items: center; justify-content: center; height: 100%;">
-                <button class="btn-delete-row btn-edit-client" data-id="${c.id}" title="Редактировать">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/></svg>
+            <td class="td-center row-actions">
+                <button class="row-action-btn btn-edit-client" data-id="${c.id}" title="Редактировать">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/></svg>
                 </button>
-                <button class="btn-delete-row btn-delete-client" data-id="${c.id}" title="Удалить">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                <button class="row-action-btn btn-delete-client" data-id="${c.id}" title="Удалить">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
             </td>
         `;
@@ -158,7 +192,7 @@ async function openClientCards(clientId) {
             html += `<tr style="cursor:pointer" data-card-id="${card.id}" class="client-card-row">
                 <td><b>${escapeHtml(card.title)}</b></td>
                 <td>${escapeHtml(card.status)}</td>
-                <td>${card.total_amount || 0} BYN</td>
+                <td class="tabular-nums">${formatMoneyBYN(parseFloat(card.total_amount) || 0)}</td>
                 <td>${escapeHtml(card.store_location) || '—'}</td>
                 <td>${date}</td>
             </tr>`;
@@ -174,8 +208,9 @@ async function openClientCards(clientId) {
 }
 
 function closeClientCardsAndOpenCard(cardId) {
-    document.getElementById('client-cards-modal').classList.add('hidden');
-    openCardModal(cardId);
+    const modal = document.getElementById('client-cards-modal');
+    if (window.closeModalSmooth) window.closeModalSmooth(modal, () => openCardModal(cardId));
+    else { modal.classList.add('hidden'); openCardModal(cardId); }
 }
 
 function openClientModal(clientId = null) {
@@ -272,8 +307,9 @@ async function saveClient() {
             }
             showToast('Клиент создан', 'success');
         }
-        document.getElementById('client-modal').classList.add('hidden');
-        loadClientsTable();
+        const cModal = document.getElementById('client-modal');
+        if (window.closeModalSmooth) window.closeModalSmooth(cModal, () => loadClientsTable());
+        else { cModal.classList.add('hidden'); loadClientsTable(); }
     } catch (err) {
         showToast('Ошибка: ' + err.message, 'error');
     }
