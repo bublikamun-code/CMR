@@ -3271,6 +3271,48 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     text-align: left;
 }
 .activity-details-toggle:hover { text-decoration: underline; }
+/* Кнопки «изменить/удалить» у комментариев — видны при наведении */
+.activity-manage {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+.activity-item:hover .activity-manage { opacity: 1; }
+.activity-manage button {
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-radius: 4px;
+}
+.activity-manage button:hover { color: var(--text-color); background: var(--bg-secondary); }
+.activity-comment-del:hover { color: var(--danger-color) !important; }
+/* Inline-редактор комментария */
+.activity-edit-box { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.activity-edit-text {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.45;
+    resize: vertical;
+    min-height: 64px;
+    background: var(--card-bg);
+    color: var(--text-color);
+}
+.activity-edit-text:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+}
+.activity-edit-actions { display: flex; gap: 6px; }
 .activity-time {
     color: var(--text-muted);
     font-size: 11px;
@@ -11048,7 +11090,8 @@ h2, h3 {
     padding: 10px;
 }
 .activity-item.activity-system {
-    opacity: 0.62;
+    /* Прозрачность всей записи делала текст писем «Импорт почты»
+       нечитаемым (серая пелена). Системность — только dashed-рамкой. */
     background: transparent;
     border-style: dashed;
 }

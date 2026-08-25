@@ -813,10 +813,60 @@ async function loadCardTags(card) {
 }
 
 // === АКТИВНОСТЬ ===
+
+// Inline-редактирование комментария: текст записи заменяется на
+// textarea с кнопками «Сохранить»/«Отмена».
+function startCommentEdit(container, entryId) {
+    const item = container.querySelector(`.activity-comment-edit[data-id="${entryId}"]`)?.closest('.activity-item');
+    if (!item || item.querySelector('.activity-edit-box')) return;
+    const content = item.querySelector('.activity-content');
+    const longEl = content.querySelector('.activity-details-long');
+    const shortEl = content.querySelector('.activity-details:not(.activity-details-long)');
+    const currentText = longEl ? longEl.textContent : (shortEl ? shortEl.textContent : '');
+    // прячем исходный текст и toggle
+    [longEl, content.querySelector('.activity-details-toggle'), shortEl].forEach(el => { if (el) el.style.display = 'none'; });
+
+    const box = document.createElement('div');
+    box.className = 'activity-edit-box';
+    box.innerHTML = `
+        <textarea class="activity-edit-text" rows="3"></textarea>
+        <div class="activity-edit-actions">
+            <button type="button" class="btn btn-primary btn-sm activity-edit-save">Сохранить</button>
+            <button type="button" class="btn btn-secondary btn-sm activity-edit-cancel">Отмена</button>
+        </div>
+    `;
+    const ta = box.querySelector('.activity-edit-text');
+    ta.value = currentText;
+    content.appendChild(box);
+    ta.focus();
+
+    const close = () => {
+        [longEl, content.querySelector('.activity-details-toggle'), shortEl].forEach(el => { if (el) el.style.display = ''; });
+        box.remove();
+    };
+    box.querySelector('.activity-edit-cancel').onclick = close;
+    box.querySelector('.activity-edit-save').onclick = async () => {
+        const text = ta.value.trim();
+        if (!text) { showToast('Комментарий не может быть пустым', 'error'); return; }
+        try {
+            await apiFetch(`/activity/${entryId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ details: text })
+            });
+            showToast('Комментарий обновлён', 'success');
+            const cid = container.dataset.cardId ? parseInt(container.dataset.cardId) : null;
+            if (cid) loadCardActivity(cid);
+        } catch (err) {
+            showToast('Не удалось сохранить: ' + err.message, 'error');
+        }
+    };
+}
+
 async function loadCardActivity(cardId) {
     const container = document.getElementById('activity-container');
     if (!container) return;
-
+    container.dataset.cardId = cardId;
     try {
         const activities = await apiFetch(`/activity?card_id=${cardId}&limit=10`);
         if (activities.length === 0) {
@@ -836,16 +886,37 @@ async function loadCardActivity(cardId) {
         });
 
         container.innerHTML = '';
-        // Раскрытие/сворачивание длинных деталей (тексты писем) — один
-        // делегированный обработчик на всю ленту.
-        container.onclick = (e) => {
-            const btn = e.target.closest('.activity-details-toggle');
-            if (!btn) return;
-            const wrap = btn.closest('.activity-content');
-            const long = wrap && wrap.querySelector('.activity-details-long');
-            if (!long) return;
-            const clamped = long.classList.toggle('is-clamped');
-            btn.textContent = clamped ? 'показать полностью' : 'свернуть';
+        // Один делегированный обработчик на всю ленту: раскрытие длинных
+        // деталей, редактирование и удаление комментариев.
+        container.onclick = async (e) => {
+            const t = e.target;
+            if (t.closest('.activity-details-toggle')) {
+                const btn = t.closest('.activity-details-toggle');
+                const wrap = btn.closest('.activity-content');
+                const long = wrap && wrap.querySelector('.activity-details-long');
+                if (!long) return;
+                const clamped = long.classList.toggle('is-clamped');
+                btn.textContent = clamped ? 'показать полностью' : 'свернуть';
+                return;
+            }
+            const editBtn = t.closest('.activity-comment-edit');
+            if (editBtn) {
+                startCommentEdit(container, parseInt(editBtn.dataset.id));
+                return;
+            }
+            const delBtn = t.closest('.activity-comment-del');
+            if (delBtn) {
+                const id = parseInt(delBtn.dataset.id);
+                const ok = await confirmDialog('Удалить комментарий?', 'Действие необратимо.');
+                if (!ok) return;
+                try {
+                    await apiFetch(`/activity/${id}`, { method: 'DELETE' });
+                    showToast('Комментарий удалён', 'success');
+                    loadCardActivity(cardId);
+                } catch (err) {
+                    showToast('Не удалось удалить: ' + err.message, 'error');
+                }
+            }
         };
         activities.forEach(act => {
             const item = document.createElement('div');
@@ -876,12 +947,22 @@ async function loadCardActivity(cardId) {
                     details = `<span class="activity-details">${escapeHtml(text)}</span>`;
                 }
             }
+            // Комментарии можно править и удалять (свои — всегда, чужие — админам;
+            // сервер дополнительно проверяет права).
+            const canManage = act.action === 'Комментарий' && act.id;
+            const manageBtns = canManage ? `
+                <span class="activity-manage">
+                    <button type="button" class="activity-comment-edit" data-id="${act.id}" title="Редактировать">✎</button>
+                    <button type="button" class="activity-comment-del" data-id="${act.id}" title="Удалить">🗑</button>
+                </span>
+            ` : '';
             item.innerHTML = `
                 <div class="activity-avatar ${avatar.className}" title="${escapeAttrLocal(avatar.title)}">${avatar.initials}</div>
                 <div class="activity-content">
                     <div class="activity-line">
                         <span class="activity-action">${escapeHtml(act.action)}</span>
                         <span class="activity-time">${time}</span>
+                        ${manageBtns}
                     </div>
                     ${details}
                 </div>
