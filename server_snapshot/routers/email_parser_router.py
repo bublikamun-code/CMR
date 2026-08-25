@@ -171,6 +171,29 @@ def _encrypt_password(password: str) -> str:
     return _fernet.encrypt(password.encode()).decode()
 
 
+def _decode_part_text(part) -> str:
+    """Декодирует текстовую часть письма с её собственной кодировкой.
+
+    Раньше байты декодировались как UTF-8 с errors='ignore': письма в
+    windows-1251 / koi8-r (типично для госпочты) теряли все не-UTF8 байты,
+    и текст приходил «замыленным» — с пропусками букв.
+    """
+    payload = part.get_payload(decode=True)
+    if payload is None:
+        return ""
+    charset = (part.get_content_charset() or "utf-8").strip().lower()
+    try:
+        return payload.decode(charset, errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        # неизвестная/битая кодировка — пробуем популярные для СНГ, затем utf-8
+        for fallback in ("windows-1251", "koi8-r", "utf-8"):
+            try:
+                return payload.decode(fallback, errors="replace")
+            except Exception:
+                continue
+        return payload.decode("utf-8", errors="replace")
+
+
 def _decode_attachment_filename(part) -> Optional[str]:
     """Декодирует имя файла вложения из RFC 2047 / RFC 2231.
 
@@ -299,24 +322,15 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             for part in msg.walk():
                                 ctype = part.get_content_type()
                                 if ctype == "text/plain" and not body:
-                                    try:
-                                        body = part.get_payload(decode=True).decode(errors="ignore")
-                                    except Exception:
-                                        pass
+                                    body = _decode_part_text(part)
                                 elif ctype == "text/html" and not html_body:
-                                    try:
-                                        html_body = part.get_payload(decode=True).decode(errors="ignore")
-                                    except Exception:
-                                        pass
+                                    html_body = _decode_part_text(part)
                         else:
-                            try:
-                                raw = msg.get_payload(decode=True).decode(errors="ignore")
-                                if msg.get_content_type() == "text/html":
-                                    html_body = raw
-                                else:
-                                    body = raw
-                            except Exception:
-                                pass
+                            raw = _decode_part_text(msg)
+                            if msg.get_content_type() == "text/html":
+                                html_body = raw
+                            else:
+                                body = raw
 
                         # письма из форм на сайте часто приходят ТОЛЬКО в html
                         if not body.strip() and html_body:
@@ -359,16 +373,14 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                 models.Card.is_deleted == False
                             ).order_by(models.Card.id.desc()).limit(5).all()
 
-                        # Описание карточки держим коротким (отправитель + связи) —
-                        # полный текст письма живёт в ленте активности записи
-                        # «Импорт почты», как commit-сообщение: разворачивается
-                        # по клику и не занимает место в шапке карточки.
-                        desc = f"Отправитель: {sender}"
-                        if sender_email_addr and sender_email_addr != sender:
-                            desc += f" <{sender_email_addr}>"
+                        # Description карточки не заполняем: отправитель хранится
+                        # в поле sender_email и в записи ленты, а текст письма
+                        # живёт в ленте активности «Импорт почты» (см. ниже).
+                        # Здесь — только ссылки на прошлые сделки отправителя.
+                        desc = ""
                         if related:
                             refs = ", ".join(f"#{c.id}" for c in related)
-                            desc += f"\n— Ранее от этого отправителя: {refs}"
+                            desc = f"— Ранее от этого отправителя: {refs}"
 
                         new_card = models.Card(
                             title=title_str,
@@ -402,11 +414,14 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                         if attachments:
                             tdb.commit()
 
+                        sender_line = sender
+                        if sender_email_addr and sender_email_addr != sender:
+                            sender_line += f" <{sender_email_addr}>"
                         log_entry = models.ActivityLog(
                             user_id=None,
                             card_id=new_card.id,
                             action="Импорт почты",
-                            details=f"Тема: {subject or '—'}\n\n{body}"[:4000]
+                            details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000]
                         )
                         tdb.add(log_entry)
                         tdb.commit()
