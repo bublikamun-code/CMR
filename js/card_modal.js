@@ -1224,25 +1224,62 @@ function renderModalPaymentHeader(card) {
     mount.innerHTML = `
         <div class="payment-total">${ICON_WALLET} <span class="tabular-nums">${formatMoneyBYN(total)}</span></div>
         <div class="payment-status-line">
-            <select id="modal-pay-select" class="pay-badge pay-select ${cls}">
-                <option value="Не оплачен" ${status === 'Не оплачен' ? 'selected' : ''}>Не оплачен</option>
-                <option value="Оплачен" ${status === 'Оплачен' ? 'selected' : ''}>Оплачен</option>
-                <option value="Частично" ${status === 'Частично' ? 'selected' : ''}>Частично</option>
-                <option value="Отсрочка" ${status === 'Отсрочка' ? 'selected' : ''}>Отсрочка</option>
-            </select>
+            <span id="modal-pay-select-mount"></span>
             ${paid > 0.01 ? `<span class="pay-amount tabular-nums">${formatMoneyBYN(paid)}</span>` : ''}
             ${dueStr ? `<span class="pay-due">до ${dueStr}</span>` : ''}
         </div>
         <div class="payment-actions" id="modal-pay-actions"></div>
     `;
 
-    const select = mount.querySelector('#modal-pay-select');
+    const mountSel = mount.querySelector('#modal-pay-select-mount');
     const actions = mount.querySelector('#modal-pay-actions');
-    if (!select || !actions) return;
+    if (!mountSel || !actions) return;
 
-    select.onchange = () => {
-        const newStatus = select.value;
-        select.className = `pay-badge pay-select ${PAYMENT_STATUS_CLASSES[newStatus] || 'pay-unpaid'}`;
+    // Статус оплаты: бейдж-dropdown вместо нативного селекта —
+    // без стрелки на бейдже и без системного меню при открытии
+    const PAY_DD_STATUSES = ['Не оплачен', 'Оплачен', 'Частично', 'Отсрочка'];
+    const dd = document.createElement('div');
+    dd.className = 'dropdown pay-status-dd';
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = `pay-badge pay-dd-toggle ${cls}`;
+    badge.title = 'Изменить статус оплаты';
+    badge.innerHTML = `<span class="tabular-nums">${status}</span>`;
+    dd.appendChild(badge);
+
+    const menuEl = document.createElement('div');
+    menuEl.className = 'dropdown-menu pay-dd-menu';
+    menuEl.setAttribute('role', 'listbox');
+    PAY_DD_STATUSES.forEach(s => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'pay-dd-item' + (s === status ? ' selected' : '');
+        item.dataset.value = s;
+        item.innerHTML = `<span class="pay-dd-dot ${statusClassForPayment(s)}"></span>${s}`;
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dd.classList.remove('open');
+            applyPayStatus(s);
+        });
+        menuEl.appendChild(item);
+    });
+    dd.appendChild(menuEl);
+    badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = dd.classList.contains('open');
+        if (typeof closeAllDropdowns === 'function') closeAllDropdowns();
+        if (!isOpen) dd.classList.add('open');
+    });
+    mountSel.appendChild(dd);
+
+    const select = { value: status };
+
+    function applyPayStatus(newStatus) {
+        select.value = newStatus;
+        badge.className = `pay-badge pay-dd-toggle ${PAYMENT_STATUS_CLASSES[newStatus] || 'pay-unpaid'}`;
+        badge.querySelector('span').textContent = newStatus;
+        menuEl.querySelectorAll('.pay-dd-item').forEach(i =>
+            i.classList.toggle('selected', i.dataset.value === newStatus));
         if (newStatus === 'Оплачен') {
             if (total <= 0) {
                 showToast('Укажите сумму сделки', 'error');
@@ -1295,7 +1332,7 @@ function renderModalPaymentHeader(card) {
                 saveCardPayment(card, { paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null });
             }
         }
-    };
+    }
 }
 
 /* ============================================================

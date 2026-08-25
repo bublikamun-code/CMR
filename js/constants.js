@@ -34,4 +34,11 @@ document.addEventListener('DOMContentLoaded', function() {
             filterStore.appendChild(opt);
         });
     }
+    // Фильтры канбана — кастомные dropdown вместо нативных селектов
+    // (createDropdown/syncEnhancedSelect к этому моменту уже определены:
+    // все defer-скрипты выполняются до DOMContentLoaded)
+    if (typeof enhanceSelectToDropdown === 'function') {
+        enhanceSelectToDropdown(filterStore);
+        enhanceSelectToDropdown(document.getElementById('filter-priority'));
+    }
 });

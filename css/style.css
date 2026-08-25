@@ -11733,10 +11733,10 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
     border-color: var(--primary-color);
 }
 
-/* --- Иконочные кнопки в таблицах: единый квадрат 32px, radius 8 --- */
+/* --- Иконочные кнопки в таблицах: единый квадрат 32px, radius 8 ---
+   (.btn-trash убран: это кнопка с текстом «Архив», а не иконка) */
 .row-action-btn,
 .btn-delete-row,
-.btn-trash,
 .list-menu-trigger {
     width: 32px !important;
     height: 32px !important;
@@ -11748,7 +11748,6 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
     box-shadow: none;
 }
 .row-action-btn:hover,
-.btn-trash:hover,
 .list-menu-trigger:hover {
     box-shadow: var(--shadow-sm);
     color: var(--text-color) !important;
@@ -11804,4 +11803,175 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
 .density-btn.active {
     background: var(--primary-soft) !important;
     color: var(--primary-dark) !important;
+}
+
+/* ============================================================
+   UI FIX (2026-08-26, раунд 2): единые селекты, кнопки, колонки
+   ============================================================ */
+
+/* --- «Архив» — обычная кнопка с текстом, не иконочный квадрат --- */
+#btn-trash.btn-trash {
+    width: auto !important;
+    height: auto !important;
+    min-width: 0;
+    padding: 8px 14px !important;
+    white-space: nowrap;
+}
+
+/* --- Кастомный dropdown вместо нативного селекта --- */
+.native-select-hidden { display: none !important; }
+.select-dd-wrap { display: inline-flex; }
+.filter-bar .select-dd-wrap { width: 170px; }
+.filter-bar .select-dd-wrap .dropdown-toggle { height: 36px; }
+@media (max-width: 640px) { .filter-bar .select-dd-wrap { width: 100%; } }
+
+/* --- Статус оплаты в карточке: бейдж-dropdown без стрелки --- */
+.pay-status-dd { position: relative; width: auto; display: inline-flex; }
+.pay-status-dd .pay-dd-toggle {
+    width: auto; height: auto; min-height: 0;
+    padding: 4px 12px;
+    border: none;
+    border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    box-shadow: none;
+}
+.pay-status-dd .pay-dd-toggle:hover { filter: brightness(0.96); }
+.pay-status-dd.open .pay-dd-toggle { filter: none; }
+.pay-dd-menu {
+    min-width: 170px;
+    right: 0; left: auto;
+    top: calc(100% + 6px);
+    padding: 4px;
+}
+.pay-dd-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: none; background: none;
+    border-radius: 6px;
+    font-size: 13px; font-weight: 500;
+    color: var(--text-color);
+    cursor: pointer;
+    text-align: left;
+}
+.pay-dd-item:hover { background: var(--bg-secondary); }
+.pay-dd-item.selected { background: var(--primary-soft); color: var(--primary-dark); }
+.pay-dd-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex: none;
+}
+.pay-dd-dot.pay-unpaid { background: #ef4444; }
+.pay-dd-dot.pay-paid { background: #10b981; }
+.pay-dd-dot.pay-partial { background: #f59e0b; }
+.pay-dd-dot.pay-deferred { background: #6366f1; }
+[data-theme="dark"] .pay-dd-menu { background: var(--card-bg); }
+[data-theme="dark"] .pay-dd-item:hover { background: var(--table-row-hover); }
+
+/* --- Заголовки таблиц: без переноса на 2 строки --- */
+.data-table th { white-space: nowrap; }
+
+/* --- Колонки действий: обе кнопки всегда видны --- */
+.data-table td.row-actions,
+.data-table .td-center.row-actions {
+    overflow: visible !important;
+    white-space: nowrap !important;
+}
+#payments-table th:nth-child(11), #payments-table td:nth-child(11),
+#documents-table th:nth-child(10), #documents-table td:nth-child(10),
+#clients-table th:nth-child(6), #clients-table td:nth-child(6),
+#suppliers-table th:nth-child(6), #suppliers-table td:nth-child(6) { width: 96px !important; }
+
+/* --- Кнопки закрытия (×): единый стиль на всех страницах --- */
+.close-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px !important;
+    background: transparent !important;
+    color: var(--text-muted) !important;
+    border: 1px solid transparent;
+}
+.close-btn:hover {
+    background: #fee2e2 !important;
+    color: var(--danger-color) !important;
+}
+[data-theme="dark"] .close-btn { color: var(--text-muted) !important; }
+[data-theme="dark"] .close-btn:hover { background: rgba(254, 226, 226, 0.15) !important; color: #fca5a5 !important; }
+
+/* --- Кнопки удаления: единый квадрат с красным hover --- */
+.view-delete-btn,
+.btn-delete-writeoff {
+    width: 32px; height: 32px; min-width: 32px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-md) !important;
+    border: 1px solid var(--border-color) !important;
+    background: var(--card-bg) !important;
+    color: var(--text-muted) !important;
+    cursor: pointer;
+}
+.view-delete-btn:hover,
+.btn-delete-writeoff:hover {
+    background: #fef2f2 !important;
+    border-color: #fecaca !important;
+    color: var(--danger-color) !important;
+}
+
+/* --- Оставшиеся нативные селекты: единая стрелка и поле --- */
+.filter-bar select,
+.data-table select,
+.store-select,
+.select-settings {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 10px center !important;
+    background-size: 14px 14px !important;
+    padding-right: 34px !important;
+}
+.data-table select { border-radius: var(--radius-md) !important; }
+
+/* Бейдж статуса оплаты сохраняет свой цвет и в открытом состоянии
+   (перекрытие правила «.dropdown.open .dropdown-toggle → primary») */
+.pay-status-dd.open .pay-dd-toggle.pay-unpaid { background: #fee2e2; color: #991b1b; }
+.pay-status-dd.open .pay-dd-toggle.pay-partial { background: #fef3c7; color: #92400e; }
+.pay-status-dd.open .pay-dd-toggle.pay-paid { background: #d1fae5; color: #065f46; }
+.pay-status-dd.open .pay-dd-toggle.pay-deferred { background: #e0e7ff; color: #3730a3; }
+[data-theme="dark"] .pay-status-dd.open .pay-dd-toggle.pay-unpaid { background: rgba(254, 226, 226, 0.15); color: #fca5a5; }
+[data-theme="dark"] .pay-status-dd.open .pay-dd-toggle.pay-partial { background: rgba(254, 243, 199, 0.15); color: #fcd34d; }
+[data-theme="dark"] .pay-status-dd.open .pay-dd-toggle.pay-paid { background: rgba(209, 250, 229, 0.15); color: #6ee7b7; }
+[data-theme="dark"] .pay-status-dd.open .pay-dd-toggle.pay-deferred { background: rgba(224, 231, 255, 0.15); color: #a5b4fc; }
+
+/* --- Нейтрализация старого блока #page-* (min-width 1100, overflow hidden):
+     на экранах 1280px таблица «Клиенты/Поставщики» не должна требовать
+     горизонтальной прокрутки ради колонки действий --- */
+#page-clients .data-table,
+#page-suppliers .data-table { min-width: 900px !important; }
+#page-documents .data-table { min-width: 1060px !important; }
+#page-payments .data-table { min-width: 1180px !important; }
+
+/* Колонка действий не обрезается (перебиваем overflow:hidden из старого блока) */
+#page-clients .data-table td.row-actions,
+#page-suppliers .data-table td.row-actions,
+#page-documents .data-table td.row-actions,
+#page-payments .data-table td.row-actions { overflow: visible !important; }
+
+/* --- Липкая колонка действий: кнопки видны всегда, даже при
+     горизонтальной прокрутке широких таблиц --- */
+#page-clients .data-table td.row-actions,
+#page-suppliers .data-table td.row-actions,
+#page-documents .data-table td.row-actions,
+#page-payments .data-table td.row-actions {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: inherit;
+}
+#page-clients .data-table th:last-child,
+#page-suppliers .data-table th:last-child,
+#page-documents .data-table th:last-child,
+#page-payments .data-table th:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
 }
