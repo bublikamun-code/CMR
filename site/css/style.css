@@ -454,6 +454,39 @@ a.nav-btn { text-decoration: none; }
 
 .page-section.active {
     display: flex;
+    /* Плавное появление раздела при переключении: без этого смена
+       страниц выглядела мгновенной «телепортацией» контента. */
+    animation: pageEnter 200ms var(--ease-out-strong);
+}
+
+@keyframes pageEnter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Индикатор сетевой активности: полоска сверху, пока идут запросы.
+   Появляется с задержкой 150мс (в JS) — быстрые ответы не мерцают. */
+#net-activity-bar {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 2px;
+    z-index: 100000;
+    pointer-events: none;
+    background: linear-gradient(90deg, var(--primary-color), var(--accent-indigo, #818cf8));
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    opacity: 0;
+    transition: opacity 150ms ease;
+}
+#net-activity-bar.visible {
+    opacity: 1;
+    animation: netBarPulse 1.1s var(--ease-out-strong) infinite;
+}
+@keyframes netBarPulse {
+    0%   { transform: scaleX(0.05); }
+    50%  { transform: scaleX(0.7); }
+    100% { transform: scaleX(0.95); }
 }
 
 .page-header {

@@ -81,6 +81,39 @@ function hasToken(tokenKey = DEFAULT_TOKEN_KEY) {
 // пользователь не понимает, сохранились данные или нет.
 const API_TIMEOUT_MS = 30000;
 
+/* ---------- Индикатор сетевой активности ----------
+   Тонкая полоска сверху экрана: горит, пока идёт хотя бы один запрос.
+   Появляется не мгновенно (150мс) — быстрые запросы не должны мерцать. */
+const _netIndicator = (() => {
+    let bar = null, active = 0, showTimer = null;
+    function ensureBar() {
+        if (bar && document.body.contains(bar)) return bar;
+        bar = document.createElement('div');
+        bar.id = 'net-activity-bar';
+        document.body.appendChild(bar);
+        return bar;
+    }
+    return {
+        start() {
+            active++;
+            if (active === 1 && !showTimer) {
+                showTimer = setTimeout(() => {
+                    showTimer = null;
+                    const b = ensureBar();
+                    b.classList.add('visible');
+                }, 150);
+            }
+        },
+        stop() {
+            active = Math.max(0, active - 1);
+            if (active === 0) {
+                if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+                if (bar) bar.classList.remove('visible');
+            }
+        }
+    };
+})();
+
 /**
  * Универсальный API-клиент.
  *
@@ -112,6 +145,7 @@ async function apiFetch(endpoint, options = {}, tokenKey = DEFAULT_TOKEN_KEY) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+    _netIndicator.start();
     try {
         // Отправляем запрос
         const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -187,5 +221,6 @@ async function apiFetch(endpoint, options = {}, tokenKey = DEFAULT_TOKEN_KEY) {
         throw error; // Пробрасываем ошибку дальше, чтобы ее мог обработать конкретный скрипт
     } finally {
         clearTimeout(timer);
+        _netIndicator.stop();
     }
 }

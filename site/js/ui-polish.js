@@ -464,12 +464,19 @@
   /* ---------- Ловим overlay-click и крестики на модалках ----------
      Делегирование в фазе capture: если цель — overlay .modal или
      .close-btn / id$="-cancel", закрываем плавно и останавливаем
-     всплытие, чтобы не сработал немедленный обработчик в другом файле. */
+     всплытие, чтобы не сработал немедленный обработчик в другом файле.
+     Overlay закрывает модалку, только когда клик НАЧАЛСЯ на overlay:
+     нажатие внутри карточки с отпусканием снаружи (выделение текста,
+     drag) модалку не закрывает. */
+  var overlayMouseDown = false;
+  document.addEventListener('mousedown', function (e) {
+    overlayMouseDown = e.target.classList && e.target.classList.contains('modal');
+  }, true);
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var modal = e.target.closest('.modal');
     if (!modal || modal.classList.contains('hidden')) return;
-    var isOverlay = e.target === modal;
+    var isOverlay = e.target === modal && overlayMouseDown;
     var isClose = e.target.classList.contains('close-btn') ||
                   (e.target.id && /-cancel$/.test(e.target.id));
     if (!isOverlay && !isClose) return;
