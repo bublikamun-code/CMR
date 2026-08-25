@@ -11799,3 +11799,9 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
     transition: none !important;
 }
 .page-section > * { transition: none; }
+
+/* UI Audit (2026-08-26): тумблер плотности — как view-toggle, без solid */
+.density-btn.active {
+    background: var(--primary-soft) !important;
+    color: var(--primary-dark) !important;
+}
