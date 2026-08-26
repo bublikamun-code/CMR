@@ -4010,7 +4010,9 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
    left:100, Печать 140, Примечание 110, чекбоксы 64), чтобы «Название»
    получала ~230px остатка вместо 72px — имена компаний читаются. */
 #payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 100px !important; }
-#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 120px !important; }
+/* UI FIX 2026-08-26: 130px вместо 120px — итог «159 635,01 BYN» в футере
+   не обрезается. */
+#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 130px !important; }
 #payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 120px !important; }
 #payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 110px !important; }
 /* UI FIX 2026-08-26: чекбоксы 72px и действия 96px заданы позже блоками
@@ -9807,9 +9809,11 @@ td.td-center > .btn-edit-row .ui-icon{
     position: relative;
     display: inline-flex;
     align-items: center;
+    /* UI FIX 2026-08-26: на всю ширину формы и 38px, как остальные поля
+       (было max-width 180px и 36px — выбивалось из колонки полей). */
     width: 100%;
-    max-width: 180px;
-    height: 36px;
+    max-width: 100%;
+    height: 38px;
     padding: 0 10px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
