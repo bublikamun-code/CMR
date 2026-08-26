@@ -2875,14 +2875,17 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 .tag-add-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
-    height: 22px;
-    padding: 3px 10px;
+    /* UI FIX 2026-08-26: 32px вместо 22px — минимальная тач-цель,
+       шрифт 13px вместо 11px. */
+    height: 32px;
+    padding: 0 12px;
     border-radius: 999px;
     border: 1px dashed var(--border-color);
     background: var(--bg-color);
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: var(--transition-ui);
@@ -4592,7 +4595,8 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 .sidebar-controls .theme-toggle,
 .sidebar-controls .compact-toggle {
     flex: 1;
-    height: 32px;
+    /* UI FIX 2026-08-26: 40px как у «Админ-панель»/«Выйти» ниже (было 32px). */
+    height: 40px;
     font-size: 15px;
 }
 
@@ -7265,7 +7269,9 @@ textarea:focus-visible {
 /* --- 14. Сегмент-контрол Доска/Список: border-radius:0 -------------- */
 .view-toggle-btn{
   border-radius: 8px !important;
-  height: 32px !important;
+  /* UI FIX 2026-08-26: 38px внутри контейнера с рамкой = ровно 40px,
+     как у поиска и кнопок справа (было 32px, верхний край гулял на 3px). */
+  height: 38px !important;
 }
 
 /* --- 15. Ссылка-название поставщика: аффорданс + фокус -------------- */
@@ -7392,9 +7398,12 @@ input, select, textarea, button{ font-family: inherit !important; }
   font-weight: 600 !important;
 }
 .search-input{ height: 40px !important; border-radius: 8px !important; }
+/* UI FIX 2026-08-26: селектор исправлен (.filters-bar -> .filter-bar —
+   старый не совпадал с разметкой, правило не действовало) и высота 40px
+   вместо 32px — «Сбросить» и поля фильтров в одну линию с поиском. */
 .filter-reset,
-.filters-bar select,
-.filters-bar input{ height: 32px !important; border-radius: 8px !important; }
+.filter-bar select,
+.filter-bar input{ height: 40px !important; border-radius: 8px !important; }
 
 /* --- 27. Поля ввода: единый радиус и высота ------------------------ */
 input[type="text"], input[type="email"], input[type="number"],
@@ -7544,7 +7553,9 @@ input[type="number"]::-webkit-inner-spin-button{
   z-index: 5;
 }
 .overdue-summary-icon{ font-size: 14px !important; }
-.kanban-board{ position: relative; margin-top: 46px; }
+/* UI FIX 2026-08-26: 24px вместо 46px — вместе с margin-bottom 16px фильтров
+   зазор «фильтры -> доска» стал 40px вместо 62px. */
+.kanban-board{ position: relative; margin-top: 24px; }
 
 /* --- 40. Кнопка сворачивания сайдбара: перенос под шапку ---------- */
 /* была на 50% высоты и перекрывала календарь.
@@ -7943,7 +7954,9 @@ textarea.auto-expand-title{
    ============================================================ */
 
 /* --- 57. Остатки radius 4px ------------------------------------- */
-.theme-toggle, .compact-toggle{ border-radius: 8px !important; }
+/* UI FIX 2026-08-26: 10px — единый радиус всего низа сайдбара
+   («Админ-панель»/«Выйти» ниже тоже 10px). */
+.theme-toggle, .compact-toggle{ border-radius: 10px !important; }
 .kanban-cards{ border-radius: 8px !important; }
 
 /* --- 58. Отступы вне 4px-сетки ---------------------------------- */
@@ -9438,7 +9451,9 @@ td.td-center > .btn-edit-row .ui-icon{
     align-items: center;
     justify-content: center;
     width: 34px;
-    height: 32px;
+    /* UI FIX 2026-08-26: 38px — контейнер тоггла становится 40px,
+       в одну линию с остальными контролами шапки (было 32px). */
+    height: 38px;
     border: none;
     background: transparent;
     color: var(--text-muted);
@@ -9496,18 +9511,24 @@ td.td-center > .btn-edit-row .ui-icon{
     text-transform: uppercase;
     letter-spacing: 0.4px;
     color: var(--sidebar-bg);
-    /* UI Audit (2026-08-26): заголовки колонок канбана не режутся —
-       переносятся на две строки. */
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
+    /* UI FIX 2026-08-26: одна строка вместо переноса («В РАБОТЕ» и
+       «ЖДЕТ ОПЛАТЫ» ломались на 2 строки, шапки колонок гуляли по высоте).
+       Тесноту забирает на себя сумма (.col-sum — эллипсис). */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
 }
+.column-header-main { min-width: 0; }
 .column-header .col-sum {
     font-size: 12px;
     font-weight: 600;
     color: var(--text-muted);
     white-space: nowrap;
     margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .kanban-column[data-status="Новый запрос"] .column-header { border-left-color: #6b7280; }
 .kanban-column[data-status="В работе"] .column-header { border-left-color: var(--primary-color); }
@@ -11847,11 +11868,13 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
    ============================================================ */
 
 /* --- «Архив» — обычная кнопка с текстом, не иконочный квадрат --- */
+/* UI FIX 2026-08-26: высота 40px как у остальных кнопок шапки (было 37px
+   из-за padding 8px 14px). */
 #btn-trash.btn-trash {
     width: auto !important;
-    height: auto !important;
+    height: 40px !important;
     min-width: 0;
-    padding: 8px 14px !important;
+    padding: 0 16px !important;
     white-space: nowrap;
 }
 

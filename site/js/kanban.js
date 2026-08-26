@@ -179,7 +179,9 @@ async function loadKanbanBoard() {
             const sumEl = col.querySelector('.col-sum');
             if (sumEl) {
                 const colSum = visibleCards.reduce((acc, c) => acc + (parseFloat(c.total_amount) || 0), 0);
-                sumEl.textContent = colSum > 0 ? formatMoneyBYN(colSum) : '';
+                // UI FIX 2026-08-26: сумма выводится всегда — пустой .col-sum
+                // в одной колонке выглядел как баг на фоне соседних.
+                sumEl.textContent = formatMoneyBYN(colSum);
             }
 
             const emptyState = container.querySelector('.empty-state');
