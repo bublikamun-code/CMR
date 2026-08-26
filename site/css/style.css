@@ -6046,7 +6046,9 @@ input, select, textarea {
 /* Общие */
 [data-theme="dark"] h1, [data-theme="dark"] h2, [data-theme="dark"] h3 { color: var(--text-color) !important; }
 [data-theme="dark"] p { color: var(--text-color) !important; }
-[data-theme="dark"] span { color: inherit !important; }
+/* UI FIX 2026-08-26: удалено [data-theme="dark"] span { color: inherit !important }.
+   Спаны и так наследуют цвет, поэтому правило ничего не добавляло, но убивало
+   цветные статусы-бейджи (.pay-unpaid/.pay-paid и др.) в тёмной теме. */
 [data-theme="dark"] label { color: var(--text-muted) !important; }
 
 /* === ДОПОЛНИТЕЛЬНЫЕ ИСПРАВЛЕНИЯ === */
@@ -6276,7 +6278,10 @@ input[type="file"] {
 }
 .calendar-grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    /* UI FIX 2026-08-26: minmax(0,1fr) вместо 1fr — длинные чипы событий
+       больше раздувают колонки (сетка вылезала за контейнер, правые дни
+       уходили за срез, начало месяца было не видно). */
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 4px;
 }
 .calendar-weekday {
@@ -7238,9 +7243,14 @@ textarea:focus-visible {
 :root:not([data-theme="dark"]){ --table-row-even: #f8fafc; }
 
 /* --- 13. Радиусы и градиенты: главный признак «недоделано» ---------- */
+/* UI FIX 2026-08-26: кнопки — «пилюли» (радиус 999px), как в референсе
+   doctorstroy.ru. Решение согласовано с пользователем. */
 .btn-primary, .btn-secondary, .dropdown-toggle,
 .logout-btn, .admin-link-btn, .nav-btn{
-  border-radius: 8px !important;
+  border-radius: 999px !important;
+}
+.btn-danger, .btn-success, .btn-action, .filter-reset{
+  border-radius: 999px;
 }
 .logout-btn, .admin-link-btn:not(.hidden){
   display: flex;
@@ -7266,9 +7276,12 @@ textarea:focus-visible {
   box-shadow: none !important;
 }
 
-/* --- 14. Сегмент-контрол Доска/Список: border-radius:0 -------------- */
+/* --- 14. Сегмент-контрол Доска/Список: пилюля-контейнер ------------- */
+.view-toggle{
+  border-radius: 999px !important;
+}
 .view-toggle-btn{
-  border-radius: 8px !important;
+  border-radius: 999px !important;
   /* UI FIX 2026-08-26: 38px внутри контейнера с рамкой = ровно 40px,
      как у поиска и кнопок справа (было 32px, верхний край гулял на 3px). */
   height: 38px !important;
@@ -7387,9 +7400,10 @@ input, select, textarea, button{ font-family: inherit !important; }
 }
 
 /* --- 26. Единые высоты контролов: было 31/32/36/37/38/42/43 -------- */
+/* UI FIX 2026-08-26: padding 0 20px — пропорции пилюли (было 0 16px). */
 .btn-primary, .btn-secondary, .btn-export, .dropdown-toggle{
   height: 40px !important;
-  padding: 0 16px !important;
+  padding: 0 20px !important;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
@@ -9442,7 +9456,7 @@ td.td-center > .btn-edit-row .ui-icon{
 .density-toggle {
     display: inline-flex;
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
+    border-radius: 999px;
     overflow: hidden;
     background: var(--card-bg);
 }
@@ -10458,12 +10472,15 @@ td.td-center > .btn-edit-row .ui-icon{
    Шрифты и анимации взяты оттуда, цвета оставлены CRM-шные.
    ============================================================ */
 
-/* ---------- Display font for large headings ---------- */
+/* ---------- Headings ---------- */
+/* UI FIX 2026-08-26: единая гарнитура заголовков — жирный гротеск Manrope
+   (раньше h1 была антиквой Cormorant 500, а заголовки модалок — Manrope 700;
+   смешение двух гарнитур устранено). */
 h1, h2.page-title, .page-header h1, .section-card h2 {
-    font-family: var(--font-display);
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    line-height: 1.08;
+    font-family: var(--font-sans);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
 }
 h2, h3 {
     font-family: var(--font-sans);
