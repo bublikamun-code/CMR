@@ -275,6 +275,48 @@ function createDropdown({ options, value, onChange, searchable = false }) {
     return root;
 }
 
+/* Заменяет нативный <select> на кастомный dropdown (без системного меню).
+   Нативный селект остаётся в DOM скрытым как хранитель значения — вся
+   существующая логика (onchange, чтение .value, программный reset)
+   продолжает работать через событие change. */
+const _enhancedSelects = new Map();
+
+function enhanceSelectToDropdown(select) {
+    if (!select || select.dataset.enhanced === '1') return;
+    select.dataset.enhanced = '1';
+
+    const wrap = document.createElement('span');
+    wrap.className = 'select-dd-wrap';
+    select.insertAdjacentElement('afterend', wrap);
+    select.classList.add('native-select-hidden');
+
+    const key = select.id || select.name;
+    const build = () => {
+        const options = Array.from(select.options).map(o => ({ value: o.value, label: o.textContent }));
+        if (options.length === 0) return;
+        wrap.innerHTML = '';
+        wrap.appendChild(createDropdown({
+            options,
+            value: select.value,
+            onChange: (v) => {
+                select.value = v;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }));
+    };
+    build();
+    if (key) _enhancedSelects.set(key, build);
+}
+
+/* Синхронизирует метку кастомного dropdown с текущим .value нативного
+   селекта (например, после программного reset фильтров). */
+function syncEnhancedSelect(selectOrId) {
+    const select = typeof selectOrId === 'string' ? document.getElementById(selectOrId) : selectOrId;
+    if (!select) return;
+    const build = _enhancedSelects.get(select.id || select.name);
+    if (build) build();
+}
+
 // Минималистичные монохромные SVG-иконки (вместо эмодзи)
 const ICON_CLIP = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 const ICON_FILE = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';

@@ -821,6 +821,10 @@ function resetKanbanFilters() {
     document.getElementById('filter-amount-max').value = '';
     document.getElementById('filter-client').value = '';
     document.getElementById('filter-priority').value = '';
+    if (typeof syncEnhancedSelect === 'function') {
+        syncEnhancedSelect('filter-store');
+        syncEnhancedSelect('filter-priority');
+    }
     loadKanbanBoard();
 }
 

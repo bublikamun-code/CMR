@@ -284,7 +284,7 @@
   // но полный текст узнать было негде. Вешаем title только там,
   // где обрезка реально есть, и снимаем, когда её не стало.
   function addTitles(root) {
-    var sel = '.clickable-company, .supplier-name-link, th, .checklist-invoice-link';
+    var sel = '.clickable-company, .supplier-name-link, th, .checklist-invoice-link, .column-title, .dropdown-value, .amount-cell';
     var nodes = (root || document).querySelectorAll(sel);
 
     // Две фазы. Раньше чтение scrollWidth и запись title шли вперемешку:
@@ -392,6 +392,13 @@
     }
   }
 
+  /* ---------- a11y: скролл-области канбана доступны с клавиатуры ---------- */
+  function fixScrollA11y() {
+    document.querySelectorAll('.kanban-cards, .table-container').forEach(function (el) {
+      if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    });
+  }
+
   /* ---------- запуск и слежение за перерисовками ---------- */
   function runAll() {
     fixAttachmentNames();
@@ -399,6 +406,7 @@
     upgradeSupplierLinks();
     watchModals();
     addTitles();
+    fixScrollA11y();
   }
 
   if (document.readyState === 'loading') {
