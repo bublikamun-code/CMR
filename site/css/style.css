@@ -4834,7 +4834,11 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     gap: 0;
     width: 960px;
     max-width: 95vw;
-    max-height: 88vh;
+    /* UI FIX 2026-08-26: фиксированная высота 88vh — колонки заполняют её
+       и скроллятся внутри. Без height модалка сжималась по короткому
+       контенту (340px на вьюпорте 900px), и поля карточки превращались
+       в узкую скролл-щёлку. */
+    height: 88vh;
     overflow: hidden;
     padding: 0;
 }
@@ -5181,6 +5185,9 @@ textarea.auto-expand-title:focus {
         display: flex;
         flex-direction: column;
         width: 96vw;
+        /* На мобильных высота по контенту: модалка скроллится целиком,
+           фикс 88vh с десктопа здесь не нужен. */
+        height: auto;
         max-height: 92vh;
         overflow-y: auto;
         overflow-x: hidden;
