@@ -27,6 +27,9 @@ if __name__ == "__main__":
         port=port,
         log_level="info",
         proxy_headers=True,
-        forwarded_allow_ips="*",
+        # UI FIX 2026-08-26: только loopback-прокси доверен. При "*" uvicorn
+        # верил крайнему левому X-Forwarded-For, который контролирует
+        # клиент, — rate-limit логина 30/мин обходился подделкой заголовка.
+        forwarded_allow_ips="127.0.0.1",
         workers=2,
     )

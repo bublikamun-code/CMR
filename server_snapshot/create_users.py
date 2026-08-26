@@ -9,9 +9,15 @@ db = SessionLocal()
 # Список ваших сотрудников (Можете поменять логины и пароли здесь)
 import os
 
-# Пароли берутся из переменных окружения или используют значения по умолчанию
-# Для продакшена задайте CRM_DEFAULT_PASSWORD в .env
-DEFAULT_PW = os.environ.get("CRM_DEFAULT_PASSWORD", "change_me_now!")
+# UI FIX 2026-08-26: фолбэк-пароль удалён — скрипт падает, если пароль
+# не задан явно. Раньше молча создавались аккаунты с "change_me_now!".
+DEFAULT_PW = os.environ.get("CRM_DEFAULT_PASSWORD")
+if not DEFAULT_PW:
+    raise SystemExit(
+        "CRM_DEFAULT_PASSWORD не задан. Задайте переменную окружения "
+        "(или PW_MANAGER_Y / PW_MANAGER_A / ... для отдельных аккаунтов) "
+        "и повторите запуск."
+    )
 
 users_to_create = [
     {"username": "ManagerY", "password": os.environ.get("PW_MANAGER_Y", DEFAULT_PW), "role": "manager"},

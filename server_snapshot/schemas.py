@@ -14,13 +14,14 @@ class UserCreate(UserBase):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v):
-        if len(v) < 6:
-            raise ValueError("Пароль должен содержать минимум 6 символов")
+        if len(v) < 8:
+            raise ValueError("Пароль должен содержать минимум 8 символов")
         return v
 
 class UserResponse(UserBase):
     id: int
     role: str
+    tenant_id: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
 
 class UserUpdate(BaseModel):
@@ -30,8 +31,20 @@ class UserUpdate(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v):
-        if v and len(v) < 6:
-            raise ValueError("Пароль должен содержать минимум 6 символов")
+        if v and len(v) < 8:
+            raise ValueError("Пароль должен содержать минимум 8 символов")
+        return v
+
+class PasswordChange(BaseModel):
+    """Самостоятельная смена собственного пароля: старый обязателен."""
+    old_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v):
+        if len(v) < 8:
+            raise ValueError("Новый пароль должен содержать минимум 8 символов")
         return v
 
 

@@ -71,30 +71,36 @@ async function loadDashboard() {
             `;
         }
 
-        if (window.CRM_STORE && CRM_STORE.get('cards')?.length) {
-            _dashCards = CRM_STORE.get('cards');
-            _dashTransactions = CRM_STORE.get('transactions') || [];
-            _dashClients = CRM_STORE.get('clients') || [];
-            _dashSuppliers = CRM_STORE.get('suppliers') || [];
-        } else {
-            const [cardsRes, transactionsRes, clientsRes, suppliersRes] = await Promise.allSettled([
-                apiFetch('/kanban/cards'),
-                apiFetch('/payments/transactions'),
-                apiFetch('/clients'),
-                apiFetch('/suppliers')
-            ]);
+        // UI FIX 2026-08-26: каждый источник проверяется отдельно. Раньше
+        // хватало наличия cards в кэше, чтобы пропустить ВСЕ fetch — если
+        // клиенты/поставщики/оплаты в стор ещё не загружались их модулями,
+        // дашборд показывал «Клиентов: 0» при существующих клиентах.
+        const has = (key) => window.CRM_STORE && Array.isArray(CRM_STORE.get(key)) && CRM_STORE.get(key).length > 0;
+        const needFetch = {
+            cards: !has('cards'),
+            transactions: !has('transactions'),
+            clients: !has('clients'),
+            suppliers: !has('suppliers')
+        };
+        const fetches = {};
+        if (needFetch.cards) fetches.cards = apiFetch('/kanban/cards').catch(() => []);
+        if (needFetch.transactions) fetches.transactions = apiFetch('/payments/transactions').catch(() => []);
+        if (needFetch.clients) fetches.clients = apiFetch('/clients').catch(() => []);
+        if (needFetch.suppliers) fetches.suppliers = apiFetch('/suppliers').catch(() => []);
+        const fetched = Object.fromEntries(await Promise.all(
+            Object.entries(fetches).map(async ([k, p]) => [k, await p])
+        ));
 
-            _dashCards = cardsRes.status === 'fulfilled' ? cardsRes.value : [];
-            _dashTransactions = transactionsRes.status === 'fulfilled' ? transactionsRes.value : [];
-            _dashClients = clientsRes.status === 'fulfilled' ? clientsRes.value : [];
-            _dashSuppliers = suppliersRes.status === 'fulfilled' ? suppliersRes.value : [];
+        _dashCards = needFetch.cards ? fetched.cards : CRM_STORE.get('cards');
+        _dashTransactions = needFetch.transactions ? fetched.transactions : CRM_STORE.get('transactions') || [];
+        _dashClients = needFetch.clients ? fetched.clients : CRM_STORE.get('clients') || [];
+        _dashSuppliers = needFetch.suppliers ? fetched.suppliers : CRM_STORE.get('suppliers') || [];
 
-            if (window.CRM_STORE) {
-                CRM_STORE.set('cards', _dashCards);
-                CRM_STORE.set('transactions', _dashTransactions);
-                CRM_STORE.set('clients', _dashClients);
-                CRM_STORE.set('suppliers', _dashSuppliers);
-            }
+        if (window.CRM_STORE) {
+            CRM_STORE.set('cards', _dashCards);
+            CRM_STORE.set('transactions', _dashTransactions);
+            CRM_STORE.set('clients', _dashClients);
+            CRM_STORE.set('suppliers', _dashSuppliers);
         }
 
         buildMonthFilter('dashboard-month', _dashCards, c => c.created_at, _dashSelectedMonth, (val) => {

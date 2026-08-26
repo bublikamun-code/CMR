@@ -22,13 +22,55 @@
         switchTab(tab) {
             document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
-            const tabs = {objects:1,workflows:2,email:3,webhooks:4};
+            const tabs = {objects:1,workflows:2,email:3,webhooks:4,profile:5};
             document.querySelector(`.settings-tab:nth-child(${tabs[tab]||1})`).classList.add('active');
             document.getElementById('stab-' + tab).classList.add('active');
             if (tab === 'objects') this.loadObjs();
             if (tab === 'workflows') this.loadWfs();
             if (tab === 'email') this.loadEmailSettings();
             if (tab === 'webhooks') this.loadWebhooks();
+        },
+
+        // === ПРОФИЛЬ: смена собственного пароля ===
+        async changePassword() {
+            const oldEl = document.getElementById('profile-old-password');
+            const newEl = document.getElementById('profile-new-password');
+            const new2El = document.getElementById('profile-new-password2');
+            if (!oldEl || !newEl || !new2El) return;
+            const oldPassword = oldEl.value;
+            const newPassword = newEl.value;
+            if (!oldPassword || !newPassword) {
+                showToast('Заполните текущий и новый пароль', 'error');
+                return;
+            }
+            if (newPassword.length < 8) {
+                showToast('Новый пароль должен содержать минимум 8 символов', 'error');
+                return;
+            }
+            if (newPassword !== new2El.value) {
+                showToast('Новые пароли не совпадают', 'error');
+                return;
+            }
+            try {
+                const res = await apiFetch('/auth/me/password', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+                });
+                showToast(res.detail || 'Пароль изменён', 'success');
+                // Смена пароля отзывает токен — выходим на экран входа.
+                setTimeout(() => {
+                    try {
+                        localStorage.removeItem('crm_token');
+                        localStorage.removeItem('crm_role');
+                        sessionStorage.removeItem('crm_token');
+                        sessionStorage.removeItem('crm_role');
+                    } catch (e) {}
+                    location.href = '/';
+                }, 1200);
+            } catch (e) {
+                showToast('Не удалось сменить пароль: ' + e.message, 'error');
+            }
         },
 
         // === ОБЪЕКТЫ ===
