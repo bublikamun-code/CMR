@@ -156,6 +156,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     // LEFT COLUMN: Static fields
     leftContainer.innerHTML = `
+        <div class="modal-split-scroll">
         <div class="modal-section card-info-section">
             <label class="modal-label">${ICON_WALLET} Итоговая сумма сделки (BYN)</label>
             <div class="modal-input-row">
@@ -214,6 +215,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         <div class="modal-section" id="group-writeoff-section" hidden>
             <h3 class="section-title">Групповое списание</h3>
             <div id="group-writeoff-container"></div>
+        </div>
         </div>
         <div class="modal-actions modal-actions-stacked">
             <button id="btn-to-assembly" class="btn-action btn-assembly" title="Сделка попадёт в реестр оплат">${ICON_BOX} Передать в сборку</button>

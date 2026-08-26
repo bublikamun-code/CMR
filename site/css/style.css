@@ -712,9 +712,12 @@ a.nav-btn { text-decoration: none; }
 }
 
 /* UI Audit (2026-08-26): таблицы не сжимаются сильнее своего min-width —
-   вместо обрезания текста контейнер уходит в горизонтальный скролл. */
-#payments-table { min-width: 1280px !important; }
-#documents-table { min-width: 1160px !important; }
+   вместо обрезания текста контейнер уходит в горизонтальный скролл.
+   UI FIX 2026-08-26: 1100/1000 вместо 1280/1160 — при фиксированных
+   ширинах колонок ниже таблицы помещаются в контейнер 1162px на 1440
+   без горизонтального скролла. */
+#payments-table { min-width: 1100px !important; }
+#documents-table { min-width: 1000px !important; }
 #suppliers-table, #clients-table { min-width: 960px; }
 
 .data-table th, .data-table td {
@@ -3422,10 +3425,14 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 16px;
 }
+/* UI FIX 2026-08-26: колонка вместо строки — иконка сверху, значение ниже
+   на всю ширину карточки. Раньше «440 173,06 BYN» (нужно 117px) зажималось
+   до ~80px рядом с иконкой и обрезалось. */
 .dash-stat {
     display: flex;
-    align-items: center;
-    gap: 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
     padding: 16px 20px;
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -3448,6 +3455,8 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     display: flex;
     flex-direction: column;
     text-align: left;
+    width: 100%;
+    min-width: 0;
 }
 .dash-stat-value {
     font-size: 24px;
@@ -3515,8 +3524,8 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 .dash-table td:first-child,
 .dash-table th:first-child { width: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-table td:last-child,
-.dash-table th:last-child { text-align: right; width: 90px; }
-.dash-table td:last-child { font-variant-numeric: tabular-nums; }
+.dash-table th:last-child { text-align: right; width: 130px; }
+.dash-table td:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* --- МОБИЛЬНАЯ АДАПТИВНОСТЬ --- */
 .mobile-menu-toggle {
@@ -3966,29 +3975,37 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 /* Настройки ширины колонок для таблицы документов */
 /* UI Audit (2026-08-26): фиксированные px-ширины по содержимому вместо
    процентов — текст не режется, «Название» забирает остаток. */
-#documents-table th:nth-child(1), #documents-table td:nth-child(1) { width: 106px !important; }
-#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 125px !important; }
-#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 130px !important; }
-#documents-table th:nth-child(5), #documents-table td:nth-child(5) { width: 100px !important; }
+/* UI FIX 2026-08-26: «Название» (nth-child(2)) — явный остаток ~305px вместо
+   сжатых 110px; прочие колонки ужаты под контейнер 1162px. */
+#documents-table th:nth-child(1), #documents-table td:nth-child(1) { width: 100px !important; }
+#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 120px !important; }
+#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 120px !important; }
+#documents-table th:nth-child(5), #documents-table td:nth-child(5) { width: 95px !important; }
 #documents-table th:nth-child(6), #documents-table td:nth-child(6) { width: 72px !important; text-align: center; }
 #documents-table th:nth-child(7), #documents-table td:nth-child(7) { width: 72px !important; text-align: center; }
-#documents-table th:nth-child(8), #documents-table td:nth-child(8) { width: 170px !important; }
-#documents-table th:nth-child(9), #documents-table td:nth-child(9) { width: 140px !important; }
-#documents-table th:nth-child(10), #documents-table td:nth-child(10) { width: 44px !important; text-align: right; }
+#documents-table th:nth-child(8), #documents-table td:nth-child(8) { width: 140px !important; }
+#documents-table th:nth-child(9), #documents-table td:nth-child(9) { width: 110px !important; }
+#documents-table th:nth-child(10), #documents-table td:nth-child(10) { width: 96px !important; text-align: right; }
 
 /* Настройки ширины колонок для таблицы оплат */
 /* UI Audit (2026-08-26): фиксированные px-ширины по содержимому вместо
-   процентов — суммы и кнопки не режутся, «Название» забирает остаток. */
-#payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 106px !important; }
-#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 125px !important; }
-#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 130px !important; }
+   процентов — суммы и кнопки не режутся, «Название» забирает остаток.
+   UI FIX 2026-08-26: ужато содержимое фиксированных колонок (Дата 100 = sticky
+   left:100, Печать 140, Примечание 110, чекбоксы 64), чтобы «Название»
+   получала ~230px остатка вместо 72px — имена компаний читаются. */
+#payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 100px !important; }
+#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 120px !important; }
+#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 120px !important; }
 #payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 110px !important; }
+/* UI FIX 2026-08-26: чекбоксы 72px и действия 96px заданы позже блоками
+   «часть 10» (11252) и «колонки действий» (11902) — здесь синхронизированы
+   те же значения, чтобы файл не врал о реальной ширине. */
 #payments-table th:nth-child(6), #payments-table td:nth-child(6) { width: 72px !important; }
 #payments-table th:nth-child(7), #payments-table td:nth-child(7) { width: 72px !important; }
 #payments-table th:nth-child(8), #payments-table td:nth-child(8) { width: 72px !important; }
-#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 185px !important; }
-#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 140px !important; }
-#payments-table th:nth-child(11), #payments-table td:nth-child(11) { width: 44px !important; }
+#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 140px !important; }
+#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 110px !important; }
+#payments-table th:nth-child(11), #payments-table td:nth-child(11) { width: 96px !important; }
 
 /* === Sticky шапка, первые 2 колонки и footer для таблиц оплат/документов === */
 #payments-table th,
@@ -4890,7 +4907,21 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 12px 16px;
+    /* UI FIX 2026-08-26: колонка больше не скроллится сама — скроллится
+       .modal-split-scroll, а панель действий стала обычным футером внизу
+       (раньше sticky-панель перекрывала дропзону вложений при открытии). */
+    padding: 0;
+    overflow: hidden;
+}
+/* Скроллящаяся обёрстка содержимого левой колонки (UI FIX 2026-08-26). */
+.modal-split-left .modal-split-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 .modal-split-left .modal-section {
     margin-bottom: 0;
@@ -4969,10 +5000,10 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     max-height: 85vh;
 }
 .modal-split-left .modal-actions {
-    margin-top: auto;
-    padding-top: 12px;
-    position: sticky;
-    bottom: 0;
+    margin-top: 0;
+    padding-top: 10px;
+    position: static;
+    bottom: auto;
     background: var(--card-bg);
     padding-bottom: 4px;
     z-index: 2;
@@ -5667,7 +5698,11 @@ input, select, textarea {
 [data-theme="dark"] .sync-status { background: var(--table-row-odd); color: var(--text-color); border-color: var(--border-color); }
 [data-theme="dark"] .inv-empty { background: rgba(16,185,129,0.08); color: var(--success-color); }
 [data-theme="dark"] .inv-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); }
-[data-theme="dark"] .pay-badge { background: rgba(245,158,11,0.2); color: var(--warning-color); }
+/* UI FIX 2026-08-26: удалено [data-theme="dark"] .pay-badge
+   { background: rgba(245,158,11,.2); color: var(--warning-color) } —
+   оно перекрашивало ВСЕ статусы оплат в янтарный, «Оплачен» и «Не оплачен»
+   становились неразличимы. Действуют статусы 2913-2916:
+   зелёный / красный / жёлтый / индиго. */
 
 /* УЧЁТ/списание — file-dropzone, attachment — уже покрыто, но добавим явно */
 [data-theme="dark"] .checklist-invoice-add { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
@@ -7549,7 +7584,7 @@ input[type="number"]::-webkit-inner-spin-button{
 .dash-stat-info{ min-width: 0 !important; overflow: hidden; }
 .dash-stat .dash-stat-value,
 .dash-summary-grid .dash-stat-value{
-  font-size: 16px !important;
+  font-size: 18px !important;
   line-height: 24px !important;
   font-weight: 700 !important;
   white-space: nowrap !important;
@@ -9958,7 +9993,9 @@ td.td-center > .btn-edit-row .ui-icon{
     justify-content: center;
     gap: 8px;
     width: 100%;
-    padding: 12px 16px;
+    /* UI FIX 2026-08-26: 10px 16px вместо 12px 16px — высота ровно 40px,
+       как у остальных кнопок приложения (было 43px). */
+    padding: 10px 16px;
     font-size: 14px;
     font-weight: 700;
     border-radius: var(--radius-md);
@@ -11061,13 +11098,13 @@ h2, h3 {
     font-size: 12px;
     color: var(--text-muted);
 }
-.modal-split-left {
-    padding-bottom: 72px;
-}
+/* UI FIX 2026-08-26: панель действий — статичный футер левой колонки
+   (вне скролла), разделён границей; sticky-перекрытие дропзоны устранено. */
 .modal-split-left .modal-actions {
-    margin-top: auto;
-    padding-top: 10px;
-    padding-bottom: 10px;
+    margin-top: 0;
+    flex-shrink: 0;
+    padding: 10px 20px 12px;
+    border-top: 1px solid var(--border-color);
     background: var(--card-bg);
 }
 
@@ -11947,8 +11984,12 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
      горизонтальной прокрутки ради колонки действий --- */
 #page-clients .data-table,
 #page-suppliers .data-table { min-width: 900px !important; }
-#page-documents .data-table { min-width: 1060px !important; }
-#page-payments .data-table { min-width: 1180px !important; }
+/* UI FIX 2026-08-26: 1140/1020 вместо 1180/1060 — сумма фиксированных колонок
+   (Дата 100 + Сумма 120 + Оплата 120 + Магазин 110 + чекбоксы 3×72 +
+   Печать 140 + Примечание 110 + действия 96 = 1004) оставляет «Названию»
+   ~200px и убирает горизонтальный скролл на 1440px (контейнер 1162px). */
+#page-documents .data-table { min-width: 1020px !important; }
+#page-payments .data-table { min-width: 1140px !important; }
 
 /* Колонка действий не обрезается (перебиваем overflow:hidden из старого блока) */
 #page-clients .data-table td.row-actions,
