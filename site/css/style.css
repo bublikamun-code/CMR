@@ -28,9 +28,19 @@ html {
 
 /* Базовые сбросы и переменные */
 :root {
-    --primary-color: #4a57a4;
-    --primary-dark: #364183;
-    --primary-soft: #f5f3ff;
+    /* UI FIX 2026-08-26 (консолидация палитры): ранее итоговые значения
+       задавались тремя последовательными :root-блоками (основной + «AUDIT
+       FIXES часть 2» + точечные), и реальную палитру приходилось вычислять.
+       Теперь единственный источник правды — этот блок. */
+    --primary-color: #4f46e5;
+    --primary-dark: #4338ca;
+    --primary-soft: #eef2ff;
+    /* Шкала индиго (бывш. блок «21. Единая шкала indigo») */
+    --primary-50: #eef2ff;
+    --primary-100: #e0e7ff;
+    --primary-500: #6366f1;
+    --primary-600: #4f46e5;
+    --primary-700: #4338ca;
     --sidebar-bg: #0f172a;
     --sidebar-bg-2: #020617;
     --sidebar-hover: #1e293b;
@@ -41,21 +51,24 @@ html {
     --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
     --text-muted: #64748b;
-    --danger-color: #cb4154;
-    --success-color: #1a9a75;
-    --warning-color: #d97706;
+    /* Семантические цвета AA 4.5:1 (бывш. блок «22») */
+    --danger-color: #dc2626;
+    --success-color: #047857;
+    --warning-color: #b45309;
     --border-color: #e2e8f0;
     --card-bg: #ffffff;
-    --danger-dark: #be123c;
+    --danger-dark: #b91c1c;
     --primary-hover: #4338ca;
     --pink: #ad36be;
     --pink-dark: #862194;
-    --text-faint: #94a3b8;
+    --text-faint: #64748b;
+    --text-secondary: #334155;
     --border-light: #e2e8f0;
     --info-bg: #e0f2fe;
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.08);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.08);
+    /* Тени нейтральные, без цветного glow (бывш. блок «25») */
+    --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 4px 8px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 12px 24px -6px rgba(15, 23, 42, 0.12), 0 4px 8px -4px rgba(15, 23, 42, 0.06);
     --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 12px;
@@ -100,7 +113,7 @@ html {
     /* Цвета таблицы */
     --table-header-bg: #0f172a;
     --table-header-text: #ffffff;
-    --table-row-even: #fcfdfe;
+    --table-row-even: #f8fafc;
     --table-row-odd: #ffffff;
     --table-row-hover: #f1f5f9;
     /* === ЦВЕТА МАГАЗИНОВ === */
@@ -118,7 +131,7 @@ html {
     --bg-secondary: #252a35;
     --text-color: #e2e8f0;
     --text-muted: #94a3b8;
-    --text-faint: #64748b;
+    --text-faint: #8595ab;
     --card-bg: #22262e;
     --border-color: #2d3340;
     --border-light: #2d3340;
@@ -126,22 +139,22 @@ html {
     --sidebar-bg: #0b0e14;
     --sidebar-bg-2: #080a0f;
     --sidebar-hover: #1a1e27;
-    --danger-color: #f87171;
+    --danger-color: #b91c1c;
     --danger-dark: #dc2626;
-    --success-color: #34d399;
+    --success-color: #059669;
     --warning-color: #fbbf24;
     --info-bg: #1e3a5f;
     --pink: #c084fc;
     --pink-dark: #a855f7;
-    --primary-hover: #6366f1;
+    --primary-hover: #4338ca;
     --table-header-bg: #161920;
     --table-header-text: #e2e8f0;
     --table-row-even: #1a1d24;
     --table-row-odd: #1e2128;
     --table-row-hover: #252830;
-    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 12px 24px -6px rgba(0, 0, 0, 0.6), 0 4px 8px -4px rgba(0, 0, 0, 0.4);
     --store-matusevicha-soft: #0c2d4a;
     --store-bogdanovicha-soft: #1e1547;
     --store-bn-soft: #0a2e2a;
@@ -7216,7 +7229,7 @@ textarea:focus-visible {
 [data-theme="dark"] .btn-delete-client:hover{ background:rgba(239,68,68,0.15) !important; color: var(--danger-color) !important; }
 
 /* --- 9. Контраст: --text-faint 2.56:1 -> 4.76:1 --------------------- */
-:root{ --text-faint: #64748b; }
+/* UI FIX 2026-08-26: значение перенесено в главный :root. */
 
 /* --- 10. Бейджи статусов 10.5px -> 12px ----------------------------- */
 .pay-badge, .sup-pur-status{
@@ -7240,7 +7253,7 @@ textarea:focus-visible {
 }
 
 /* --- 12. Зебра таблицы: было различие в 1% -------------------------- */
-:root:not([data-theme="dark"]){ --table-row-even: #f8fafc; }
+/* UI FIX 2026-08-26: значение перенесено в главный :root. */
 
 /* --- 13. Радиусы и градиенты: главный признак «недоделано» ---------- */
 /* UI FIX 2026-08-26: кнопки — «пилюли» (радиус 999px), как в референсе
@@ -7333,41 +7346,12 @@ input, select, textarea, button{ font-family: inherit !important; }
 
 /* ============================================================
    AUDIT FIXES — часть 2, дизайн и палитра (6 августа 2026)
-   Дописывается после блока «AUDIT FIXES — Спринт 0».
-   Откат: удалить этот блок целиком.
+   UI FIX 2026-08-26: блоки 21 (шкала indigo), 22 (AA-цвета),
+   23 (цвета тёмной темы) и 25 (нейтральные тени) ПЕРЕНЕСЕНЫ в главный
+   :root и [data-theme="dark"] в начале файла — теперь палитра задана
+   в одном месте. Здесь остались только правила компонентов (24 и далее).
    ============================================================ */
 
-/* --- 21. Единая шкала indigo вместо двух разных синих -------------- */
-/* было: --primary-color #4a57a4 и --primary-hover var(--primary-700) из разных шкал */
-:root{
-  --primary-50:  #eef2ff;
-  --primary-100: #e0e7ff;
-  --primary-500: #6366f1;
-  --primary-600: #4f46e5;
-  --primary-700: #4338ca;
-  --primary-color: #4f46e5;
-  --primary-dark:  #4338ca;
-  --primary-hover: #4338ca;
-  --primary-soft:  #eef2ff;
-}
-
-/* --- 22. Семантические цвета до AA 4.5:1 --------------------------- */
-/* было: success 3.55:1, warning 3.19:1 — не проходили для мелкого текста */
-:root{
-  --success-color: #047857;
-  --warning-color: #b45309;
-  --danger-color:  #dc2626;
-  --danger-dark:   #b91c1c;
-  --text-secondary:#334155;
-}
-
-/* --- 23. Тёмная тема: 3 провала контраста из отчёта ---------------- */
-[data-theme="dark"]{
-  --danger-color: #b91c1c;   /* было #f87171: белый текст давал 2.77:1 */
-  --success-color:#059669;
-  --text-muted: #94a3b8;
-  --text-faint:   #8595ab;
-}
 [data-theme="dark"] .theme-toggle,
 [data-theme="dark"] .compact-toggle{ color:#cbd5e1 !important; }
 
@@ -7387,17 +7371,8 @@ input, select, textarea, button{ font-family: inherit !important; }
 }
 .admin-link-btn{ height: 40px !important; }
 
-/* --- 25. Тени: нейтральные, без цветного glow --------------------- */
-:root{
-  --shadow-sm: 0 1px 2px 0 rgba(15,23,42,.06);
-  --shadow-md: 0 4px 8px -2px rgba(15,23,42,.08), 0 2px 4px -2px rgba(15,23,42,.04);
-  --shadow-lg: 0 12px 24px -6px rgba(15,23,42,.12), 0 4px 8px -4px rgba(15,23,42,.06);
-}
-[data-theme="dark"]{
-  --shadow-sm: 0 1px 2px 0 rgba(0,0,0,.4);
-  --shadow-md: 0 4px 8px -2px rgba(0,0,0,.5);
-  --shadow-lg: 0 12px 24px -6px rgba(0,0,0,.6);
-}
+/* --- 25. Тени: перенесены в главный :root / [data-theme="dark"] (UI FIX
+   2026-08-26, консолидация палитры). ----------------------------------- */
 
 /* --- 26. Единые высоты контролов: было 31/32/36/37/38/42/43 -------- */
 /* UI FIX 2026-08-26: padding 0 20px — пропорции пилюли (было 0 16px). */
@@ -7425,7 +7400,7 @@ input[type="date"], input[type="search"], select, textarea{
   border-radius: 8px !important;
   font-size: 14px !important;
 }
-input::placeholder, textarea::placeholder{ color:#94a3b8; }
+input::placeholder, textarea::placeholder{ color:#64748b; } /* UI FIX 2026-08-26: было #94a3b8 (2.6:1) — теперь 4.8:1 */
 
 /* --- 28. Карточки и модалки: 3 радиуса вместо 8 -------------------- */
 .kanban-card, .dash-card, .dash-stat, .writeoff-store-block{
@@ -11447,6 +11422,17 @@ h2, h3 {
     color: var(--text-color);
     font-size: 13px;
     transition: var(--transition-ui);
+}
+
+/* UI FIX 2026-08-26: пустая заметка — тихий текст без «коробки», чтобы 10
+   одинаковых инпутов не шумели; поле проявляется при hover строки/фокусе. */
+.input-note:placeholder-shown {
+    border-color: transparent;
+    background: transparent;
+}
+#documents-table tr:hover .input-note:placeholder-shown {
+    border-color: var(--border-color);
+    background: var(--card-bg);
 }
 
 .input-note::placeholder {
