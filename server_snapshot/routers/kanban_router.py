@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from auth import get_current_user, require_role
 import models
 import schemas
+import os
 from database import get_db, get_tenant_db
 from versioning import save_version
 from db_utils import resolve_tenant_db as _db
@@ -106,6 +107,13 @@ def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current
         )
         tdb.add(log)
         tdb.commit()
+        # Уведомление владельцу сделки, если её создал кто-то другой
+        if owner_id and owner_id != current_user.id:
+            from notify import notify
+            notify(db, [owner_id], actor_id=current_user.id,
+                   type="card_created", title=f"Создана сделка: {new_card.title}",
+                   details=f"Автор: {current_user.username}",
+                   entity_type="card", entity_id=new_card.id)
         return new_card
     finally:
         if tdb is not db:
@@ -148,12 +156,9 @@ def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db
             {"title": card.title, "status": card.status, "total_amount": float(card.total_amount or 0)},
             user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
         try:
-            from routers.webhooks_router import notify_webhooks
-            import asyncio
-            asyncio.get_event_loop().create_task(notify_webhooks(
-                current_user.tenant_id or 0, "card.updated",
-                {"id": card.id, "title": card.title, "status": card.status}
-            ))
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id or 0, "card.updated",
+                {"id": card.id, "title": card.title, "status": card.status})
         except Exception: pass
         return card
     finally:
@@ -218,6 +223,11 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
                 upload_dir = os.path.abspath(upload_dir)
                 if real_path.startswith(upload_dir) and os.path.exists(real_path):
                     os.remove(real_path)
+        # FIX 2026-08-29 (FK ON): лента и задачи не имеют каскада в DDL и
+        # relationship на Card — отвязываем вручную (транзакции ORM занулит сам,
+        # чек-листы и вложения удалятся каскадом relationship).
+        tdb.query(models.ActivityLog).filter(models.ActivityLog.card_id == card_id).update({"card_id": None}, synchronize_session=False)
+        tdb.query(models.Task).filter(models.Task.card_id == card_id).update({"card_id": None}, synchronize_session=False)
         tdb.delete(card)
         tdb.commit()
         return {"detail": "Карточка удалена навсегда"}

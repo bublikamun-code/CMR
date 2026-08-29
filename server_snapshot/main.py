@@ -22,6 +22,8 @@ from routers import clients_router
 from routers import tags_router
 from routers import suppliers_router
 from routers import activity_router
+from routers import tasks_router
+from routers import notifications_router
 from routers import email_parser_router
 from routers import custom_objects_router
 from routers import workflows_router
@@ -83,11 +85,15 @@ app.include_router(clients_router.router)
 app.include_router(tags_router.router)
 app.include_router(suppliers_router.router)
 app.include_router(activity_router.router)
+app.include_router(tasks_router.router)
+app.include_router(notifications_router.router)
 app.include_router(email_parser_router.router)
 # Cron-only routes (/email-parser/sync-all). This router was defined but never
 # registered, so scheduled email sync silently did nothing. It is guarded by
 # require_cron_token, not by a user JWT.
 app.include_router(email_parser_router.cron_router)
+# Cron-only route (/notifications/sync-overdue) — просрочки задач и сделок
+app.include_router(notifications_router.cron_router)
 app.include_router(custom_objects_router.router)
 app.include_router(workflows_router.router)
 app.include_router(webhooks_router.router)

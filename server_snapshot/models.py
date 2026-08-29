@@ -348,3 +348,69 @@ class SavedView(Base):
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+# ============================================================
+# Задачи (отдельные поручения, не привязанные жёстко к сделкам)
+# ============================================================
+
+class Task(Base):
+    __tablename__ = "tasks"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    # todo | in_work | done
+    status = Column(String(20), default="todo", index=True)
+    due_date = Column(DateTime, nullable=True, index=True)
+    priority = Column(Integer, default=0)
+    assignee_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    creator_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Опциональная связь со сделкой/клиентом — для контекста в списке
+    card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Снимки названий: карточка может жить в tenant-базе, недоступной
+    # читающему задачи (паттерн CardChecklist.company_name)
+    card_title_snapshot = Column(String(255), nullable=True)
+    client_name_snapshot = Column(String(255), nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # joined — сериализация ответа идёт после закрытия сессии (см. CardChecklist)
+    assignee = relationship("User", foreign_keys=[assignee_id], lazy="joined")
+
+
+class TaskChecklistItem(Base):
+    """Подзадача-пункт чек-листа внутри задачи."""
+    __tablename__ = "task_checklist_items"
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    is_done = Column(Boolean, default=False, index=True)
+    position = Column(Integer, default=0)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    task = relationship("Task", backref="checklist_items")
+
+
+# ============================================================
+# Лента уведомлений
+# ============================================================
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # task_assigned | task_due | task_done | task_overdue |
+    # card_created | card_updated | card_overdue | card_payment | client_created
+    type = Column(String(30), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    details = Column(Text, nullable=True)
+    entity_type = Column(String(20), nullable=True)   # task | card | client
+    entity_id = Column(Integer, nullable=True)
+    is_read = Column(Boolean, default=False, index=True)
+    read_at = Column(DateTime, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)

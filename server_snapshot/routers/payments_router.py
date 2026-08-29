@@ -59,13 +59,18 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             user_id=current_user.id, change_type="create", tenant_id=current_user.tenant_id)
         # Webhook уведомление
         try:
-            from routers.webhooks_router import notify_webhooks
-            import asyncio
-            asyncio.get_event_loop().create_task(notify_webhooks(
-                current_user.tenant_id, "payment.created",
-                {"id": new_tx.id, "card_id": new_tx.card_id, "amount": float(new_tx.amount or 0)}
-            ))
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id, "payment.created",
+                {"id": new_tx.id, "card_id": new_tx.card_id, "amount": float(new_tx.amount or 0)})
         except Exception: pass
+        # Уведомление владельцу сделки о новой оплате (тип card_updated:
+        # card_payment зарезервирован для просрочек из sync-overdue)
+        if card.owner_id and card.owner_id != current_user.id:
+            from notify import notify
+            notify(db, [card.owner_id], actor_id=current_user.id,
+                   type="card_updated", title=f"Новая оплата по сделке: {card.title}",
+                   details=f"{float(new_tx.amount or 0):,.2f} BYN",
+                   entity_type="card", entity_id=card.id)
         return new_tx
     finally:
         tdb.close()
