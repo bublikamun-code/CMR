@@ -93,6 +93,8 @@ def delete_supplier(supplier_id: int, db: Session = Depends(get_db), current_use
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
+        # FIX 2026-08-29 (FK ON): отвязываем пункты чек-листов этого поставщика
+        session.query(models.CardChecklist).filter(models.CardChecklist.supplier_id == supplier_id).update({"supplier_id": None}, synchronize_session=False)
         session.delete(s)
         session.commit()
         return {"detail": "Поставщик удалён"}

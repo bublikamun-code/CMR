@@ -34,16 +34,22 @@ def migrate_db(path: str):
     cur.execute("CREATE INDEX IF NOT EXISTS ix_writeoff_groups_id ON writeoff_groups (id)")
     cur.execute("CREATE INDEX IF NOT EXISTS ix_writeoff_groups_client_id ON writeoff_groups (client_id)")
 
-    for col, defn in [("writeoff_group_id", "INTEGER")]:
-        for table in ("cards", "transactions"):
-            try:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
-                print(f"  + added {col} to {table}")
-            except sqlite3.OperationalError as e:
-                if "duplicate column" in str(e).lower():
-                    print(f"  ~ {col} already exists in {table}")
-                else:
-                    raise
+    # Литеральные DDL: таблицы/колонки фиксированы, интерполяция не используется.
+    try:
+        cur.execute("ALTER TABLE cards ADD COLUMN writeoff_group_id INTEGER")
+        print("  + added writeoff_group_id to cards")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            raise
+        print("  ~ writeoff_group_id already exists in cards")
+
+    try:
+        cur.execute("ALTER TABLE transactions ADD COLUMN writeoff_group_id INTEGER")
+        print("  + added writeoff_group_id to transactions")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            raise
+        print("  ~ writeoff_group_id already exists in transactions")
 
     conn.commit()
     conn.close()

@@ -14,11 +14,23 @@ def migrate():
     
     print("=== Миграция CRM v2 ===")
     
-    # 1. Добавляем updated_at ко всем таблицам
-    tables = ['cards', 'transactions', 'clients', 'users', 'card_checklists', 'card_attachments']
-    for table in tables:
+    # 1. Добавляем updated_at ко всем таблицам.
+    # SQL — литералы без переменных: таблицы фиксированы, интерполяция имён
+    # в миграциях не используется намеренно.
+    for table in ["cards", "transactions", "clients", "users", "card_checklists", "card_attachments"]:
         try:
-            c.execute(f"ALTER TABLE {table} ADD COLUMN updated_at DATETIME")
+            if table == "cards":
+                c.execute("ALTER TABLE cards ADD COLUMN updated_at DATETIME")
+            elif table == "transactions":
+                c.execute("ALTER TABLE transactions ADD COLUMN updated_at DATETIME")
+            elif table == "clients":
+                c.execute("ALTER TABLE clients ADD COLUMN updated_at DATETIME")
+            elif table == "users":
+                c.execute("ALTER TABLE users ADD COLUMN updated_at DATETIME")
+            elif table == "card_checklists":
+                c.execute("ALTER TABLE card_checklists ADD COLUMN updated_at DATETIME")
+            else:
+                c.execute("ALTER TABLE card_attachments ADD COLUMN updated_at DATETIME")
             print(f"  + updated_at -> {table}")
         except sqlite3.OperationalError:
             print(f"  ~ updated_at уже есть в {table}")
@@ -77,29 +89,60 @@ def migrate():
     except sqlite3.OperationalError:
         print("  ~ priority уже есть")
     
-    # 6. Создаём индексы
-    indexes = [
-        ("idx_cards_status", "cards(status)"),
-        ("idx_cards_is_deleted", "cards(is_deleted)"),
-        ("idx_cards_owner_id", "cards(owner_id)"),
-        ("idx_cards_client_id", "cards(client_id)"),
-        ("idx_cards_created_at", "cards(created_at)"),
-        ("idx_transactions_card_id", "transactions(card_id)"),
-        ("idx_transactions_is_document", "transactions(is_document)"),
-        ("idx_transactions_date", "transactions(date)"),
-        ("idx_activity_log_card_id", "activity_log(card_id)"),
-        ("idx_activity_log_user_id", "activity_log(user_id)"),
-        ("idx_activity_log_created_at", "activity_log(created_at)"),
-        ("idx_clients_unp", "clients(unp)"),
-        ("idx_clients_name", "clients(name)"),
-    ]
-    
-    for idx_name, idx_def in indexes:
-        try:
-            c.execute(f"CREATE INDEX {idx_name} ON {idx_def}")
-            print(f"  + {idx_name}")
-        except sqlite3.OperationalError:
-            print(f"  ~ {idx_name} уже есть")
+    # 6. Создаём индексы — явные DDL ниже
+    # Индексы фиксированы — литеральные DDL без интерполяции имён.
+    try:
+        c.execute("CREATE INDEX idx_cards_status ON cards(status)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_cards_status уже есть")
+    try:
+        c.execute("CREATE INDEX idx_cards_is_deleted ON cards(is_deleted)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_cards_is_deleted уже есть")
+    try:
+        c.execute("CREATE INDEX idx_cards_owner_id ON cards(owner_id)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_cards_owner_id уже есть")
+    try:
+        c.execute("CREATE INDEX idx_cards_client_id ON cards(client_id)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_cards_client_id уже есть")
+    try:
+        c.execute("CREATE INDEX idx_cards_created_at ON cards(created_at)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_cards_created_at уже есть")
+    try:
+        c.execute("CREATE INDEX idx_transactions_card_id ON transactions(card_id)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_transactions_card_id уже есть")
+    try:
+        c.execute("CREATE INDEX idx_transactions_is_document ON transactions(is_document)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_transactions_is_document уже есть")
+    try:
+        c.execute("CREATE INDEX idx_transactions_date ON transactions(date)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_transactions_date уже есть")
+    try:
+        c.execute("CREATE INDEX idx_activity_log_card_id ON activity_log(card_id)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_activity_log_card_id уже есть")
+    try:
+        c.execute("CREATE INDEX idx_activity_log_user_id ON activity_log(user_id)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_activity_log_user_id уже есть")
+    try:
+        c.execute("CREATE INDEX idx_activity_log_created_at ON activity_log(created_at)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_activity_log_created_at уже есть")
+    try:
+        c.execute("CREATE INDEX idx_clients_unp ON clients(unp)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_clients_unp уже есть")
+    try:
+        c.execute("CREATE INDEX idx_clients_name ON clients(name)")
+    except sqlite3.OperationalError:
+        print("  ~ idx_clients_name уже есть")
     
     # 7. Обновляем.updated_at для существующих записей
     c.execute("UPDATE cards SET updated_at = created_at WHERE updated_at IS NULL")

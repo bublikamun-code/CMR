@@ -14,9 +14,11 @@ SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(DATA_DIR, 'crm_app.db')}"
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False},
+    # UI FIX 2026-08-29: 50+50 соединений на процесс избыточны для SQLite
+    # (один писатель на всю БД) — 10+10 хватает с запасом.
     poolclass=QueuePool,
-    pool_size=50,
-    max_overflow=50,
+    pool_size=10,
+    max_overflow=10,
     pool_timeout=120,
     pool_pre_ping=True,
     pool_recycle=3600,)
@@ -26,6 +28,13 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=10000")
+    # FIX 2026-08-29: безопасный уровень для WAL — заметно быстрее на записи,
+    # чем FULL, при том же уровне сохранности.
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    # FIX 2026-08-29: FK включён — без него все ondelete=CASCADE/SET NULL
+    # из models.py не работали на уровне БД, и hard-delete оставлял сирот.
+    # Перед включением выполнена инвентаризация и чистка сирот.
+    cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

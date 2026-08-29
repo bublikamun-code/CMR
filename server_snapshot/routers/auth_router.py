@@ -91,6 +91,17 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
         raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
     # UI FIX 2026-08-26: компания одна — проверка «из другого тенанта» убрана:
     # из-за неё админ не мог удалять пользователей с tenant_id = NULL.
+    # FIX 2026-08-29 (FK ON): отвязываем артефакты пользователя — в DDL нет
+    # ON DELETE, удаление юзера с карточками/лентой/задачами падало бы.
+    db.query(models.Card).filter(models.Card.owner_id == user_id).update({"owner_id": None}, synchronize_session=False)
+    db.query(models.ActivityLog).filter(models.ActivityLog.user_id == user_id).update({"user_id": None}, synchronize_session=False)
+    db.query(models.RecordVersion).filter(models.RecordVersion.changed_by == user_id).update({"changed_by": None}, synchronize_session=False)
+    db.query(models.Workflow).filter(models.Workflow.created_by == user_id).update({"created_by": None}, synchronize_session=False)
+    db.query(models.SavedView).filter(models.SavedView.created_by == user_id).update({"created_by": None}, synchronize_session=False)
+    db.query(models.CustomRecord).filter(models.CustomRecord.created_by == user_id).update({"created_by": None}, synchronize_session=False)
+    db.query(models.Task).filter(models.Task.assignee_id == user_id).update({"assignee_id": None}, synchronize_session=False)
+    db.query(models.Task).filter(models.Task.creator_id == user_id).update({"creator_id": None}, synchronize_session=False)
+    db.query(models.Notification).filter(models.Notification.user_id == user_id).delete(synchronize_session=False)
     db.delete(target)
     db.commit()
     return {"detail": "Пользователь удалён"}

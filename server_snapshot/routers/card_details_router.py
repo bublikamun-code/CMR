@@ -1,6 +1,7 @@
 import os
 import re
 import uuid
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -17,8 +18,13 @@ router = APIRouter(
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 # Абсолютный путь к uploads: не зависит от CWD процесса.
+# FIX 2026-08-29: каталог загрузок можно вынести из веб-корна —
+# CRM_UPLOADS_DIR, иначе CRM_DATA_DIR/uploads, иначе uploads рядом с кодом.
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UPLOAD_DIR = os.path.join(_APP_DIR, "uploads")
+UPLOAD_DIR = os.path.abspath(
+    os.environ.get("CRM_UPLOADS_DIR")
+    or os.path.join(os.environ.get("CRM_DATA_DIR") or _APP_DIR, "uploads")
+)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/cards/{card_id}/checklists", response_model=schemas.ChecklistResponse)
@@ -123,8 +129,13 @@ def upload_checklist_invoice(checklist_id: int, file: UploadFile = File(...), db
         original_name = os.path.basename(file.filename or "schet")
         safe_filename = f"chk{checklist_id}_{uuid.uuid4().hex[:8]}_{original_name}"
         file_path = os.path.join(UPLOAD_DIR, safe_filename)
+        # Defense-in-depth: сохраняем строго внутри UPLOAD_DIR (в имя файла
+        # попадает исходное имя вложения — проверяем, что оно не вынесло нас
+        # за пределы каталога).
+        if not os.path.realpath(file_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+            raise HTTPException(status_code=400, detail="Недопустимое имя файла")
         size = 0
-        with open(file_path, "wb") as buffer:
+        with Path(file_path).open("wb") as buffer:
             while chunk := file.file.read(1024 * 1024):
                 size += len(chunk)
                 if size > MAX_UPLOAD_BYTES:
@@ -183,7 +194,7 @@ def upload_file(card_id: int, file: UploadFile = File(...), db: Session = Depend
         safe_filename = f"{card_id}_{uuid.uuid4().hex[:8]}_{original_name}"
         file_path = os.path.join(UPLOAD_DIR, safe_filename)
         size = 0
-        with open(file_path, "wb") as buffer:
+        with Path(file_path).open("wb") as buffer:
             while chunk := file.file.read(1024 * 1024):
                 size += len(chunk)
                 if size > MAX_UPLOAD_BYTES:
@@ -280,12 +291,9 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
         # Webhook уведомление
         try:
-            from routers.webhooks_router import notify_webhooks
-            import asyncio
-            asyncio.get_event_loop().create_task(notify_webhooks(
-                current_user.tenant_id, "card.updated",
-                {"id": card.id, "title": card.title, "status": card.status}
-            ))
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id, "card.updated",
+                {"id": card.id, "title": card.title, "status": card.status})
         except Exception: pass
         return card
     finally:
@@ -407,6 +415,12 @@ def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db),
             raise HTTPException(status_code=404, detail="Вложение не найдено")
         file_path = _resolve_file_path(attachment.file_path)
         if not file_path:
+            # Диагностика: путь из БД и папка, где искали (как в /files/)
+            import logging
+            logging.getLogger(__name__).warning(
+                "Attachment not found: id=%r stored=%r upload_dir=%r",
+                attachment_id, attachment.file_path, os.path.realpath(UPLOAD_DIR)
+            )
             raise HTTPException(status_code=404, detail="Файл не найден на сервере")
         return FileResponse(file_path, filename=_sanitize_download_name(attachment.file_name or os.path.basename(file_path)))
     finally:
@@ -428,6 +442,12 @@ def download_checklist_invoice_by_id(checklist_id: int, db: Session = Depends(ge
             raise HTTPException(status_code=404, detail="Счёт не прикреплён")
         file_path = _resolve_file_path(item.invoice_file_path)
         if not file_path:
+            # Диагностика: путь из БД и папка, где искали (как в /files/)
+            import logging
+            logging.getLogger(__name__).warning(
+                "Checklist invoice not found: checklist_id=%r stored=%r upload_dir=%r",
+                checklist_id, item.invoice_file_path, os.path.realpath(UPLOAD_DIR)
+            )
             raise HTTPException(status_code=404, detail="Файл счёта не найден на сервере")
         return FileResponse(file_path, filename=item.invoice_file_name or os.path.basename(file_path))
     finally:

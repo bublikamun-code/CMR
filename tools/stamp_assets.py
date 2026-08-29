@@ -21,6 +21,7 @@ import hashlib
 import os
 import re
 import sys
+from pathlib import Path
 
 SITE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "site")
 SITE = os.path.normpath(SITE)
@@ -72,8 +73,7 @@ def process(html_name, check_only):
     updated = ASSET_RE.sub(replace, original)
 
     if not check_only and updated != original:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(updated)
+        Path(path).write_text(updated, encoding="utf-8")
 
     total = len(ASSET_RE.findall(original))
     return total, changed[0], missing

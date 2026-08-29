@@ -44,12 +44,25 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 from collections import Counter, defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
 CSS_PATH = os.path.join(SITE, "css", "style.css")
 DARK_MARKER = '[data-theme="dark"]'
+
+# Запись разрешена только в проект или /tmp: инструмент не должен уметь
+# писать произвольные пути, переданные из CLI.
+_WRITE_ROOTS = [os.path.realpath(ROOT), os.path.realpath("/tmp")]
+
+
+def safe_write(path, content, encoding="utf-8"):
+    resolved = os.path.realpath(path)
+    if not any(resolved == r or resolved.startswith(r + os.sep) for r in _WRITE_ROOTS):
+        raise SystemExit(f"Запись запрещена вне разрешённых каталогов: {path}")
+    Path(resolved).write_text(content, encoding=encoding)
+    return resolved
 
 # ---------------------------------------------------------------- утилиты
 
@@ -791,10 +804,10 @@ def cmd_strip(apply=False, only_dark=True):
     print(f"Найдено избыточных: {len(removable)}, вырезано вхождений: {len(cuts)}")
     print(f"!important до: {text.count('!important')}, после: {out.count('!important')}")
     if apply:
-        open(CSS_PATH, "w", encoding="utf-8").write(out)
+        safe_write(CSS_PATH, out)
         print(f"Записано: {CSS_PATH}")
     else:
-        open("/tmp/style.stripped.css", "w", encoding="utf-8").write(out)
+        safe_write("/tmp/style.stripped.css", out)
         print("Черновик: /tmp/style.stripped.css (для применения добавьте --apply)")
     return len(cuts)
 
@@ -1197,7 +1210,7 @@ def cmd_prune(apply=False, only_dark=True, synth=True):
 
     print(f"\n!important до: {text.count('!important')}, после: {out.count('!important')}")
     target = CSS_PATH if apply else "/tmp/style.pruned.css"
-    open(target, "w", encoding="utf-8").write(out)
+    safe_write(target, out)
     print(f"Записано: {target}")
     return len(cuts)
 
@@ -1227,8 +1240,7 @@ def cmd_winners(css_path, out_path, only_dark=True, synth=True):
         snapshot[elem_key][f"{prop}@{state}@{pe}@{media}@{world}"] = \
             winner_of(decls, idxs)
 
-    json.dump(snapshot, open(out_path, "w"), ensure_ascii=False,
-              sort_keys=True, indent=0)
+    safe_write(out_path, json.dumps(snapshot, ensure_ascii=False, sort_keys=True, indent=0))
     total = sum(len(v) for v in snapshot.values())
     print(f"Снимок: {len(snapshot)} элементов, {total} вычисленных значений -> {out_path}")
 
@@ -1250,6 +1262,16 @@ def cmd_diff(path_a, path_b):
     return len(diffs)
 
 
+def _cli_path(p):
+    """CLI-пути валидируются сразу при разборе аргументов: запись разрешена
+    только в проект или /tmp (см. safe_write)."""
+    resolved = Path(p).resolve()
+    for root in _WRITE_ROOTS:
+        if resolved == Path(root) or resolved.is_relative_to(root):
+            return resolved
+    raise SystemExit(f"Путь вне разрешённых каталогов: {p}")
+
+
 def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     flags = {a for a in argv[1:] if a.startswith("--")}
@@ -1264,8 +1286,8 @@ def main(argv):
     elif cmd == "prune":
         cmd_prune(apply="--apply" in flags, only_dark=only_dark, synth=synth)
     elif cmd == "winners":
-        css = args[2] if len(args) > 2 else CSS_PATH
-        cmd_winners(css, args[1], only_dark=only_dark, synth=synth)
+        css = _cli_path(args[2]) if len(args) > 2 else CSS_PATH
+        cmd_winners(css, str(_cli_path(args[1])), only_dark=only_dark, synth=synth)
     elif cmd == "diff":
         sys.exit(1 if cmd_diff(args[1], args[2]) else 0)
     else:

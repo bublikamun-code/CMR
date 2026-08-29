@@ -257,28 +257,64 @@ def migrate():
     else:
         print("[7/8] saved_views уже существует, пропускаю")
 
-    # 8. Доп. индексы
+    # 8. Доп. индексы — фиксированный список, литеральные DDL без интерполяции
     print("[8/8] Добавляю индексы...")
-    indexes = [
-        ("idx_cards_status", "cards", "status"),
-        ("idx_cards_owner", "cards", "owner_id"),
-        ("idx_cards_client", "cards", "client_id"),
-        ("idx_cards_created", "cards", "created_at"),
-        ("idx_cards_store", "cards", "store_location"),
-        ("idx_tx_card", "transactions", "card_id"),
-        ("idx_tx_date", "transactions", "date"),
-        ("idx_tx_store", "transactions", "store_location"),
-        ("idx_al_card", "activity_log", "card_id"),
-        ("idx_al_user", "activity_log", "user_id"),
-        ("idx_al_created", "activity_log", "created_at"),
-    ]
     added = 0
-    for idx_name, table, col in indexes:
-        try:
-            cur.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({col})")
-            added += 1
-        except sqlite3.OperationalError:
-            pass  # индекс уже существует
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cards_owner ON cards(owner_id)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cards_client ON cards(client_id)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cards_created ON cards(created_at)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cards_store ON cards(store_location)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tx_card ON transactions(card_id)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tx_store ON transactions(store_location)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_al_card ON activity_log(card_id)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_al_user ON activity_log(user_id)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_al_created ON activity_log(created_at)")
+        added += 1
+    except sqlite3.OperationalError:
+        pass
     print(f"  Добавлено/проверено: {added} индексов")
 
     conn.commit()
