@@ -557,8 +557,9 @@ a.nav-btn { text-decoration: none; }
     white-space: nowrap;
 }
 [data-theme="dark"] .incomplete-badge { background: rgba(254, 243, 199, 0.12); color: #fcd34d; }
-.view-toggle-btn { border-radius: 0 !important; border: none !important; background: var(--card-bg); color: var(--text-muted); }
-.view-toggle-btn.active { background: var(--primary-color); color: white; }
+.view-toggle-btn { border: none !important; background: var(--card-bg); color: var(--text-muted); }
+/* FIX 2026-08-29: base .active и его дубль удалены — финальный стиль
+   (primary-soft/primary-dark !important) объявлен в конце файла. */
 [data-theme="dark"] .view-toggle { border-color: var(--border-interactive); }
 [data-theme="dark"] .view-toggle-btn { background: var(--table-row-hover); color: var(--text-muted); }
 [data-theme="dark"] .view-toggle-btn.active { background: var(--primary-hover); color: white; }
@@ -683,21 +684,9 @@ a.nav-btn { text-decoration: none; }
     box-shadow: var(--shadow-sm);
 }
 
-/* Кнопка "Показать старые" на колонках канбана */
-.btn-show-old {
-    width: 100%;
-    margin-top: 10px;
-    padding: 7px;
-    cursor: pointer;
-    border: 1px solid var(--border-color);
-    /* UI Audit (2026-08-09, E.1): #fff → var(--card-bg) для тёмной темы */
-    background: var(--card-bg);
-    border-radius: var(--radius-md);
-    font-size: 11px;
-    color: var(--text-muted);
-    transition: var(--transition-ui);
-}
-
+/* FIX 2026-08-29: .btn-show-old — база 687 и легаси-слой 3807 (белый фон
+   !important, ломал тёмную тему) удалены; живёт ghost-стиль 9915 + solid
+   финал 11261. Кнопка «Показать старые» на колонках канбана */
 .btn-show-old:hover {
     border-color: var(--warning-color);
     color: var(--warning-color);
@@ -3803,35 +3792,8 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 .progress-fill.paid { background-color: var(--success-color) !important; }
 .progress-fill.came { background-color: var(--primary-500) !important; }
 
-/* Кнопка Показать старые в стиле Dashboard */
-.btn-show-old {
-    width: 100% !important;
-    margin-top: 12px !important;
-    padding: 8px 12px !important;
-    background: #ffffff !important;
-    border: 1px dashed #cbd5e1 !important;
-    border-radius: 8px !important;
-    color: var(--text-muted) !important;
-    font-size: 12px !important;
-    font-weight: 600 !important;
-    cursor: pointer !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 6px !important;
-    transition: var(--transition-ui) !important;
-}
-
-.btn-show-old:hover {
-    background: var(--table-row-even) !important;
-    border-color: #94a3b8 !important;
-    color: var(--text-color) !important;
-    transform: translateY(-1px) !important;
-}
-
-.btn-show-old:active {
-    transform: translateY(0) !important;
-}
+/* FIX 2026-08-29: легаси-слой .btn-show-old удалён (background #fff !important
+   перекрывал тёмную тему, финальный ghost-стиль был мёртв). */
 
 
 #page-dashboard {
@@ -6086,8 +6048,7 @@ input, select, textarea {
 [data-theme="dark"] .filter-toggle:hover { background: var(--border-interactive); }
 
 /* Sidebar toggle */
-[data-theme="dark"] .sidebar-toggle { background: var(--table-row-hover); color: var(--text-color); border-color: var(--border-interactive); }
-[data-theme="dark"] .sidebar-toggle:hover { background: var(--primary-color); color: white; }
+/* FIX 2026-08-29: dark-дубль удалён — перекрыт !important-правилом ниже. */
 
 /* Forms */
 [data-theme="dark"] .form-group label { color: var(--text-muted); }
@@ -7667,10 +7628,8 @@ textarea:focus-visible {
 .sup-pur-empty{ font-size: 14px !important; padding: 32px 16px !important; }
 .sup-pur-note{ font-size: 12px !important; }
 
-/* --- 17. Кнопка закрытия: зона 44, hover не красный ----------------- */
-.close-btn{ position: relative; border-radius: 8px !important; }
-.close-btn::before{ content:""; position:absolute; inset:-6px; }
-.close-btn:hover{ background: #e2e8f0 !important; color: #0f172a !important; }
+/* FIX 2026-08-29: мёртвые .close-btn (position relative, radius, серый hover)
+   удалены — финальный стиль: 32×32 radius 8, красноватый hover, тёмная тема. */
 
 /* --- 18. Утечка Arial в контролах ----------------------------------- */
 input, select, textarea, button{ font-family: inherit !important; }
