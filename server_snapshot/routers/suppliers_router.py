@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List
 import models, schemas
@@ -121,7 +121,11 @@ def supplier_purchases(supplier_id: int, db: Session = Depends(get_db), current_
         if not sup:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
 
-        items = session.query(models.CardChecklist).filter(
+        items = session.query(models.CardChecklist).options(
+            # FIX 2026-08-30 (N+1): сделка грузилась отдельным SELECT на каждый
+            # пункт чек-листа (it.card в цикле ниже).
+            selectinload(models.CardChecklist.card)
+        ).filter(
             models.CardChecklist.supplier_id == supplier_id
         ).order_by(models.CardChecklist.id.desc()).all()
 

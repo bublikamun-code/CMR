@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, selectinload
 from typing import List
 from pydantic import BaseModel
@@ -7,6 +7,17 @@ import schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
 from db_utils import resolve_tenant_db as _db
+
+# FIX 2026-08-30: предохранитель от неограниченной выборки (реестр и документы
+# раньше читали ВСЮ таблицу транзакций). Это не пагинация: сейчас в базе 188
+# транзакций, лимит в ~25 раз больше и в обычной работе недостижим; он нужен
+# на случай аномального роста (зациклившийся импорт и т.п.). При срабатывании
+# ответ помечается заголовками X-Total-Count / X-Truncated, чтобы фронтенд
+# мог показать предупреждение, а не молча терять строки. ВАЖНО: реестр
+# группирует транзакции по сделкам, поэтому обрезка может расщепить последнюю
+# группу — при срабатывании лимита это сигнал чинить причину роста, а не
+# поднимать константу.
+REGISTRY_HARD_LIMIT = 5000
 
 router = APIRouter(
     prefix="/payments",
@@ -76,7 +87,9 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
         tdb.close()
 
 @router.get("/transactions", response_model=List[schemas.TransactionResponse])
-def get_transactions(grouped: bool = True, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
+                     current_user: models.User = Depends(get_current_user),
+                     response: Response = None):
     """Реестр оплат.
 
     grouped=True (по умолчанию) — ОДНА строка на сделку с общей суммой.
@@ -97,7 +110,11 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db), curren
 
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
-        ).all()
+        ).limit(REGISTRY_HARD_LIMIT).all()
+        if response is not None:
+            response.headers["X-Total-Count"] = str(len(rows))
+            if len(rows) >= REGISTRY_HARD_LIMIT:
+                response.headers["X-Truncated"] = "true"
 
         if not grouped:
             return rows
@@ -179,7 +196,8 @@ def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None,
     }
 
 @router.get("/documents", response_model=List[schemas.TransactionResponse])
-def get_documents(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_documents(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
+                  response: Response = None):
     tdb = _db(current_user, db)
     try:
         session = tdb
@@ -187,7 +205,14 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
         if current_user.role == "superadmin" and current_user.tenant_id is None:
             session = db
             query = db.query(models.Transaction).filter(models.Transaction.is_document == True)
-        return query.options(selectinload(models.Transaction.card)).order_by(models.Transaction.date.desc()).all()
+        rows = query.options(selectinload(models.Transaction.card)).order_by(
+            models.Transaction.date.desc()
+        ).limit(REGISTRY_HARD_LIMIT).all()
+        if response is not None:
+            response.headers["X-Total-Count"] = str(len(rows))
+            if len(rows) >= REGISTRY_HARD_LIMIT:
+                response.headers["X-Truncated"] = "true"
+        return rows
     finally:
         tdb.close()
 

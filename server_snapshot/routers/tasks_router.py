@@ -9,7 +9,7 @@
 Уведомления пишутся в базу получателя (см. notify.py).
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List, Optional
 from datetime import datetime
@@ -52,10 +52,12 @@ def _snapshot_title(db: Session, model, obj_id):
     return None
 
 
-def _serialize(db: Session, task: models.Task) -> dict:
+def _serialize(db: Session, task: models.Task, usernames: dict = None) -> dict:
     def username(uid):
         if not uid:
             return None
+        if usernames is not None:
+            return usernames.get(uid)
         u = db.get(models.User, uid)
         return u.username if u else None
 
@@ -121,10 +123,17 @@ def list_tasks(my: Optional[int] = None, status: Optional[str] = None,
         like = f"%{q}%"
         query = query.filter(or_(models.Task.title.ilike(like),
                                  models.Task.description.ilike(like)))
-    tasks = query.order_by(models.Task.status.desc(),
-                           models.Task.due_date.is_(None),
-                           models.Task.due_date.asc()).limit(500).all()
-    return [_serialize(db, t) for t in tasks]
+    tasks = query.options(
+        # FIX 2026-08-30 (N+1): чек-листы грузились лениво на каждую задачу —
+        # до 500 отдельных SELECT на один запрос списка.
+        selectinload(models.Task.checklist_items)
+    ).order_by(models.Task.status.desc(),
+               models.Task.due_date.is_(None),
+               models.Task.due_date.asc()).limit(500).all()
+    # FIX 2026-08-30 (N+1): имена пользователей — одним запросом вместо
+    # db.get на каждую задачу.
+    usernames = dict(db.query(models.User.id, models.User.username).all())
+    return [_serialize(db, t, usernames) for t in tasks]
 
 
 @router.post("", response_model=schemas.TaskResponse)
