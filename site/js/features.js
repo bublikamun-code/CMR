@@ -750,6 +750,50 @@ function parseMoney(value) {
     });
 })();
 
+// === FINANCE SECTION TABS (Оплаты / Списание / Документы) ===
+(function initFinanceTabs() {
+    const tabsWrap = document.getElementById('finance-tabs');
+    if (!tabsWrap) return;
+    const tabs = tabsWrap.querySelectorAll('.settings-tab');
+    const panels = document.querySelectorAll('.finance-panel');
+    const FINANCE_TABS = ['payments', 'writeoffs', 'documents'];
+
+    function loaderFor(key) {
+        if (key === 'payments') return typeof loadPaymentsTable === 'function' ? loadPaymentsTable : null;
+        if (key === 'writeoffs') return typeof loadWriteoffsBoard === 'function' ? loadWriteoffsBoard : null;
+        if (key === 'documents') return typeof loadDocumentsTable === 'function' ? loadDocumentsTable : null;
+        return null;
+    }
+
+    function activateTab(key, loadData) {
+        tabs.forEach(t => {
+            const on = t.getAttribute('data-finance-tab') === key;
+            t.classList.toggle('active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        panels.forEach(p => p.classList.toggle('active', p.id === 'page-' + key));
+        try { localStorage.setItem('crm_finance_tab', key); } catch (e) {}
+        const fn = loadData && loaderFor(key);
+        if (fn) fn();
+    }
+
+    tabs.forEach(t => {
+        t.addEventListener('click', () => activateTab(t.getAttribute('data-finance-tab'), true));
+    });
+
+    // Клик по «Финансы» в меню — загрузить данные активной вкладки
+    const financeBtn = document.querySelector('[data-target="page-finance"]');
+    if (financeBtn) financeBtn.addEventListener('click', () => {
+        let key = null;
+        try { key = localStorage.getItem('crm_finance_tab'); } catch (e) {}
+        activateTab(FINANCE_TABS.includes(key) ? key : 'payments', true);
+    });
+
+    let savedTab = null;
+    try { savedTab = localStorage.getItem('crm_finance_tab'); } catch (e) {}
+    if (FINANCE_TABS.includes(savedTab)) activateTab(savedTab, false);
+})();
+
 // === COMMAND PALETTE ===
 (function initCommandPalette() {
     const overlay = document.getElementById('cmd-palette-overlay');
@@ -763,9 +807,8 @@ function parseMoney(value) {
 
     const PAGES = [
         { id: 'page-kanban', label: 'Канбан-доска', icon: ICON_BOARD },
-        { id: 'page-payments', label: 'Реестр оплат', icon: ICON_LIST },
-        { id: 'page-writeoffs', label: 'Списание', icon: ICON_BOX },
-        { id: 'page-documents', label: 'Документы', icon: ICON_FILE },
+        { id: 'page-tasks', label: 'Задачи', icon: ICON_BOX },
+        { id: 'page-finance', label: 'Финансы (оплаты, списание, документы)', icon: ICON_LIST },
         { id: 'page-counterparties', label: 'Контрагенты', icon: ICON_CLIENT },
         { id: 'page-dashboard', label: 'Дашборд', icon: '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>' },
     ];

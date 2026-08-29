@@ -138,7 +138,7 @@ function renderDashboard() {
 
     const managerStats = {};
     cards.forEach(c => {
-        const name = c.owner ? c.owner.username : 'Неизвестно';
+        const name = c.owner ? c.owner.username : 'Без ответственного';
         if (!managerStats[name]) managerStats[name] = { count: 0, amount: 0, closed: 0 };
         managerStats[name].count++;
         managerStats[name].amount += parseFloat(c.total_amount) || 0;
@@ -147,7 +147,7 @@ function renderDashboard() {
 
     const storeStats = {};
     cards.forEach(c => {
-        const store = c.store_location || 'Не привязан';
+        const store = c.store_location || 'Без магазина';
         if (!storeStats[store]) storeStats[store] = 0;
         storeStats[store]++;
     });

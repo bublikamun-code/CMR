@@ -1101,10 +1101,14 @@ async function downloadFile(filename, niceName) {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         if (!resp.ok) {
+            // UI FIX 2026-08-29: показываем detail от сервера — раньше любое 404
+            // маскировалось общим «файл утерян при переносе», и причину было не понять.
+            let detail = '';
+            try { const j = await resp.json(); if (j && j.detail) detail = String(j.detail); } catch (e) {}
             if (resp.status === 404) {
-                throw new Error('Файл не найден на сервере. Возможно, вложение было утеряно при переносе данных.');
+                throw new Error('Файл не найден на сервере' + (detail ? ': ' + detail : ''));
             }
-            throw new Error('Ошибка ' + resp.status);
+            throw new Error(detail || ('Ошибка ' + resp.status));
         }
         const blob = await resp.blob();
 
@@ -1139,10 +1143,12 @@ async function downloadById(endpoint, id, niceName) {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         if (!resp.ok) {
+            let detail = '';
+            try { const j = await resp.json(); if (j && j.detail) detail = String(j.detail); } catch (e) {}
             if (resp.status === 404) {
-                throw new Error('Файл не найден на сервере. Возможно, вложение было утеряно при переносе данных.');
+                throw new Error('Файл не найден на сервере' + (detail ? ': ' + detail : ''));
             }
-            throw new Error('Ошибка ' + resp.status);
+            throw new Error(detail || ('Ошибка ' + resp.status));
         }
         const blob = await resp.blob();
         const disposition = resp.headers.get('content-disposition') || '';

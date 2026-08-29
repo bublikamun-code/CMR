@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     initKanbanDensityToggle();
+    initFiltersCollapsed();
     loadKanbanBoard();
     setupCreateCardButton();
     setupTrashButton();
@@ -310,7 +311,10 @@ function fillCardHTML(cardEl, card) {
     const paidCount = card.checklists ? card.checklists.filter(c => c.is_paid).length : 0;
     const secCount = card.checklists ? card.checklists.filter(c => c.is_secondary_check).length : 0;
 
-    const creatorName = card.owner ? card.owner.username : 'Неизвестно';
+    const creatorName = card.owner ? card.owner.username : 'Без ответственного';
+    // Сделка-«сирота»: нет ответственного или суммы — из-за неё врут воронка
+    // и дашборд. Подсвечиваем бейджем, чтобы такие заполняли сразу.
+    const isIncomplete = !card.owner || !(parseFloat(card.total_amount) > 0);
 
     const paidPct = total > 0 ? Math.round((paidCount / total) * 100) : 0;
     const secPct = total > 0 ? Math.round((secCount / total) * 100) : 0;
@@ -359,6 +363,7 @@ function fillCardHTML(cardEl, card) {
             <div class="card-meta">
                 ${card.store_location ? `<span class="store-badge store-${escapeHtml(card.store_location)}">${escapeHtml(card.store_location)}</span>` : '<span class="store-badge store-empty">Без склада</span>'}
                 <span class="card-manager">${escapeHtml(creatorName)}</span>
+                ${isIncomplete ? '<span class="incomplete-badge" title="Не назначен ответственный или не указана сумма сделки">не заполнена</span>' : ''}
             </div>
             <div class="card-payment">${renderPaymentBadge(card)}</div>
             ${tagsHtml}
@@ -1035,11 +1040,31 @@ async function archiveCardFromList(id) {
 }
 
 // === ПЕРЕКЛЮЧЕНИЕ ФИЛЬТРОВ (мобильная версия) ===
+// UI FIX 2026-08-29: на мобильных фильтры свёрнуты по умолчанию — иначе до
+// доски приходилось пролистывать ~700px управления. Выбор пользователя
+// запоминается в sessionStorage до конца сессии.
+function initFiltersCollapsed() {
+    const filters = document.getElementById('kanban-filters');
+    const btn = document.querySelector('.filter-toggle');
+    if (!filters || !btn) return;
+    let collapsed;
+    try {
+        const saved = sessionStorage.getItem('kanbanFiltersCollapsed');
+        collapsed = saved !== null ? saved === '1' : window.innerWidth <= 720;
+    } catch (e) {
+        collapsed = window.innerWidth <= 720;
+    }
+    filters.classList.toggle('collapsed', collapsed);
+    btn.innerHTML = collapsed ? `${ICON_FILTER} Фильтры ${ICON_CHEVRON_DOWN}` : `${ICON_FILTER} Фильтры ${ICON_CHEVRON_UP}`;
+}
+
 function toggleFilters() {
     const filters = document.getElementById('kanban-filters');
     const btn = document.querySelector('.filter-toggle');
     if (filters) {
         filters.classList.toggle('collapsed');
-        if (btn) btn.innerHTML = filters.classList.contains('collapsed') ? `${ICON_FILTER} Фильтры ${ICON_CHEVRON_DOWN}` : `${ICON_FILTER} Фильтры ${ICON_CHEVRON_UP}`;
+        const collapsed = filters.classList.contains('collapsed');
+        if (btn) btn.innerHTML = collapsed ? `${ICON_FILTER} Фильтры ${ICON_CHEVRON_DOWN}` : `${ICON_FILTER} Фильтры ${ICON_CHEVRON_UP}`;
+        try { sessionStorage.setItem('kanbanFiltersCollapsed', collapsed ? '1' : '0'); } catch (e) {}
     }
 }

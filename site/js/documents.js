@@ -4,9 +4,8 @@ let documentsMonth = 'all';
 let documentsSort = { key: null, dir: 1 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    const docsBtn = document.querySelector('[data-target="page-documents"]');
-    if (docsBtn) docsBtn.addEventListener('click', loadDocumentsTable);
-    if (document.getElementById('page-documents')?.classList.contains('active')) loadDocumentsTable();
+    if (document.getElementById('page-finance')?.classList.contains('active')
+        && document.getElementById('page-documents')?.classList.contains('active')) loadDocumentsTable();
 
     setupSorting('documents-table', (key, dir) => {
         documentsSort = { key, dir };

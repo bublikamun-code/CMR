@@ -19,9 +19,14 @@ function renderPaymentCell(tr) {
 
     const title = `Оплачено ${formatMoneyBYN(paid)} из ${formatMoneyBYN(total)}. Остаток: ${formatMoneyBYN(rest)} (${percent.toFixed(0)}%)`;
 
+    // UI FIX 2026-08-29: ячейка была центрирована и собрана из трёх
+    // разностильных строк (бейдж / сумма / полоска). Теперь всё прижато
+    // к левому краю: бейдж статуса, под ним полоса прогресса и сумма.
     let amountText;
     if (status === 'Оплачен') {
-        amountText = formatMoneyBYN(total);
+        // Полная сумма и так видна в колонке «Сумма» — дублирование «X из X»
+        // не влезало в узкую колонку при крупных числах.
+        amountText = formatMoney(paid);
     } else if (status === 'Не оплачен') {
         amountText = `0,00 из ${formatMoney(total)}`;
     } else {
@@ -30,19 +35,16 @@ function renderPaymentCell(tr) {
 
     return `
         <span class="pay-badge pay-badge-payments ${cls}">${escapeHtml(status)}</span>
-        <div class="payment-cell-line" title="${escapeHtml(title)}">
-            <span class="tabular-nums">${amountText}</span>
-        </div>
-        <div class="payment-mini-bar" title="${escapeHtml(title)}">
-            <div class="payment-mini-bar-fill" style="width:${percent.toFixed(0)}%"></div>
+        <div class="pay-cell-progress" title="${escapeHtml(title)}">
+            <div class="payment-mini-bar"><div class="payment-mini-bar-fill" style="width:${percent.toFixed(0)}%"></div></div>
+            <span class="pay-cell-amount">${amountText}</span>
         </div>
     `;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const paymentsBtn = document.querySelector('[data-target="page-payments"]');
-    if (paymentsBtn) paymentsBtn.addEventListener('click', loadPaymentsTable);
-    if (document.getElementById('page-payments')?.classList.contains('active')) loadPaymentsTable();
+    if (document.getElementById('page-finance')?.classList.contains('active')
+        && document.getElementById('page-payments')?.classList.contains('active')) loadPaymentsTable();
 
     setupSorting('payments-table', (key, dir) => {
         paymentsSort = { key, dir };
@@ -191,7 +193,7 @@ function renderPayments() {
                     <td class="inline-edit-cell amount-cell" data-field="amount" data-id="${tr.id}">
                         <span class="inline-edit font-mono text-right tabular-nums">${escapeHtml(formatMoneyBYN(tr.amount || 0))}</span>
                     </td>
-                    <td class="td-center payment-cell">${renderPaymentCell(tr)}</td>
+                    <td class="payment-cell">${renderPaymentCell(tr)}</td>
                     <td>${escapeHtml(tr.store_location) || '—'}</td>
                     <td class="td-center cb-col"><input type="checkbox" class="cb-calc cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
                     <td class="td-center cb-col"><input type="checkbox" class="cb-invoice cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>

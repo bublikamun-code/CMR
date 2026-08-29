@@ -22,9 +22,16 @@
     // Карта лоадеров вынесена сюда из realtime.js (он же остаётся пользователем)
     const PAGE_LOADERS = {
         'page-kanban':     () => typeof loadKanbanBoard    === 'function' && loadKanbanBoard(),
-        'page-payments':   () => typeof loadPaymentsTable  === 'function' && loadPaymentsTable(),
-        'page-writeoffs':  () => typeof loadWriteoffsBoard === 'function' && loadWriteoffsBoard(),
-        'page-documents':  () => typeof loadDocumentsTable === 'function' && loadDocumentsTable(),
+        // Задачи и Финансы: обновляем активный вид
+        'page-tasks':      () => typeof loadTasks          === 'function' && loadTasks(),
+        // Финансы: обновляем только активную вкладку (оплаты/списание/документы)
+        'page-finance':    () => {
+            const active = document.querySelector('.finance-panel.active');
+            if (!active) return;
+            if (active.id === 'page-payments')  { if (typeof loadPaymentsTable  === 'function') loadPaymentsTable(); }
+            if (active.id === 'page-writeoffs') { if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard(); }
+            if (active.id === 'page-documents') { if (typeof loadDocumentsTable === 'function') loadDocumentsTable(); }
+        },
         'page-clients':    () => typeof loadClientsTable   === 'function' && loadClientsTable(),
         'page-suppliers':  () => typeof loadSuppliersTable === 'function' && loadSuppliersTable(),
         'page-dashboard':  () => typeof loadDashboard      === 'function' && loadDashboard(),

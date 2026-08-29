@@ -28,7 +28,7 @@
 .sidebar-footer { padding: 20px; }
 .nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
 </style>
-    <link rel="stylesheet" href="css/style.css?v=accacb5cb8">
+    <link rel="stylesheet" href="css/style.css?v=d0915c1466">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1f2937">
     <meta name="mobile-web-app-capable" content="yes">
@@ -61,17 +61,13 @@
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg></span>
                     <span class="nav-label">Канбан-доска</span>
                 </button>
-                <button class="nav-btn" data-target="page-payments" title="Реестр оплат" aria-label="Реестр оплат">
-                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></span>
-                    <span class="nav-label">Реестр оплат</span>
+                <button class="nav-btn" data-target="page-tasks" title="Задачи" aria-label="Задачи">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></svg></span>
+                    <span class="nav-label">Задачи</span>
                 </button>
-                <button class="nav-btn" data-target="page-writeoffs" title="Списание" aria-label="Списание">
-                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
-                    <span class="nav-label">Списание</span>
-                </button>
-                <button class="nav-btn" data-target="page-documents" title="Документы" aria-label="Документы">
-                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-                    <span class="nav-label">Документы</span>
+                <button class="nav-btn" data-target="page-finance" title="Финансы: оплаты, списание, документы" aria-label="Финансы">
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><line x1="5.5" y1="9.5" x2="5.51" y2="9.5"/><line x1="18.5" y1="14.5" x2="18.51" y2="14.5"/></svg></span>
+                    <span class="nav-label">Финансы</span>
                 </button>
                 <button class="nav-btn" data-target="page-clients" title="Клиенты" aria-label="Клиенты">
                     <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
@@ -105,7 +101,22 @@
         </aside>
 
         <main class="main-content" id="main-content" tabindex="-1">
-            
+
+            <!-- Колокольчик уведомлений (глобальный, поверх всех разделов) -->
+            <div id="notif-bell-wrap">
+                <button id="notif-bell" class="notif-bell" aria-label="Уведомления" title="Уведомления">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span id="notif-badge" class="notif-badge hidden">0</span>
+                </button>
+                <div id="notif-panel" class="notif-panel hidden" role="dialog" aria-label="Лента уведомлений">
+                    <div class="notif-panel-header">
+                        <strong>Уведомления</strong>
+                        <button type="button" id="notif-read-all" class="notif-mark-all">Прочитать все</button>
+                    </div>
+                    <div id="notif-list" class="notif-list"><div class="notif-empty">Нет уведомлений</div></div>
+                </div>
+            </div>
+
             <section id="page-kanban" class="page-section active">
                 <header class="page-header reveal reveal-fast">
                     <h1>Воронка продаж (Канбан)</h1>
@@ -165,15 +176,24 @@
                 </div>
             </section>
 
-            <section id="page-payments" class="page-section">
+            <section id="page-finance" class="page-section">
                 <header class="page-header reveal reveal-fast">
-                    <h1>Реестр оплат</h1>
-                    <div class="header-actions">
-                        <div id="payments-month" class="month-filter" title="Фильтр по дате оплаты"></div>
-                        <input type="text" id="payments-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по оплатам">
-                        <button id="payments-export" class="btn-secondary btn-export">Экспорт CSV</button>
-                    </div>
+                    <!-- UI FIX 2026-08-29: один заголовок раздела. Раньше h1
+                         дублировал активный таб («Реестр оплат» + таб «Реестр оплат»). -->
+                    <h1>Финансы</h1>
                 </header>
+                <div class="settings-tabs finance-tabs" id="finance-tabs" role="tablist">
+                    <button type="button" class="settings-tab active" data-finance-tab="payments" role="tab" aria-selected="true">Реестр оплат</button>
+                    <button type="button" class="settings-tab" data-finance-tab="writeoffs" role="tab" aria-selected="false">Списание</button>
+                    <button type="button" class="settings-tab" data-finance-tab="documents" role="tab" aria-selected="false">Документы</button>
+                </div>
+
+                <div id="page-payments" class="finance-panel active" role="tabpanel">
+                <div class="panel-toolbar">
+                    <div id="payments-month" class="month-filter" title="Фильтр по дате оплаты"></div>
+                    <input type="text" id="payments-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по оплатам">
+                    <button id="payments-export" class="btn-secondary btn-export">Экспорт CSV</button>
+                </div>
                 <div class="table-container">
                     <table class="data-table" id="payments-table">
                         <thead>
@@ -203,21 +223,18 @@
                         </tfoot>
                     </table>
                 </div>
-            </section>
+                </div>
 
-            <section id="page-writeoffs" class="page-section">
-                <header class="page-header reveal reveal-fast">
-                    <h1>Складское списание</h1>
-                    <div class="header-actions">
-                        <div class="search-with-clear">
-                            <input type="text" id="writeoffs-search" class="search-input" placeholder="Поиск по сделкам..." aria-label="Поиск по списанию">
-                            <button type="button" class="btn-clear-search hidden" id="writeoffs-search-clear" aria-label="Очистить">
-                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            </button>
-                        </div>
-                        <span id="writeoffs-search-count" class="search-count hidden"></span>
+                <div id="page-writeoffs" class="finance-panel" role="tabpanel">
+                <div class="panel-toolbar">
+                    <div class="search-with-clear">
+                        <input type="text" id="writeoffs-search" class="search-input" placeholder="Поиск по сделкам..." aria-label="Поиск по списанию">
+                        <button type="button" class="btn-clear-search hidden" id="writeoffs-search-clear" aria-label="Очистить">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
                     </div>
-                </header>
+                    <span id="writeoffs-search-count" class="search-count hidden"></span>
+                </div>
 
                 <div class="writeoffs-container">
                     
@@ -250,17 +267,14 @@
                     </div>
 
                 </div>
-            </section>
+            </div>
 
-            <section id="page-documents" class="page-section">
-                <header class="page-header reveal reveal-fast">
-                    <h1>Документы</h1>
-                    <div class="header-actions">
-                        <div id="documents-month" class="month-filter" title="Фильтр по дате накладной"></div>
-                        <input type="text" id="documents-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по документам">
-                        <button id="documents-export" class="btn-secondary btn-export">Экспорт CSV</button>
-                    </div>
-                </header>
+            <div id="page-documents" class="finance-panel" role="tabpanel">
+                <div class="panel-toolbar">
+                    <div id="documents-month" class="month-filter" title="Фильтр по дате накладной"></div>
+                    <input type="text" id="documents-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по документам">
+                    <button id="documents-export" class="btn-secondary btn-export">Экспорт CSV</button>
+                </div>
                 <div class="table-container">
                     <table class="data-table" id="documents-table">
                         <thead>
@@ -289,6 +303,74 @@
                         </tfoot>
                     </table>
                 </div>
+                </div>
+            </section>
+
+            <section id="page-tasks" class="page-section">
+                <header class="page-header reveal reveal-fast">
+                    <h1>Задачи <span id="tasks-progress-label" class="tasks-progress-label"></span></h1>
+                    <div class="header-actions">
+                        <div class="search-with-clear">
+                            <input type="text" id="tasks-search" class="search-input" placeholder="Поиск по задачам..." aria-label="Поиск по задачам">
+                            <button type="button" class="btn-clear-search hidden" id="tasks-search-clear" aria-label="Очистить">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <select id="tasks-scope" class="filter-select" aria-label="Область задач">
+                            <option value="all">Все задачи</option>
+                            <option value="my">Мои задачи</option>
+                        </select>
+                        <div class="status-chips" id="tasks-status-chips" role="group" aria-label="Фильтр задач">
+                            <button type="button" class="settings-tab active" data-status="">Все</button>
+                            <button type="button" class="settings-tab" data-status="overdue">Просроченные</button>
+                        </div>
+                        <div class="view-toggle" id="tasks-view-toggle" role="group" aria-label="Вид">
+                            <button type="button" class="btn btn-sm view-toggle-btn active" data-view="board" title="Доска">Доска</button>
+                            <button type="button" class="btn btn-sm view-toggle-btn" data-view="list" title="Список">Список</button>
+                        </div>
+                        <button id="task-add-btn" class="btn-primary btn-sm">Добавить задачу</button>
+                    </div>
+                </header>
+
+                <!-- Доска: три колонки с перетаскиванием -->
+                <div id="tasks-board" class="tasks-board">
+                    <div class="kanban-column task-column" data-status="todo">
+                        <h3>К выполнению <span class="task-col-count" data-count="todo">0</span></h3>
+                        <div class="task-cards" data-status="todo"></div>
+                    </div>
+                    <div class="kanban-column task-column" data-status="in_work">
+                        <h3>В работе <span class="task-col-count" data-count="in_work">0</span></h3>
+                        <div class="task-cards" data-status="in_work"></div>
+                    </div>
+                    <div class="kanban-column task-column" data-status="done">
+                        <h3>Выполнены <span class="task-col-count" data-count="done">0</span></h3>
+                        <div class="task-cards" data-status="done"></div>
+                    </div>
+                </div>
+
+                <!-- Список-чеклист -->
+                <div id="tasks-list-view" class="table-container hidden">
+                    <table class="data-table" id="tasks-table">
+                        <thead>
+                            <tr>
+                                <th style="width:36px"></th>
+                                <th>Задача</th>
+                                <th style="width:170px">Ответственный</th>
+                                <th style="width:140px">Срок</th>
+                                <th style="width:130px">Подзадачи</th>
+                                <th style="width:130px">Связь</th>
+                                <th style="width:44px"></th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div id="tasks-empty" class="hidden" style="text-align:center;padding:48px 16px;color:var(--text-muted)">
+                    <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 8px"><circle cx="12" cy="12" r="10"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>
+                    <div style="font-weight:600;font-size:15px">Задач нет</div>
+                    <div style="font-size:13px;margin-top:4px">Создайте первую задачу — она появится на доске.</div>
+                </div>
             </section>
 
             <section id="page-clients" class="page-section">
@@ -296,7 +378,7 @@
                     <h1>Клиенты</h1>
                     <div class="header-actions">
                         <div class="search-with-counter">
-                            <input type="text" id="clients-search" class="search-input search-input--wide" placeholder="Поиск по имени, УНП, телефону или email..." title="Поиск по имени, УНП, телефону или email" aria-label="Поиск по клиентам">
+                            <input type="text" id="clients-search" class="search-input search-input--wide" placeholder="Поиск по имени, УНП, телефону…" title="Поиск по имени, УНП, телефону или email" aria-label="Поиск по клиентам">
                             <span class="search-count" id="clients-search-count"></span>
                         </div>
                         <button id="btn-create-client" class="btn-primary"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Новый клиент</button>
@@ -327,7 +409,7 @@
                     <h1>Поставщики</h1>
                     <div class="header-actions">
                         <div class="search-with-counter">
-                            <input type="text" id="suppliers-search" class="search-input search-input--wide" placeholder="Поиск по названию, УНП, телефону или email..." title="Поиск по названию, УНП, телефону или email" aria-label="Поиск по поставщикам">
+                            <input type="text" id="suppliers-search" class="search-input search-input--wide" placeholder="Поиск по названию, УНП, телефону…" title="Поиск по названию, УНП, телефону или email" aria-label="Поиск по поставщикам">
                             <span class="search-count" id="suppliers-search-count"></span>
                         </div>
                         <button id="btn-create-supplier" class="btn-primary"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Новый поставщик</button>
@@ -740,24 +822,73 @@
         </div>
     </div>
 
+    <!-- Модалка задачи (создание/редактирование) -->
+    <div id="task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+        <div class="modal-content">
+            <div class="modal-header-split">
+                <h2 id="task-modal-title">Новая задача</h2>
+                <button type="button" class="close-btn" onclick="TasksUI.closeModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <form id="task-form" autocomplete="off" novalidate>
+                <div class="settings-content form-grid-2col">
+                    <label>Название *
+                        <input type="text" id="task-title-input" class="search-input" required maxlength="255">
+                    </label>
+                    <label>Ответственный
+                        <select id="task-assignee-input"></select>
+                    </label>
+                    <label style="grid-column:1/-1">Описание
+                        <textarea id="task-desc-input" rows="3" style="resize:none;width:100%"></textarea>
+                    </label>
+                    <label>Срок
+                        <input type="datetime-local" id="task-due-input">
+                    </label>
+                    <label>Сделка / клиент (необязательно)
+                        <input type="text" id="task-link-input" placeholder="Начните вводить название..." list="task-link-list">
+                        <datalist id="task-link-list"></datalist>
+                    </label>
+                </div>
+                <input type="hidden" id="task-id-input">
+                <!-- Чек-лист подзадач (виден только у созданной задачи) -->
+                <div id="task-checklist-editor" class="hidden">
+                    <div class="task-checklist-head">
+                        <strong>Подзадачи</strong>
+                        <span id="task-checklist-progress" class="muted" style="font-size:12px"></span>
+                    </div>
+                    <div id="task-checklist-items"></div>
+                    <div class="task-checklist-add">
+                        <input type="text" id="task-checklist-input" placeholder="Новый пункт подзадачи..." maxlength="255">
+                        <button type="button" class="btn-secondary btn-sm" id="task-checklist-add-btn">Добавить</button>
+                    </div>
+                </div>
+                <div class="header-actions" style="justify-content:flex-end;margin-top:16px">
+                    <button type="button" class="btn-secondary btn-sm" onclick="TasksUI.closeModal()">Отмена</button>
+                    <button type="submit" class="btn-primary btn-sm" id="task-save-btn">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script defer src="js/constants.js?v=d48eaee136"></script>
     <script defer src="js/crm_store.js?v=dd6baeb897"></script>
     <script defer src="js/api.js?v=b135bf0fbe"></script>
-    <script defer src="js/features.js?v=0a370d4ed8"></script>
+    <script defer src="js/features.js?v=f4722b5557"></script>
     <script defer src="js/auth.js?v=a535db6bdc"></script>
-    <script defer src="js/kanban.js?v=effd57d457"></script>
-    <script defer src="js/card_modal.js?v=9c549662ad"></script>
-    <script defer src="js/payments.js?v=442300dcdc"></script>
-    <script defer src="js/writeoffs.js?v=80fa600d6d"></script>
-    <script defer src="js/documents.js?v=4094ba2caf"></script>
+    <script defer src="js/kanban.js?v=cc8aedaa8b"></script>
+    <script defer src="js/tasks.js?v=c259942ed5"></script>
+    <script defer src="js/notifications.js?v=7da94e10c0"></script>
+    <script defer src="js/card_modal.js?v=8d9e3b1a61"></script>
+    <script defer src="js/payments.js?v=def3978d00"></script>
+    <script defer src="js/writeoffs.js?v=6978a3c23c"></script>
+    <script defer src="js/documents.js?v=6d8d3383c1"></script>
     <script defer src="js/contacts.js?v=f3ff5b3c89"></script>
     <script defer src="js/clients.js?v=4ed7c9889e"></script>
     <script defer src="js/suppliers.js?v=ed30f6199f"></script>
-    <script defer src="js/dashboard.js?v=f374b80fda"></script>
+    <script defer src="js/dashboard.js?v=082d3a2007"></script>
     <script defer src="js/email_parser.js?v=0f9d6aa2cb"></script>
-    <script defer src="js/page-freshness.js?v=e4b19edbf7"></script>
+    <script defer src="js/page-freshness.js?v=b4408b42ee"></script>
     <script defer src="js/realtime.js?v=b195fc8435"></script>
-    <script defer src="js/settings.js?v=fa95f7f5c6"></script>
+    <script defer src="js/settings.js?v=8bc364b249"></script>
     <script defer src="js/calendar.js?v=8a70084b68"></script>
     <script defer src="js/ui-polish.js?v=7a10d420c1"></script>
     <script defer src="js/reveal.js?v=559fd1b3f1"></script>

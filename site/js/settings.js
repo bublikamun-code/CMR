@@ -439,4 +439,13 @@
     };
 
     window.SettingsUI = SettingsUI;
+
+    // UI FIX 2026-08-29: вкладка «Кастомные объекты» активна по умолчанию,
+    // но loadObjs срабатывал только по клику на вкладку — при открытии
+    // страницы список/пустое состояние не показывались вовсе.
+    document.addEventListener('DOMContentLoaded', () => {
+        if (document.getElementById('stab-objects')?.classList.contains('active')) {
+            SettingsUI.loadObjs();
+        }
+    });
 })();

@@ -541,6 +541,22 @@ a.nav-btn { text-decoration: none; }
 
 /* === VIEW TOGGLE === */
 .view-toggle { display: flex; border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; }
+/* UI FIX 2026-08-29: свёрнутое состояние панели фильтров — на любой ширине
+   (на мобильных панель свёрнута по умолчанию, см. kanban.js initFiltersCollapsed) */
+.filter-bar.collapsed { display: none; }
+
+/* UI FIX 2026-08-29: бейдж сделки-«сироты» (нет ответственного или суммы) */
+.incomplete-badge {
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: #92400e;
+    background: #fef3c7;
+    white-space: nowrap;
+}
+[data-theme="dark"] .incomplete-badge { background: rgba(254, 243, 199, 0.12); color: #fcd34d; }
 .view-toggle-btn { border-radius: 0 !important; border: none !important; background: var(--card-bg); color: var(--text-muted); }
 .view-toggle-btn.active { background: var(--primary-color); color: white; }
 [data-theme="dark"] .view-toggle { border-color: var(--border-interactive); }
@@ -2029,22 +2045,11 @@ button.btn-edit-card:hover {
     transition-duration: 60ms;
 }
 
-/* UI Audit (2026-08-09, B.6): .btn-danger.btn-sm используется как иконка-символ ✕
-   в таблице списка. Делаем квадратным (icon-only) и центрируем содержимое,
-   чтобы крестик выглядел так же аккуратно, как на канбан-доске. */
-.btn-danger.btn-sm {
-    padding: 0;
-    width: 28px;
-    height: 28px;
-    min-width: 28px;
-    min-height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 1;
-}
+/* FIX 2026-08-29: прежнее правило делало .btn-danger.btn-sm иконкой 28×28
+   (крестик в списке канбана, которого давно нет) — из-за него текстовые
+   кнопки «Удалить» на custom_objects/settings/workflows обрезались до
+   красного круга «али…». Правило удалено: кнопка ведёт себя как обычная
+   .btn-danger с паддингами .btn-sm. */
 
 /* --- СТИЛИ ДЛЯ КАРТОЧЕК СПИСАНИЙ --- */
 /* Компактная карточка списания: меньше по высоте, ничего не вылезает */
@@ -2994,23 +2999,10 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 [data-theme="dark"] .pay-badge.pay-select option[value="Оплачен"] { background: rgba(209, 250, 229, 0.25); color: #6ee7b7; }
 [data-theme="dark"] .pay-badge.pay-select option[value="Отсрочка"] { background: rgba(224, 231, 255, 0.25); color: #a5b4fc; }
 
-#payment-section .section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-}
-#payment-section h3 {
-    margin: 0;
-    font-size: 14px;
-}
-.payment-line {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    font-size: 13px;
-}
+/* FIX 2026-08-29: удалены мёртвые правила старой формы оплат (#payment-section
+   .section-header, .payment-line, .payment-progress(-bar), .payment-field,
+   .payment-form-actions) — форма заменена на .pay-*; классы нигде не используются.
+   .pay-amount/.pay-due/.payment-form живы (card_modal.js) — сохранены. */
 .pay-amount {
     color: var(--text-color);
     font-weight: 500;
@@ -3019,53 +3011,13 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     color: var(--text-muted);
     font-size: 12px;
 }
-.payment-progress {
-    height: 6px;
-    background: var(--border-color);
-    border-radius: 999px;
-    margin-top: 10px;
-    overflow: hidden;
-}
-.payment-progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, var(--success-color), #34d399);
-    border-radius: 999px;
-    transition: width 0.3s ease;
-}
 .payment-form {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
 }
-.payment-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-.payment-field label {
-    font-size: 12px;
-    color: var(--text-muted);
-}
-.payment-field input,
-.payment-field select {
-    padding: 7px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    background: var(--card-bg);
-    color: var(--text-color);
-    font-size: 13px;
-}
-.payment-field input:focus,
-.payment-field select:focus {
-    outline: none;
-    border-color: var(--primary-color);
-}
-.payment-form-actions {
-    grid-column: 1 / -1;
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-}
+/* FIX 2026-08-29: .payment-field(.label/input/select/focus) и
+   .payment-form-actions удалены — классы мёртвые (старая форма оплат). */
 
 .payment-cell {
     display: flex;
@@ -3152,31 +3104,8 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     font-size: 12px;
 }
 
-/* --- ТЕГ-ФИЛЬТР НА КАНБАНЕ --- */
-.tag-filter-mount {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-}
-.tag-filter-btn {
-    padding: 4px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--border-color);
-    background: var(--card-bg);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    border-left: 3px solid transparent;
-    transition: var(--transition-ui);
-    color: var(--text-color);
-}
-.tag-filter-btn:hover { background: var(--bg-color); }
-.tag-filter-btn.tag-filter-active {
-    background: var(--primary-color);
-    color: #fff;
-    border-color: var(--primary-color);
-}
+/* FIX 2026-08-29: семейство .tag-filter-* удалено — фича тег-фильтра на
+   канбане вырезана из JS, классы нигде не используются. */
 
 /* --- DUE DATE ИНДИКАТОРЫ --- */
 /* Пульсации ниже раньше стояли infinite. Просрочка — постоянное состояние,
@@ -3569,6 +3498,12 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     box-shadow: var(--shadow-md);
 }
 .mobile-menu-toggle svg { width: 22px; height: 22px; }
+/* UI FIX 2026-08-29: в тёмной теме кнопка теряла фон и читалась белым пятном */
+[data-theme="dark"] .mobile-menu-toggle {
+    background: #1e293b;
+    color: #e2e8f0;
+    border: 1px solid var(--border-interactive, #334155);
+}
 .mobile-overlay {
     display: none;
     position: fixed;
@@ -3790,21 +3725,8 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     filter: none !important;
 }
 
-/* Элегантные бейджи */
-.old-badge-card {
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 3px !important;
-    font-size: 10px !important;
-    font-weight: 700 !important;
-    color: var(--text-muted) !important;
-    background-color: #f1f5f9 !important;
-    border: 1px solid #cbd5e1 !important;
-    padding: 2px 6px !important;
-    border-radius: 6px !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.03em !important;
-}
+/* FIX 2026-08-29: .old-badge-card удалён — класс не используется ни в HTML,
+   ни в JS (было 12 деклараций !important + dark-дубль). */
 
 /* Стилизация заголовка, сумм и кнопки удаления */
 .card-title {
@@ -4016,12 +3938,15 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
    UI FIX 2026-08-26: ужато содержимое фиксированных колонок (Дата 100 = sticky
    left:100, Печать 140, Примечание 110, чекбоксы 64), чтобы «Название»
    получала ~230px остатка вместо 72px — имена компаний читаются. */
-#payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 100px !important; }
+#payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 92px !important; }
 /* UI FIX 2026-08-26: 130px вместо 120px — итог «159 635,01 BYN» в футере
-   не обрезается. */
-#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 130px !important; }
-#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 120px !important; }
-#payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 110px !important; }
+   не обрезается.
+   UI FIX 2026-08-29: поджаты фикс-ширины (Сумма 112, Дата 92, Магазин и
+   Примечание 92) — при развёрнутом сайдбаре (контейнер 1210px) колонка
+   «Название» иначе схлопывалась до ~50px из-за Печать 190 + Оплата 150. */
+#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 112px !important; }
+#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 150px !important; }
+#payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 92px !important; }
 /* UI FIX 2026-08-26: чекбоксы 72px и действия 96px заданы позже блоками
    «часть 10» (11252) и «колонки действий» (11902) — здесь синхронизированы
    те же значения, чтобы файл не врал о реальной ширине. */
@@ -4029,7 +3954,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 #payments-table th:nth-child(7), #payments-table td:nth-child(7) { width: 72px !important; }
 #payments-table th:nth-child(8), #payments-table td:nth-child(8) { width: 72px !important; }
 #payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 140px !important; }
-#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 110px !important; }
+#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 92px !important; }
 #payments-table th:nth-child(11), #payments-table td:nth-child(11) { width: 96px !important; }
 
 /* === Sticky шапка, первые 2 колонки и footer для таблиц оплат/документов === */
@@ -5336,6 +5261,365 @@ textarea.auto-expand-title:focus {
     border-bottom-color: var(--primary-color);
 }
 
+/* Вкладки раздела «Финансы» (Оплаты / Списание / Документы) */
+.finance-panel {
+    display: none;
+}
+
+/* Активная вкладка сама становится флекс-колонкой, как бывшая
+   .page-section: иначе .table-container (flex:1, min-height:0) не получает
+   ограниченной высоты, и таблицы обрезаются секцией без прокрутки. */
+.finance-panel.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0%;
+    min-height: 0;
+}
+
+/* Списание — не таблица: колонкам магазинов даём собственный скролл */
+.finance-panel#page-writeoffs {
+    overflow-y: auto;
+}
+
+/* Колокольчик уведомлений */
+.notif-bell {
+    position: relative;
+    width: 40px; height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg-secondary, #f3f5f8);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition-ui);
+}
+.notif-bell svg { width: 19px; height: 19px; }
+.notif-bell:hover { color: var(--primary-color); border-color: var(--primary-color); }
+
+.notif-badge {
+    position: absolute; top: -5px; right: -5px;
+    min-width: 18px; height: 18px;
+    padding: 0 4px;
+    background: #e5484d; color: #fff;
+    font-size: 11px; font-weight: 700; line-height: 18px;
+    text-align: center;
+    border-radius: 9px;
+}
+
+/* Колокольчик живёт ВНУТРИ строки .header-actions активного раздела
+   (переносится туда из notifications.js) — никакого абсолютного слоя
+   поверх кнопок и никаких лишних отступов сверху. */
+#notif-bell-wrap { position: relative; display: inline-flex; align-self: center; margin-right: 10px; }
+
+.notif-panel {
+    position: absolute; top: 48px; right: 0;
+    width: 380px; max-width: calc(100vw - 32px);
+    max-height: 70vh;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(15, 25, 45, .18);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    /* Выше sticky-заголовков таблиц (z:10), дропдаунов (z:200) и канбана */
+    z-index: 950;
+}
+.notif-panel.hidden { display: none; }
+
+.notif-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+}
+.notif-mark-all {
+    background: none; border: none; cursor: pointer;
+    color: var(--primary-color); font-size: 13px;
+}
+.notif-mark-all:hover { text-decoration: underline; }
+
+.notif-list { overflow-y: auto; }
+.notif-empty { padding: 26px 14px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+.notif-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    cursor: pointer;
+    position: relative;
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item:hover { background: rgba(79, 124, 245, .06); }
+.notif-unread { background: rgba(79, 124, 245, .09); }
+.notif-unread::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--primary-color);
+}
+.notif-icon { flex-shrink: 0; line-height: 1.2; }
+.notif-body { flex: 1; min-width: 0; }
+.notif-title { display: block; color: var(--text-primary); }
+.notif-details { display: block; margin-top: 2px; color: var(--text-muted); font-size: 12px; }
+.notif-time { flex-shrink: 0; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.notif-close {
+    visibility: hidden;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 12px; padding: 2px;
+}
+.notif-item:hover .notif-close { visibility: visible; }
+.notif-close:hover { color: #e5484d; }
+
+/* Задачи */
+.task-title-cell { font-weight: 500; margin-bottom: 6px; }
+.task-status-select {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+.task-status-todo   { background: #fff4e5; color: #9a6700; border-color: #f0dcc0; }
+.task-status-in_work{ background: #e8f0fe; color: #2b5fd9; border-color: #cdddff; }
+.task-status-done   { background: #e7f6ec; color: #217346; border-color: #cdeadd; }
+
+tr.task-row-done .task-title-cell { text-decoration: line-through; color: var(--text-muted); }
+.task-overdue-date { color: #e5484d; font-weight: 600; }
+
+/* === ЗАДАЧИ: todo-доска === */
+.tasks-board {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    /* Колонки всегда равные: базовый .kanban-column имеет max-width 400px,
+       который на широких экранах оставлял рваные дыры между колонками */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-lg);
+    width: 100%;
+    max-width: 1500px;
+    margin: 0 auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    align-items: stretch;
+    padding-bottom: var(--space-md);
+}
+.task-column {
+    width: auto;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+}
+/* Цветовые акценты колонок — в том же стиле, что на доске сделок */
+.task-column[data-status="todo"] h3 { border-left-color: #6b7280; }
+.task-column[data-status="in_work"] h3 { border-left-color: var(--primary-color); }
+.task-column[data-status="done"] h3 { border-left-color: var(--success-color); }
+.task-column h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    background: var(--card-bg);
+    margin: 0;
+    padding: 4px 2px 10px;
+    z-index: 2;
+}
+.task-col-count {
+    background: var(--bg-secondary, #eef1f6);
+    color: var(--text-muted);
+    border-radius: 999px;
+    font-size: 11px;
+    padding: 1px 8px;
+}
+.task-column-over { outline: 2px dashed var(--primary-color); outline-offset: -4px; border-radius: var(--radius-md); }
+.task-col-empty { color: var(--text-muted); font-size: 12px; text-align: center; padding: 18px 0; }
+.task-cards { display: flex; flex-direction: column; gap: 10px; padding: 2px 2px 12px; }
+
+.task-card {
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    cursor: grab;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow .15s ease, transform .15s ease;
+}
+.task-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.task-card-dragging { opacity: .5; }
+.task-card-done .task-card-title { text-decoration: line-through; color: var(--text-muted); }
+.task-card-overdue { border-left: 3px solid #e5484d; }
+
+.task-card-row { display: flex; align-items: flex-start; gap: 10px; }
+.task-card-body { flex: 1; min-width: 0; }
+
+/* Круглый чекбокс выполнения — как в Битрикс24 */
+.task-check-circle {
+    flex-shrink: 0;
+    appearance: none; -webkit-appearance: none;
+    width: 19px; height: 19px;
+    margin: 1px 0 0;
+    border: 2px solid #b9c2d0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease;
+    position: relative;
+}
+.task-check-circle:hover { border-color: #22a06b; }
+.task-check-circle:checked { border-color: #22a06b; background: #22a06b; }
+.task-check-circle:checked::after {
+    content: '';
+    position: absolute; left: 5px; top: 2px;
+    width: 5px; height: 9px;
+    border: solid #fff; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+.task-check-circle:indeterminate { border-color: #b9c2d0; }
+
+.task-card-top { display: flex; align-items: flex-start; gap: 8px; justify-content: space-between; }
+.task-card-title { font-weight: 600; font-size: 13.5px; line-height: 1.35; word-break: break-word; cursor: pointer; }
+.task-avatar {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    color: #fff;
+    font-size: 10px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.task-card-meta {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 8px; font-size: 12px;
+}
+.task-card-actions { margin-left: auto; display: inline-flex; gap: 8px; opacity: 0; transition: opacity .12s ease; }
+.task-card:hover .task-card-actions { opacity: 1; }
+.task-due {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: var(--bg-secondary, #eef1f6);
+    border-radius: 999px; padding: 2px 8px;
+    color: var(--text-muted); font-size: 11.5px;
+}
+.task-due-today { background: #fff4e5; color: #9a6700; }
+.task-due-overdue { background: #fde8e8; color: #e5484d; font-weight: 600; }
+.task-due-done { text-decoration: line-through; }
+
+/* Ссылка на сделку / клиент — аккуратный чип */
+.task-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    max-width: 140px;
+    background: rgba(79, 124, 245, .08);
+    color: var(--primary-color);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11.5px;
+    text-decoration: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.task-chip span { overflow: hidden; text-overflow: ellipsis; }
+a.task-chip:hover { background: rgba(79, 124, 245, .18); }
+.task-chip-client { background: var(--bg-secondary, #eef1f6); color: var(--text-muted); }
+.task-link { font-size: 12px; color: var(--primary-color); text-decoration: none; }
+.task-link--muted { color: var(--text-muted); }
+.task-card-edit, .task-card-delete {
+    cursor: pointer; color: var(--text-muted); font-size: 13px;
+    display: inline-flex; align-items: center;
+}
+.task-card-edit:hover { color: var(--primary-color); }
+.task-card-delete:hover { color: #e5484d; }
+
+.task-progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.task-progress-bar {
+    flex: 1; height: 5px;
+    background: var(--bg-secondary, #eef1f6);
+    border-radius: 3px; overflow: hidden;
+}
+.task-progress-fill { height: 100%; background: #22a06b; border-radius: 3px; }
+.task-progress-num { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+.tasks-progress-label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+#tasks-view-toggle { margin: 4px 10px 4px 0; }
+
+/* Стилизация нативных select в тулбарах разделов (были системные) */
+.filter-select,
+.header-actions select,
+.filter-bar select {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 40px;
+    padding: 0 34px 0 14px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md, 8px);
+    background-color: var(--card-bg, #fff);
+    color: var(--text-primary);
+    font-size: 13.5px;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a8699' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+.filter-select:hover,
+.header-actions select:hover,
+.filter-bar select:hover { border-color: var(--primary-color); }
+.filter-select:focus,
+.header-actions select:focus,
+.filter-bar select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(79, 124, 245, .15);
+}
+
+/* Чек-лист в модалке */
+.task-checklist-head { display: flex; justify-content: space-between; margin: 18px 0 8px; }
+.task-checklist-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 4px; border-bottom: 1px solid var(--border-color);
+    font-size: 13.5px;
+}
+.task-checklist-item:last-child { border-bottom: none; }
+.task-checklist-item.done .task-checklist-title { text-decoration: line-through; color: var(--text-muted); }
+.task-checklist-title { flex: 1; }
+.task-checklist-del { background: none; border: none; cursor: pointer; color: var(--text-muted); }
+.task-checklist-del:hover { color: #e5484d; }
+.task-checklist-add { display: flex; gap: 8px; margin-top: 10px; }
+.task-checklist-add input {
+    flex: 1; padding: 8px 10px;
+    border: 1px solid var(--border-color); border-radius: 6px;
+    font-size: 13.5px;
+}
+@media (max-width: 900px) {
+    .tasks-board { grid-template-columns: 1fr; overflow-y: auto; }
+}
+
+/* Сетка формы задачи */
+.form-grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 18px;
+}
+.form-grid-2col label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.form-grid-2col input,
+.form-grid-2col select,
+.form-grid-2col textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 14px;
+    color: var(--text-primary);
+    background: var(--card-bg);
+}
+@media (max-width: 640px) {
+    .form-grid-2col { grid-template-columns: 1fr; }
+}
+
 .settings-content {
     min-height: 400px;
 }
@@ -5626,9 +5910,8 @@ input, select, textarea {
 }
 
 /* Приоритет — цветная полоса слева */
-.card-priority-high { border-left: 4px solid #ef4444 !important; }
-.card-priority-medium { border-left: 4px solid #f59e0b !important; }
-.card-priority-low { border-left: 4px solid #10b981 !important; }
+/* FIX 2026-08-29: .card-priority-high/medium/low удалены — JS использует
+   priority-dot--* и priority-low/mid/high, эти классы нигде не применяются. */
 
 /* Badge дедлайна */
 .due-badge {
@@ -7611,8 +7894,14 @@ input[type="number"]::-webkit-inner-spin-button{
 /* --- 40. Кнопка сворачивания сайдбара: перенос под шапку ---------- */
 /* была на 50% высоты и перекрывала календарь.
    .sidebar имеет position:static, поэтому absolute считался от окна —
-   добавляем relative родителю. */
-.sidebar{ position: relative !important; overflow: visible !important; }
+   добавляем relative родителю.
+   UI FIX 2026-08-29: relative был без ограничений по ширине и с !important
+   перебивал fixed-шторку из media ≤900px — на планшете/телефоне рельса
+   сайдбара постоянно перекрывала контент, burger/overlay не работали.
+   Relative нужен только на десктопе; на ≤900 сайдбар fixed (drawer),
+   и он сам является точкой отсчёта для absolute-кнопки. */
+.sidebar{ overflow: visible !important; }
+@media (min-width: 901px) { .sidebar{ position: relative !important; } }
 .sidebar-toggle{
   /* UI Audit (2026-08-26): кнопка внутри сайдбара, тёмная полупрозрачная —
      не «висит» белым кругом на границе с контентом. */
@@ -7943,9 +8232,11 @@ textarea.auto-expand-title{
   gap: 10px 18px !important;
   margin-top: 2px;
 }
+/* UI FIX 2026-08-29: стиль «коробки» предназначался для чекбокс-лейблов
+   настроек, но селекторы label[for] и div>label цепляли и текстовые подписи
+   полей (вкладка «Профиль») — подписи выглядели как серые псевдо-инпуты. */
 .settings-card label:has(> input[type="checkbox"]),
-.settings-card .form-group label[for],
-.settings-card .form-group > div > label{
+.settings-card label:has(> input[type="radio"]){
   display: inline-flex !important;
   align-items: center !important;
   gap: 8px !important;
@@ -9377,6 +9668,12 @@ td.td-center > .btn-edit-row .ui-icon{
 .admin-table tr:hover td { background: var(--table-row-hover); }
 .admin-table tr:last-child td { border-bottom: none; }
 .admin-table .actions { display: flex; gap: 8px; }
+/* FIX 2026-08-29: #admin-app патч больше не нужен — 28×28-правило удалено. */
+/* Шапка админки: заголовок и «Роль: …» не должны прилипать к сайдбару/краю */
+#admin-app .page-header { padding: 12px 24px 14px; }
+/* «CRM Система» обрезалась кнопкой-шевроном (top:22 right:10) —
+   освобождаем у шапки сайдбара правую треть под кнопку */
+#admin-app .sidebar .sidebar-header { padding-right: 48px; padding-left: 48px; }
 .admin-empty { padding: 48px 24px; }
 .admin-alert {
     display: flex;
@@ -9410,6 +9707,8 @@ td.td-center > .btn-edit-row .ui-icon{
 .role-superadmin { background: #fef3c7; color: #92400e; }
 .role-admin { background: #dbeafe; color: #1e40af; }
 .role-manager { background: #d1fae5; color: #065f46; }
+/* FIX 2026-08-29: role-* бейджи используются в admin.html (role-badge в таблице
+   пользователей) — НЕ мёртвые, оставлены. Удалены были только card-priority-*. */
 .role-warehouse { background: #e0e7ff; color: #3730a3; }
 .role-documents { background: #f3e8ff; color: #6b21a8; }
 
@@ -11411,25 +11710,35 @@ h2, h3 {
 }
 
 /* --- 3. Упрощённая ячейка оплаты ---------------------------- */
+/* UI FIX 2026-08-29: контент прижат к левому краю (как заголовок
+   колонки «Оплата»), а не раскидан по центру. */
 .payment-cell {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 3px;
+    align-items: flex-start;
+    gap: 4px;
     min-width: 110px;
 }
 
-.payment-cell-line {
-    font-size: 12px;
+.pay-cell-progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    max-width: 150px;
+}
+
+.pay-cell-amount {
+    font-size: 11px;
     font-weight: 500;
-    color: var(--text-color);
+    color: var(--text-muted);
     white-space: nowrap;
-    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
 }
 
 .payment-mini-bar {
-    width: 100%;
-    max-width: 90px;
+    flex: 1;
+    min-width: 34px;
     height: 4px;
     background: var(--border-color);
     border-radius: 999px;
@@ -11899,6 +12208,42 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
 #documents-table th:nth-child(10), #documents-table td:nth-child(10) { width: 80px !important; }
 #clients-table th:nth-child(6), #clients-table td:nth-child(6) { width: 80px !important; }
 #suppliers-table th:nth-child(6), #suppliers-table td:nth-child(6) { width: 80px !important; }
+/* UI FIX 2026-08-29: колонка «Печать» — «Доверенность» обрезалась до «Дове…».
+   Таблица table-layout:fixed — работает только width (перебивает 140px
+   из правила 4037), min-width в такой раскладке игнорируется. */
+#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 190px !important; }
+#payments-table td:nth-child(9) .dropdown-toggle { white-space: nowrap; }
+
+/* ============================================================
+   UI FIX 2026-08-29 — выравнивание таблиц: заголовок колонки
+   выравнивается так же, как её содержимое (раньше «Сумма» была
+   справа в ячейках и слева в шапке, чекбоксы — наоборот).
+   ============================================================ */
+/* Сумма — деньги справа: заголовок и «Итого» */
+#payments-table th:nth-child(3),
+#documents-table th:nth-child(3),
+#payments-table tfoot td:nth-child(3),
+#documents-table tfoot td:nth-child(3) { text-align: right !important; }
+/* Итоговая сумма не должна обрезаться эллипсисом (fixed-раскладка жмёт колонку) */
+#payments-table tfoot td:nth-child(3),
+#documents-table tfoot td:nth-child(3) { overflow: visible; white-space: nowrap; }
+#documents-table th:nth-child(3),
+#documents-table td:nth-child(3) { width: 132px !important; }
+/* Кнопки действий — у правого края во всех четырёх таблицах */
+#payments-table td:last-child,
+#documents-table td:last-child,
+#clients-table td:last-child,
+#suppliers-table td:last-child { text-align: right !important; }
+
+/* Тулбары панелей раздела «Финансы» (после удаления дублирующих h1) */
+.panel-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+.finance-tabs { margin-bottom: 18px; }
 
 /* --- Списание: кнопка в потоке — физически не может перекрыть badge --- */
 .writeoff-card .btn-secondary {
