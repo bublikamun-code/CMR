@@ -2,6 +2,7 @@ import os
 import secrets
 import logging
 import jwt
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Header
@@ -25,8 +26,7 @@ def _load_or_create_key(path: str, env_var: str) -> str:
         if existing:
             return existing
     key = secrets.token_hex(32)
-    with open(path, "w") as f:
-        f.write(key)
+    Path(path).write_text(key)
     os.chmod(path, 0o600)
     return key
 
