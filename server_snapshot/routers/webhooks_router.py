@@ -19,7 +19,7 @@ import models
 from database import SessionLocal
 
 logger = logging.getLogger(__name__)
-from auth import get_current_user
+from auth import get_current_user, require_admin
 from db_utils import resolve_tenant_db_standalone as _get_db
 from urllib.parse import urlparse
 
@@ -83,7 +83,11 @@ def _open_webhook(req: urllib.request.Request):
 router = APIRouter(
     prefix="/webhooks",
     tags=["Webhooks"],
-    dependencies=[Depends(get_current_user)]
+    # FIX 2026-08-30 (роли): вебхуки — системная интеграция, отправляющая данные
+    # сделок наружу. Раньше создавать их мог любой аутентифицированный
+    # (включая склад/документы): канал утечки базы. Фичей пока не пользуется
+    # никто (таблица пуста), вкладка в UI скрыта для не-админов.
+    dependencies=[Depends(require_admin())]
 )
 
 

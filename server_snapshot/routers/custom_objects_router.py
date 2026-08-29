@@ -9,7 +9,7 @@ import json
 
 import models
 from database import SessionLocal
-from auth import get_current_user
+from auth import get_current_user, require_admin
 from db_utils import resolve_tenant_db_standalone as _get_db
 
 router = APIRouter(
@@ -50,8 +50,14 @@ def list_objects(current_user=Depends(get_current_user)):
         db.close()
 
 
+# FIX 2026-08-30 (роли): создание/удаление типов и полей меняет модель данных —
+# только администраторы. Чтение и CRUD записей остаются у всех пользователей:
+# записи — рабочие данные, а не конфигурация.
+_admin_only = Depends(require_admin())
+
+
 @router.post("/objects")
-def create_object(obj: ObjectTypeCreate, current_user=Depends(get_current_user)):
+def create_object(obj: ObjectTypeCreate, current_user=Depends(get_current_user), _=_admin_only):
     db = _get_db(current_user)
     try:
         existing = db.query(models.CustomObjectType).filter(
@@ -73,7 +79,7 @@ def create_object(obj: ObjectTypeCreate, current_user=Depends(get_current_user))
 
 
 @router.delete("/objects/{obj_id}")
-def delete_object(obj_id: int, current_user=Depends(get_current_user)):
+def delete_object(obj_id: int, current_user=Depends(get_current_user), _=_admin_only):
     db = _get_db(current_user)
     try:
         obj = db.query(models.CustomObjectType).filter(
@@ -113,7 +119,7 @@ def list_fields(obj_id: int, current_user=Depends(get_current_user)):
 
 
 @router.post("/objects/{obj_id}/fields")
-def create_field(obj_id: int, field: FieldCreate, current_user=Depends(get_current_user)):
+def create_field(obj_id: int, field: FieldCreate, current_user=Depends(get_current_user), _=_admin_only):
     db = _get_db(current_user)
     try:
         obj = db.query(models.CustomObjectType).filter(
@@ -138,7 +144,7 @@ def create_field(obj_id: int, field: FieldCreate, current_user=Depends(get_curre
 
 
 @router.delete("/fields/{field_id}")
-def delete_field(field_id: int, current_user=Depends(get_current_user)):
+def delete_field(field_id: int, current_user=Depends(get_current_user), _=_admin_only):
     db = _get_db(current_user)
     try:
         field = db.query(models.CustomFieldDef).filter(
