@@ -420,6 +420,7 @@ document.addEventListener('click', (e) => {
 window.refreshCardOnBoard = async function(cardId) {
     try {
         const cards = await apiFetch('/kanban/cards');
+        _allCards = cards;
         const card = cards.find(c => c.id === cardId);
         if (!card) return;
 
@@ -467,6 +468,20 @@ async function handleDrop(e) {
         targetContainer.insertBefore(cardEl, afterElement);
     }
     cardEl.classList.toggle('card-assembly', newStatus === 'Сборка');
+
+    // Сделка без цены дальше «Нового запроса» не двигается (план 0.2):
+    // сумму проставляют в карточке, поэтому перетаскивание откатываем.
+    if (oldStatus && oldStatus !== newStatus && newStatus !== 'Новый запрос') {
+        const moved = (_allCards || []).find(c => c.id === parseInt(cardId));
+        if (moved && (parseFloat(moved.total_amount) || 0) <= 0) {
+            const oldContainer = oldColumn.querySelector('.kanban-cards');
+            if (oldContainer) oldContainer.appendChild(cardEl);
+            cardEl.classList.toggle('card-assembly', oldStatus === 'Сборка');
+            showToast('Укажите сумму сделки — откройте карточку и заполните', 'error');
+            _isDropping = false;
+            return;
+        }
+    }
 
     try {
         // Зміна статусу, якщо потрібно

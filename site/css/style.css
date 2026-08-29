@@ -12420,3 +12420,61 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
     right: 0;
     z-index: 2;
 }
+
+/* ==========================================================
+   ИНДИКАТОР СОХРАНЕНИЯ КАРТОЧКИ (план 0.1, 2026-08-30)
+   «Сохранение… / Сохранено ЧЧ:ММ / Ошибка — Повторить» в шапке
+   модалки сделки. Цвета — из семантических переменных, поэтому
+   тёмная тема подхватывается автоматически.
+   ========================================================== */
+.card-save-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+/* Атрибут hidden должен побеждать класс: без этого индикатор
+   «Сохранено ЧЧ:ММ» не исчезает по таймеру. */
+.card-save-indicator[hidden] { display: none !important; }
+.card-save-indicator .save-ico { display: inline-flex; }
+.card-save-indicator .save-ico svg { width: 15px; height: 15px; }
+.card-save-indicator.is-saved { color: var(--success-color); }
+.card-save-indicator.is-error { color: var(--danger-color); }
+.save-spinner {
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: save-spin 0.8s linear infinite;
+}
+@keyframes save-spin { to { transform: rotate(360deg); } }
+.save-retry-btn {
+    margin-left: 2px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 99px;
+    border: 1px solid var(--danger-color);
+    background: transparent;
+    color: var(--danger-color);
+    cursor: pointer;
+    transition: var(--transition-ui);
+}
+.save-retry-btn:hover { background: var(--danger-color); color: #fff; }
+
+/* Трёхкнопочный диалог «Есть несохранённые изменения»:
+   Не сохранять / Отмена / Сохранить */
+.confirm-actions-3 { gap: 8px; }
+.confirm-neutral { opacity: 0.85; }
+.confirm-neutral:hover { background: var(--bg-color); }
+
+/* Подсветка невалидной суммы сделки (та же семантика, что у
+   .checklist-amount.amount-invalid, но для поля в шапке формы) */
+#input-total-amount.amount-invalid {
+    border-color: var(--danger-color) !important;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.12);
+}
