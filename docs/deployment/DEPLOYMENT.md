@@ -90,9 +90,9 @@ The server has its own backup scripts under `server_snapshot/scripts/`
 (`backup_crm.sh` uses the SQLite backup API — **not** `cp`, which corrupts
 WAL databases). For Docker, see the backup section below.
 
-> **⚠️ The legacy FTP flow (`tools/ftp_sync.py`) is deprecated.** It reads
-> `CRM_FTP_PASS` from `.ftpenv` and sends the password in cleartext. Use
-> `tools/deploy.sh` instead.
+> **⚠️ The legacy FTP flow (`tools/ftp_sync.py`) was removed** (2026-08-29):
+> it sent the password in cleartext and failed the security review. Use
+> `tools/deploy.sh` (SSH + rsync) instead.
 
 ---
 
@@ -213,6 +213,25 @@ chmod +x /usr/local/bin/crm-sync-emails.sh
 
 # Add to crontab (runs every 15 minutes)
 (crontab -l 2>/dev/null; echo "*/15 * * * * /usr/local/bin/crm-sync-emails.sh") | crontab -
+```
+
+### Notification overdue sync
+
+`POST /notifications/sync-overdue` (same `X-Cron-Token` guard) creates
+notifications about overdue tasks, deals and payments. Run it once a day
+(so a repeated failure of one day's run does not spam duplicates — unread
+duplicates are suppressed per recipient/entity):
+
+```bash
+cat > /usr/local/bin/crm-sync-overdue.sh << 'EOF'
+#!/bin/bash
+CRON_TOKEN=$(cat /path/to/.env.production | grep CRON_TOKEN | cut -d= -f2)
+curl -X POST https://your-domain.com/notifications/sync-overdue \
+  -H "X-Cron-Token: $CRON_TOKEN"
+EOF
+chmod +x /usr/local/bin/crm-sync-overdue.sh
+
+(crontab -l 2>/dev/null; echo "30 6 * * * /usr/local/bin/crm-sync-overdue.sh") | crontab -
 ```
 
 ---
