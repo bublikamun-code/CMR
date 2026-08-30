@@ -149,6 +149,16 @@ def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db
             card = tdb.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
+        # Смена статуса — ключевое событие сделки, фиксируем в ленте (план 1.2):
+        # раньше переходы «Новый запрос → В работе → …» нигде не сохранялись.
+        if (card.status or "") != (status_update.status or ""):
+            tdb.add(models.ActivityLog(
+                user_id=current_user.id,
+                card_id=card.id,
+                action="Статус",
+                details=f"{card.status or '—'} → {status_update.status}",
+                tenant_id=current_user.tenant_id,
+            ))
         card.status = status_update.status
         tdb.commit()
         tdb.refresh(card)

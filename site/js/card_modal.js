@@ -286,15 +286,18 @@ function escapeAttrLocal(v) {
         .replace(/>/g, '&gt;');
 }
 
-function getActivityAvatar(action, userId) {
+function getActivityAvatar(action, userId, userName) {
     const text = (action || '').toLowerCase();
     const isSystem = userId == null || /импорт|cron|автоматически/.test(text);
     if (isSystem) {
         return { initials: 'CRM', className: 'activity-avatar-system', title: 'Системное действие' };
     }
-    const words = (action || '').split(/\s+/).filter(Boolean);
+    // Есть имя автора — инициалы из него (план 1.2: видно, КТО изменил),
+    // иначе — как раньше, из текста действия.
+    const source = userName || (action || '');
+    const words = source.split(/\s+/).filter(Boolean);
     const initials = words.slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('') || 'П';
-    return { initials, className: 'activity-avatar-user', title: action };
+    return { initials, className: 'activity-avatar-user', title: userName || action };
 }
 
 async function openCardModal(cardId) {
@@ -320,35 +323,58 @@ async function openCardModal(cardId) {
 
         CardSaveTracker.reset();
 
-        const escapedTitle = escapeHtml(card.title);
-        modalTitle.innerHTML = `
-            <textarea id="edit-card-title" rows="1" class="auto-expand-title" placeholder="Название сделки...">${escapedTitle}</textarea>
-        `;
-
-        const titleEl = document.getElementById('edit-card-title');
-        titleEl.style.height = 'auto';
-        titleEl.style.height = titleEl.scrollHeight + 'px';
-        titleEl.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = this.scrollHeight + 'px';
-        });
-        const saveTitle = async () => {
-            const newTitle = titleEl.value.trim();
-            if (!newTitle) return;
-            if (newTitle === card.title) return;
-            await saveCardField(card, { title: newTitle }, () => {
-                if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
-                if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
-                if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
-            });
+        // Заголовок — режим просмотра по умолчанию (план 1.4): название нельзя
+        // задеть курсором случайно; правка — явным кликом на карандаш.
+        const renderTitleView = () => {
+            modalTitle.innerHTML = `
+                <span class="card-title-view" title="${escapeAttrLocal(card.title)}">${escapeHtml(card.title)}</span>
+                <button type="button" id="btn-edit-title" class="title-edit-btn" title="Переименовать сделку" aria-label="Переименовать сделку">${ICON_PENCIL}</button>
+            `;
+            document.getElementById('btn-edit-title').onclick = renderTitleEdit;
         };
-        titleEl.addEventListener('keydown', async (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                await saveTitle();
-            }
-        });
-        titleEl.addEventListener('blur', saveTitle);
+        const renderTitleEdit = () => {
+            modalTitle.innerHTML = `
+                <textarea id="edit-card-title" rows="1" class="auto-expand-title" placeholder="Название сделки...">${escapeHtml(card.title)}</textarea>
+            `;
+            const titleEl = document.getElementById('edit-card-title');
+            let finished = false;
+            titleEl.style.height = 'auto';
+            titleEl.style.height = titleEl.scrollHeight + 'px';
+            titleEl.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = this.scrollHeight + 'px';
+            });
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                renderTitleView();
+            };
+            const saveTitle = async () => {
+                const newTitle = titleEl.value.trim();
+                if (!newTitle || newTitle === card.title) { finish(); return; }
+                await saveCardField(card, { title: newTitle }, () => {
+                    if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+                    if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+                    if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                });
+                finish();
+            };
+            titleEl.addEventListener('keydown', async (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await saveTitle();
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    finish();   // отмена правки без сохранения
+                }
+            });
+            titleEl.addEventListener('blur', () => { if (!finished) saveTitle(); });
+            titleEl.focus();
+        };
+        renderTitleView();
 
         renderModalContent(card, document.getElementById('modal-body-left'), document.getElementById('modal-body-right'));
         renderModalPaymentHeader(card);
@@ -448,7 +474,12 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     rightContainer.innerHTML = `
         <div id="related-cards-mount"></div>
         <div class="timeline-header">
-            <h3 class="section-title">${ICON_COMMENT} Комментарии</h3>
+            <h3 class="section-title">${ICON_COMMENT} История</h3>
+            <div class="activity-filter" id="activity-filter" role="group" aria-label="Фильтр истории">
+                <button type="button" data-af="all">Всё</button>
+                <button type="button" data-af="comments">Комментарии</button>
+                <button type="button" data-af="events">События</button>
+            </div>
         </div>
         <div class="timeline" id="activity-container">
             <div class="activity-loading">Загрузка...</div>
@@ -926,22 +957,24 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     dropzone.ondragleave = () => dropzone.style.borderColor = 'var(--border-color)';
     dropzone.ondrop = (e) => { e.preventDefault(); uploadFiles(card.id, e.dataTransfer.files); };
 
-    // Сделка дальше «Нового запроса» без цены не двигается (план 0.2):
-    // подсвечиваем поле суммы и возвращаем пользователя к нему.
-    const warnNoAmount = () => {
-        showToast('Укажите сумму сделки', 'error');
-        const inp = document.getElementById('input-total-amount');
-        if (inp) {
-            inp.classList.add('amount-invalid');
-            setTimeout(() => inp.classList.remove('amount-invalid'), 1500);
-            inp.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            inp.focus();
+    // Сделка дальше «Нового запроса» без цены и даты не двигается
+    // (план 0.2 и 1.7): подсвечиваем поле и возвращаем пользователя к нему.
+    const warnField = (el, msg) => {
+        showToast(msg, 'error');
+        if (el) {
+            el.classList.add('amount-invalid');
+            setTimeout(() => el.classList.remove('amount-invalid'), 1500);
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            el.focus();
         }
     };
+    const warnNoAmount = () => warnField(document.getElementById('input-total-amount'), 'Укажите сумму сделки');
+    const warnNoDueDate = () => warnField(document.getElementById('input-due-date'), 'Укажите дату окончания сделки');
     const hasAmount = () => (parseFloat(card.total_amount) || 0) > 0;
 
     document.getElementById('btn-to-assembly').onclick = async () => {
         if (!hasAmount()) return warnNoAmount();
+        if (!card.due_date) return warnNoDueDate();
         const store = storeDropdown.dataset.value;
         if (!store) return showToast("Выберите магазин перед отправкой в сборку", 'error');
 
@@ -962,6 +995,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     document.getElementById('btn-trigger-payment').onclick = async () => {
         if (!hasAmount()) return warnNoAmount();
+        if (!card.due_date) return warnNoDueDate();
         const store = storeDropdown.dataset.value;
         if (!store) return showToast("Выберите магазин перед списанием", 'error');
 
@@ -1136,16 +1170,63 @@ function startCommentEdit(container, entryId) {
     };
 }
 
+// Активный фильтр ленты (план 1.2): всё / только комментарии / только события.
+let _activityFilter = localStorage.getItem('crm_activity_filter') || 'all';
+
 async function loadCardActivity(cardId) {
     const container = document.getElementById('activity-container');
     if (!container) return;
     container.dataset.cardId = cardId;
+    // Переключение фильтра перерисовывает кэш ленты, без повторного запроса
+    const filterBar = document.getElementById('activity-filter');
+    if (filterBar) {
+        filterBar.onclick = (e) => {
+            const btn = e.target.closest('[data-af]');
+            if (!btn) return;
+            _activityFilter = btn.dataset.af;
+            localStorage.setItem('crm_activity_filter', _activityFilter);
+            renderCardActivityList(cardId, container._activities || []);
+        };
+    }
     try {
-        const activities = await apiFetch(`/activity?card_id=${cardId}&limit=10`);
-        if (activities.length === 0) {
-            container.innerHTML = '<div class="activity-empty">Нет действий</div>';
-            return;
-        }
+        const activities = await apiFetch(`/activity?card_id=${cardId}&limit=50`);
+        container._activities = activities;
+        renderCardActivityList(cardId, activities);
+    } catch (err) {
+        container.innerHTML = '';
+        container.appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки активности', message: err.message }));
+    }
+}
+
+function renderCardActivityList(cardId, activities) {
+    const container = document.getElementById('activity-container');
+    if (!container) return;
+
+    const isComment = (a) => a.action === 'Комментарий';
+    const filtered = activities.filter(a =>
+        _activityFilter === 'all' ||
+        (_activityFilter === 'comments' && isComment(a)) ||
+        (_activityFilter === 'events' && !isComment(a)));
+
+    // Счётчики и активная кнопка фильтра
+    const filterBar = document.getElementById('activity-filter');
+    if (filterBar) {
+        const nComments = activities.filter(isComment).length;
+        const nEvents = activities.length - nComments;
+        filterBar.querySelector('[data-af="all"]').textContent = `Всё (${activities.length})`;
+        filterBar.querySelector('[data-af="comments"]').textContent = `Комментарии (${nComments})`;
+        filterBar.querySelector('[data-af="events"]').textContent = `События (${nEvents})`;
+        filterBar.querySelectorAll('[data-af]').forEach(b =>
+            b.classList.toggle('active', b.dataset.af === _activityFilter));
+    }
+
+    if (filtered.length === 0) {
+        const emptyMsg = activities.length === 0
+            ? 'Нет действий'
+            : (_activityFilter === 'comments' ? 'Комментариев пока нет' : 'Событий пока нет');
+        container.innerHTML = `<div class="activity-empty">${emptyMsg}</div>`;
+        return;
+    }
 
         // Отменённые действия зачёркиваем: запись «Выписана накладная ТН123»
         // остаётся в истории, но видно, что она уже неактуальна.
@@ -1191,7 +1272,7 @@ async function loadCardActivity(cardId) {
                 }
             }
         };
-        activities.forEach(act => {
+        filtered.forEach(act => {
             const item = document.createElement('div');
             const isCancelAct = /отмен|удал/i.test(act.action || '');
             const key = digits(act.details);
@@ -1199,7 +1280,7 @@ async function loadCardActivity(cardId) {
             const isStale = !isCancelAct && /накладн/i.test(act.action || '')
                             && key && cancelled.has(key);
             const isSystem = act.user_id == null;
-            const avatar = getActivityAvatar(act.action, act.user_id);
+            const avatar = getActivityAvatar(act.action, act.user_id, act.user_name);
             item.className = 'activity-item' + (isStale ? ' activity-stale' : '')
                              + (isCancelAct ? ' activity-cancel' : '')
                              + (isSystem ? ' activity-system' : '');
@@ -1234,6 +1315,7 @@ async function loadCardActivity(cardId) {
                 <div class="activity-content">
                     <div class="activity-line">
                         <span class="activity-action">${escapeHtml(act.action)}</span>
+                        ${act.user_name ? `<span class="activity-user">${escapeHtml(act.user_name)}</span>` : ''}
                         <span class="activity-time">${time}</span>
                         ${manageBtns}
                     </div>
@@ -1242,10 +1324,6 @@ async function loadCardActivity(cardId) {
             `;
             container.appendChild(item);
         });
-    } catch (err) {
-        container.innerHTML = '';
-        container.appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки активности', message: err.message }));
-    }
 }
 
 const TAG_COLORS = [

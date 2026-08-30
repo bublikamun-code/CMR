@@ -27,6 +27,69 @@ UPLOAD_DIR = os.path.abspath(
 )
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
+# ============================================================
+# История изменений полей карточки (план 1.2)
+# Лента активности — единственное место, где менеджер видит,
+# кто и когда поменял сумму/клиента/дату. Без этих записей
+# остаётся только догадываться, откуда взялись данные в сделке.
+# ============================================================
+
+def _fmt_money_log(value) -> str:
+    try:
+        return f"{float(value):,.2f}".replace(",", " ").replace(".", ",")
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _fmt_date_log(value) -> str:
+    if not value:
+        return "—"
+    parts = str(value)[:10].split("-")
+    return ".".join(reversed(parts)) if len(parts) == 3 else str(value)
+
+
+def _short_log(text: str, limit: int = 40) -> str:
+    text = (text or "").strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _log_card_changes(session, card, current_user, changes: list) -> None:
+    """Одна запись «Изменение» на PATCH со всеми полями, поменявшими значение."""
+    if not changes:
+        return
+    session.add(models.ActivityLog(
+        user_id=current_user.id,
+        card_id=card.id,
+        action="Изменение",
+        details="; ".join(changes)[:2000],
+        tenant_id=current_user.tenant_id,
+    ))
+
+
+def _card_field_changes(session, card, old: dict) -> list:
+    """Сравнивает текущие значения карточки со снимком old, возвращает тексты изменений."""
+    changes = []
+    if (card.title or "") != (old.get("title") or ""):
+        changes.append(f'Название: «{_short_log(old.get("title"))}» → «{_short_log(card.title)}»')
+    if float(card.total_amount or 0) != float(old.get("total_amount") or 0):
+        changes.append(f'Сумма: {_fmt_money_log(old.get("total_amount"))} → {_fmt_money_log(card.total_amount)} BYN')
+    if (card.due_date or None) != (old.get("due_date") or None):
+        changes.append(f'Дата окончания: {_fmt_date_log(old.get("due_date"))} → {_fmt_date_log(card.due_date)}')
+    if (card.store_location or "") != (old.get("store_location") or ""):
+        changes.append(f'Магазин: {old.get("store_location") or "—"} → {card.store_location or "—"}')
+    if (card.client_id or None) != (old.get("client_id") or None):
+
+        def _client_name(cid):
+            if cid is None:
+                return "—"
+            rec = session.query(models.Client).filter(models.Client.id == cid).first()
+            return _short_log(rec.name, 30) if rec else "—"
+
+        changes.append(f'Клиент: {_client_name(old.get("client_id"))} → {_client_name(card.client_id)}')
+    return changes
+
+
 @router.post("/cards/{card_id}/checklists", response_model=schemas.ChecklistResponse)
 def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
@@ -240,6 +303,14 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
+        # Снимок значений до мутаций — по нему строим запись «Изменение» в ленту
+        _old = {
+            "title": card.title,
+            "total_amount": card.total_amount,
+            "due_date": card.due_date,
+            "store_location": card.store_location,
+            "client_id": card.client_id,
+        }
         if card_update.title is not None:
             card.title = card_update.title
             for tx in card.transactions:
@@ -282,6 +353,7 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         if 'tag_ids' in card_update.model_fields_set:
             tags = session.query(models.Tag).filter(models.Tag.id.in_(card_update.tag_ids)).all()
             card.tags = tags
+        _log_card_changes(session, card, current_user, _card_field_changes(session, card, _old))
         session.commit()
         session.refresh(card)
         # Версионирование
@@ -311,6 +383,11 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
 
+        _old_pay = {
+            "paid_amount": card.paid_amount,
+            "payment_status": card.payment_status,
+            "payment_due_date": card.payment_due_date,
+        }
         if payload.paid_amount is not None:
             card.paid_amount = max(0, payload.paid_amount)
         if payload.payment_due_date is not None:
@@ -329,6 +406,15 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
                 card.payment_status = "Частично"
             else:
                 card.payment_status = "Не оплачен"
+
+        _pay_changes = []
+        if (card.payment_status or "") != (_old_pay.get("payment_status") or ""):
+            _pay_changes.append(f'Оплата: {_old_pay.get("payment_status") or "—"} → {card.payment_status}')
+        if float(card.paid_amount or 0) != float(_old_pay.get("paid_amount") or 0):
+            _pay_changes.append(f'Оплачено: {_fmt_money_log(_old_pay.get("paid_amount"))} → {_fmt_money_log(card.paid_amount)} BYN')
+        if (card.payment_due_date or None) != (_old_pay.get("payment_due_date") or None):
+            _pay_changes.append(f'Отсрочка до: {_fmt_date_log(_old_pay.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
+        _log_card_changes(session, card, current_user, _pay_changes)
 
         session.commit()
         session.refresh(card)

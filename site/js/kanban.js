@@ -469,15 +469,22 @@ async function handleDrop(e) {
     }
     cardEl.classList.toggle('card-assembly', newStatus === 'Сборка');
 
-    // Сделка без цены дальше «Нового запроса» не двигается (план 0.2):
-    // сумму проставляют в карточке, поэтому перетаскивание откатываем.
+    // Сделка без цены (и без даты при выходе из «Нового запроса», план 1.7)
+    // дальше не двигается: данные проставляют в карточке, поэтому
+    // перетаскивание откатываем.
     if (oldStatus && oldStatus !== newStatus && newStatus !== 'Новый запрос') {
         const moved = (_allCards || []).find(c => c.id === parseInt(cardId));
+        let blockMsg = null;
         if (moved && (parseFloat(moved.total_amount) || 0) <= 0) {
+            blockMsg = 'Укажите сумму сделки — откройте карточку и заполните';
+        } else if (moved && oldStatus === 'Новый запрос' && !moved.due_date) {
+            blockMsg = 'Укажите дату окончания — откройте карточку и заполните';
+        }
+        if (blockMsg) {
             const oldContainer = oldColumn.querySelector('.kanban-cards');
             if (oldContainer) oldContainer.appendChild(cardEl);
             cardEl.classList.toggle('card-assembly', oldStatus === 'Сборка');
-            showToast('Укажите сумму сделки — откройте карточку и заполните', 'error');
+            showToast(blockMsg, 'error');
             _isDropping = false;
             return;
         }

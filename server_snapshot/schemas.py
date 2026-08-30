@@ -335,6 +335,7 @@ class ActivityLogResponse(BaseModel):
     action: str
     details: Optional[str] = None
     created_at: datetime
+    user_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
