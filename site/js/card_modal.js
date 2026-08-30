@@ -485,35 +485,47 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             <div class="activity-loading">Загрузка...</div>
         </div>
         <div class="comment-input-box">
-            <textarea id="input-description" rows="2" placeholder="Заметка к сделке...">${escapeHtml(card.description || '')}</textarea>
-            <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку">${ICON_CHECK}</button>
+            <textarea id="input-description" rows="2" placeholder="Заметка к сделке..."></textarea>
+            <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку (Enter)">${ICON_CHECK}</button>
         </div>
     `;
 
     // Поле заметки фиксированной высоты: длинный текст скроллится внутри,
     // а не растягивает панель комментариев на полкарточки.
 
+    const sendComment = async () => {
+        const ta = document.getElementById('input-description');
+        if (!ta) return;
+        const note = ta.value.trim();
+        if (!note) {
+            showToast('Заметка пустая — нечего сохранять', 'error');
+            return;
+        }
+        try {
+            await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: ta.value }) });
+            showToast('Заметка сохранена', 'success');
+            // заметка ушла в ленту активности — показываем её сразу,
+            // без переоткрытия карточки
+            loadCardActivity(card.id);
+            ta.value = '';
+            ta.focus();
+        } catch (err) {
+            showToast('Не удалось сохранить заметку: ' + err.message, 'error');
+        }
+    };
     const sendCommentBtn = document.getElementById('btn-send-comment');
-    if (sendCommentBtn) {
-        sendCommentBtn.onclick = async () => {
-            const ta = document.getElementById('input-description');
-            if (!ta) return;
-            const note = ta.value.trim();
-            if (!note) {
-                showToast('Заметка пустая — нечего сохранять', 'error');
-                return;
+    if (sendCommentBtn) sendCommentBtn.onclick = sendComment;
+    // Enter отправляет заметку, Shift+Enter — перенос строки (план 4.3).
+    // Заметка — разовое сообщение: после отправки поле очищается, как в мессенджерах,
+    // текст остаётся в ленте ниже.
+    const commentInput = document.getElementById('input-description');
+    if (commentInput) {
+        commentInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendComment();
             }
-            try {
-                await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: ta.value }) });
-                showToast('Заметка сохранена', 'success');
-                // заметка ушла в ленту активности — показываем её сразу,
-                // без переоткрытия карточки
-                loadCardActivity(card.id);
-                ta.focus();
-            } catch (err) {
-                showToast('Не удалось сохранить заметку: ' + err.message, 'error');
-            }
-        };
+        });
     }
 
     // Load activity log

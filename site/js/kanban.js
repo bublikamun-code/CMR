@@ -860,6 +860,9 @@ function resetKanbanFilters() {
 // === LIST VIEW ===
 function switchKanbanView(view) {
     _kanbanView = view;
+    // Заголовок отражает режим (план 4.1): «Воронка продаж — Доска/Список»
+    const pageTitle = document.getElementById('kanban-page-title');
+    if (pageTitle) pageTitle.textContent = view === 'board' ? 'Воронка продаж — Доска' : 'Воронка продаж — Список';
     const boardEl = document.getElementById('kanban-board');
     const listEl = document.getElementById('kanban-list');
     const btnBoard = document.getElementById('view-board');
