@@ -1496,12 +1496,14 @@ async function downloadFile(filename, niceName) {
 
 async function downloadById(endpoint, id, niceName) {
     // UI FIX 2026-08-31: id = null → endpoint уже полный путь до /download.
-    const url = (id === null || id === undefined)
+    // Переменная названа downloadUrl: внутри try ниже есть своя const url
+    // для blob — прежнее имя давало TDZ-ошибку «Cannot access 'url'…».
+    const downloadUrl = (id === null || id === undefined)
         ? `${API_BASE_URL}${endpoint}`
         : `${API_BASE_URL}${endpoint}/${id}/download`;
     const token = getToken();
     try {
-        const resp = await fetch(url, {
+        const resp = await fetch(downloadUrl, {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         if (!resp.ok) {
