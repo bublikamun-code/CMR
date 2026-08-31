@@ -1495,9 +1495,13 @@ async function downloadFile(filename, niceName) {
 }
 
 async function downloadById(endpoint, id, niceName) {
+    // UI FIX 2026-08-31: id = null → endpoint уже полный путь до /download.
+    const url = (id === null || id === undefined)
+        ? `${API_BASE_URL}${endpoint}`
+        : `${API_BASE_URL}${endpoint}/${id}/download`;
     const token = getToken();
     try {
-        const resp = await fetch(`${API_BASE_URL}${endpoint}/${id}/download`, {
+        const resp = await fetch(url, {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         if (!resp.ok) {
@@ -1540,7 +1544,10 @@ function downloadAttachment(attachmentId, niceName) {
 }
 
 function downloadChecklistInvoice(checklistId, niceName) {
-    return downloadById('/checklists', checklistId, niceName);
+    // UI FIX 2026-08-31: было /checklists/{id}/download — маршрута нет,
+    // FastAPI отвечал 404 {"detail":"Not Found"}, счёт не скачивался.
+    // Правильный путь: /checklists/{id}/invoice/download.
+    return downloadById(`/checklists/${checklistId}/invoice`, null, niceName);
 }
 
 
