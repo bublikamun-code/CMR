@@ -58,7 +58,7 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             models.Transaction.is_document == False
         ).first()
         if existing:
-            return existing
+            return _tx_dict(existing)
         new_tx = models.Transaction(company_name=card.title, amount=card.total_amount, store_location=payload.store_location, card_id=card.id)
         session.add(new_tx)
         session.commit()
@@ -82,7 +82,7 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
                    type="card_updated", title=f"Новая оплата по сделке: {card.title}",
                    details=f"{float(new_tx.amount or 0):,.2f} BYN",
                    entity_type="card", entity_id=card.id)
-        return new_tx
+        return _tx_dict(new_tx)
     finally:
         tdb.close()
 
@@ -117,7 +117,8 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
                 response.headers["X-Truncated"] = "true"
 
         if not grouped:
-            return rows
+            # UI FIX 2026-08-31: dict вместо ORM — сессия закроется в finally
+            return [_tx_dict(r) for r in rows]
 
         # ВАЖНО: чек-лист карточки — это ЗАКУПКА У ПОСТАВЩИКОВ
         # (кому и сколько мы должны заплатить за товар для этого заказа).
@@ -175,8 +176,13 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
 
 
 def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, payment_status=None):
+    # UI FIX 2026-08-31: все ответные ветки этого роутера возвращают dict, а не
+    # ORM-объект: tenant-сессия закрывается в finally до сериализации ответа,
+    # и pydantic падал с DetachedInstanceError (is_warehouse_writeoff, date,
+    # card_id, ...). Дополнено поле writeoff_group_id (есть в схеме ответа).
     return {
         "id": t.id, "date": t.date, "card_id": t.card_id,
+        "writeoff_group_id": t.writeoff_group_id,
         "company_name": t.company_name, "amount": float(t.amount or 0),
         "store_location": t.store_location or "",
         "is_calculated": bool(t.is_calculated),
@@ -212,7 +218,8 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
             response.headers["X-Total-Count"] = str(len(rows))
             if len(rows) >= REGISTRY_HARD_LIMIT:
                 response.headers["X-Truncated"] = "true"
-        return rows
+        # UI FIX 2026-08-31: dict вместо ORM — сессия закроется в finally
+        return [_tx_dict(r) for r in rows]
     finally:
         tdb.close()
 
@@ -237,7 +244,7 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
                 models.Transaction.invoice_number == original.invoice_number
             ).first()
             if existing_doc:
-                return existing_doc
+                return _tx_dict(existing_doc)
         duplicate = models.Transaction(
             company_name=original.company_name, amount=original.amount, store_location=original.store_location,
             invoice_number=original.invoice_number, invoice_date=original.invoice_date,
@@ -248,7 +255,7 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
         session.add(duplicate)
         session.commit()
         session.refresh(duplicate)
-        return duplicate
+        return _tx_dict(duplicate)
     finally:
         tdb.close()
 
@@ -384,7 +391,7 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
                 twin.print_status = update_data["print_status"]
         session.commit()
         session.refresh(tx)
-        return tx
+        return _tx_dict(tx)
     finally:
         tdb.close()
 
@@ -480,7 +487,7 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
         session.add(new_tx)
         session.commit()
         session.refresh(new_tx)
-        return new_tx
+        return _tx_dict(new_tx)
     finally:
         tdb.close()
 
