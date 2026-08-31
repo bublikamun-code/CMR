@@ -4,7 +4,23 @@ import os
 import sys
 import argparse
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(_SCRIPT_DIR)
+
+# 2026-08-31: подхватываем боевые переменные из .pm2.env рядом со скриптом.
+# Причина: окружение lived в PM2 (--update-env / дамп), и после одного
+# рестарта из пустого ssh-шелла и после ребута сервера воркеры теряли
+# CRM_DATA_DIR и молча открывали пустую базу в корне сайта. setdefault —
+# явно заданное окружение всегда сильнее файла.
+_env_file = os.path.join(_SCRIPT_DIR, ".pm2.env")
+if os.path.isfile(_env_file):
+    with open(_env_file) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 from main import app
 
