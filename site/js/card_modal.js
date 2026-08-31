@@ -1549,7 +1549,7 @@ function downloadChecklistInvoice(checklistId, niceName) {
     // UI FIX 2026-08-31: было /checklists/{id}/download — маршрута нет,
     // FastAPI отвечал 404 {"detail":"Not Found"}, счёт не скачивался.
     // Правильный путь: /checklists/{id}/invoice/download.
-    return downloadById(`/checklists/${checklistId}/invoice`, null, niceName);
+    return downloadById(`/checklists/${checklistId}/invoice/download`, null, niceName);
 }
 
 
