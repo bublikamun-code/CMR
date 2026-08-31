@@ -187,6 +187,7 @@ def upload_checklist_invoice(checklist_id: int, file: UploadFile = File(...), db
         ext = os.path.splitext(file.filename or '')[1].lower()
         if ext not in ALLOWED_EXTS:
             raise HTTPException(status_code=400, detail=f"Тип файла не разрешён: {ext}")
+        _validate_upload_content(file, ext)
         if item.invoice_file_path and os.path.exists(item.invoice_file_path):
             os.remove(item.invoice_file_path)
         original_name = os.path.basename(file.filename or "schet")
@@ -238,6 +239,44 @@ def delete_checklist_invoice(checklist_id: int, db: Session = Depends(get_db), c
 
 ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt', '.odt', '.ods', '.zip', '.rar'}
 
+# UI FIX 2026-08-31 (аудит): проверка содержимого по magic bytes, а не только
+# по расширению — переименованный .exe под видом .jpg раньше проходил.
+_MAGIC_SIGNATURES = [
+    (b'%PDF', ('.pdf',)),
+    (b'\xff\xd8\xff', ('.jpg', '.jpeg')),
+    (b'\x89PNG', ('.png',)),
+    (b'GIF8', ('.gif',)),
+    (b'PK\x03\x04', ('.docx', '.xlsx', '.odt', '.ods', '.zip')),
+    (b'\xd0\xcf\x11\xe0', ('.doc', '.xls')),
+    (b'Rar!', ('.rar',)),
+]
+# Текстовые форматы не проверяем: валидный csv/txt может начинаться с чего угодно
+# (BOM, цифры, кавычки), а исполняемый файл под видом .txt браузер исполнять не умеет.
+_NO_CHECK_EXTS = {'.csv', '.txt'}
+
+
+def _validate_upload_content(file, ext: str):
+    """Первые байты файла должны соответствовать расширению, иначе 400."""
+    if ext in _NO_CHECK_EXTS:
+        return
+    head = file.file.read(16)
+    file.file.seek(0)
+    if not head:
+        raise HTTPException(status_code=400, detail="Файл пустой")
+    for sig, exts in _MAGIC_SIGNATURES:
+        if head.startswith(sig):
+            if ext in exts:
+                file.file.seek(0)
+                return
+            raise HTTPException(status_code=400,
+                detail=f"Содержимое файла не соответствует типу {ext}")
+    if ext == '.webp' and head[:4] == b'RIFF' and head[8:12] == b'WEBP':
+        file.file.seek(0)
+        return
+    raise HTTPException(status_code=400,
+        detail=f"Содержимое файла не соответствует типу {ext}")
+
+
 @router.post("/cards/{card_id}/attachments", response_model=schemas.AttachmentResponse)
 def upload_file(card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
@@ -252,6 +291,7 @@ def upload_file(card_id: int, file: UploadFile = File(...), db: Session = Depend
         ext = os.path.splitext(original_name)[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(status_code=400, detail=f"Тип файла {ext} не разрешён")
+        _validate_upload_content(file, ext)
         if not original_name:
             original_name = "file"
         safe_filename = f"{card_id}_{uuid.uuid4().hex[:8]}_{original_name}"

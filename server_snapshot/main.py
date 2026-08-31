@@ -146,6 +146,22 @@ async def add_headers(request: Request, call_next):
 
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    # UI FIX 2026-08-31: заголовки из аудита. CSP осторожный: фронтенд целиком
+    # на инлайн-скриптах и инлайн-обработчиках (unsafe-inline), внешние хосты —
+    # только Google Fonts. frame-ancestors дублирует X-Frame-Options.
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'"
+    )
     return response
 
 app.mount("/css", StaticFiles(directory="css"), name="css")
