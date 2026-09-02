@@ -1,0 +1,12 @@
+{
+  "name": "crm-visual-check",
+  "private": true,
+  "type": "module",
+  "description": "Скриншот-обход экранов прода для визуального аудита (локальный инструмент, в прод не деплоится)",
+  "scripts": {
+    "walk": "node walk.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.45.0"
+  }
+}

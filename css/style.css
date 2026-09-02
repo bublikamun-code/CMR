@@ -12726,3 +12726,71 @@ textarea {
     background: var(--table-header-bg) !important;
     color: var(--text-muted) !important;
 }
+
+/* ==========================================================
+   АУДИТ-ФИКС 2026-09-03 (по живым скриншотам 1440/1920/1280/1024):
+   данные в таблицах не должны обрезаться; шапки колонок канбана
+   переносятся вместо многоточия; низ сайдбара — сегмент-контрол.
+   ========================================================== */
+
+/* --- Реестр оплат: даты, суммы, магазины и примечания целиком.
+       Сумма фикс-колонок выросла, поэтому min-width таблицы тоже
+       растёт — на узких экранах честный горизонтальный скролл
+       вместо обрезанных значений. --- */
+#payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 104px !important; }
+#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 132px !important; }
+#payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 112px !important; }
+#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 112px !important; }
+/* липкая «Название» едет за новой шириной даты */
+#payments-table td:nth-child(2), #payments-table th:nth-child(2),
+#documents-table td:nth-child(2), #documents-table th:nth-child(2) { left: 104px; }
+#page-payments .data-table { min-width: 1240px !important; }
+
+/* --- Документы: те же болезни (дата/сумма/магазин). --- */
+#documents-table th:nth-child(1), #documents-table td:nth-child(1) { width: 104px !important; }
+#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 132px !important; }
+#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 132px !important; }
+#documents-table th:nth-child(5), #documents-table td:nth-child(5) { width: 112px !important; }
+#page-documents .data-table { min-width: 1120px !important; }
+
+/* --- Канбан: шапка колонки переносит сумму на вторую строку,
+       если не влезает, вместо «17 из 12331 273,95 …». --- */
+.column-header { flex-wrap: wrap; row-gap: 2px; }
+.column-header .col-sum {
+    flex: 1 1 120px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Низ сайдбара: тема/плотность — аккуратный сегмент-контрол
+       вместо двух тёмных плашек. --- */
+.sidebar-controls {
+    margin: 0 8px 12px;
+    padding: 4px;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+}
+.sidebar-controls .theme-toggle,
+.sidebar-controls .compact-toggle {
+    height: 32px;
+    background: transparent;
+    border-radius: 8px;
+    color: #aeb8c7;
+}
+.sidebar-controls .theme-toggle:hover,
+.sidebar-controls .compact-toggle:hover {
+    background: rgba(255, 255, 255, 0.10);
+    color: #fff;
+}
+
+/* --- «Админ-панель»: как пункт навигации, без чужеродной рамки. --- */
+.admin-link-btn {
+    border-color: transparent;
+    background: rgba(255, 255, 255, 0.04);
+}
+.admin-link-btn:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+}
