@@ -1183,7 +1183,9 @@ function startCommentEdit(container, entryId) {
 }
 
 // Активный фильтр ленты (план 1.2): всё / только комментарии / только события.
-let _activityFilter = localStorage.getItem('crm_activity_filter') || 'all';
+// FIX 2026-09-03 (аудит): при заблокированном localStorage файл падал целиком.
+let _activityFilter = 'all';
+try { _activityFilter = localStorage.getItem('crm_activity_filter') || 'all'; } catch (e) {}
 
 async function loadCardActivity(cardId) {
     const container = document.getElementById('activity-container');

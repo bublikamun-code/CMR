@@ -293,7 +293,7 @@ window.TasksUI = {
             if (document.getElementById('task-id-input').value == id) {
                 /* статус меняли из модалки — список подзадач не трогаем */
             }
-        } catch (e) { showToast('Не удалось изменить статус: ' + e.message, true); loadTasks(); }
+        } catch (e) { showToast('Не удалось изменить статус: ' + e.message, 'error'); loadTasks(); }
     },
     async remove(id) {
         if (!confirm('Удалить задачу вместе с подзадачами?')) return;
@@ -302,7 +302,7 @@ window.TasksUI = {
             allTasks = allTasks.filter(t => t.id !== id);
             renderTasks();
             showToast('Задача удалена');
-        } catch (e) { showToast('Не удалось удалить: ' + e.message, true); }
+        } catch (e) { showToast('Не удалось удалить: ' + e.message, 'error'); }
     },
     openCard(evt, cardId) {
         evt.preventDefault();
@@ -323,7 +323,7 @@ window.TasksUI = {
             input.value = '';
             TasksUI.checklistRender(t);
             renderTasks();
-        } catch (e) { showToast('Не удалось добавить подзадачу: ' + e.message, true); }
+        } catch (e) { showToast('Не удалось добавить подзадачу: ' + e.message, 'error'); }
     },
     async checklistToggle(itemId, checked) {
         const taskId = document.getElementById('task-id-input').value;
@@ -336,7 +336,7 @@ window.TasksUI = {
                 TasksUI.checklistRender(t);
                 renderTasks();
             }
-        } catch (e) { showToast('Ошибка: ' + e.message, true); }
+        } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
     },
     async checklistDelete(itemId) {
         const taskId = document.getElementById('task-id-input').value;
@@ -344,7 +344,7 @@ window.TasksUI = {
             await apiFetch(`/tasks/checklist/${itemId}`, { method: 'DELETE' });
             const t = allTasks.find(x => x.id == taskId);
             if (t) { t.checklist = (t.checklist || []).filter(i => i.id !== itemId); TasksUI.checklistRender(t); renderTasks(); }
-        } catch (e) { showToast('Ошибка: ' + e.message, true); }
+        } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
     },
     checklistRender(t) {
         const box = document.getElementById('task-checklist-items');
@@ -494,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const link = taskLinks.find(l => l.label === linkText);
         payload.card_id = link && link.type === 'card' ? link.ref_id : null;
         payload.client_id = link && link.type === 'client' ? link.ref_id : null;
-        if (!payload.title) return showToast('Укажите название задачи', true);
+        if (!payload.title) return showToast('Укажите название задачи', 'error');
         const saveBtn = document.getElementById('task-save-btn');
         saveBtn.disabled = true;
         try {
@@ -508,7 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
             TasksUI.closeModal();
             loadTasks();
         } catch (err) {
-            showToast('Ошибка сохранения: ' + err.message, true);
+            showToast('Ошибка сохранения: ' + err.message, 'error');
         } finally {
             saveBtn.disabled = false;
         }

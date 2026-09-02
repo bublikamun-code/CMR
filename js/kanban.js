@@ -37,7 +37,9 @@ let _kanbanSearchQuery = '';
 let _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '' };
 let _kanbanView = 'board'; // 'board' or 'list'
 let _trashSearchQuery = '';
-let _kanbanDensity = localStorage.getItem('crm_kanban_density') || 'detailed';
+// FIX 2026-09-03 (аудит): при заблокированном localStorage файл падал целиком.
+let _kanbanDensity = 'detailed';
+try { _kanbanDensity = localStorage.getItem('crm_kanban_density') || 'detailed'; } catch (e) {}
 let _allCards = [];
 
 function getKanbanDensity() { return _kanbanDensity; }
@@ -389,9 +391,15 @@ function fillCardHTML(cardEl, card) {
     cardEl.querySelector('.btn-delete-card').onclick = async (e) => {
         e.stopPropagation();
         if (await confirmDialog("Удалить карточку?")) {
-            await apiFetch(`/kanban/cards/${card.id}`, { method: 'DELETE' });
-            cardEl.remove();
-            showToast('Карточка удалена', 'success');
+            // FIX 2026-09-03 (аудит): ошибка DELETE оставалась необработанной —
+            // пользователь считал карточку удалённой, а она оставалась в базе.
+            try {
+                await apiFetch(`/kanban/cards/${card.id}`, { method: 'DELETE' });
+                cardEl.remove();
+                showToast('Карточка удалена', 'success');
+            } catch (err) {
+                showToast('Ошибка удаления: ' + err.message, 'error');
+            }
         }
     };
 

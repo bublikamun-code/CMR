@@ -489,8 +489,11 @@
     var modal = e.target.closest('.modal');
     if (!modal || modal.classList.contains('hidden')) return;
     var isOverlay = e.target === modal && overlayMouseDown;
+    // FIX 2026-09-03 (аудит): суффикс id «-cancel» матчил и динамические
+    // кнопки формы оплаты внутри карточки (modal-pay-cancel) — «Отмена»
+    // сворачивала всю карточку сделки. Внутри #card-modal суффикс не учитываем.
     var isClose = e.target.classList.contains('close-btn') ||
-                  (e.target.id && /-cancel$/.test(e.target.id));
+                  (e.target.id && /-cancel$/.test(e.target.id) && !e.target.closest('#card-modal'));
     if (!isOverlay && !isClose) return;
     e.preventDefault();
     e.stopImmediatePropagation();
