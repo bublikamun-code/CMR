@@ -77,8 +77,10 @@ html {
        в том, что острых углов у контролов быть не должно; 6px подтягивает
        все инпуты, пункты меню и мелкие кнопки разом. */
     --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
+    /* Раунд 2 (выразительный, DESIGN-2/shadcn): иерархия радиусов —
+       капсулы у кнопок (999px), 10px у контролов, 16px у контейнеров. */
+    --radius-md: 10px;
+    --radius-lg: 16px;
     /* === ШКАЛА ОТСТУПОВ (единая для всего приложения) === */
     --space-xs: 4px;
     --space-sm: 8px;
@@ -12617,3 +12619,70 @@ h1, h2, h3 {
 .search-input:focus {
     box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
 }
+
+/* ==========================================================
+   ДИЗАЙН-РАУНД 2026-09-03, РАУНД 2 — ВЫРАЗИТЕЛЬНЫЙ (по
+   референсу DESIGN-2 / shadcn). Иерархия радиусов:
+   • капсулы (999px) — кнопки и триггеры;
+   • 10px (--radius-md) — поля ввода, меню, тосты;
+   • 16px (--radius-lg) — карточки, модалки, диалоги.
+   Плюс светлые «туманные» шапки таблиц без градиента.
+   Палитра индиго сохранена; тёмная тема — через переменные.
+   ========================================================== */
+
+/* Кнопки — капсулы. Служебные иконочные (крестики, карандаши)
+   не трогаем — у них своя квадратная пластика. */
+.btn-primary,
+.btn-secondary,
+.btn-sm,
+.btn-danger,
+.btn-assembly,
+.btn-writeoff-action,
+.btn-writeoff,
+.btn-restore,
+.btn-permanent-delete,
+.btn-link-card,
+.btn-add-contact,
+.confirm-actions button,
+.save-retry-btn {
+    border-radius: 999px;
+}
+
+/* Триггер кастомного дропдауна — капсула, читается как кнопка;
+   само меню — контейнер 10px. */
+.dropdown-toggle { border-radius: 999px; }
+.dropdown-menu,
+.toast,
+.pay-dd-menu { border-radius: 10px; }
+
+/* Поля ввода и поиск — 10px вместо мелких 6. */
+.search-input,
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="email"],
+select,
+textarea {
+    border-radius: 10px;
+}
+
+/* Шапки таблиц: сплошной «туман» вместо градиента, волосок снизу —
+   современный спокойный вид данных (в тёмной теме правило глушится
+   более специфичным [data-theme="dark"] .data-table th). */
+.data-table th {
+    background: var(--table-row-even);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Вторичная кнопка в тёмной теме — тоже тональная, без рамки. */
+[data-theme="dark"] .btn-secondary {
+    background: var(--bg-secondary);
+    border-color: transparent;
+}
+[data-theme="dark"] .btn-secondary:hover {
+    background: var(--border-color);
+    color: var(--text-color);
+}
+
+/* Модалки и диалоги: мягче вход — без резкого затемнения фона. */
+.modal { background-color: rgba(15, 23, 42, 0.45); }
