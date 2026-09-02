@@ -73,7 +73,10 @@ html {
     --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.06);
     --shadow-md: 0 4px 8px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
     --shadow-lg: 0 12px 24px -6px rgba(15, 23, 42, 0.12), 0 4px 8px -4px rgba(15, 23, 42, 0.06);
-    --radius-sm: 4px;
+    /* ДИЗАЙН-РАУНД 2026-09-03: 4px → 6px — референсы (shadcn/Steep) сходятся
+       в том, что острых углов у контролов быть не должно; 6px подтягивает
+       все инпуты, пункты меню и мелкие кнопки разом. */
+    --radius-sm: 6px;
     --radius-md: 8px;
     --radius-lg: 12px;
     /* === ШКАЛА ОТСТУПОВ (единая для всего приложения) === */
@@ -591,7 +594,7 @@ a.nav-btn { text-decoration: none; }
 }
 
 .btn-primary:hover {
-    box-shadow: 0 4px 14px rgba(74, 87, 164, 0.30);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.30);
 }
 
 .btn-full {
@@ -623,7 +626,7 @@ a.nav-btn { text-decoration: none; }
 .search-input:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 
 .search-with-clear {
@@ -1134,7 +1137,7 @@ a.nav-btn { text-decoration: none; }
 }
 .modal-input-row input:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 
@@ -1744,7 +1747,7 @@ a.nav-btn { text-decoration: none; }
 
 .modal-content input:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 
@@ -2026,7 +2029,7 @@ button.btn-edit-card:hover {
     transition: background-color var(--transition-fast);
 }
 .btn-danger:hover {
-    background: #b91c1c;   /* более тёмный красный на hover */
+    background: var(--danger-dark);
     color: #fff;
 }
 .btn-danger:active {
@@ -2093,8 +2096,8 @@ button.btn-edit-card:hover {
 }
 
 .btn-writeoff:hover {
-    background-color: #218838;
-    box-shadow: 0 4px 12px rgba(26, 154, 117, 0.30);
+    background-color: #036647; /* темнее --success-color, оттенок не меняется */
+    box-shadow: var(--shadow-sm);
 }
 
 /* --- СТИЛИ ДЛЯ ЭКРАНА ВХОДА --- */
@@ -2151,7 +2154,7 @@ button:hover {
 /* Красивые поля ввода */
 input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 ::-webkit-scrollbar {
     width: 6px;
@@ -2496,8 +2499,16 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     background: var(--danger-color);
 }
 
+/* ДИЗАЙН-РАУНД 2026-09-03: hover затемнением через токены вместо
+   filter: brightness — одинаковое поведение с остальными кнопками. */
 .confirm-ok:hover {
-    filter: brightness(1.05);
+    background: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
+
+.confirm-ok.danger:hover {
+    background: var(--danger-dark);
+    border-color: var(--danger-dark);
 }
 
 /* ==========================================================
@@ -2539,7 +2550,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 .dropdown.open .dropdown-toggle {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 
 .dropdown-value {
@@ -2789,7 +2800,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 #input-description:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 
@@ -2968,7 +2979,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 .pay-badge.pay-select:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
 }
 /* В Firefox option не наследует цвет фона бейджа — задаём цвета,
    соответствующие каждому статусу, чтобы список выглядел единообразно. */
@@ -3312,7 +3323,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 .activity-edit-text:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 .activity-edit-actions { display: flex; gap: 6px; }
 .activity-time {
@@ -3563,7 +3574,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 .tag-create-input:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 .tag-color-palette {
@@ -4319,7 +4330,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(74, 87, 164, 0.1);
+    border: 1px solid rgba(79, 70, 229, 0.1);
     transition: transform var(--transition-fast);
 }
 
@@ -4608,7 +4619,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     background: var(--card-bg);
     color: var(--text-color);
     outline: none;
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 
 /* === HOVER ACTIONS (Kanban) === */
@@ -4881,7 +4892,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 .modal-split-left select:focus,
 .modal-split-left textarea:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 .modal-split-left h3 {
@@ -5820,11 +5831,11 @@ input, select, textarea {
     transform: rotate(2deg);
 }
 .kanban-column.drag-over {
-    background: rgba(74, 87, 164, 0.05);
+    background: rgba(79, 70, 229, 0.05);
     border: 2px dashed var(--primary-color);
 }
 [data-theme="dark"] .kanban-column.drag-over {
-    background: rgba(74, 87, 164, 0.1);
+    background: rgba(79, 70, 229, 0.1);
 }
 .kanban-column.drag-over .kanban-cards {
     min-height: 80px;
@@ -6218,7 +6229,7 @@ input, select, textarea {
 [data-theme="dark"] select:focus,
 [data-theme="dark"] textarea:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
 }
 
 /* ============================================================
@@ -7115,7 +7126,7 @@ textarea:focus-visible {
 /* --- Плитки одной сделки визуально сгруппированы --- */
 .writeoff-card.has-siblings {
     border-left-width: 3px;
-    box-shadow: inset 2px 0 0 rgba(74,87,164,0.25);
+    box-shadow: inset 2px 0 0 rgba(79,70,229,0.25);
 }
 .writeoff-card.has-siblings .invoice-progress {
     background: var(--primary-color);
@@ -10088,7 +10099,7 @@ td.td-center > .btn-edit-row .ui-icon{
 [data-theme="dark"] .kanban-card .card-payment .pay-badge-kanban { background: rgba(255,255,255,0.06); border-color: var(--border-interactive); color: var(--text-muted); }
 [data-theme="dark"] .kanban-card .card-meta .store-badge { background: rgba(255,255,255,0.06); border-color: var(--border-interactive); color: var(--text-muted); }
 [data-theme="dark"] .kanban-card .progress-track { background: rgba(255,255,255,0.08); }
-[data-theme="dark"] .kanban-column.drag-over { background: rgba(74, 87, 164, 0.12) !important; }
+[data-theme="dark"] .kanban-column.drag-over { background: rgba(79, 70, 229, 0.12) !important; }
 
 
 /* === CARD MODAL REDESIGN (2026-08-20) === */
@@ -11502,7 +11513,7 @@ h2, h3 {
 .comment-input-box textarea:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 .comment-input-box button {
     flex-shrink: 0;
@@ -12126,7 +12137,7 @@ select {
     transition: var(--transition-ui);
 }
 select:hover { border-color: var(--primary-color); box-shadow: var(--shadow-sm); }
-select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.15); }
+select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
 
 /* --- Dropdown: кнопка — первая строка, меню не дублирует значение --- */
 .dropdown.open .dropdown-item.selected { display: none; }
