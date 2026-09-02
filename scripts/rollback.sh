@@ -1,8 +1,10 @@
 #!/bin/bash
 # scripts/rollback.sh — откат к указанному бэкапу или к stable-версии
+# FIX 2026-09-03: корень сайта — cmr-svetvdome.online, БД — в /var/www/h212005/data/crm_data
 set -e
 
-APP_DIR="/var/www/h212005/data/www/87-232-64-12.nip.io"
+APP_DIR="/var/www/h212005/data/www/cmr-svetvdome.online"
+DATA_DIR="/var/www/h212005/data/crm_data"
 BACKUP_DIR="$APP_DIR/backups"
 
 usage() {
@@ -96,14 +98,14 @@ if [ "$TARGET" != "stable" ]; then
     cp "$BACKUP_DIR/$TARGET/ecosystem.config.js" "$APP_DIR/" 2>/dev/null || true
     cp "$BACKUP_DIR/$TARGET/requirements.txt" "$APP_DIR/" 2>/dev/null || true
 
-    # Восстановление БД
+    # Восстановление БД (pm2 уже остановлен выше; старые -wal/-shm удаляем,
+    # чтобы чужой журнал не испортил восстановленный файл)
     echo ""
     read -p "Восстановить базу данных? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        cp "$BACKUP_DIR/$TARGET/crm_app.db" "$APP_DIR/" 2>/dev/null || true
-        cp "$BACKUP_DIR/$TARGET/crm_app.db-wal" "$APP_DIR/" 2>/dev/null || true
-        cp "$BACKUP_DIR/$TARGET/crm_app.db-shm" "$APP_DIR/" 2>/dev/null || true
+        rm -f "$DATA_DIR/crm_app.db-wal" "$DATA_DIR/crm_app.db-shm"
+        cp "$BACKUP_DIR/$TARGET/crm_app.db" "$DATA_DIR/crm_app.db"
         echo "БД восстановлена"
     fi
 fi

@@ -2,7 +2,7 @@
 # scripts/deploy.sh — деплой с автоматическим бэкапом
 set -e
 
-APP_DIR="/var/www/h212005/data/www/87-232-64-12.nip.io"
+APP_DIR="/var/www/h212005/data/www/cmr-svetvdome.online"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "=== Деплой CRM Снабжение и Продажи ==="

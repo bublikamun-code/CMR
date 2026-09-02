@@ -1,18 +1,24 @@
 #!/bin/bash
 # scripts/backup.sh — создание полного бэкапа перед изменениями
+# FIX 2026-09-03: корень сайта переехал в cmr-svetvdome.online, БД — в /var/www/h212005/data/crm_data;
+# снимок БД делается через sqlite3 .backup (простой cp в WAL-режиме даёт битый файл).
 set -e
 
-APP_DIR="/var/www/h212005/data/www/87-232-64-12.nip.io"
+APP_DIR="/var/www/h212005/data/www/cmr-svetvdome.online"
+DATA_DIR="/var/www/h212005/data/crm_data"
 BACKUP_DIR="$APP_DIR/backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="backup_$TIMESTAMP"
 
 mkdir -p "$BACKUP_DIR/$BACKUP_NAME"
 
-# 1. Бэкап БД
-cp "$APP_DIR/crm_app.db" "$BACKUP_DIR/$BACKUP_NAME/" 2>/dev/null || true
-cp "$APP_DIR/crm_app.db-wal" "$BACKUP_DIR/$BACKUP_NAME/" 2>/dev/null || true
-cp "$APP_DIR/crm_app.db-shm" "$BACKUP_DIR/$BACKUP_NAME/" 2>/dev/null || true
+# 1. Бэкап БД — консистентный снимок живой базы; при неудаче деплой должен прерваться
+if command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "$DATA_DIR/crm_app.db" ".backup '$BACKUP_DIR/$BACKUP_NAME/crm_app.db'"
+else
+    echo "ОШИБКА: sqlite3 не найден — бэкап БД невозможен, деплой прерван" >&2
+    exit 1
+fi
 
 # 2. Бэкап всех .py файлов
 cp "$APP_DIR"/*.py "$BACKUP_DIR/$BACKUP_NAME/" 2>/dev/null || true
