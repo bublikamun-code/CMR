@@ -12807,3 +12807,47 @@ textarea {
 
 /* --- Фильтры: «Все приоритеты» не обрезается. --- */
 .filter-bar .select-dd-wrap { width: 200px; }
+
+/* ==========================================================
+   РАУНД 2026-09-03 (обратная связь пользователя): списание —
+   невидимый крестик, компактность доски; единые кнопки строк;
+   розовый вне палитры.
+   ========================================================== */
+
+/* 1. Крестик на карточке списания был opacity:0 — без ховера кнопка
+   невидима (воспринимается как «скрытая строка»), а на hover ещё и
+   раздувалась padding 20px. Дела видимой и чиним hover. */
+.btn-delete-writeoff { opacity: 0.55; }
+.writeoff-card:hover .btn-delete-writeoff { opacity: 1; }
+.btn-delete-writeoff:hover {
+    padding: 0;
+    background: var(--danger-color);
+    color: #fff;
+}
+
+/* 2. Кнопка удаления строки в «Финансах» — та же пластика, что у
+   клиентов/поставщиков: квадрат с волоском вместо кружка. */
+.btn-delete-row {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+}
+
+/* 3. Компактное списание: плотнее строки, мельче типографика —
+   доска перестаёт «расползаться» по вертикали. */
+.writeoff-card { padding: 10px 12px 12px !important; gap: 4px !important; }
+.writeoff-card .card-title { font-size: 13px !important; }
+.writeoff-card .card-amount { font-size: 15px !important; margin-top: 2px !important; }
+.writeoff-card .wo-remainder { font-size: 11px; margin: 0 !important; }
+.writeoff-card .card-date { font-size: 11px !important; margin: 0 !important; }
+.writeoff-card .wo-invoice,
+.writeoff-card .wo-note,
+.writeoff-card .badge-warning { margin-top: 4px; }
+.writeoff-card .btn-secondary { padding: 6px 10px; font-size: 12px; margin-top: 6px; }
+.writeoff-card .btn-writeoff { padding: 5px var(--space-sm); font-size: 12px; }
+
+/* 4. Розовый #ad36be выбивается из палитры — действие списания
+   тем же зелёным, что и «Списать» на доске. */
+.btn-writeoff-action { background-color: var(--success-color); }
+.btn-writeoff-action:hover { background-color: #036647; }
