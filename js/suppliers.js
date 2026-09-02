@@ -193,6 +193,12 @@ async function saveSupplier() {
         return;
     }
 
+    // FIX 2026-09-03 (аудит): двойной клик по «Сохранить» слал два POST —
+    // дубли контрагентов. Блокируем кнопку на время запроса.
+    const saveBtn = document.getElementById('supplier-save');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
+
     const contacts = CRM_CONTACTS.serialize(CRM_CONTACTS.collect('supplier-contacts'));
     const data = {
         name: name,
@@ -224,6 +230,8 @@ async function saveSupplier() {
         loadSuppliersTable();
     } catch (err) {
         showToast('Ошибка: ' + err.message, 'error');
+    } finally {
+        saveBtn.disabled = false;
     }
 }
 

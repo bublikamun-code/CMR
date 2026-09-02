@@ -50,7 +50,10 @@ async function loadDocumentsTable() {
         renderDocuments();
     } catch (error) {
         if (!tbody.querySelector('tr[data-id]')) {
-            tbody.innerHTML = `<tr><td colspan="10">${renderAlert({ type: 'error', title: 'Ошибка загрузки', message: error.message, onRetry: () => loadDocumentsTable() }).outerHTML}</td></tr>`;
+            // FIX 2026-09-03 (аудит): outerHTML сериализовал алерт и убивал
+            // onclick — кнопка «Повторить» была мёртвой. Вставляем узлом.
+            tbody.innerHTML = '<tr><td colspan="10"></td></tr>';
+            tbody.querySelector('td').appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки', message: error.message, onRetry: () => loadDocumentsTable() }));
         }
     }
 }

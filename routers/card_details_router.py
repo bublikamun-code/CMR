@@ -464,7 +464,7 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
             tdb.close()
 
 @router.get("/files/{filename}")
-def download_file(filename: str, current_user: models.User = Depends(get_current_user)):
+def download_file(filename: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     safe_name = os.path.basename(filename)
     file_path = os.path.realpath(os.path.join(UPLOAD_DIR, safe_name))
     if not file_path.startswith(os.path.realpath(UPLOAD_DIR)):
@@ -478,6 +478,29 @@ def download_file(filename: str, current_user: models.User = Depends(get_current
             filename, file_path, os.path.realpath(UPLOAD_DIR), os.getcwd()
         )
         raise HTTPException(status_code=404, detail="Файл не найден")
+    # SECURITY 2026-09-03: файл отдаётся только если он прикреплён к
+    # сущностям в БД вызывающего тенанта — раньше любой аутентифицированный
+    # пользователь скачивал чужие счета и вложения по имени файла.
+    tdb = _db(current_user, db)
+    try:
+        session = tdb
+        if current_user.role == "superadmin" and current_user.tenant_id is None:
+            session = db
+        att_rows = session.query(models.CardAttachment.file_path).all()
+        inv_rows = (
+            session.query(models.CardChecklist.invoice_file_path)
+            .filter(models.CardChecklist.invoice_file_path.isnot(None))
+            .all()
+        )
+        owned = any(
+            os.path.basename((r[0] or "")) == safe_name
+            for r in list(att_rows) + list(inv_rows)
+        )
+        if not owned:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+    finally:
+        if tdb is not db:
+            tdb.close()
     return FileResponse(file_path, filename=safe_name)
 
 

@@ -205,6 +205,10 @@
   // Esc закрывает верхнюю модалку
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape' && e.key !== 'Esc') return;
+    // FIX 2026-09-03 (аудит): если открыт диалог подтверждения, Esc
+    // закрывает только его (свой обработчик у confirmDialog) — раньше
+    // следом закрывалась и карточка сделки под диалогом.
+    if (document.querySelector('.confirm-overlay.show')) return;
     var open = visibleModals();
     if (!open.length) return;
     e.preventDefault();

@@ -243,7 +243,9 @@ def save_settings(settings, tenant_id: int = None):
     with open(settings_file, "w", encoding="utf-8") as f:
         json.dump(settings, f, ensure_ascii=False, indent=4)
 
-@router.get("/settings")
+# SECURITY 2026-09-03: настройки ящика (включая пароль) читают и меняют
+# только админы — раньше это было доступно любому менеджеру.
+@router.get("/settings", dependencies=[Depends(require_role("admin", "superadmin"))])
 def get_settings(current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)

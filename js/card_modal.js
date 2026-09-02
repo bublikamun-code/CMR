@@ -1407,6 +1407,8 @@ function showTagCreateDialog(card, allTags, cardTagIds, tagsMount, renderTagPill
 async function uploadFiles(cardId, files) {
     if (!files.length) return;
     const MAX_SIZE = 25 * 1024 * 1024;
+    // FIX 2026-09-03 (аудит): ошибка одного файла раньше роняла весь цикл
+    // (необработанный rejection, остальные файлы не загружались).
     for (let file of files) {
         if (file.size > MAX_SIZE) {
             showToast(`Файл "${file.name}" слишком большой (макс. 25 МБ)`, 'error');
@@ -1414,16 +1416,25 @@ async function uploadFiles(cardId, files) {
         }
         const formData = new FormData();
         formData.append('file', file);
-        await apiFetch(`/cards/${cardId}/attachments`, { method: 'POST', body: formData });
+        try {
+            await apiFetch(`/cards/${cardId}/attachments`, { method: 'POST', body: formData });
+            showToast(`Файл "${file.name}" загружен`, 'success');
+        } catch (err) {
+            showToast(`Ошибка загрузки "${file.name}": ${err.message}`, 'error');
+        }
     }
     openCardModal(cardId);
 }
 
 async function deleteAttachment(fileId, cardId) {
     if (await confirmDialog('Удалить файл?')) {
-        await apiFetch(`/attachments/${fileId}`, { method: 'DELETE' });
-        openCardModal(cardId);
-        showToast('Файл удалён', 'success');
+        try {
+            await apiFetch(`/attachments/${fileId}`, { method: 'DELETE' });
+            openCardModal(cardId);
+            showToast('Файл удалён', 'success');
+        } catch (err) {
+            showToast('Ошибка удаления: ' + err.message, 'error');
+        }
     }
 }
 
@@ -1704,7 +1715,14 @@ function renderModalPaymentHeader(card) {
         } else {
             actions.innerHTML = '';
             if (paid > 0.01 || card.payment_status !== 'Не оплачен') {
-                saveCardPayment(card, { paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null });
+                // FIX 2026-09-03 (аудит): выбор «Не оплачен» мгновенно и без
+                // подтверждения стирал внесённую оплату — один промах по
+                // бейджу. Теперь обнуление только через диалог.
+                confirmDialog('Поставить «Не оплачен» и сбросить внесённую сумму оплаты?', { okText: 'Сбросить', danger: true })
+                    .then(ok => {
+                        if (ok) saveCardPayment(card, { paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null });
+                        else renderModalPaymentHeader(card);
+                    });
             }
         }
     }

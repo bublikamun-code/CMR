@@ -90,7 +90,10 @@ async function loadPaymentsTable() {
     } catch (error) {
         console.error('loadPaymentsTable error:', error);
         if (!tbody.querySelector('tr[data-id]')) {
-            tbody.innerHTML = `<tr><td colspan="11">${renderAlert({ type: 'error', title: 'Ошибка загрузки', message: error.message, onRetry: () => loadPaymentsTable() }).outerHTML}</td></tr>`;
+            // FIX 2026-09-03 (аудит): outerHTML сериализовал алерт и убивал
+            // onclick — кнопка «Повторить» была мёртвой. Вставляем узлом.
+            tbody.innerHTML = '<tr><td colspan="11"></td></tr>';
+            tbody.querySelector('td').appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки', message: error.message, onRetry: () => loadPaymentsTable() }));
         }
     }
 }
@@ -310,11 +313,16 @@ document.addEventListener('click', (e) => {
     input.focus();
     input.select();
     
+    // FIX 2026-09-03 (аудит): отмена по Esc не должна сохранять, а при
+    // ошибке PATCH экран должен оставаться со старым значением.
+    let cancelled = false;
     const save = async () => {
+        if (cancelled) return;
         const newVal = input.value.trim();
         const spanNew = document.createElement('span');
         spanNew.className = spanClass;
-        
+        let failed = false;
+
         if (field === 'amount') {
             const numVal = parseFloat(newVal) || 0;
             spanNew.textContent = formatMoneyBYN(numVal);
@@ -327,7 +335,7 @@ document.addEventListener('click', (e) => {
                     });
                     showToast('Сумма сохранена', 'success');
                     if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
-                } catch (err) { showToast('Ошибка: ' + err.message, 'error'); }
+                } catch (err) { showToast('Ошибка: ' + err.message, 'error'); failed = true; }
             }
         } else {
             spanNew.textContent = newVal || '';
@@ -340,14 +348,21 @@ document.addEventListener('click', (e) => {
                         body: JSON.stringify({ note: newVal })
                     });
                     showToast('Примечание сохранено', 'success');
-                } catch (err) { showToast('Ошибка: ' + err.message, 'error'); }
+                } catch (err) { showToast('Ошибка: ' + err.message, 'error'); failed = true; }
             }
         }
-        input.replaceWith(spanNew);
+        input.replaceWith(failed ? span : spanNew);
     };
-    
+
     input.addEventListener('blur', save);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.replaceWith(span); } });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') input.blur();
+        if (e.key === 'Escape') {
+            cancelled = true;
+            input.removeEventListener('blur', save);
+            input.replaceWith(span);
+        }
+    });
 });
 
 function setupPaymentsAutoSave() {

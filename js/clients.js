@@ -248,6 +248,11 @@ async function saveClient() {
         return;
     }
 
+    // FIX 2026-09-03 (аудит): двойной клик по «Сохранить» слал два POST —
+    // дубли контрагентов. Блокируем кнопку на время запроса.
+    const saveBtn = document.getElementById('client-save');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
     const contacts = CRM_CONTACTS.serialize(CRM_CONTACTS.collect('client-contacts'));
     const data = {
         name: name,
@@ -312,5 +317,7 @@ async function saveClient() {
         else { cModal.classList.add('hidden'); loadClientsTable(); }
     } catch (err) {
         showToast('Ошибка: ' + err.message, 'error');
+    } finally {
+        saveBtn.disabled = false;
     }
 }
