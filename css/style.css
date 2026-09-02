@@ -3664,13 +3664,16 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.08) !important;
 }
 
+/* ДИЗАЙН-РАУНД 2026-09-03: было background: var(--table-header-bg) —
+   тёмная шапка #0f172a в светлой теме (тяжёлая по итогам аудита) и
+   блокировка новых светлых правил через !important. */
 .data-table th {
-    background: var(--table-header-bg) !important;
+    background: var(--table-row-even) !important;
     color: var(--text-muted) !important;
     font-size: 11px !important;
     font-weight: 600 !important;
     letter-spacing: 0.05em !important;
-    border-bottom: 2px solid var(--border-color) !important;
+    border-bottom: 1px solid var(--border-color) !important;
     padding: 12px 16px !important;
 }
 
@@ -12686,3 +12689,40 @@ textarea {
 
 /* Модалки и диалоги: мягче вход — без резкого затемнения фона. */
 .modal { background-color: rgba(15, 23, 42, 0.45); }
+
+/* ==========================================================
+   ФИКС 2026-09-03: тени карточек обрезались по краям
+   скролл-контейнеров (сообщение пользователя: «у карточек есть
+   границы и из-за этого тени обрезаются при наведении»).
+   ========================================================== */
+
+/* Канбан: у скролл-списка карточек не было внутреннего отступа —
+   тень при наведении срезалась ровно по границе списка. Даём 6px
+   «воздуха» внутри скролла и компенсируем отрицательным внешним
+   отступом, чтобы раскладка колонки не сдвинулась. */
+.kanban-cards {
+    padding: 6px;
+    margin: -6px;
+}
+
+/* Доска: верх колонки упирался в край области прокрутки —
+   верхняя граница и тень срезались. */
+.kanban-board { padding-top: 4px; }
+
+/* Hover карточки: тень компактнее (отрицательный разброс), чтобы
+   помещаться в «воздух» скролл-контейнера; подъём минимальный —
+   интерфейс не «плывёт» под курсором. */
+.kanban-card:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 16px -6px rgba(15, 23, 42, 0.16), 0 2px 4px -1px rgba(15, 23, 42, 0.08) !important;
+}
+[data-theme="dark"] .kanban-card:hover {
+    box-shadow: 0 8px 16px -6px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Тёмная тема: шапки таблиц остаются тёмными — светлое правило
+   раунда 2 с !important иначе победило бы и в тёмной теме. */
+[data-theme="dark"] .data-table th {
+    background: var(--table-header-bg) !important;
+    color: var(--text-muted) !important;
+}
