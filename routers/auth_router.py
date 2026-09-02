@@ -24,18 +24,34 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         raise HTTPException(status_code=401, detail="Неверное имя пользователя или пароль")
 
     logger.info(f"Login: {user.username} (role={user.role})")
-    access_token = auth.create_access_token(data={"sub": user.username, "tenant_id": user.tenant_id})
+    # pv (password version) — первые 8 символов хэша: смена пароля
+    # инвалидирует все ранее выданные токены (проверка в get_current_user).
+    access_token = auth.create_access_token(data={"sub": user.username, "tenant_id": user.tenant_id, "pv": user.hashed_password[:8]})
     return {"access_token": access_token, "token_type": "bearer", "role": user.role}
 
 
 @router.get("/users", response_model=List[schemas.UserResponse])
 def list_users(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    if current_user.role == "superadmin":
+    # UI FIX 2026-08-26: компания одна — админ видит всех пользователей,
+    # как и суперадмин (раньше фильтр по tenant_id прятал менеджеров,
+    # созданных суперадмином с tenant_id = NULL).
+    if current_user.role in ("superadmin", "admin"):
         return db.query(models.User).order_by(models.User.username).all()
-    elif current_user.role == "admin":
-        return db.query(models.User).filter(models.User.tenant_id == current_user.tenant_id).order_by(models.User.username).all()
-    else:
-        return [current_user]
+    return [current_user]
+
+
+@router.put("/me/password")
+def change_own_password(data: schemas.PasswordChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Самостоятельная смена пароля: старый проверяется, после смены
+    все прежние токены пользователя умирают (claim pv)."""
+    if not auth.verify_password(data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Старый пароль указан неверно")
+    if data.old_password == data.new_password:
+        raise HTTPException(status_code=400, detail="Новый пароль совпадает со старым")
+    current_user.hashed_password = auth.get_password_hash(data.new_password)
+    db.commit()
+    logger.info(f"Password changed by user: {current_user.username}")
+    return {"detail": "Пароль изменён. Войдите заново."}
 
 
 @router.get("/me", response_model=schemas.UserResponse)
@@ -71,8 +87,21 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     if target.role == "superadmin":
         raise HTTPException(status_code=400, detail="Нельзя удалить суперадмина")
-    if current_user.role == "admin" and target.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Нельзя удалить пользователя из другого тенанта")
+    if target.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+    # UI FIX 2026-08-26: компания одна — проверка «из другого тенанта» убрана:
+    # из-за неё админ не мог удалять пользователей с tenant_id = NULL.
+    # FIX 2026-08-29 (FK ON): отвязываем артефакты пользователя — в DDL нет
+    # ON DELETE, удаление юзера с карточками/лентой/задачами падало бы.
+    db.query(models.Card).filter(models.Card.owner_id == user_id).update({"owner_id": None}, synchronize_session=False)
+    db.query(models.ActivityLog).filter(models.ActivityLog.user_id == user_id).update({"user_id": None}, synchronize_session=False)
+    db.query(models.RecordVersion).filter(models.RecordVersion.changed_by == user_id).update({"changed_by": None}, synchronize_session=False)
+    db.query(models.Workflow).filter(models.Workflow.created_by == user_id).update({"created_by": None}, synchronize_session=False)
+    db.query(models.SavedView).filter(models.SavedView.created_by == user_id).update({"created_by": None}, synchronize_session=False)
+    db.query(models.CustomRecord).filter(models.CustomRecord.created_by == user_id).update({"created_by": None}, synchronize_session=False)
+    db.query(models.Task).filter(models.Task.assignee_id == user_id).update({"assignee_id": None}, synchronize_session=False)
+    db.query(models.Task).filter(models.Task.creator_id == user_id).update({"creator_id": None}, synchronize_session=False)
+    db.query(models.Notification).filter(models.Notification.user_id == user_id).delete(synchronize_session=False)
     db.delete(target)
     db.commit()
     return {"detail": "Пользователь удалён"}
@@ -85,8 +114,7 @@ def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     if target.role == "superadmin" and current_user.role != "superadmin":
         raise HTTPException(status_code=403, detail="Нельзя изменить суперадмина")
-    if current_user.role == "admin" and target.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Нельзя изменить пользователя из другого тенанта")
+    # UI FIX 2026-08-26: тенант-проверка убрана (компания одна)
     if data.role and current_user.role != "superadmin" and data.role in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Только суперадмин может назначать роли admin/superadmin")
     if data.role:

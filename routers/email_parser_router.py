@@ -31,8 +31,13 @@ logger = logging.getLogger(__name__)
 # и при смене CWD (cron, тесты, разные способы запуска) файлы сохранялись не туда,
 # а в БД оставался путь относительно корня приложения. Теперь всегда привязываемся
 # к директории, где лежит main.py (server_snapshot / app root).
+# FIX 2026-08-29: как в card_details_router — CRM_UPLOADS_DIR или CRM_DATA_DIR/uploads
+# позволяют хранить загрузки вне веб-корна.
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UPLOAD_DIR = os.path.join(_APP_DIR, "uploads")
+UPLOAD_DIR = os.path.abspath(
+    os.environ.get("CRM_UPLOADS_DIR")
+    or os.path.join(os.environ.get("CRM_DATA_DIR") or _APP_DIR, "uploads")
+)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # This key encrypts stored mailbox passwords and is DIFFERENT from the JWT key in
@@ -51,6 +56,15 @@ def _email_key_path() -> str:
 
 _SECRET_KEY_FILE = _email_key_path()
 
+def _ensure_inside_data_dir(path: str) -> str:
+    """Защита от выхода за каталог данных: файлы ключей и настроек пишутся
+    только внутрь CRM_DATA_DIR (или каталога приложения)."""
+    root = os.path.realpath(os.environ.get("CRM_DATA_DIR", _APP_DIR))
+    resolved = os.path.realpath(path)
+    if not (resolved == root or resolved.startswith(root + os.sep)):
+        raise RuntimeError(f"Путь {path!r} вне каталога данных")
+    return resolved
+
 def _load_secret_key() -> bytes:
     key = os.environ.get("CRM_SECRET_KEY")
     if key:
@@ -60,7 +74,7 @@ def _load_secret_key() -> bytes:
             return base64.urlsafe_b64encode(f.read().strip().encode())
     key = os.urandom(32)
     b64_key = base64.urlsafe_b64encode(key)
-    with open(_SECRET_KEY_FILE, "w") as f:
+    with open(_ensure_inside_data_dir(_SECRET_KEY_FILE), "w") as f:
         f.write(key.hex())
     os.chmod(_SECRET_KEY_FILE, 0o600)
     return b64_key
@@ -216,10 +230,16 @@ def _decode_attachment_filename(part) -> Optional[str]:
     return filename or None
 
 def save_settings(settings, tenant_id: int = None):
-    settings_file = _get_settings_path(tenant_id)
+    settings_file = _ensure_inside_data_dir(_get_settings_path(tenant_id))
     if _fernet is not None and settings.get("password"):
         settings = dict(settings)
-        settings["password"] = _encrypt_password(settings["password"])
+        # FIX 2026-08-29: не шифруем повторно уже зашифрованное значение.
+        # Раньше update_settings подставлял в settings зашифрованный пароль
+        # из файла, save_settings шифровал его ещё раз, и при следующем
+        # сохранении расшифровка давала Fernet-токен вместо пароля —
+        # синхронизация почты падала с AUTHENTICATIONFAILED.
+        if not str(settings["password"]).startswith("gAAAA"):
+            settings["password"] = _encrypt_password(settings["password"])
     with open(settings_file, "w", encoding="utf-8") as f:
         json.dump(settings, f, ensure_ascii=False, indent=4)
 
@@ -385,7 +405,10 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             description=desc,
                             status=target_status,
                             total_amount=0.0,
-                            owner_id=tenant_id or 0,
+                            # FIX 2026-08-29: было `tenant_id or 0` — в БД
+                            # появлялась висячая ссылка на несуществующего
+                            # пользователя id=0. NULL = «без ответственного».
+                            owner_id=None,
                             client_id=client_id,
                             sender_email=sender_email_addr
                         )
@@ -397,6 +420,11 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             if att_data:
                                 safe_name = hashlib.md5(f"{new_card.id}_{att_name}".encode()).hexdigest()[:8] + "_" + re.sub(r'[^a-zA-Z0-9._-]', '_', att_name)
                                 att_path = os.path.join(UPLOAD_DIR, safe_name)
+                                # Имя вложения приходит из внешнего письма —
+                                # сохраняем строго внутри UPLOAD_DIR.
+                                if not os.path.realpath(att_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+                                    logger.warning("Rejected unsafe attachment name %r", att_name)
+                                    continue
                                 try:
                                     with open(att_path, "wb") as f:
                                         f.write(att_data)

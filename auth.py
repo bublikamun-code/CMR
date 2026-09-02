@@ -81,6 +81,13 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
         raise credentials_exception
+    # UI FIX 2026-08-26: claim pv (password version) — первые 8 символов
+    # текущего bcrypt-хэша. Токены, выпущенные ДО смены пароля, получают 401.
+    # Токены без pv (старые, до внедрения) считаются валидными — иначе
+    # деплой разлогинил бы всех пользователей разом.
+    token_pv = payload.get("pv")
+    if token_pv is not None and token_pv != user.hashed_password[:8]:
+        raise credentials_exception
     return user
 
 def require_role(*allowed_roles):

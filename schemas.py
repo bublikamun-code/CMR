@@ -14,13 +14,14 @@ class UserCreate(UserBase):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v):
-        if len(v) < 6:
-            raise ValueError("Пароль должен содержать минимум 6 символов")
+        if len(v) < 8:
+            raise ValueError("Пароль должен содержать минимум 8 символов")
         return v
 
 class UserResponse(UserBase):
     id: int
     role: str
+    tenant_id: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
 
 class UserUpdate(BaseModel):
@@ -30,8 +31,20 @@ class UserUpdate(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v):
-        if v and len(v) < 6:
-            raise ValueError("Пароль должен содержать минимум 6 символов")
+        if v and len(v) < 8:
+            raise ValueError("Пароль должен содержать минимум 8 символов")
+        return v
+
+class PasswordChange(BaseModel):
+    """Самостоятельная смена собственного пароля: старый обязателен."""
+    old_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v):
+        if len(v) < 8:
+            raise ValueError("Новый пароль должен содержать минимум 8 символов")
         return v
 
 
@@ -322,6 +335,7 @@ class ActivityLogResponse(BaseModel):
     action: str
     details: Optional[str] = None
     created_at: datetime
+    user_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -390,3 +404,84 @@ class WriteoffGroupResponse(BaseModel):
     cards: List[WriteoffGroupCard] = []
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Задачи ---
+
+TASK_STATUSES = ("todo", "in_work", "done")
+
+class TaskAssignee(BaseModel):
+    id: int
+    username: str
+
+class TaskCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    status: str = "todo"
+    due_date: Optional[datetime] = None
+    assignee_id: Optional[int] = None
+    card_id: Optional[int] = None
+    client_id: Optional[int] = None
+
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    due_date: Optional[datetime] = None
+    assignee_id: Optional[int] = None
+    card_id: Optional[int] = None
+    client_id: Optional[int] = None
+
+class TaskChecklistItemCreate(BaseModel):
+    title: str
+
+class TaskChecklistItemUpdate(BaseModel):
+    title: Optional[str] = None
+    is_done: Optional[bool] = None
+
+class TaskChecklistItemResponse(BaseModel):
+    id: int
+    title: str
+    is_done: bool
+    model_config = ConfigDict(from_attributes=True)
+
+class TaskResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    status: str
+    due_date: Optional[datetime] = None
+    priority: int
+    assignee_id: Optional[int] = None
+    creator_id: Optional[int] = None
+    card_id: Optional[int] = None
+    client_id: Optional[int] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+    assignee_username: Optional[str] = None
+    creator_username: Optional[str] = None
+    card_title: Optional[str] = None
+    client_name: Optional[str] = None
+    checklist: List[TaskChecklistItemResponse] = []
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Уведомления ---
+
+class NotificationReadRequest(BaseModel):
+    ids: List[int]
+
+class NotificationResponse(BaseModel):
+    id: int
+    type: str
+    title: str
+    details: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    is_read: bool
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class NotificationsListResponse(BaseModel):
+    unread_count: int
+    items: List[NotificationResponse]

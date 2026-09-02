@@ -79,12 +79,23 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
         tdb.refresh(new_client)
         # Webhook уведомление
         try:
-            from routers.webhooks_router import notify_webhooks
-            import asyncio
-            asyncio.get_event_loop().create_task(notify_webhooks(
-                current_user.tenant_id, "client.created",
-                {"id": new_client.id, "name": new_client.name}
-            ))
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id, "client.created",
+                {"id": new_client.id, "name": new_client.name})
+        except Exception: pass
+        # Уведомление администраторам этого тенанта о новом клиенте
+        try:
+            from notify import notify, admin_ids
+            admin_recipients = []
+            for aid in admin_ids(db):
+                u = db.query(models.User).get(aid)
+                if u and (u.tenant_id == current_user.tenant_id or u.role == "superadmin"):
+                    admin_recipients.append(aid)
+            if admin_recipients:
+                notify(db, admin_recipients, actor_id=current_user.id,
+                       type="client_created", title=f"Новый клиент: {new_client.name}",
+                       details=f"Добавил: {current_user.username}",
+                       entity_type="client", entity_id=new_client.id)
         except Exception: pass
         return new_client
     finally:
@@ -129,6 +140,11 @@ def delete_client(client_id: int, db: Session = Depends(get_db), current_user: m
         client = query.first()
         if not client:
             raise HTTPException(status_code=404, detail="Клиент не найден")
+        # FIX 2026-08-29 (FK ON): в фактическом DDL нет ON DELETE — отвязываем
+        # детей вручную, иначе удаление клиента с карточками падает.
+        session.query(models.Card).filter(models.Card.client_id == client_id).update({"client_id": None}, synchronize_session=False)
+        session.query(models.WriteoffGroup).filter(models.WriteoffGroup.client_id == client_id).update({"client_id": None}, synchronize_session=False)
+        session.query(models.Task).filter(models.Task.client_id == client_id).update({"client_id": None}, synchronize_session=False)
         session.delete(client)
         session.commit()
         return {"detail": "Клиент удалён"}

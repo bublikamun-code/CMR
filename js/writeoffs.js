@@ -7,8 +7,8 @@ const ICON_WARNING = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none
 
 document.addEventListener('DOMContentLoaded', () => {
     setupWriteoffDragAndDrop();
-    const writeoffsBtn = document.querySelector('[data-target="page-writeoffs"]');
-    if (writeoffsBtn) writeoffsBtn.addEventListener('click', loadWriteoffsBoard);
+    if (document.getElementById('page-finance')?.classList.contains('active')
+        && document.getElementById('page-writeoffs')?.classList.contains('active')) loadWriteoffsBoard();
 
     const search = document.getElementById('writeoffs-search');
     const clearBtn = document.getElementById('writeoffs-search-clear');

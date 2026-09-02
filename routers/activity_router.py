@@ -50,14 +50,35 @@ def list_activity(
     try:
         query = tdb.query(models.ActivityLog)
         # superadmin без привязки к тенанту видит главную базу целиком
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
+        src_is_main = current_user.role == "superadmin" and current_user.tenant_id is None
+        if src_is_main:
             query = db.query(models.ActivityLog)
         else:
             # изоляция тенантов: не отдаём чужие записи
             query = query.filter(models.ActivityLog.tenant_id == current_user.tenant_id)
         if card_id:
             query = query.filter(models.ActivityLog.card_id == card_id)
-        return query.order_by(models.ActivityLog.created_at.desc()).limit(limit).all()
+        entries = query.order_by(models.ActivityLog.created_at.desc()).limit(limit).all()
+        # Имя автора — лента показывает «кто изменил»: раньше фронт собирал
+        # инициалы из текста действия, реального имени в ответе не было.
+        names = {}
+        user_ids = {e.user_id for e in entries if e.user_id}
+        if user_ids:
+            src = db if src_is_main else tdb
+            for uid, uname in src.query(models.User.id, models.User.username).filter(models.User.id.in_(user_ids)).all():
+                names[uid] = uname
+        return [
+            {
+                "id": e.id,
+                "user_id": e.user_id,
+                "card_id": e.card_id,
+                "action": e.action,
+                "details": e.details,
+                "created_at": e.created_at,
+                "user_name": names.get(e.user_id),
+            }
+            for e in entries
+        ]
     finally:
         if tdb is not db:
             tdb.close()

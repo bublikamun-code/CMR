@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     initKanbanDensityToggle();
+    initFiltersCollapsed();
     loadKanbanBoard();
     setupCreateCardButton();
     setupTrashButton();
@@ -179,7 +180,9 @@ async function loadKanbanBoard() {
             const sumEl = col.querySelector('.col-sum');
             if (sumEl) {
                 const colSum = visibleCards.reduce((acc, c) => acc + (parseFloat(c.total_amount) || 0), 0);
-                sumEl.textContent = colSum > 0 ? formatMoneyBYN(colSum) : '';
+                // UI FIX 2026-08-26: сумма выводится всегда — пустой .col-sum
+                // в одной колонке выглядел как баг на фоне соседних.
+                sumEl.textContent = formatMoneyBYN(colSum);
             }
 
             const emptyState = container.querySelector('.empty-state');
@@ -308,7 +311,10 @@ function fillCardHTML(cardEl, card) {
     const paidCount = card.checklists ? card.checklists.filter(c => c.is_paid).length : 0;
     const secCount = card.checklists ? card.checklists.filter(c => c.is_secondary_check).length : 0;
 
-    const creatorName = card.owner ? card.owner.username : 'Неизвестно';
+    const creatorName = card.owner ? card.owner.username : 'Без ответственного';
+    // Сделка-«сирота»: нет ответственного или суммы — из-за неё врут воронка
+    // и дашборд. Подсвечиваем бейджем, чтобы такие заполняли сразу.
+    const isIncomplete = !card.owner || !(parseFloat(card.total_amount) > 0);
 
     const paidPct = total > 0 ? Math.round((paidCount / total) * 100) : 0;
     const secPct = total > 0 ? Math.round((secCount / total) * 100) : 0;
@@ -357,6 +363,7 @@ function fillCardHTML(cardEl, card) {
             <div class="card-meta">
                 ${card.store_location ? `<span class="store-badge store-${escapeHtml(card.store_location)}">${escapeHtml(card.store_location)}</span>` : '<span class="store-badge store-empty">Без склада</span>'}
                 <span class="card-manager">${escapeHtml(creatorName)}</span>
+                ${isIncomplete ? '<span class="incomplete-badge" title="Не назначен ответственный или не указана сумма сделки">не заполнена</span>' : ''}
             </div>
             <div class="card-payment">${renderPaymentBadge(card)}</div>
             ${tagsHtml}
@@ -413,6 +420,7 @@ document.addEventListener('click', (e) => {
 window.refreshCardOnBoard = async function(cardId) {
     try {
         const cards = await apiFetch('/kanban/cards');
+        _allCards = cards;
         const card = cards.find(c => c.id === cardId);
         if (!card) return;
 
@@ -460,6 +468,27 @@ async function handleDrop(e) {
         targetContainer.insertBefore(cardEl, afterElement);
     }
     cardEl.classList.toggle('card-assembly', newStatus === 'Сборка');
+
+    // Сделка без цены (и без даты при выходе из «Нового запроса», план 1.7)
+    // дальше не двигается: данные проставляют в карточке, поэтому
+    // перетаскивание откатываем.
+    if (oldStatus && oldStatus !== newStatus && newStatus !== 'Новый запрос') {
+        const moved = (_allCards || []).find(c => c.id === parseInt(cardId));
+        let blockMsg = null;
+        if (moved && (parseFloat(moved.total_amount) || 0) <= 0) {
+            blockMsg = 'Укажите сумму сделки — откройте карточку и заполните';
+        } else if (moved && oldStatus === 'Новый запрос' && !moved.due_date) {
+            blockMsg = 'Укажите дату окончания — откройте карточку и заполните';
+        }
+        if (blockMsg) {
+            const oldContainer = oldColumn.querySelector('.kanban-cards');
+            if (oldContainer) oldContainer.appendChild(cardEl);
+            cardEl.classList.toggle('card-assembly', oldStatus === 'Сборка');
+            showToast(blockMsg, 'error');
+            _isDropping = false;
+            return;
+        }
+    }
 
     try {
         // Зміна статусу, якщо потрібно
@@ -831,6 +860,9 @@ function resetKanbanFilters() {
 // === LIST VIEW ===
 function switchKanbanView(view) {
     _kanbanView = view;
+    // Заголовок отражает режим (план 4.1): «Воронка продаж — Доска/Список»
+    const pageTitle = document.getElementById('kanban-page-title');
+    if (pageTitle) pageTitle.textContent = view === 'board' ? 'Воронка продаж — Доска' : 'Воронка продаж — Список';
     const boardEl = document.getElementById('kanban-board');
     const listEl = document.getElementById('kanban-list');
     const btnBoard = document.getElementById('view-board');
@@ -1033,11 +1065,31 @@ async function archiveCardFromList(id) {
 }
 
 // === ПЕРЕКЛЮЧЕНИЕ ФИЛЬТРОВ (мобильная версия) ===
+// UI FIX 2026-08-29: на мобильных фильтры свёрнуты по умолчанию — иначе до
+// доски приходилось пролистывать ~700px управления. Выбор пользователя
+// запоминается в sessionStorage до конца сессии.
+function initFiltersCollapsed() {
+    const filters = document.getElementById('kanban-filters');
+    const btn = document.querySelector('.filter-toggle');
+    if (!filters || !btn) return;
+    let collapsed;
+    try {
+        const saved = sessionStorage.getItem('kanbanFiltersCollapsed');
+        collapsed = saved !== null ? saved === '1' : window.innerWidth <= 720;
+    } catch (e) {
+        collapsed = window.innerWidth <= 720;
+    }
+    filters.classList.toggle('collapsed', collapsed);
+    btn.innerHTML = collapsed ? `${ICON_FILTER} Фильтры ${ICON_CHEVRON_DOWN}` : `${ICON_FILTER} Фильтры ${ICON_CHEVRON_UP}`;
+}
+
 function toggleFilters() {
     const filters = document.getElementById('kanban-filters');
     const btn = document.querySelector('.filter-toggle');
     if (filters) {
         filters.classList.toggle('collapsed');
-        if (btn) btn.innerHTML = filters.classList.contains('collapsed') ? `${ICON_FILTER} Фильтры ${ICON_CHEVRON_DOWN}` : `${ICON_FILTER} Фильтры ${ICON_CHEVRON_UP}`;
+        const collapsed = filters.classList.contains('collapsed');
+        if (btn) btn.innerHTML = collapsed ? `${ICON_FILTER} Фильтры ${ICON_CHEVRON_DOWN}` : `${ICON_FILTER} Фильтры ${ICON_CHEVRON_UP}`;
+        try { sessionStorage.setItem('kanbanFiltersCollapsed', collapsed ? '1' : '0'); } catch (e) {}
     }
 }

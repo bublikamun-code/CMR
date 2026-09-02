@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CRM Админ-панель</title>
+    <!-- Шрифты: preconnect + асинхронный CSS вместо блокирующего @import (UI FIX 2026-08-26) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
     <style>
 /* CRITICAL: раскладка сайдбара до загрузки style.css.
    Значения обязаны совпадать с итоговым состоянием в style.css, иначе
@@ -24,7 +28,7 @@
 .sidebar-footer { padding: 20px; }
 .nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
 </style>
-    <link rel="stylesheet" href="css/style.css?v=20260826e">
+    <link rel="stylesheet" href="css/style.css?v=865307a00c">
     <script>
         (function() {
             var theme = localStorage.getItem('crm_theme');
@@ -269,10 +273,10 @@
         </div>
     </div>
 
-    <script src="js/api.js?v=20260826e"></script>
-    <script src="js/features.js?v=20260826e"></script>
-    <script src="js/ui-polish.js?v=20260826e"></script>
-    <script defer src="js/reveal.js?v=20260826e"></script>
+    <script src="js/api.js?v=b135bf0fbe"></script>
+    <script src="js/features.js?v=f4722b5557"></script>
+    <script src="js/ui-polish.js?v=7a10d420c1"></script>
+    <script defer src="js/reveal.js?v=559fd1b3f1"></script>
     <script>
         const API = '';
         const ADMIN_TOKEN_KEY = 'admin_token';
@@ -390,9 +394,14 @@
             });
         }
 
-        const _globalApiFetch = apiFetch;
-        async function apiFetch(path, options = {}) {
-            return _globalApiFetch(`${API}${path}`, options, ADMIN_TOKEN_KEY);
+        // UI FIX 2026-08-26: обёртка переименована из apiFetch в adminApiFetch.
+        // Прежняя функция-декларация из-за хойстинга затирала глобальный
+        // apiFetch из js/api.js ещё до выполнения const _globalApiFetch,
+        // и обёртка вызывала сама себя: Maximum call stack size exceeded.
+        // Из-за этого список пользователей в админке всегда оставался пустым.
+        async function adminApiFetch(path, options = {}) {
+            // window.apiFetch — глобальный из js/api.js (ключ admin_token)
+            return window.apiFetch(`${API}${path}`, options, ADMIN_TOKEN_KEY);
         }
 
         async function showAdminPanel() {
@@ -408,7 +417,7 @@
         }
 
         async function loadUsers() {
-            const users = await apiFetch('/auth/users');
+            const users = await adminApiFetch('/auth/users');
             document.getElementById('stat-users').textContent = users.length;
             const tbody = document.getElementById('users-table-body');
             const wrap = document.getElementById('users-table-wrap');
@@ -432,7 +441,10 @@
             users.forEach(u => {
                 const tr = document.createElement('tr');
                 const roleClass = `role-${u.role}`;
-                const canDelete = u.role !== 'superadmin' && (currentRole === 'superadmin' || u.tenant_id);
+                // UI FIX 2026-08-26: компания одна — админ видит и редактирует
+                // всех (раньше условие u.tenant_id всегда было ложным: поля
+                // не было в ответе API, и кнопки не показывались).
+                const canDelete = u.role !== 'superadmin' && (currentRole === 'superadmin' || currentRole === 'admin');
                 const canEdit = (u.role !== 'superadmin' || currentRole === 'superadmin');
                 tr.innerHTML = `
                     <td>${u.id}</td>
@@ -453,8 +465,8 @@
             container.classList.add('hidden');
             try {
                 const [cards, clients] = await Promise.all([
-                    apiFetch('/kanban/cards').catch(() => { throw new Error('cards'); }),
-                    apiFetch('/clients').catch(() => { throw new Error('clients'); })
+                    adminApiFetch('/kanban/cards').catch(() => { throw new Error('cards'); }),
+                    adminApiFetch('/clients').catch(() => { throw new Error('clients'); })
                 ]);
                 document.getElementById('stat-cards').textContent = Array.isArray(cards) ? cards.length : 0;
                 document.getElementById('stat-clients').textContent = Array.isArray(clients) ? clients.length : 0;
@@ -490,7 +502,7 @@
             const role = document.getElementById('new-role').value;
             if (!username || !password) { showToast('Заполните все поля', 'error'); return; }
             try {
-                await apiFetch('/auth/users', { method: 'POST', body: JSON.stringify({ username, password, role }) });
+                await adminApiFetch('/auth/users', { method: 'POST', body: JSON.stringify({ username, password, role }) });
                 closeCreateModal();
                 showToast('Пользователь создан', 'success');
                 await loadUsers();
@@ -502,7 +514,7 @@
             const password = document.getElementById('admin-password').value;
             if (!username || !password) { showToast('Заполните все поля', 'error'); return; }
             try {
-                await apiFetch('/auth/create-tenant', { method: 'POST', body: JSON.stringify({ username, password, role: 'admin' }) });
+                await adminApiFetch('/auth/create-tenant', { method: 'POST', body: JSON.stringify({ username, password, role: 'admin' }) });
                 closeCreateAdminModal();
                 showToast('Админ создан с пустой CRM', 'success');
                 await loadUsers();
@@ -525,7 +537,7 @@
             const body = { role };
             if (password) body.password = password;
             try {
-                await apiFetch(`/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+                await adminApiFetch(`/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
                 closeEditModal();
                 showToast('Пользователь обновлён', 'success');
                 await loadUsers();
@@ -535,7 +547,7 @@
         async function deleteUser(id, username) {
             if (!await confirmDialog(`Удалить пользователя "${username}"?`, { okText: 'Удалить', danger: true })) return;
             try {
-                await apiFetch(`/auth/users/${id}`, { method: 'DELETE' });
+                await adminApiFetch(`/auth/users/${id}`, { method: 'DELETE' });
                 showToast('Пользователь удалён', 'success');
                 await loadUsers();
             } catch(e) { showToast(e.message, 'error'); }

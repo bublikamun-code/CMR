@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, selectinload
 from typing import List
 from pydantic import BaseModel
@@ -7,6 +7,17 @@ import schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
 from db_utils import resolve_tenant_db as _db
+
+# FIX 2026-08-30: предохранитель от неограниченной выборки (реестр и документы
+# раньше читали ВСЮ таблицу транзакций). Это не пагинация: сейчас в базе 188
+# транзакций, лимит в ~25 раз больше и в обычной работе недостижим; он нужен
+# на случай аномального роста (зациклившийся импорт и т.п.). При срабатывании
+# ответ помечается заголовками X-Total-Count / X-Truncated, чтобы фронтенд
+# мог показать предупреждение, а не молча терять строки. ВАЖНО: реестр
+# группирует транзакции по сделкам, поэтому обрезка может расщепить последнюю
+# группу — при срабатывании лимита это сигнал чинить причину роста, а не
+# поднимать константу.
+REGISTRY_HARD_LIMIT = 5000
 
 router = APIRouter(
     prefix="/payments",
@@ -47,7 +58,7 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             models.Transaction.is_document == False
         ).first()
         if existing:
-            return existing
+            return _tx_dict(existing)
         new_tx = models.Transaction(company_name=card.title, amount=card.total_amount, store_location=payload.store_location, card_id=card.id)
         session.add(new_tx)
         session.commit()
@@ -59,19 +70,26 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             user_id=current_user.id, change_type="create", tenant_id=current_user.tenant_id)
         # Webhook уведомление
         try:
-            from routers.webhooks_router import notify_webhooks
-            import asyncio
-            asyncio.get_event_loop().create_task(notify_webhooks(
-                current_user.tenant_id, "payment.created",
-                {"id": new_tx.id, "card_id": new_tx.card_id, "amount": float(new_tx.amount or 0)}
-            ))
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id, "payment.created",
+                {"id": new_tx.id, "card_id": new_tx.card_id, "amount": float(new_tx.amount or 0)})
         except Exception: pass
-        return new_tx
+        # Уведомление владельцу сделки о новой оплате (тип card_updated:
+        # card_payment зарезервирован для просрочек из sync-overdue)
+        if card.owner_id and card.owner_id != current_user.id:
+            from notify import notify
+            notify(db, [card.owner_id], actor_id=current_user.id,
+                   type="card_updated", title=f"Новая оплата по сделке: {card.title}",
+                   details=f"{float(new_tx.amount or 0):,.2f} BYN",
+                   entity_type="card", entity_id=card.id)
+        return _tx_dict(new_tx)
     finally:
         tdb.close()
 
 @router.get("/transactions", response_model=List[schemas.TransactionResponse])
-def get_transactions(grouped: bool = True, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
+                     current_user: models.User = Depends(get_current_user),
+                     response: Response = None):
     """Реестр оплат.
 
     grouped=True (по умолчанию) — ОДНА строка на сделку с общей суммой.
@@ -92,10 +110,15 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db), curren
 
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
-        ).all()
+        ).limit(REGISTRY_HARD_LIMIT).all()
+        if response is not None:
+            response.headers["X-Total-Count"] = str(len(rows))
+            if len(rows) >= REGISTRY_HARD_LIMIT:
+                response.headers["X-Truncated"] = "true"
 
         if not grouped:
-            return rows
+            # UI FIX 2026-08-31: dict вместо ORM — сессия закроется в finally
+            return [_tx_dict(r) for r in rows]
 
         # ВАЖНО: чек-лист карточки — это ЗАКУПКА У ПОСТАВЩИКОВ
         # (кому и сколько мы должны заплатить за товар для этого заказа).
@@ -153,8 +176,13 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db), curren
 
 
 def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, payment_status=None):
+    # UI FIX 2026-08-31: все ответные ветки этого роутера возвращают dict, а не
+    # ORM-объект: tenant-сессия закрывается в finally до сериализации ответа,
+    # и pydantic падал с DetachedInstanceError (is_warehouse_writeoff, date,
+    # card_id, ...). Дополнено поле writeoff_group_id (есть в схеме ответа).
     return {
         "id": t.id, "date": t.date, "card_id": t.card_id,
+        "writeoff_group_id": t.writeoff_group_id,
         "company_name": t.company_name, "amount": float(t.amount or 0),
         "store_location": t.store_location or "",
         "is_calculated": bool(t.is_calculated),
@@ -174,7 +202,8 @@ def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None,
     }
 
 @router.get("/documents", response_model=List[schemas.TransactionResponse])
-def get_documents(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_documents(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
+                  response: Response = None):
     tdb = _db(current_user, db)
     try:
         session = tdb
@@ -182,7 +211,15 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
         if current_user.role == "superadmin" and current_user.tenant_id is None:
             session = db
             query = db.query(models.Transaction).filter(models.Transaction.is_document == True)
-        return query.options(selectinload(models.Transaction.card)).order_by(models.Transaction.date.desc()).all()
+        rows = query.options(selectinload(models.Transaction.card)).order_by(
+            models.Transaction.date.desc()
+        ).limit(REGISTRY_HARD_LIMIT).all()
+        if response is not None:
+            response.headers["X-Total-Count"] = str(len(rows))
+            if len(rows) >= REGISTRY_HARD_LIMIT:
+                response.headers["X-Truncated"] = "true"
+        # UI FIX 2026-08-31: dict вместо ORM — сессия закроется в finally
+        return [_tx_dict(r) for r in rows]
     finally:
         tdb.close()
 
@@ -207,7 +244,7 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
                 models.Transaction.invoice_number == original.invoice_number
             ).first()
             if existing_doc:
-                return existing_doc
+                return _tx_dict(existing_doc)
         duplicate = models.Transaction(
             company_name=original.company_name, amount=original.amount, store_location=original.store_location,
             invoice_number=original.invoice_number, invoice_date=original.invoice_date,
@@ -218,7 +255,7 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
         session.add(duplicate)
         session.commit()
         session.refresh(duplicate)
-        return duplicate
+        return _tx_dict(duplicate)
     finally:
         tdb.close()
 
@@ -354,7 +391,7 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
                 twin.print_status = update_data["print_status"]
         session.commit()
         session.refresh(tx)
-        return tx
+        return _tx_dict(tx)
     finally:
         tdb.close()
 
@@ -450,7 +487,7 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
         session.add(new_tx)
         session.commit()
         session.refresh(new_tx)
-        return new_tx
+        return _tx_dict(new_tx)
     finally:
         tdb.close()
 

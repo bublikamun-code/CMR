@@ -9,13 +9,16 @@ import json
 
 import models
 from database import SessionLocal
-from auth import get_current_user
+from auth import get_current_user, require_admin
 from db_utils import resolve_tenant_db_standalone as _get_db
 
 router = APIRouter(
     prefix="/workflows",
     tags=["Воркфлоу"],
-    dependencies=[Depends(get_current_user)]
+    # FIX 2026-08-30 (роли): шаги воркфлоу умеют http_request и code —
+    # это конфигурация уровня администратора, а не исполнителя.
+    # Вкладка «Воркфлоу» в UI всё равно помечена «В разработке».
+    dependencies=[Depends(require_admin())]
 )
 
 

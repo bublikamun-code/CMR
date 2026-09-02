@@ -12,9 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function closeModal() {
-    const modal = document.getElementById('card-modal');
-    if (window.closeModalSmooth) window.closeModalSmooth(modal);
-    else modal.classList.add('hidden');
+    // Через защиту: при неперезаписанной ошибке сохранения спросим,
+    // что делать с несохранёнными правками (план 0.1).
+    guardCloseCardModal();
 }
 
 /* ---------- helpers: date wrapper + activity avatar ---------- */
@@ -49,6 +49,235 @@ function syncDateWrapper(input) {
     wrapper.classList.toggle('date-empty', !input.value);
 }
 
+/* ============================================================
+   ТРЕКЕР СОХРАНЕНИЯ ПОЛЕЙ КАРТОЧКИ (план 0.1)
+
+   Поля (название, сумма, дата, клиент, магазин) сохраняются
+   сразу при изменении, но раньше это происходило молча: при
+   сбое сети пользователь узнавал о потере по косвенным признакам,
+   а при успехе не видел никакого подтверждения. Индикатор в
+   шапке модалки показывает «Сохранение… / Сохранено ЧЧ:ММ /
+   Ошибка — Повторить», а при закрытии карточки с неперезаписанной
+   ошибкой запрашивает явное решение.
+   ============================================================ */
+const CardSaveTracker = {
+    pending: 0,
+    failed: null,       // функция повтора последней неудавшейся отправки
+    lastSavedAt: null,
+    hideTimer: null,
+
+    reset() {
+        this.failed = null;
+        this.lastSavedAt = null;
+        clearTimeout(this.hideTimer);
+        this.render();
+    },
+    begin() {
+        this.pending++;
+        this.failed = null;
+        this.render();
+    },
+    ok() {
+        this.pending = Math.max(0, this.pending - 1);
+        this.lastSavedAt = new Date();
+        this.render();
+    },
+    fail(retryFn) {
+        this.pending = Math.max(0, this.pending - 1);
+        this.failed = retryFn;
+        this.render();
+    },
+    hasUnsaved() {
+        return this.pending > 0 || !!this.failed;
+    },
+    // Повтор последней неудавшейся отправки. Возвращает true, если
+    // незагруженных изменений не осталось.
+    async retry() {
+        if (!this.failed) return true;
+        const run = this.failed;
+        this.begin();
+        try {
+            await run();
+            this.failed = null;
+            this.ok();
+            return true;
+        } catch (err) {
+            this.fail(run);
+            showToast('Не удалось сохранить: ' + err.message, 'error');
+            return false;
+        }
+    },
+    render() {
+        const el = document.getElementById('card-save-indicator');
+        if (!el) return;
+        el.classList.remove('is-saving', 'is-saved', 'is-error');
+        clearTimeout(this.hideTimer);
+        if (this.pending > 0) {
+            el.classList.add('is-saving');
+            el.innerHTML = '<span class="save-spinner" aria-hidden="true"></span>Сохранение…';
+            el.hidden = false;
+        } else if (this.failed) {
+            el.classList.add('is-error');
+            el.innerHTML = `<span class="save-ico" aria-hidden="true">${ICON_ALERT}</span>Ошибка сохранения
+                <button type="button" class="save-retry-btn">Повторить</button>`;
+            el.hidden = false;
+            el.querySelector('.save-retry-btn').onclick = () => this.retry();
+        } else if (this.lastSavedAt) {
+            el.classList.add('is-saved');
+            const t = this.lastSavedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            el.innerHTML = `<span class="save-ico" aria-hidden="true">${ICON_CHECK}</span>Сохранено ${t}`;
+            el.hidden = false;
+            this.hideTimer = setTimeout(() => { el.hidden = true; }, 3000);
+        } else {
+            el.hidden = true;
+        }
+    }
+};
+
+/**
+ * Сохранить поле карточки через трекер. onDone вызывается только
+ * при успехе — там обновляем доску и зависимые таблицы.
+ */
+async function saveCardField(card, patch, onDone) {
+    const run = async () => {
+        const updated = await apiFetch(`/cards/${card.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch)
+        });
+        if (updated && typeof updated === 'object' && !Array.isArray(updated)) Object.assign(card, updated);
+    };
+    CardSaveTracker.begin();
+    try {
+        await run();
+        CardSaveTracker.ok();
+        if (typeof onDone === 'function') onDone();
+        return true;
+    } catch (err) {
+        CardSaveTracker.fail(run);
+        showToast('Не удалось сохранить: ' + err.message, 'error');
+        return false;
+    }
+}
+
+/* ---------- защита закрытия карточки с несохранёнными правками (план 0.1) ----------
+
+   ui-polish.js закрывает модалки глобальным capture-обработчиком на document.
+   card_modal.js загружается раньше него, поэтому наш capture-слушатель,
+   объявленный здесь на верхнем уровне, срабатывает первым: пока трекер
+   держит незаписанные изменения, закрытие перехватывается и пользователю
+   предлагается выбор (Сохранить / Не сохранять / Отмена). */
+
+let _cardOverlayDown = false;
+let _guardCloseBusy = false;
+
+function doCloseCardModal() {
+    const modal = document.getElementById('card-modal');
+    if (!modal) return;
+    if (window.closeModalSmooth) window.closeModalSmooth(modal);
+    else modal.classList.add('hidden');
+}
+
+/**
+ * Трёхвариантный диалог вместо confirm(): «Сохранить» повторяет
+ * отправку и закрывает только при успехе, «Не сохранять» отбрасывает,
+ * «Отмена» остаётся в карточке. Разрешение: 'save' | 'discard' | 'cancel'.
+ */
+function unsavedChangesDialog() {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'confirm-overlay';
+        overlay.innerHTML = `
+            <div class="confirm-box">
+                <p class="confirm-message">Есть несохранённые изменения</p>
+                <div class="confirm-actions confirm-actions-3">
+                    <button type="button" class="confirm-cancel">Не сохранять</button>
+                    <button type="button" class="confirm-neutral">Отмена</button>
+                    <button type="button" class="confirm-ok">Сохранить</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('show'));
+
+        const close = (val) => {
+            overlay.classList.remove('show');
+            setTimeout(() => overlay.remove(), 200);
+            document.removeEventListener('keydown', onKey);
+            resolve(val);
+        };
+        function onKey(e) {
+            if (e.key === 'Escape') close('cancel');
+            if (e.key === 'Enter') close('save');
+        }
+        overlay.querySelector('.confirm-cancel').onclick = () => close('discard');
+        overlay.querySelector('.confirm-neutral').onclick = () => close('cancel');
+        overlay.querySelector('.confirm-ok').onclick = () => close('save');
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close('cancel'); });
+        document.addEventListener('keydown', onKey);
+        overlay.querySelector('.confirm-ok').focus();
+    });
+}
+
+async function guardCloseCardModal() {
+    if (_guardCloseBusy) return;
+    _guardCloseBusy = true;
+    try {
+        // Дождёмся летящих запросов, чтобы не пугать пользователя диалогом,
+        // который через секунду сам станет неактуальным.
+        const started = Date.now();
+        while (CardSaveTracker.pending > 0 && Date.now() - started < 3000) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+        if (CardSaveTracker.failed) {
+            const choice = await unsavedChangesDialog();
+            if (choice === 'cancel') return;
+            if (choice === 'save') {
+                const ok = await CardSaveTracker.retry();
+                if (!ok) return;             // сохранить не удалось — остаёмся в карточке
+            }
+            CardSaveTracker.failed = null;   // «Не сохранять» — отпускаем ошибку
+            CardSaveTracker.render();
+        }
+        doCloseCardModal();
+    } finally {
+        _guardCloseBusy = false;
+    }
+}
+
+// Перехват крестику и клику по подложке раньше глобального закрытия.
+document.addEventListener('mousedown', (e) => {
+    _cardOverlayDown = !!(e.target && e.target.id === 'card-modal');
+}, true);
+document.addEventListener('click', (e) => {
+    if (!e.target || !e.target.closest) return;
+    const modal = document.getElementById('card-modal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    const onOverlay = e.target === modal && _cardOverlayDown;
+    const onCloseBtn = e.target.classList.contains('close-btn') && modal.contains(e.target);
+    if (!onOverlay && !onCloseBtn) return;
+    if (!CardSaveTracker.hasUnsaved()) return;   // обычное закрытие — не мешаем
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    guardCloseCardModal();
+}, true);
+
+// Esc закрывает карточку — через ту же защиту (план 4.3).
+// Если фокус в поле ввода, Esc сначала отрабатывает по полю
+// (откат правки — так ведут себя суммы чек-листа), модалку закрываем
+// только когда фокус вне полей.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const modal = document.getElementById('card-modal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    if (document.querySelector('.confirm-overlay')) return;   // свой Esc у диалога
+    const tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (modal.querySelector('.dropdown.open')) { closeAllDropdowns(); return; }   // сначала свернуть меню
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    guardCloseCardModal();
+}, true);
+
 function escapeAttrLocal(v) {
     return (v == null ? '' : String(v))
         .replace(/&/g, '&amp;')
@@ -57,15 +286,18 @@ function escapeAttrLocal(v) {
         .replace(/>/g, '&gt;');
 }
 
-function getActivityAvatar(action, userId) {
+function getActivityAvatar(action, userId, userName) {
     const text = (action || '').toLowerCase();
     const isSystem = userId == null || /импорт|cron|автоматически/.test(text);
     if (isSystem) {
         return { initials: 'CRM', className: 'activity-avatar-system', title: 'Системное действие' };
     }
-    const words = (action || '').split(/\s+/).filter(Boolean);
+    // Есть имя автора — инициалы из него (план 1.2: видно, КТО изменил),
+    // иначе — как раньше, из текста действия.
+    const source = userName || (action || '');
+    const words = source.split(/\s+/).filter(Boolean);
     const initials = words.slice(0, 2).map(w => w.charAt(0).toUpperCase()).join('') || 'П';
-    return { initials, className: 'activity-avatar-user', title: action };
+    return { initials, className: 'activity-avatar-user', title: userName || action };
 }
 
 async function openCardModal(cardId) {
@@ -89,54 +321,60 @@ async function openCardModal(cardId) {
         }
         if (!card) throw new Error("Карточка не найдена");
 
-        const escapedTitle = escapeHtml(card.title);
-        modalTitle.innerHTML = `
-            <textarea id="edit-card-title" rows="1" class="auto-expand-title" placeholder="Название сделки...">${escapedTitle}</textarea>
-        `;
-        
-        const titleEl = document.getElementById('edit-card-title');
-        titleEl.style.height = 'auto';
-        titleEl.style.height = titleEl.scrollHeight + 'px';
-        titleEl.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = this.scrollHeight + 'px';
-        });
-        titleEl.addEventListener('keydown', async (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
+        CardSaveTracker.reset();
+
+        // Заголовок — режим просмотра по умолчанию (план 1.4): название нельзя
+        // задеть курсором случайно; правка — явным кликом на карандаш.
+        const renderTitleView = () => {
+            modalTitle.innerHTML = `
+                <span class="card-title-view" title="${escapeAttrLocal(card.title)}">${escapeHtml(card.title)}</span>
+                <button type="button" id="btn-edit-title" class="title-edit-btn" title="Переименовать сделку" aria-label="Переименовать сделку">${ICON_PENCIL}</button>
+            `;
+            document.getElementById('btn-edit-title').onclick = renderTitleEdit;
+        };
+        const renderTitleEdit = () => {
+            modalTitle.innerHTML = `
+                <textarea id="edit-card-title" rows="1" class="auto-expand-title" placeholder="Название сделки...">${escapeHtml(card.title)}</textarea>
+            `;
+            const titleEl = document.getElementById('edit-card-title');
+            let finished = false;
+            titleEl.style.height = 'auto';
+            titleEl.style.height = titleEl.scrollHeight + 'px';
+            titleEl.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = this.scrollHeight + 'px';
+            });
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                renderTitleView();
+            };
+            const saveTitle = async () => {
                 const newTitle = titleEl.value.trim();
-                if (!newTitle) return;
-                try {
-                    await apiFetch(`/cards/${card.id}`, { 
-                        method: 'PATCH', 
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ title: newTitle }) 
-                    });
+                if (!newTitle || newTitle === card.title) { finish(); return; }
+                await saveCardField(card, { title: newTitle }, () => {
                     if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
                     if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
                     if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
-                    showToast('Название сохранено', 'success');
-                } catch (err) {
-                    showToast('Не удалось сохранить название: ' + err.message, 'error');
-                }
-            }
-        });
-        titleEl.addEventListener('blur', async () => {
-            const newTitle = titleEl.value.trim();
-            if (!newTitle || newTitle === card.title) return;
-            try {
-                await apiFetch(`/cards/${card.id}`, { 
-                    method: 'PATCH', 
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ title: newTitle }) 
                 });
-                if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
-                if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
-                if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
-            } catch (err) {
-                showToast('Не удалось сохранить название: ' + err.message, 'error');
-            }
-        });
+                finish();
+            };
+            titleEl.addEventListener('keydown', async (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await saveTitle();
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    finish();   // отмена правки без сохранения
+                }
+            });
+            titleEl.addEventListener('blur', () => { if (!finished) saveTitle(); });
+            titleEl.focus();
+        };
+        renderTitleView();
 
         renderModalContent(card, document.getElementById('modal-body-left'), document.getElementById('modal-body-right'));
         renderModalPaymentHeader(card);
@@ -156,10 +394,11 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     // LEFT COLUMN: Static fields
     leftContainer.innerHTML = `
+        <div class="modal-split-scroll">
         <div class="modal-section card-info-section">
             <label class="modal-label">${ICON_WALLET} Итоговая сумма сделки (BYN)</label>
             <div class="modal-input-row">
-                <input type="number" id="input-total-amount" value="${escapeHtml(String(card.total_amount || 0))}" placeholder="0,00">
+                <input type="text" inputmode="decimal" autocomplete="off" id="input-total-amount" class="money-input" value="${formatMoney(parseFloat(card.total_amount) || 0)}" placeholder="0,00" title="Например: 5 176,45">
             </div>
         </div>
         <div class="modal-section card-info-section">
@@ -215,6 +454,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             <h3 class="section-title">Групповое списание</h3>
             <div id="group-writeoff-container"></div>
         </div>
+        </div>
         <div class="modal-actions modal-actions-stacked">
             <button id="btn-to-assembly" class="btn-action btn-assembly" title="Сделка попадёт в реестр оплат">${ICON_BOX} Передать в сборку</button>
             <button id="btn-trigger-payment" class="btn-action btn-writeoff-action">${ICON_TRUCK} В списание</button>
@@ -234,41 +474,58 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     rightContainer.innerHTML = `
         <div id="related-cards-mount"></div>
         <div class="timeline-header">
-            <h3 class="section-title">${ICON_COMMENT} Комментарии</h3>
+            <h3 class="section-title">${ICON_COMMENT} История</h3>
+            <div class="activity-filter" id="activity-filter" role="group" aria-label="Фильтр истории">
+                <button type="button" data-af="all">Всё</button>
+                <button type="button" data-af="comments">Комментарии</button>
+                <button type="button" data-af="events">События</button>
+            </div>
         </div>
         <div class="timeline" id="activity-container">
             <div class="activity-loading">Загрузка...</div>
         </div>
         <div class="comment-input-box">
-            <textarea id="input-description" rows="2" placeholder="Заметка к сделке...">${escapeHtml(card.description || '')}</textarea>
-            <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку">${ICON_CHECK}</button>
+            <textarea id="input-description" rows="2" placeholder="Заметка к сделке..."></textarea>
+            <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку (Enter)">${ICON_CHECK}</button>
         </div>
     `;
 
     // Поле заметки фиксированной высоты: длинный текст скроллится внутри,
     // а не растягивает панель комментариев на полкарточки.
 
+    const sendComment = async () => {
+        const ta = document.getElementById('input-description');
+        if (!ta) return;
+        const note = ta.value.trim();
+        if (!note) {
+            showToast('Заметка пустая — нечего сохранять', 'error');
+            return;
+        }
+        try {
+            await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: ta.value }) });
+            showToast('Заметка сохранена', 'success');
+            // заметка ушла в ленту активности — показываем её сразу,
+            // без переоткрытия карточки
+            loadCardActivity(card.id);
+            ta.value = '';
+            ta.focus();
+        } catch (err) {
+            showToast('Не удалось сохранить заметку: ' + err.message, 'error');
+        }
+    };
     const sendCommentBtn = document.getElementById('btn-send-comment');
-    if (sendCommentBtn) {
-        sendCommentBtn.onclick = async () => {
-            const ta = document.getElementById('input-description');
-            if (!ta) return;
-            const note = ta.value.trim();
-            if (!note) {
-                showToast('Заметка пустая — нечего сохранять', 'error');
-                return;
+    if (sendCommentBtn) sendCommentBtn.onclick = sendComment;
+    // Enter отправляет заметку, Shift+Enter — перенос строки (план 4.3).
+    // Заметка — разовое сообщение: после отправки поле очищается, как в мессенджерах,
+    // текст остаётся в ленте ниже.
+    const commentInput = document.getElementById('input-description');
+    if (commentInput) {
+        commentInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendComment();
             }
-            try {
-                await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: ta.value }) });
-                showToast('Заметка сохранена', 'success');
-                // заметка ушла в ленту активности — показываем её сразу,
-                // без переоткрытия карточки
-                loadCardActivity(card.id);
-                ta.focus();
-            } catch (err) {
-                showToast('Не удалось сохранить заметку: ' + err.message, 'error');
-            }
-        };
+        });
     }
 
     // Load activity log
@@ -297,11 +554,11 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
             div.innerHTML = `
                 <div class="checklist-row">
-                    <label class="checklist-cb-label" title="Оплачено">
+                    <label class="checklist-cb-label" title="Оплачен поставщику">
                         <input type="checkbox" class="checklist-cb-main" data-id="${item.id}" ${item.is_paid ? 'checked' : ''}>
                         <span class="checklist-cb-text">Опл.</span>
                     </label>
-                    <label class="checklist-cb-label" title="Пришло">
+                    <label class="checklist-cb-label" title="Пришло на склад">
                         <input type="checkbox" class="checklist-cb-sec" data-id="${item.id}" ${item.is_secondary_check ? 'checked' : ''}>
                         <span class="checklist-cb-text">Приш.</span>
                     </label>
@@ -375,29 +632,68 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     container.removeEventListener('change', container._modalChangeHandler);
     container._modalChangeHandler = async (e) => {
+        // Сумма сделки: только число. Раньше здесь стоял type="number" и
+        // молчаливый parseFloat() || 0 — опечатка затирала сумму нулём.
         if (e.target.id === 'input-total-amount') {
-            try {
-                await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ total_amount: parseFloat(e.target.value) || 0 }) });
-                if (window.refreshCardOnBoard) refreshCardOnBoard(card.id); else loadKanbanBoard();
-            } catch (err) {
-                showToast('Не удалось сохранить сумму: ' + err.message, 'error');
+            const num = parseMoney(e.target.value);
+            const prev = parseFloat(card.total_amount) || 0;
+            if (num === null || num < 0) {
+                showToast('Введите сумму числом, например 5 176,45', 'error');
+                e.target.classList.add('amount-invalid');
+                e.target.value = formatMoney(prev);
+                setTimeout(() => e.target.classList.remove('amount-invalid'), 1200);
+                return;
             }
+            e.target.value = formatMoney(num);
+            if (Math.abs(num - prev) < 0.005) return;   // не изменилось — запрос не нужен
+            await saveCardField(card, { total_amount: num }, () => {
+                renderModalPaymentHeader(card);
+                if (window.refreshCardOnBoard) refreshCardOnBoard(card.id); else loadKanbanBoard();
+            });
         } else if (e.target.id === 'input-due-date') {
             syncDateWrapper(e.target);
-            try {
-                const val = e.target.value || null;
-                await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ due_date: val }) });
+            const val = e.target.value || null;
+            if ((val || null) === (card.due_date || null)) return;
+            await saveCardField(card, { due_date: val }, () => {
                 if (window.refreshCardOnBoard) refreshCardOnBoard(card.id); else loadKanbanBoard();
-                showToast('Дата сохранена', 'success');
-            } catch (err) {
-                showToast('Не удалось сохранить дату: ' + err.message, 'error');
-            }
+            });
         }
         // description (заметка) сохраняется ТОЛЬКО кнопкой с галочкой:
         // раньше blur тоже отправлял PATCH, и клик по кнопке давал
         // двойной запрос + двойную запись в ленту активности.
     };
     container.addEventListener('change', container._modalChangeHandler);
+
+    // Поле суммы: в фокусе — сырое число, без фокуса — с разделителями;
+    // ввод фильтруется так же, как суммы в чек-листе.
+    const totalAmountInput = document.getElementById('input-total-amount');
+    totalAmountInput.addEventListener('focusin', () => {
+        const n = parseMoney(totalAmountInput.value);
+        totalAmountInput.value = (n === null) ? '' : String(n);
+        setTimeout(() => { try { totalAmountInput.select(); } catch (err) {} }, 0);
+    });
+    totalAmountInput.addEventListener('input', () => {
+        let v = totalAmountInput.value.replace(/[^\d.,]/g, '').replace(/,/g, '.');
+        const parts = v.split('.');
+        if (parts.length > 2) v = parts[0] + '.' + parts.slice(1).join('');
+        v = v.replace(/^(\d*\.\d{0,2}).*$/, '$1');
+        if (v !== totalAmountInput.value) {
+            const pos = totalAmountInput.selectionStart;
+            totalAmountInput.value = v;
+            try { totalAmountInput.setSelectionRange(pos - 1 < 0 ? 0 : pos, pos - 1 < 0 ? 0 : pos); } catch (err) {}
+        }
+    });
+    totalAmountInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); totalAmountInput.blur(); }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            // Esc здесь означает «отменить правку поля», а не «закрыть карточку»:
+            // не пускаем событие в глобальный Esc-обработчик модалок (ui-polish).
+            e.stopPropagation();
+            totalAmountInput.value = formatMoney(parseFloat(card.total_amount) || 0);
+            totalAmountInput.blur();
+        }
+    });
 
     container.addEventListener('input', (e) => {
         if (e.target && e.target.closest('.date-input-wrapper')) syncDateWrapper(e.target);
@@ -408,11 +704,13 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         options: STORE_OPTIONS,
         value: card.store_location || '',
         onChange: async (val) => {
-            await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ store_location: val }) });
-            if (window.refreshCardOnBoard) refreshCardOnBoard(card.id); else loadKanbanBoard();
-            if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
-            if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
-            if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+            if ((val || '') === (card.store_location || '')) return;
+            await saveCardField(card, { store_location: val }, () => {
+                if (window.refreshCardOnBoard) refreshCardOnBoard(card.id); else loadKanbanBoard();
+                if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+                if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+            });
         }
     });
     document.getElementById('store-mount').appendChild(storeDropdown);
@@ -428,11 +726,8 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         searchable: true,
         onChange: async (val) => {
             const cid = val ? parseInt(val) : null;
-            try {
-                await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ client_id: cid }) });
-            } catch (err) {
-                showToast('Не удалось сохранить клиента: ' + err.message, 'error');
-            }
+            if (cid === (card.client_id || null)) return;
+            await saveCardField(card, { client_id: cid });
         }
     });
     document.getElementById('client-mount').appendChild(clientDropdown);
@@ -444,6 +739,8 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         if (e.key === 'Enter') { e.preventDefault(); el.blur(); return; }
         if (e.key === 'Escape') {
             e.preventDefault();
+            // откат правки пункта не должен заодно закрывать карточку
+            e.stopPropagation();
             const prev = (card.checklists || []).find(c => String(c.id) === String(el.dataset.id));
             if (prev) el.value = formatMoney(prev.amount);
             el.blur();
@@ -672,7 +969,24 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     dropzone.ondragleave = () => dropzone.style.borderColor = 'var(--border-color)';
     dropzone.ondrop = (e) => { e.preventDefault(); uploadFiles(card.id, e.dataTransfer.files); };
 
+    // Сделка дальше «Нового запроса» без цены и даты не двигается
+    // (план 0.2 и 1.7): подсвечиваем поле и возвращаем пользователя к нему.
+    const warnField = (el, msg) => {
+        showToast(msg, 'error');
+        if (el) {
+            el.classList.add('amount-invalid');
+            setTimeout(() => el.classList.remove('amount-invalid'), 1500);
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            el.focus();
+        }
+    };
+    const warnNoAmount = () => warnField(document.getElementById('input-total-amount'), 'Укажите сумму сделки');
+    const warnNoDueDate = () => warnField(document.getElementById('input-due-date'), 'Укажите дату окончания сделки');
+    const hasAmount = () => (parseFloat(card.total_amount) || 0) > 0;
+
     document.getElementById('btn-to-assembly').onclick = async () => {
+        if (!hasAmount()) return warnNoAmount();
+        if (!card.due_date) return warnNoDueDate();
         const store = storeDropdown.dataset.value;
         if (!store) return showToast("Выберите магазин перед отправкой в сборку", 'error');
 
@@ -692,6 +1006,8 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     };
 
     document.getElementById('btn-trigger-payment').onclick = async () => {
+        if (!hasAmount()) return warnNoAmount();
+        if (!card.due_date) return warnNoDueDate();
         const store = storeDropdown.dataset.value;
         if (!store) return showToast("Выберите магазин перед списанием", 'error');
 
@@ -866,16 +1182,63 @@ function startCommentEdit(container, entryId) {
     };
 }
 
+// Активный фильтр ленты (план 1.2): всё / только комментарии / только события.
+let _activityFilter = localStorage.getItem('crm_activity_filter') || 'all';
+
 async function loadCardActivity(cardId) {
     const container = document.getElementById('activity-container');
     if (!container) return;
     container.dataset.cardId = cardId;
+    // Переключение фильтра перерисовывает кэш ленты, без повторного запроса
+    const filterBar = document.getElementById('activity-filter');
+    if (filterBar) {
+        filterBar.onclick = (e) => {
+            const btn = e.target.closest('[data-af]');
+            if (!btn) return;
+            _activityFilter = btn.dataset.af;
+            localStorage.setItem('crm_activity_filter', _activityFilter);
+            renderCardActivityList(cardId, container._activities || []);
+        };
+    }
     try {
-        const activities = await apiFetch(`/activity?card_id=${cardId}&limit=10`);
-        if (activities.length === 0) {
-            container.innerHTML = '<div class="activity-empty">Нет действий</div>';
-            return;
-        }
+        const activities = await apiFetch(`/activity?card_id=${cardId}&limit=50`);
+        container._activities = activities;
+        renderCardActivityList(cardId, activities);
+    } catch (err) {
+        container.innerHTML = '';
+        container.appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки активности', message: err.message }));
+    }
+}
+
+function renderCardActivityList(cardId, activities) {
+    const container = document.getElementById('activity-container');
+    if (!container) return;
+
+    const isComment = (a) => a.action === 'Комментарий';
+    const filtered = activities.filter(a =>
+        _activityFilter === 'all' ||
+        (_activityFilter === 'comments' && isComment(a)) ||
+        (_activityFilter === 'events' && !isComment(a)));
+
+    // Счётчики и активная кнопка фильтра
+    const filterBar = document.getElementById('activity-filter');
+    if (filterBar) {
+        const nComments = activities.filter(isComment).length;
+        const nEvents = activities.length - nComments;
+        filterBar.querySelector('[data-af="all"]').textContent = `Всё (${activities.length})`;
+        filterBar.querySelector('[data-af="comments"]').textContent = `Комментарии (${nComments})`;
+        filterBar.querySelector('[data-af="events"]').textContent = `События (${nEvents})`;
+        filterBar.querySelectorAll('[data-af]').forEach(b =>
+            b.classList.toggle('active', b.dataset.af === _activityFilter));
+    }
+
+    if (filtered.length === 0) {
+        const emptyMsg = activities.length === 0
+            ? 'Нет действий'
+            : (_activityFilter === 'comments' ? 'Комментариев пока нет' : 'Событий пока нет');
+        container.innerHTML = `<div class="activity-empty">${emptyMsg}</div>`;
+        return;
+    }
 
         // Отменённые действия зачёркиваем: запись «Выписана накладная ТН123»
         // остаётся в истории, но видно, что она уже неактуальна.
@@ -921,7 +1284,7 @@ async function loadCardActivity(cardId) {
                 }
             }
         };
-        activities.forEach(act => {
+        filtered.forEach(act => {
             const item = document.createElement('div');
             const isCancelAct = /отмен|удал/i.test(act.action || '');
             const key = digits(act.details);
@@ -929,7 +1292,7 @@ async function loadCardActivity(cardId) {
             const isStale = !isCancelAct && /накладн/i.test(act.action || '')
                             && key && cancelled.has(key);
             const isSystem = act.user_id == null;
-            const avatar = getActivityAvatar(act.action, act.user_id);
+            const avatar = getActivityAvatar(act.action, act.user_id, act.user_name);
             item.className = 'activity-item' + (isStale ? ' activity-stale' : '')
                              + (isCancelAct ? ' activity-cancel' : '')
                              + (isSystem ? ' activity-system' : '');
@@ -964,6 +1327,7 @@ async function loadCardActivity(cardId) {
                 <div class="activity-content">
                     <div class="activity-line">
                         <span class="activity-action">${escapeHtml(act.action)}</span>
+                        ${act.user_name ? `<span class="activity-user">${escapeHtml(act.user_name)}</span>` : ''}
                         <span class="activity-time">${time}</span>
                         ${manageBtns}
                     </div>
@@ -972,10 +1336,6 @@ async function loadCardActivity(cardId) {
             `;
             container.appendChild(item);
         });
-    } catch (err) {
-        container.innerHTML = '';
-        container.appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки активности', message: err.message }));
-    }
 }
 
 const TAG_COLORS = [
@@ -1099,10 +1459,14 @@ async function downloadFile(filename, niceName) {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         if (!resp.ok) {
+            // UI FIX 2026-08-29: показываем detail от сервера — раньше любое 404
+            // маскировалось общим «файл утерян при переносе», и причину было не понять.
+            let detail = '';
+            try { const j = await resp.json(); if (j && j.detail) detail = String(j.detail); } catch (e) {}
             if (resp.status === 404) {
-                throw new Error('Файл не найден на сервере. Возможно, вложение было утеряно при переносе данных.');
+                throw new Error('Файл не найден на сервере' + (detail ? ': ' + detail : ''));
             }
-            throw new Error('Ошибка ' + resp.status);
+            throw new Error(detail || ('Ошибка ' + resp.status));
         }
         const blob = await resp.blob();
 
@@ -1131,16 +1495,24 @@ async function downloadFile(filename, niceName) {
 }
 
 async function downloadById(endpoint, id, niceName) {
+    // UI FIX 2026-08-31: id = null → endpoint уже полный путь до /download.
+    // Переменная названа downloadUrl: внутри try ниже есть своя const url
+    // для blob — прежнее имя давало TDZ-ошибку «Cannot access 'url'…».
+    const downloadUrl = (id === null || id === undefined)
+        ? `${API_BASE_URL}${endpoint}`
+        : `${API_BASE_URL}${endpoint}/${id}/download`;
     const token = getToken();
     try {
-        const resp = await fetch(`${API_BASE_URL}${endpoint}/${id}/download`, {
+        const resp = await fetch(downloadUrl, {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         if (!resp.ok) {
+            let detail = '';
+            try { const j = await resp.json(); if (j && j.detail) detail = String(j.detail); } catch (e) {}
             if (resp.status === 404) {
-                throw new Error('Файл не найден на сервере. Возможно, вложение было утеряно при переносе данных.');
+                throw new Error('Файл не найден на сервере' + (detail ? ': ' + detail : ''));
             }
-            throw new Error('Ошибка ' + resp.status);
+            throw new Error(detail || ('Ошибка ' + resp.status));
         }
         const blob = await resp.blob();
         const disposition = resp.headers.get('content-disposition') || '';
@@ -1174,7 +1546,10 @@ function downloadAttachment(attachmentId, niceName) {
 }
 
 function downloadChecklistInvoice(checklistId, niceName) {
-    return downloadById('/checklists', checklistId, niceName);
+    // UI FIX 2026-08-31: было /checklists/{id}/download — маршрута нет,
+    // FastAPI отвечал 404 {"detail":"Not Found"}, счёт не скачивался.
+    // Правильный путь: /checklists/{id}/invoice/download.
+    return downloadById(`/checklists/${checklistId}/invoice/download`, null, niceName);
 }
 
 

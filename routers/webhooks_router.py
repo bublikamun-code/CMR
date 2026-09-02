@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import hashlib
 import hmac
+import logging
 import urllib.request
 import urllib.error
 import ssl
@@ -16,7 +17,9 @@ import ipaddress
 
 import models
 from database import SessionLocal
-from auth import get_current_user
+
+logger = logging.getLogger(__name__)
+from auth import get_current_user, require_admin
 from db_utils import resolve_tenant_db_standalone as _get_db
 from urllib.parse import urlparse
 
@@ -51,10 +54,40 @@ def _validate_webhook_url(url: str) -> str:
 
     return url
 
+
+def _assert_public_host(url: str) -> None:
+    """FIX 2026-08-29 (SSRF): повторная проверка хоста непосредственно перед
+    запросом. Раньше валидация была только при создании вебхука — DNS rebinding
+    позволял подменить IP между проверкой и urlopen; test_webhook и
+    notify_webhooks вообще не проверяли адрес."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"Недопустимый URL вебхука: {url}")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    for info in socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP):
+        addr = ipaddress.ip_address(info[4][0])
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"Ходится в непубличный адрес: {addr}")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """FIX 2026-08-29 (SSRF): редиректы запрещены — ими обходят проверку хоста."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _open_webhook(req: urllib.request.Request):
+    opener = urllib.request.build_opener(_NoRedirect)
+    return opener.open(req, timeout=10)
+
 router = APIRouter(
     prefix="/webhooks",
     tags=["Webhooks"],
-    dependencies=[Depends(get_current_user)]
+    # FIX 2026-08-30 (роли): вебхуки — системная интеграция, отправляющая данные
+    # сделок наружу. Раньше создавать их мог любой аутентифицированный
+    # (включая склад/документы): канал утечки базы. Фичей пока не пользуется
+    # никто (таблица пуста), вкладка в UI скрыта для не-админов.
+    dependencies=[Depends(require_admin())]
 )
 
 
@@ -178,10 +211,11 @@ def test_webhook(wh_id: int, current_user=Depends(get_current_user)):
             headers["X-Webhook-Signature"] = sig
 
         try:
+            _assert_public_host(h.url)
             ctx = ssl.create_default_context()
             data = json.dumps(payload).encode()
             req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
-            resp = urllib.request.urlopen(req, timeout=10, context=ctx)
+            resp = _open_webhook(req)
             return {"status": resp.status, "success": resp.status < 400}
         except urllib.error.HTTPError as e:
             return {"status": e.code, "success": False, "error": str(e)}
@@ -220,13 +254,35 @@ async def notify_webhooks(tenant_id, event, data):
                     headers["X-Webhook-Signature"] = sig
 
                 try:
+                    _assert_public_host(h.url)
                     ctx = ssl.create_default_context()
                     data = json.dumps(payload).encode()
                     req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
-                    urllib.request.urlopen(req, timeout=10, context=ctx)
-                except Exception:
-                    pass  # Не блокируем основной процесс
+                    _open_webhook(req)
+                except Exception as e:
+                    logger.warning("Webhook %s delivery failed: %s", h.url, e)
         finally:
             db.close()
     except Exception:
-        pass
+        logger.warning("Webhook dispatch failed for event %s", event, exc_info=True)
+
+
+def notify_webhooks_async(tenant_id, event, data):
+    """FIX 2026-08-29: фоновая отправка вебхуков в отдельном потоке.
+
+    Раньше вызывалось как asyncio.get_event_loop().create_task() из
+    синхронного хендлера: event loop в потоке threadpool отсутствует,
+    вызов падал с RuntimeError и глушился except — вебхуки никогда
+    не отправлялись. asyncio.run() в daemon-потоке решает это, не
+    блокируя ответ API.
+    """
+    import asyncio
+    import threading
+
+    def _run():
+        try:
+            asyncio.run(notify_webhooks(tenant_id, event, data))
+        except Exception:
+            logger.warning("notify_webhooks crashed for %s", event, exc_info=True)
+
+    threading.Thread(target=_run, daemon=True).start()

@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (adminLink && (role === 'superadmin' || role === 'admin')) {
             adminLink.classList.remove('hidden');
         }
+        applyRoleToSettingsTabs(role);
     }
 
     const logoutBtn = document.getElementById('logout-btn');
@@ -207,6 +208,29 @@ function renderLoginScreen() {
             if (!submitBtn.disabled) doLogin();
         }
     });
+}
+
+// FIX 2026-08-30 (роли): вкладки «Кастомные объекты»/«Воркфлоу»/«Webhooks»
+// на бэкенде закрыты за админом (403), прячем их и в UI, чтобы обычный
+// пользователь не натыкался на ошибки. Нет сохранённой роли (старая сессия) —
+// вкладки тоже скрыты: безопаснее лишний раз не показать, бэкенд всё равно
+// проверит роль по токену. Дефолтной вкладкой для не-админа становится «Почта».
+function applyRoleToSettingsTabs(role) {
+    const isAdmin = role === 'superadmin' || role === 'admin';
+    if (isAdmin) return;
+    document.querySelectorAll('.settings-tab[data-admin-only]').forEach(t => t.classList.add('hidden'));
+    const objectsPane = document.getElementById('stab-objects');
+    const objectsTab = document.querySelector('.settings-tab[data-admin-only].active');
+    if (objectsPane && objectsTab && objectsPane.classList.contains('active')) {
+        objectsTab.classList.remove('active');
+        objectsPane.classList.remove('active');
+        const emailTab = document.querySelector('.settings-tab[onclick*="email"]');
+        const emailPane = document.getElementById('stab-email');
+        if (emailTab && emailPane) {
+            emailTab.classList.add('active');
+            emailPane.classList.add('active');
+        }
+    }
 }
 
 function initNavigation() {
