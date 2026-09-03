@@ -366,8 +366,8 @@ function fillCardHTML(cardEl, card) {
                 ${card.store_location ? `<span class="store-badge store-${escapeHtml(card.store_location)}">${escapeHtml(card.store_location)}</span>` : '<span class="store-badge store-empty">Без склада</span>'}
                 <span class="card-manager">${escapeHtml(creatorName)}</span>
                 ${isIncomplete ? '<span class="incomplete-badge" title="Не назначен ответственный или не указана сумма сделки">не заполнена</span>' : ''}
+                ${renderPaymentBadge(card)}
             </div>
-            <div class="card-payment">${renderPaymentBadge(card)}</div>
             ${tagsHtml}
             ${progressHtml}
         </div>

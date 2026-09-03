@@ -12887,3 +12887,60 @@ textarea {
     border-color: rgba(245, 158, 11, 0.40);
     color: #fbbf24;
 }
+
+/* 7. Все бейджи карточки — единые пилюли в одном потоке (2026-09-03,
+      фидбек: «бейджи всё ещё вразброс»). Менеджер, «не заполнена» и оплата
+      теперь оформлены так же, как бейдж склада, и лежат в .card-meta —
+      переносятся строкой естественно, без margin-left:auto разрыва. */
+.kanban-card .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+.kanban-card .card-meta .store-badge,
+.kanban-card .card-meta .card-manager,
+.kanban-card .card-meta .incomplete-badge,
+.kanban-card .card-meta .pay-badge-kanban {
+    margin-top: 0;
+    margin-left: 0;
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    border-radius: 999px;
+}
+.kanban-card .card-meta .store-badge { height: 22px; }
+.kanban-card .card-meta .card-manager {
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-muted);
+}
+.kanban-card .card-meta .card-manager::before { content: none; }
+.kanban-card .card-meta .incomplete-badge {
+    background: transparent;
+    border: 1px solid rgba(180, 83, 9, 0.35);
+    color: var(--warning-color);
+}
+.kanban-card .card-meta .pay-badge-kanban {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+[data-theme="dark"] .kanban-card .card-meta .card-manager {
+    background: rgba(255,255,255,0.06);
+    border-color: var(--border-interactive);
+}
+[data-theme="dark"] .kanban-card .card-meta .incomplete-badge {
+    background: transparent;
+    border-color: rgba(245, 158, 11, 0.40);
+    color: #fbbf24;
+}
+[data-theme="dark"] .kanban-card .card-meta .pay-badge-kanban {
+    background: rgba(255,255,255,0.06);
+    border-color: var(--border-interactive);
+}
