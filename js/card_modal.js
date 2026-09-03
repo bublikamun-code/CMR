@@ -981,12 +981,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         }
     };
     const warnNoAmount = () => warnField(document.getElementById('input-total-amount'), 'Укажите сумму сделки');
-    const warnNoDueDate = () => warnField(document.getElementById('input-due-date'), 'Укажите дату окончания сделки');
     const hasAmount = () => (parseFloat(card.total_amount) || 0) > 0;
 
     document.getElementById('btn-to-assembly').onclick = async () => {
         if (!hasAmount()) return warnNoAmount();
-        if (!card.due_date) return warnNoDueDate();
         const store = storeDropdown.dataset.value;
         if (!store) return showToast("Выберите магазин перед отправкой в сборку", 'error');
 
@@ -1007,7 +1005,6 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     document.getElementById('btn-trigger-payment').onclick = async () => {
         if (!hasAmount()) return warnNoAmount();
-        if (!card.due_date) return warnNoDueDate();
         const store = storeDropdown.dataset.value;
         if (!store) return showToast("Выберите магазин перед списанием", 'error');
 

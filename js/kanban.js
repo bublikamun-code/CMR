@@ -477,16 +477,14 @@ async function handleDrop(e) {
     }
     cardEl.classList.toggle('card-assembly', newStatus === 'Сборка');
 
-    // Сделка без цены (и без даты при выходе из «Нового запроса», план 1.7)
-    // дальше не двигается: данные проставляют в карточке, поэтому
-    // перетаскивание откатываем.
+    // Сделка без цены дальше не двигается: данные проставляют в карточке,
+    // поэтому перетаскивание откатываем. Требование даты убрано (2026-09-03) —
+    // срок не обязателен для смены статуса.
     if (oldStatus && oldStatus !== newStatus && newStatus !== 'Новый запрос') {
         const moved = (_allCards || []).find(c => c.id === parseInt(cardId));
         let blockMsg = null;
         if (moved && (parseFloat(moved.total_amount) || 0) <= 0) {
             blockMsg = 'Укажите сумму сделки — откройте карточку и заполните';
-        } else if (moved && oldStatus === 'Новый запрос' && !moved.due_date) {
-            blockMsg = 'Укажите дату окончания — откройте карточку и заполните';
         }
         if (blockMsg) {
             const oldContainer = oldColumn.querySelector('.kanban-cards');
