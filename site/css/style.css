@@ -73,9 +73,14 @@ html {
     --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.06);
     --shadow-md: 0 4px 8px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
     --shadow-lg: 0 12px 24px -6px rgba(15, 23, 42, 0.12), 0 4px 8px -4px rgba(15, 23, 42, 0.06);
-    --radius-sm: 4px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
+    /* ДИЗАЙН-РАУНД 2026-09-03: 4px → 6px — референсы (shadcn/Steep) сходятся
+       в том, что острых углов у контролов быть не должно; 6px подтягивает
+       все инпуты, пункты меню и мелкие кнопки разом. */
+    --radius-sm: 6px;
+    /* Раунд 2 (выразительный, DESIGN-2/shadcn): иерархия радиусов —
+       капсулы у кнопок (999px), 10px у контролов, 16px у контейнеров. */
+    --radius-md: 10px;
+    --radius-lg: 16px;
     /* === ШКАЛА ОТСТУПОВ (единая для всего приложения) === */
     --space-xs: 4px;
     --space-sm: 8px;
@@ -591,7 +596,7 @@ a.nav-btn { text-decoration: none; }
 }
 
 .btn-primary:hover {
-    box-shadow: 0 4px 14px rgba(74, 87, 164, 0.30);
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.30);
 }
 
 .btn-full {
@@ -623,7 +628,7 @@ a.nav-btn { text-decoration: none; }
 .search-input:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 
 .search-with-clear {
@@ -1134,7 +1139,7 @@ a.nav-btn { text-decoration: none; }
 }
 .modal-input-row input:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 
@@ -1744,7 +1749,7 @@ a.nav-btn { text-decoration: none; }
 
 .modal-content input:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 
@@ -2026,7 +2031,7 @@ button.btn-edit-card:hover {
     transition: background-color var(--transition-fast);
 }
 .btn-danger:hover {
-    background: #b91c1c;   /* более тёмный красный на hover */
+    background: var(--danger-dark);
     color: #fff;
 }
 .btn-danger:active {
@@ -2093,8 +2098,8 @@ button.btn-edit-card:hover {
 }
 
 .btn-writeoff:hover {
-    background-color: #218838;
-    box-shadow: 0 4px 12px rgba(26, 154, 117, 0.30);
+    background-color: #036647; /* темнее --success-color, оттенок не меняется */
+    box-shadow: var(--shadow-sm);
 }
 
 /* --- СТИЛИ ДЛЯ ЭКРАНА ВХОДА --- */
@@ -2151,7 +2156,7 @@ button:hover {
 /* Красивые поля ввода */
 input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 ::-webkit-scrollbar {
     width: 6px;
@@ -2308,8 +2313,10 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     gap: var(--space-sm);
     align-content: start;
     min-height: 92px;
-    max-height: 58vh;
-    overflow-y: auto;
+    /* FIX 2026-09-03: убраны max-height:58vh + overflow-y:auto — колонка
+       резала нижние карточки посредине строки, скроллбара не было, и
+       блоки выглядели «скрытыми». Высота по содержимому, страница
+       прокручивается целиком (как у #page-writeoffs). */
     border-radius: var(--radius-sm);
 }
 
@@ -2496,8 +2503,16 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
     background: var(--danger-color);
 }
 
+/* ДИЗАЙН-РАУНД 2026-09-03: hover затемнением через токены вместо
+   filter: brightness — одинаковое поведение с остальными кнопками. */
 .confirm-ok:hover {
-    filter: brightness(1.05);
+    background: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
+
+.confirm-ok.danger:hover {
+    background: var(--danger-dark);
+    border-color: var(--danger-dark);
 }
 
 /* ==========================================================
@@ -2539,7 +2554,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 .dropdown.open .dropdown-toggle {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 
 .dropdown-value {
@@ -2789,7 +2804,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 
 #input-description:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 
@@ -2968,7 +2983,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 .pay-badge.pay-select:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
 }
 /* В Firefox option не наследует цвет фона бейджа — задаём цвета,
    соответствующие каждому статусу, чтобы список выглядел единообразно. */
@@ -3312,7 +3327,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 .activity-edit-text:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 .activity-edit-actions { display: flex; gap: 6px; }
 .activity-time {
@@ -3563,7 +3578,7 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 .tag-create-input:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 .tag-color-palette {
@@ -3651,13 +3666,16 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.08) !important;
 }
 
+/* ДИЗАЙН-РАУНД 2026-09-03: было background: var(--table-header-bg) —
+   тёмная шапка #0f172a в светлой теме (тяжёлая по итогам аудита) и
+   блокировка новых светлых правил через !important. */
 .data-table th {
-    background: var(--table-header-bg) !important;
+    background: var(--table-row-even) !important;
     color: var(--text-muted) !important;
     font-size: 11px !important;
     font-weight: 600 !important;
     letter-spacing: 0.05em !important;
-    border-bottom: 2px solid var(--border-color) !important;
+    border-bottom: 1px solid var(--border-color) !important;
     padding: 12px 16px !important;
 }
 
@@ -4319,7 +4337,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(74, 87, 164, 0.1);
+    border: 1px solid rgba(79, 70, 229, 0.1);
     transition: transform var(--transition-fast);
 }
 
@@ -4608,7 +4626,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     background: var(--card-bg);
     color: var(--text-color);
     outline: none;
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 
 /* === HOVER ACTIONS (Kanban) === */
@@ -4881,7 +4899,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 .modal-split-left select:focus,
 .modal-split-left textarea:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
     outline: none;
 }
 .modal-split-left h3 {
@@ -5820,11 +5838,11 @@ input, select, textarea {
     transform: rotate(2deg);
 }
 .kanban-column.drag-over {
-    background: rgba(74, 87, 164, 0.05);
+    background: rgba(79, 70, 229, 0.05);
     border: 2px dashed var(--primary-color);
 }
 [data-theme="dark"] .kanban-column.drag-over {
-    background: rgba(74, 87, 164, 0.1);
+    background: rgba(79, 70, 229, 0.1);
 }
 .kanban-column.drag-over .kanban-cards {
     min-height: 80px;
@@ -6218,7 +6236,7 @@ input, select, textarea {
 [data-theme="dark"] select:focus,
 [data-theme="dark"] textarea:focus {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.15);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
 }
 
 /* ============================================================
@@ -7115,7 +7133,7 @@ textarea:focus-visible {
 /* --- Плитки одной сделки визуально сгруппированы --- */
 .writeoff-card.has-siblings {
     border-left-width: 3px;
-    box-shadow: inset 2px 0 0 rgba(74,87,164,0.25);
+    box-shadow: inset 2px 0 0 rgba(79,70,229,0.25);
 }
 .writeoff-card.has-siblings .invoice-progress {
     background: var(--primary-color);
@@ -10088,7 +10106,7 @@ td.td-center > .btn-edit-row .ui-icon{
 [data-theme="dark"] .kanban-card .card-payment .pay-badge-kanban { background: rgba(255,255,255,0.06); border-color: var(--border-interactive); color: var(--text-muted); }
 [data-theme="dark"] .kanban-card .card-meta .store-badge { background: rgba(255,255,255,0.06); border-color: var(--border-interactive); color: var(--text-muted); }
 [data-theme="dark"] .kanban-card .progress-track { background: rgba(255,255,255,0.08); }
-[data-theme="dark"] .kanban-column.drag-over { background: rgba(74, 87, 164, 0.12) !important; }
+[data-theme="dark"] .kanban-column.drag-over { background: rgba(79, 70, 229, 0.12) !important; }
 
 
 /* === CARD MODAL REDESIGN (2026-08-20) === */
@@ -11502,7 +11520,7 @@ h2, h3 {
 .comment-input-box textarea:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(74, 87, 164, 0.10);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.10);
 }
 .comment-input-box button {
     flex-shrink: 0;
@@ -12126,7 +12144,7 @@ select {
     transition: var(--transition-ui);
 }
 select:hover { border-color: var(--primary-color); box-shadow: var(--shadow-sm); }
-select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(74, 87, 164, 0.15); }
+select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
 
 /* --- Dropdown: кнопка — первая строка, меню не дублирует значение --- */
 .dropdown.open .dropdown-item.selected { display: none; }
@@ -12534,3 +12552,912 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 
 }
 #modal-title .title-edit-btn:hover { background: var(--primary-soft); color: var(--primary-color); }
 #modal-title .title-edit-btn .ui-icon { width: 15px; height: 15px; }
+
+/* ==========================================================
+   ДИЗАЙН-РАУНД 2026-09-03 — по мотивам двух референсов:
+   • shadcn/ui (DESIGN-2): тихие поверхности, волосок + лёгкое
+     поднятие карточек, тональные вторичные кнопки, табличные цифры;
+   • Steep (DESIGN): дисциплина теней (тени — только «плавающим»
+     слоям) и плотный трекинг крупных заголовков.
+   Палитра и гарнитура проекта не меняются; тёмная тема — через
+   переменные и явные переопределения ниже.
+   ========================================================== */
+
+:root {
+    /* Многослойная тихая тень карточек: 1px-кольцо + едва заметное
+       поднятие (структура из shadcn-референса, цвета — нейтральная
+       шкала проекта, без цветных свечений). */
+    --shadow-card: 0 0 0 1px rgba(15, 23, 42, 0.04),
+                   0 1px 3px rgba(15, 23, 42, 0.06),
+                   0 1px 2px -1px rgba(15, 23, 42, 0.06);
+}
+[data-theme="dark"] {
+    --shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.30),
+                   0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* 1. Карточки: волосок уже есть — добавлено тихое поднятие. Тень
+      остаётся едва заметной: заметные тени — только у модалок и
+      дропдаунов (дисциплина Steep-референса). */
+.settings-card,
+.dash-stat {
+    box-shadow: var(--shadow-card);
+}
+
+/* 2. Primary без цветного glow на hover: затемнение фона + нейтральная
+      тень. Согласовано с политикой токенов «тени без цветного glow». */
+.btn-primary:hover {
+    background: var(--primary-dark);
+    box-shadow: var(--shadow-sm);
+}
+
+/* 3. Вторичная кнопка — тональная (подход shadcn): мягкая заливка
+      вместо белого фона с рамкой — меньше шума в плотных шапках. */
+.btn-secondary {
+    background: var(--bg-secondary);
+    border-color: transparent;
+}
+.btn-secondary:hover {
+    background: var(--border-color);
+    border-color: transparent;
+    color: var(--text-color);
+    box-shadow: none;
+}
+
+/* 4. Табличные цифры: суммы, итоги и метрики выравниваются по разрядам
+      (рекомендация аудита 2026-08-25; инженерный стиль shadcn). */
+.data-table td,
+.table-totals td,
+.dash-stat-value {
+    font-variant-numeric: tabular-nums;
+}
+
+/* 5. Плотный трекинг крупных заголовков (подпись Steep-референса),
+      гарнитура не меняется. Заголовки таблиц не затрагиваются — у них
+      своя более специфичная разрядка. */
+h1, h2, h3 {
+    letter-spacing: -0.01em;
+}
+
+/* 6. Фокус-кольцо поиска — оттенок актуального primary (#4f46e5)
+      вместо легаси-оттенка старой палитры (#4a57a4). */
+.search-input:focus {
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+/* ==========================================================
+   ДИЗАЙН-РАУНД 2026-09-03, РАУНД 2 — ВЫРАЗИТЕЛЬНЫЙ (по
+   референсу DESIGN-2 / shadcn). Иерархия радиусов:
+   • капсулы (999px) — кнопки и триггеры;
+   • 10px (--radius-md) — поля ввода, меню, тосты;
+   • 16px (--radius-lg) — карточки, модалки, диалоги.
+   Плюс светлые «туманные» шапки таблиц без градиента.
+   Палитра индиго сохранена; тёмная тема — через переменные.
+   ========================================================== */
+
+/* Кнопки — капсулы. Служебные иконочные (крестики, карандаши)
+   не трогаем — у них своя квадратная пластика. */
+.btn-primary,
+.btn-secondary,
+.btn-sm,
+.btn-danger,
+.btn-assembly,
+.btn-writeoff-action,
+.btn-writeoff,
+.btn-restore,
+.btn-permanent-delete,
+.btn-link-card,
+.btn-add-contact,
+.confirm-actions button,
+.save-retry-btn {
+    border-radius: 999px;
+}
+
+/* Триггер кастомного дропдауна — капсула, читается как кнопка;
+   само меню — контейнер 10px. */
+.dropdown-toggle { border-radius: 999px; }
+.dropdown-menu,
+.toast,
+.pay-dd-menu { border-radius: 10px; }
+
+/* Поля ввода и поиск — 10px вместо мелких 6. */
+.search-input,
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="email"],
+select,
+textarea {
+    border-radius: 10px;
+}
+
+/* Шапки таблиц: сплошной «туман» вместо градиента, волосок снизу —
+   современный спокойный вид данных (в тёмной теме правило глушится
+   более специфичным [data-theme="dark"] .data-table th). */
+.data-table th {
+    background: var(--table-row-even);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Вторичная кнопка в тёмной теме — тоже тональная, без рамки. */
+[data-theme="dark"] .btn-secondary {
+    background: var(--bg-secondary);
+    border-color: transparent;
+}
+[data-theme="dark"] .btn-secondary:hover {
+    background: var(--border-color);
+    color: var(--text-color);
+}
+
+/* Модалки и диалоги: мягче вход — без резкого затемнения фона. */
+.modal { background-color: rgba(15, 23, 42, 0.45); }
+
+/* ==========================================================
+   ФИКС 2026-09-03: тени карточек обрезались по краям
+   скролл-контейнеров (сообщение пользователя: «у карточек есть
+   границы и из-за этого тени обрезаются при наведении»).
+   ========================================================== */
+
+/* Канбан: у скролл-списка карточек не было внутреннего отступа —
+   тень при наведении срезалась ровно по границе списка. Даём 6px
+   «воздуха» внутри скролла и компенсируем отрицательным внешним
+   отступом, чтобы раскладка колонки не сдвинулась. */
+.kanban-cards {
+    padding: 6px;
+    margin: -6px;
+}
+
+/* Доска: верх колонки упирался в край области прокрутки —
+   верхняя граница и тень срезались. */
+.kanban-board { padding-top: 4px; }
+
+/* Hover карточки: тень компактнее (отрицательный разброс), чтобы
+   помещаться в «воздух» скролл-контейнера; подъём минимальный —
+   интерфейс не «плывёт» под курсором. */
+.kanban-card:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 8px 16px -6px rgba(15, 23, 42, 0.16), 0 2px 4px -1px rgba(15, 23, 42, 0.08) !important;
+}
+[data-theme="dark"] .kanban-card:hover {
+    box-shadow: 0 8px 16px -6px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Тёмная тема: шапки таблиц остаются тёмными — светлое правило
+   раунда 2 с !important иначе победило бы и в тёмной теме. */
+[data-theme="dark"] .data-table th {
+    background: var(--table-header-bg) !important;
+    color: var(--text-muted) !important;
+}
+
+/* ==========================================================
+   АУДИТ-ФИКС 2026-09-03 (по живым скриншотам 1440/1920/1280/1024):
+   данные в таблицах не должны обрезаться; шапки колонок канбана
+   переносятся вместо многоточия; низ сайдбара — сегмент-контрол.
+   ========================================================== */
+
+/* --- Реестр оплат: даты, суммы, магазины и примечания целиком.
+       Сумма фикс-колонок выросла, поэтому min-width таблицы тоже
+       растёт — на узких экранах честный горизонтальный скролл
+       вместо обрезанных значений. --- */
+#payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 104px !important; }
+#payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 132px !important; }
+#payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 112px !important; }
+#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 112px !important; }
+/* липкая «Название» едет за новой шириной даты */
+#payments-table td:nth-child(2), #payments-table th:nth-child(2),
+#documents-table td:nth-child(2), #documents-table th:nth-child(2) { left: 104px; }
+#page-payments .data-table { min-width: 1240px !important; }
+
+/* --- Документы: те же болезни (дата/сумма/магазин). --- */
+#documents-table th:nth-child(1), #documents-table td:nth-child(1) { width: 104px !important; }
+#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 132px !important; }
+#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 132px !important; }
+#documents-table th:nth-child(5), #documents-table td:nth-child(5) { width: 112px !important; }
+#page-documents .data-table { min-width: 1120px !important; }
+
+/* --- Канбан: шапка колонки переносит сумму на вторую строку,
+       если не влезает, вместо «17 из 12331 273,95 …». --- */
+.column-header { flex-wrap: wrap; row-gap: 2px; }
+.column-header .col-sum {
+    flex: 1 1 120px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Низ сайдбара: тема/плотность — аккуратный сегмент-контрол
+       вместо двух тёмных плашек. --- */
+.sidebar-controls {
+    margin: 0 8px 12px;
+    padding: 4px;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+}
+.sidebar-controls .theme-toggle,
+.sidebar-controls .compact-toggle {
+    height: 32px;
+    background: transparent;
+    border-radius: 8px;
+    color: #aeb8c7;
+}
+.sidebar-controls .theme-toggle:hover,
+.sidebar-controls .compact-toggle:hover {
+    background: rgba(255, 255, 255, 0.10);
+    color: #fff;
+}
+
+/* --- «Админ-панель»: как пункт навигации, без чужеродной рамки. --- */
+.admin-link-btn {
+    border-color: transparent;
+    background: rgba(255, 255, 255, 0.04);
+}
+.admin-link-btn:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* --- Панель уведомлений: на канбане колокольчик стоит слева, и
+       absolute-панель с right:0 уезжала под сайдбар (скриншот-аудит).
+       Фиксируем в правом верхнем углу вьюпорта — предсказуемо и
+       никогда не обрезается, как стандартный notification tray. --- */
+.notif-panel {
+    position: fixed;
+    top: 56px;
+    right: 16px;
+}
+
+/* --- Фильтры: «Все приоритеты» не обрезается. --- */
+.filter-bar .select-dd-wrap { width: 200px; }
+
+/* ==========================================================
+   РАУНД 2026-09-03 (обратная связь пользователя): списание —
+   невидимый крестик, компактность доски; единые кнопки строк;
+   розовый вне палитры.
+   ========================================================== */
+
+/* 1. Крестик на карточке списания был opacity:0 — без ховера кнопка
+   невидима (воспринимается как «скрытая строка»), а на hover ещё и
+   раздувалась padding 20px. Дела видимой и чиним hover. */
+.btn-delete-writeoff { opacity: 0.55; }
+.writeoff-card:hover .btn-delete-writeoff { opacity: 1; }
+.btn-delete-writeoff:hover {
+    padding: 0;
+    background: var(--danger-color);
+    color: #fff;
+}
+
+/* 2. Кнопка удаления строки в «Финансах» — та же пластика, что у
+   клиентов/поставщиков: квадрат с волоском вместо кружка. */
+.btn-delete-row {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+}
+
+/* 3. Компактное списание: плотнее строки, мельче типографика —
+   доска перестаёт «расползаться» по вертикали. */
+.writeoff-card { padding: 10px 12px 12px !important; gap: 4px !important; }
+.writeoff-card .card-title { font-size: 13px !important; }
+.writeoff-card .card-amount { font-size: 15px !important; margin-top: 2px !important; }
+.writeoff-card .wo-remainder { font-size: 11px; margin: 0 !important; }
+.writeoff-card .card-date { font-size: 11px !important; margin: 0 !important; }
+.writeoff-card .wo-invoice,
+.writeoff-card .wo-note,
+.writeoff-card .badge-warning { margin-top: 4px; }
+.writeoff-card .btn-secondary { padding: 6px 10px; font-size: 12px; margin-top: 6px; }
+.writeoff-card .btn-writeoff { padding: 5px var(--space-sm); font-size: 12px; }
+
+/* 4. Розовый #ad36be выбивается из палитры — действие списания
+   тем же зелёным, что и «Списать» на доске. */
+.btn-writeoff-action { background-color: var(--success-color); }
+.btn-writeoff-action:hover { background-color: #036647; }
+
+/* 5. Мета-строка канбан-карточки: бейджи ровной строкой, а не вразнобой
+      (фидбек пользователя: «выглядят разбросанными и не на одном уровне»). */
+.card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+.card-meta .store-badge {
+    margin-top: 0;
+    padding: 3px 10px;
+    font-size: 11px;
+}
+.card-meta .card-manager {
+    margin-top: 0;
+    margin-left: auto;
+}
+
+/* 6. Жёлтые заливки → контурные бейджи (фидбек: жёлтый фон не нравится
+      ни на лицевой карточке, ни «Осталось оплатить» в модалке). */
+.badge-warning,
+.incomplete-badge {
+    background: transparent;
+    border: 1px solid rgba(180, 83, 9, 0.35);
+    color: var(--warning-color);
+}
+[data-theme="dark"] .badge-warning,
+[data-theme="dark"] .incomplete-badge {
+    background: transparent;
+    border-color: rgba(245, 158, 11, 0.40);
+    color: #fbbf24;
+}
+
+/* 7. Все бейджи карточки — единые пилюли в одном потоке (2026-09-03,
+      фидбек: «бейджи всё ещё вразброс»). Менеджер, «не заполнена» и оплата
+      теперь оформлены так же, как бейдж склада, и лежат в .card-meta —
+      переносятся строкой естественно, без margin-left:auto разрыва. */
+.kanban-card .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+.kanban-card .card-meta .store-badge,
+.kanban-card .card-meta .card-manager,
+.kanban-card .card-meta .incomplete-badge,
+.kanban-card .card-meta .pay-badge-kanban {
+    margin-top: 0;
+    margin-left: 0;
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    border-radius: 999px;
+}
+.kanban-card .card-meta .store-badge { height: 22px; }
+.kanban-card .card-meta .card-manager {
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-muted);
+}
+.kanban-card .card-meta .card-manager::before { content: none; }
+.kanban-card .card-meta .incomplete-badge {
+    background: transparent;
+    border: 1px solid rgba(180, 83, 9, 0.35);
+    color: var(--warning-color);
+}
+/* pay-badge глобально 24px/12px с !important (блок 10) — в канбане приводим
+   к общей пилюле 22px тем же весом */
+.kanban-card .card-meta .pay-badge-kanban {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    height: 22px !important;
+    padding: 0 10px !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+}
+[data-theme="dark"] .kanban-card .card-meta .card-manager {
+    background: rgba(255,255,255,0.06);
+    border-color: var(--border-interactive);
+}
+[data-theme="dark"] .kanban-card .card-meta .incomplete-badge {
+    background: transparent;
+    border-color: rgba(245, 158, 11, 0.40);
+    color: #fbbf24;
+}
+[data-theme="dark"] .kanban-card .card-meta .pay-badge-kanban {
+    background: rgba(255,255,255,0.06);
+    border-color: var(--border-interactive);
+}
+
+/* 8. Списание: месячные группы «Списано» + компактная раскладка
+      (2026-09-03, фидбек: «не нравится растянутый дизайн»).
+      Блоки складов больше не растягиваются на всю ширину экрана,
+      карточки ниже и плотнее, лишние отступы убраны. */
+.writeoffs-container {
+    grid-template-columns: repeat(auto-fit, minmax(480px, 560px));
+    justify-content: start;
+}
+
+.writeoff-card {
+    padding: 8px 10px !important;
+}
+.writeoff-card:not(.writeoff-done) {
+    padding-bottom: 32px !important; /* место под кнопку «Списать» */
+}
+.writeoff-card .card-title {
+    line-height: 1.25 !important;
+}
+.writeoff-card .card-amount {
+    margin-top: 2px !important;
+}
+.writeoff-card .card-date {
+    margin-top: 0 !important;
+    margin-bottom: 6px !important;
+}
+.writeoff-card .wo-invoice,
+.writeoff-card .wo-note,
+.writeoff-card .wo-remainder {
+    margin-top: 2px !important;
+}
+
+.writeoff-empty-state {
+    min-height: 100px;
+    padding: 16px 12px;
+    gap: 6px;
+}
+
+/* Месячная группа колонки «Списано» */
+.wo-month-group {
+    margin-bottom: var(--space-sm);
+}
+.wo-month-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    font-weight: 600;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+.wo-month-header .wo-month-arrow {
+    width: 12px;
+    color: var(--text-faint);
+}
+.wo-month-header .wo-month-name {
+    text-transform: capitalize;
+    color: var(--text-color);
+}
+.wo-month-header .wo-month-count {
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    font-variant-numeric: tabular-nums;
+}
+.wo-month-header .wo-month-sum {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+.wo-month-group.collapsed .wo-month-cards {
+    display: none;
+}
+.wo-month-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-sm);
+    align-content: start;
+}
+.wo-hidden-extra {
+    display: none !important; /* против display:flex !important базовой .kanban-card */
+}
+.wo-show-more {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px;
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    cursor: pointer;
+    transition: var(--transition-ui);
+}
+.wo-show-more:hover {
+    color: var(--text-color);
+    border-color: var(--border-interactive);
+}
+
+/* Итог «списано за месяц» в заголовке склада */
+.writeoff-store-block h3 .store-written-month {
+    color: var(--success-color);
+    font-weight: 600;
+}
+
+/* ==========================================================
+   РАУНД 2026-09-03 (вечер, фидбек по скриншоту): кнопки карточек
+   слишком большие, заголовок склада непропорционален плиткам,
+   « г.» в месяцах повисает отдельной строкой.
+   ========================================================== */
+
+/* 1. Пропорции заголовка склада: имя — заголовок, итоги — служебная
+      мелочь справа в столбик. Раньше оба span'ов лежали рядом с именем
+      в одном flex-ряду и наследовали его 16px — зелёная строка
+      «списано за сентябрь…» выглядела вторым заголовком страницы. */
+.writeoff-store-block h3 {
+    font-size: 15px;
+    border-bottom-width: 1px;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    align-items: baseline;
+}
+.writeoff-store-block h3 .store-totals {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 500;
+}
+.writeoff-store-block h3 .store-totals .store-total {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.writeoff-store-block h3 .store-totals .store-written-month {
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* 2. Кнопки карточек: «Выписать накладную» не на всю ширину плитки —
+      колоночный flex (.kanban-card) растягивал её от края до края.
+      ВАЖНО: блок 26 «единые высоты контролов» (~строка 7700) задаёт всем
+      .btn-secondary height:40px/padding:0 20px/font:14px через !important —
+      без такого же веса наша компактность не пробивается (первый раунд
+      именно поэтому не сработал). */
+.writeoff-card .btn-secondary {
+    align-self: flex-start !important;
+    /* легаси-правило (~строка 12226) тянет кнопку на width:100% карточки —
+       при явной ширине align-self уже не сжимает */
+    width: auto !important;
+    height: auto !important;
+    padding: 3px 10px !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    line-height: 1.4 !important;
+    gap: 4px !important;
+    margin-top: 6px !important;
+    /* глобальная пилюля 999px !important визуально раздувает кнопку —
+       здесь она должна быть тихой плашкой, а не главным действием */
+    border-radius: 7px !important;
+}
+.writeoff-card .btn-secondary svg { width: 11px; height: 11px; }
+
+/* «Списать» — абсолютная кнопка, остаётся только у карточек с выписанной
+   накладной (у остальных кнопка в потоке). Резерв под неё даём через :has(),
+   чтобы у карточек с «Выписать накладную» не было мёртвых 28px снизу. */
+.writeoff-card:not(.writeoff-done) { padding-bottom: 10px !important; }
+.writeoff-card:not(.writeoff-done):has(.btn-writeoff) { padding-bottom: 34px !important; }
+.writeoff-card .btn-writeoff {
+    padding: 3px 8px;
+    font-size: 11px;
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+    border-radius: 7px;
+}
+
+/* Бейдж «Накладная не выписана» жмётся к содержимому: во флекс-колонке
+   карточки он растягивался на всю ширину и читался как вторая кнопка. */
+.writeoff-card .badge-warning {
+    align-self: flex-start;
+    width: auto;
+}
+
+/* 3. Шапки колонок «НА СПИСАНИЕ / СПИСАНО» — подпись, а не кнопка:
+      тоньше, уже, радиус меньше пилюльного. */
+.writeoff-column h4 {
+    padding: 3px 8px;
+    gap: 5px;
+    border-radius: 6px;
+}
+.writeoff-column h4 .col-count {
+    min-width: 18px;
+    height: 15px;
+    padding: 0 5px;
+    font-size: 10px;
+}
+
+/* 4. Месячные группы: «Сентябрь 2026» больше не переносит «г.» —
+      имя и сумма не ломаются, шапка в одну строку. Если ширины мало,
+      сжимается ИМЯ месяца (многоточие), сумма и счётчик — всегда целиком:
+      раньше «16 735,28 BYN» обрезалось до «…BY» в узкой колонке. */
+.wo-month-header {
+    gap: 4px;
+    padding: 4px 6px;
+}
+.wo-month-header .wo-month-count,
+.wo-month-header .wo-month-sum { white-space: nowrap; flex-shrink: 0; }
+.wo-month-header .wo-month-name {
+    white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 5. Колонки списания листаются независимо (фидбек: «каждая колонка
+      должна двигаться/листаться отдельно»). Высота ограничена вьюпортом,
+      шапка колонки «НА СПИСАНИЕ / СПИСАНО» остаётся закреплённой сверху.
+      Отличие от отката 2026-09-03: тогда колонка резала карточки без
+      видимого скроллбара — здесь скроллбар принудительно заметный,
+      gutter стабильный, страница целиком не дёргается. */
+.writeoff-cards {
+    /* 230px = фактическая шапка над колонками (замер: 210px) + отступ.
+       Было 350px — колонка заканчивалась на ~120px выше нужного, и уже
+       на 85% масштаба низ карточек резался сгибом (фидбек 2026-09-04:
+       «на 75% всё помещается, на 85% и 100% обрезается»). */
+    max-height: calc(100vh - 230px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: 2px;
+    /* Стандартные свойства дают ПОСТОЯННО видимый скроллбар: на macOS
+       оверлейные полосы невидимы, пока не крутишь — колонка выглядела
+       как «обрезанные карточки» без намёка на продолжение (фидбек
+       2026-09-04). Chrome 121+ понимает стандарт и игнорирует webkit-хаки,
+       они оставлены для старых браузеров. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-interactive) rgba(127, 137, 152, 0.12);
+    /* 240px минимум не оставлял места под скроллбар в колонке 263px —
+       появляется горизонтальный перелив; 200px достаточно */
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+}
+.writeoff-cards::-webkit-scrollbar { width: 8px; }
+.writeoff-cards::-webkit-scrollbar-track {
+    background: rgba(127, 137, 152, 0.12);
+    border-radius: 999px;
+}
+.writeoff-cards::-webkit-scrollbar-thumb {
+    background: var(--border-interactive);
+    border-radius: 999px;
+}
+.writeoff-cards::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* ==========================================================
+   РАУНД 2026-09-03 (ночь): «Финансы» — одна строка вместо двух баров,
+   колокольчик не прилипает к верху.
+   ========================================================== */
+
+/* 1. Заголовок + табы + тулбар активной вкладки — один ряд.
+      Тулбары (.finance-toolbar) переехали из панелей в шапку и
+      переключаются в features.js: видим только инструменты активной
+      вкладки. Всё сжато до 34px вместо 40-41px. */
+.finance-header {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+}
+.finance-header .finance-tabs { margin: 0 0 0 10px; }
+.finance-header .settings-tab {
+    padding: 8px 14px;
+    font-size: 13px;
+}
+.finance-header .finance-toolbar { display: none; }
+.finance-header .finance-toolbar.active {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 56px 0 auto; /* справа — зона колокольчика, не пересекаемся */
+}
+.finance-header .finance-toolbar .search-input {
+    height: 34px !important;
+    padding: 0 12px !important;
+    font-size: 13px !important;
+    width: 220px;
+}
+.finance-header .finance-toolbar .btn-export {
+    height: 34px !important;
+    padding: 0 16px !important;
+    font-size: 12.5px !important;
+}
+.finance-header .finance-toolbar .dropdown-toggle {
+    height: 34px !important;
+    padding: 0 12px !important;
+    font-size: 12.5px !important;
+}
+.finance-header .finance-toolbar .month-filter { width: 160px; flex-shrink: 0; }
+.finance-header .finance-toolbar .search-with-clear { display: inline-flex; }
+
+/* 2. Колокольчик: на разделах без .header-actions (финансы, настройки…)
+      он оставался первым элементом .main-content и прилипал к самому
+      верху экрана. Ставим его в строку заголовка раздела, справа.
+      Селектор «прямой потомок» — на канбане notifications.js переносит
+      его внутрь .header-actions, и это правило там не действует. */
+.main-content { position: relative; }
+.main-content > #notif-bell-wrap {
+    position: absolute;
+    top: 16px;
+    right: 24px;
+    z-index: 60;
+    margin-right: 0;
+}
+
+/* 6. «Выписать накладную» + бейдж «Накладная не выписана» дублировали
+      друг друга и растягивали карточку вниз (фидбек 2026-09-04).
+      Бейдж убран из разметки, его сигнал перенесён на кнопку:
+      янтарная обводка = «здесь проблема», клик = действие. */
+.writeoff-card .btn-invoice-missing {
+    background: transparent;
+    border-color: rgba(180, 83, 9, 0.45);
+    color: var(--warning-color);
+    font-weight: 600;
+}
+.writeoff-card .btn-invoice-missing:hover {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(180, 83, 9, 0.6);
+    color: var(--warning-color);
+}
+[data-theme="dark"] .writeoff-card .btn-invoice-missing {
+    background: transparent !important;
+    border-color: rgba(245, 158, 11, 0.4) !important;
+    color: #fbbf24 !important;
+}
+[data-theme="dark"] .writeoff-card .btn-invoice-missing:hover {
+    background: rgba(245, 158, 11, 0.12) !important;
+    border-color: rgba(245, 158, 11, 0.6) !important;
+    color: #fbbf24 !important;
+}
+
+/* 7. Нижний край скроллящейся колонки затухает: «разрезанная» сгибом
+      плитка читается как продолжение списка, а не как сломанная карточка.
+      У дна прокрутки затухание снимается (класс от updateScrollHints). */
+.writeoff-cards.is-scrollable {
+    -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent 100%);
+    mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent 100%);
+}
+.writeoff-cards.is-scrollable.wo-at-bottom {
+    -webkit-mask-image: none;
+    mask-image: none;
+}
+
+/* 8. Страховка от сжатия карточек: если какая-то раскладка (в т.ч.
+      устаревший кэш CSS) делает контейнер карточек flex-колонкой с
+      ограниченной высотой, плитки не должны ужиматься — контейнер
+      обязан прокручиваться, а не сплющивать содержимое. */
+.writeoff-cards > * { flex-shrink: 0; }
+.writeoff-card { flex-shrink: 0; }
+
+/* 9. Компактная карточка списания (фидбек 00:56: на 100% колонка из
+      5 плиток не влезала в экран): сумма + «к списанию» в одну строку,
+      дата и № ТН в одну строку; высота плитки ~165px → ~115px. */
+.writeoff-card .card-amount-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 0 !important;
+    min-width: 0;
+}
+.writeoff-card .card-amount-row .card-amount {
+    margin-top: 0 !important;
+}
+.writeoff-card .wo-amount-label {
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+.writeoff-card .wo-from {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+    margin-left: auto;
+}
+.writeoff-card .card-date {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 0 !important;
+    margin-bottom: 2px !important;
+}
+.writeoff-card .wo-meta-inv {
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.writeoff-card .wo-note { margin-top: 0 !important; }
+.writeoff-card .btn-secondary { margin-top: 4px !important; }
+[data-theme="dark"] .writeoff-card .wo-amount-label { color: #8b95a5; }
+[data-theme="dark"] .writeoff-card .wo-from { color: #aeb8c7; }
+
+/* ==========================================================
+   РАУНД 2026-09-04 (ночь, продолжение): скроллбары убраны со всех
+   досок — листаем колесом мыши; карточки канбана и списания
+   одной ширины.
+   ========================================================== */
+
+/* 1. Никаких полос прокрутки на досках: колонки канбана, колонки
+      списания, горизонталь самой доски. Колесо/тач работают как
+      раньше, продолжение снизу подсказывает затухание (п. 2). */
+.kanban-board,
+.kanban-cards,
+.writeoff-cards {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.kanban-board::-webkit-scrollbar,
+.kanban-cards::-webkit-scrollbar,
+.writeoff-cards::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+/* gutter больше не нужен — полосы нет, место не резервируем */
+.writeoff-cards {
+    scrollbar-gutter: auto;
+    padding-right: 0;
+}
+
+/* 2. Затухание «ниже есть ещё» — общее для колонок обеих досок
+      (классы ставит updateScrollHints). */
+.writeoff-cards.is-scrollable,
+.kanban-cards.is-scrollable {
+    -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent 100%);
+    mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent 100%);
+}
+.writeoff-cards.is-scrollable.wo-at-bottom,
+.kanban-cards.is-scrollable.wo-at-bottom {
+    -webkit-mask-image: none;
+    mask-image: none;
+}
+
+/* 3. Карточки одной ширины: колонка списания теперь без резерва под
+      скроллбар, плитка занимает всю её ширину (~245px) — как на
+      канбане (249px). Минимум сетки поднят с 200px, чтобы плитка
+      не мельчала в узких окнах. */
+.writeoff-cards {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)) !important;
+}
+
+/* 4. Ширина плитки списания = ширине карточки канбана (~255px):
+      панель склада 560 → 575px. Замер: колонка 271px − 16px паддингов
+      = 255px, канбан-карточка 255px. */
+.writeoffs-container {
+    grid-template-columns: repeat(auto-fit, minmax(500px, 575px));
+    justify-content: start;
+}
+
+/* 4a. Уточнение: auto-fit сжимал треки до ~542px, когда места чуть
+       меньше 2×575 — фиксируем панель ровно 575px (карточка 255px,
+       как на канбане); на узких экранах сработает старый media-запрос. */
+.writeoffs-container {
+    grid-template-columns: repeat(auto-fit, 575px);
+    justify-content: start;
+}
+
+/* 4b. Колонка списания: паддинг 16px по бокам съедал разницу —
+       при панели 575px даёт плитку 255px = карточке канбана. */
+.writeoff-column { padding: 8px; }
+
+/* 4c. Колонки списания имеют и класс .kanban-column, у которого
+       padding:16px !important (строка ~3634) — перебиваем тем же весом. */
+.writeoff-column { padding: 8px !important; }
+
+/* ==========================================================
+   РАУНД 2026-09-04 (01:10): карточки списания = карточки канбана
+   по ширине при ЛЮБОМ окне. Канбан-колонка резиновая (flex
+   260–400px), плитка списания была жёсткой — на широком окне
+   расходились. Теперь kanban.js кладёт фактическую ширину
+   канбан-карточки в --kanban-card-w, а списание считает от неё:
+   панель = 2 плитки + паддинги (2×8) + gap 8 + панель 2×12.
+   Фолбэк 255px, пока канбан не отрендерился в этой сессии.
+   ========================================================== */
+:root { --kanban-card-w: 255px; }
+
+.writeoffs-container {
+    grid-template-columns: repeat(auto-fit, calc(2 * var(--kanban-card-w) + 64px));
+    justify-content: start;
+}
+.writeoff-cards {
+    grid-template-columns: repeat(auto-fill, minmax(var(--kanban-card-w), 1fr)) !important;
+}
+.wo-month-cards {
+    grid-template-columns: repeat(auto-fill, minmax(var(--kanban-card-w), 1fr));
+}

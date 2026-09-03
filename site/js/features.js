@@ -772,6 +772,11 @@ function parseMoney(value) {
             t.setAttribute('aria-selected', on ? 'true' : 'false');
         });
         panels.forEach(p => p.classList.toggle('active', p.id === 'page-' + key));
+        // Тулбары переехали в .finance-header (одна строка с табами) —
+        // показываем только инструменты активной вкладки.
+        document.querySelectorAll('.finance-toolbar').forEach(tb => {
+            tb.classList.toggle('active', tb.getAttribute('data-panel') === key);
+        });
         try { localStorage.setItem('crm_finance_tab', key); } catch (e) {}
         const fn = loadData && loaderFor(key);
         if (fn) fn();

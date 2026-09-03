@@ -37,7 +37,9 @@ let _kanbanSearchQuery = '';
 let _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '' };
 let _kanbanView = 'board'; // 'board' or 'list'
 let _trashSearchQuery = '';
-let _kanbanDensity = localStorage.getItem('crm_kanban_density') || 'detailed';
+// FIX 2026-09-03 (аудит): при заблокированном localStorage файл падал целиком.
+let _kanbanDensity = 'detailed';
+try { _kanbanDensity = localStorage.getItem('crm_kanban_density') || 'detailed'; } catch (e) {}
 let _allCards = [];
 
 function getKanbanDensity() { return _kanbanDensity; }
@@ -255,6 +257,21 @@ async function loadKanbanBoard() {
         // подхватывал, и доска оставалась невидимой/некликабельной
         // (проявлялось при пересоздании колонок: Доска/Список, смена раздела).
         if (typeof window.revealRefresh === 'function') window.revealRefresh();
+        // Подсветка «ниже есть ещё» для колонок без скроллбара (фидбек
+        // 2026-09-04: полосы прокрутки убраны везде, листаем колесом)
+        if (typeof window.updateScrollHints === 'function') window.updateScrollHints();
+        // Ширина карточки канбана — в CSS-переменную: доска списания
+        // подгоняет свои плитки под неё (фидбек: «единый размер карточек»).
+        // Канбан-колонки резиновые (flex 260–400px), поэтому пиксели
+        // меняются от окна — списание читает их отсюда, а не угадывает.
+        // Гвардия: если канбан-доска сейчас скрыта (сессия открылась в
+        // другом разделе), карточка имеет нулевую ширину — не трогаем
+        // переменную, работает предыдущее значение/фолбэк 255px.
+        const kbCard = document.querySelector('.kanban-column .kanban-card');
+        const kbW = kbCard ? kbCard.getBoundingClientRect().width : 0;
+        if (kbW >= 100) {
+            document.documentElement.style.setProperty('--kanban-card-w', Math.round(kbW) + 'px');
+        }
     } catch (error) {
         console.error("Ошибка загрузки карточек:", error);
         if (board) {
@@ -364,8 +381,8 @@ function fillCardHTML(cardEl, card) {
                 ${card.store_location ? `<span class="store-badge store-${escapeHtml(card.store_location)}">${escapeHtml(card.store_location)}</span>` : '<span class="store-badge store-empty">Без склада</span>'}
                 <span class="card-manager">${escapeHtml(creatorName)}</span>
                 ${isIncomplete ? '<span class="incomplete-badge" title="Не назначен ответственный или не указана сумма сделки">не заполнена</span>' : ''}
+                ${renderPaymentBadge(card)}
             </div>
-            <div class="card-payment">${renderPaymentBadge(card)}</div>
             ${tagsHtml}
             ${progressHtml}
         </div>
@@ -389,9 +406,15 @@ function fillCardHTML(cardEl, card) {
     cardEl.querySelector('.btn-delete-card').onclick = async (e) => {
         e.stopPropagation();
         if (await confirmDialog("Удалить карточку?")) {
-            await apiFetch(`/kanban/cards/${card.id}`, { method: 'DELETE' });
-            cardEl.remove();
-            showToast('Карточка удалена', 'success');
+            // FIX 2026-09-03 (аудит): ошибка DELETE оставалась необработанной —
+            // пользователь считал карточку удалённой, а она оставалась в базе.
+            try {
+                await apiFetch(`/kanban/cards/${card.id}`, { method: 'DELETE' });
+                cardEl.remove();
+                showToast('Карточка удалена', 'success');
+            } catch (err) {
+                showToast('Ошибка удаления: ' + err.message, 'error');
+            }
         }
     };
 
@@ -469,16 +492,14 @@ async function handleDrop(e) {
     }
     cardEl.classList.toggle('card-assembly', newStatus === 'Сборка');
 
-    // Сделка без цены (и без даты при выходе из «Нового запроса», план 1.7)
-    // дальше не двигается: данные проставляют в карточке, поэтому
-    // перетаскивание откатываем.
+    // Сделка без цены дальше не двигается: данные проставляют в карточке,
+    // поэтому перетаскивание откатываем. Требование даты убрано (2026-09-03) —
+    // срок не обязателен для смены статуса.
     if (oldStatus && oldStatus !== newStatus && newStatus !== 'Новый запрос') {
         const moved = (_allCards || []).find(c => c.id === parseInt(cardId));
         let blockMsg = null;
         if (moved && (parseFloat(moved.total_amount) || 0) <= 0) {
             blockMsg = 'Укажите сумму сделки — откройте карточку и заполните';
-        } else if (moved && oldStatus === 'Новый запрос' && !moved.due_date) {
-            blockMsg = 'Укажите дату окончания — откройте карточку и заполните';
         }
         if (blockMsg) {
             const oldContainer = oldColumn.querySelector('.kanban-cards');

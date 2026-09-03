@@ -33,8 +33,70 @@ document.addEventListener('DOMContentLoaded', () => {
     loadWriteoffsBoard();
 });
 
+// Склады для доски списаний берутся из данных (store_location транзакций
+// и групп), порядок — по APP_STORES, подпись — label оттуда, если есть.
+// Пустых блоков нет: склад появляется на доске, когда по нему есть хоть
+// одна сделка к списанию/списанная или группа. «БН» — способ оплаты,
+// а не точка: данных со складом «БН» нет, и блок он не создаёт.
+function computeWriteoffStores() {
+    const { transactions, cards, groups } = _writeoffsData;
+    const names = new Set();
+    (transactions || []).forEach(t => {
+        if (t.is_document) return;
+        if ((parseFloat(t.amount) || 0) <= 0) return;
+        if (!t.card_id || !t.store_location) return;
+        const c = (cards || []).find(x => x.id === t.card_id);
+        if (c && (c.status === 'На списание' || c.status === 'Закрыто') && !c.writeoff_group_id) {
+            names.add(t.store_location);
+        }
+    });
+    (groups || []).forEach(g => { if (g.store_location) names.add(g.store_location); });
+    const order = (typeof APP_STORES !== 'undefined' ? APP_STORES : []).map(s => s.value);
+    const labels = new Map((typeof APP_STORES !== 'undefined' ? APP_STORES : []).map(s => [s.value, s.label]));
+    return Array.from(names).sort((a, b) => {
+        const ia = order.indexOf(a), ib = order.indexOf(b);
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib) || a.localeCompare(b, 'ru');
+    }).map(value => ({ value, label: labels.get(value) || value }));
+}
+
+function ensureStoreBlocks() {
+    const container = document.querySelector('.writeoffs-container');
+    if (!container) return;
+    const wanted = computeWriteoffStores();
+    if (!wanted.length) {
+        // данных нет вообще — показываем блоки всех магазинов с пустыми колонками
+        const all = (typeof APP_STORES !== 'undefined' ? APP_STORES : []).filter(s => s.value !== 'БН');
+        if (all.length) { renderStoreBlocks(container, all); return; }
+        container.innerHTML = '';
+        return;
+    }
+    renderStoreBlocks(container, wanted);
+}
+
+function renderStoreBlocks(container, stores) {
+    const existing = Array.from(container.querySelectorAll('.writeoff-store-block')).map(b => b.dataset.store);
+    const wantedValues = stores.map(s => s.value);
+    if (existing.length === wantedValues.length && existing.every((s, i) => s === wantedValues[i])) return;
+    container.innerHTML = stores.map(s => `
+        <div class="writeoff-store-block" data-store="${escapeHtml(s.value)}">
+            <h3>${escapeHtml(s.label)}</h3>
+            <div class="writeoff-columns">
+                <div class="kanban-column writeoff-column" data-store="${escapeHtml(s.value)}" data-status="false">
+                    <h4>На списание</h4>
+                    <div class="writeoff-cards"></div>
+                </div>
+                <div class="kanban-column writeoff-column" data-store="${escapeHtml(s.value)}" data-status="true">
+                    <h4>Списано</h4>
+                    <div class="writeoff-cards"></div>
+                </div>
+            </div>
+        </div>`).join('');
+}
+
 async function loadWriteoffsBoard() {
     if (!hasToken()) return;
+    if (!document.querySelector('.writeoffs-container')) return;
+    ensureStoreBlocks();
     const boardExists = document.querySelector('.writeoff-column');
     if (!boardExists) return;
 
@@ -59,10 +121,123 @@ async function loadWriteoffsBoard() {
     }
 }
 
+// --- Месячные группы колонки «Списано» (2026-09-03) ---
+// Плитки списанных накладных группируются по месяцу даты накладной
+// (иначе — даты оплаты). По умолчанию развёрнут только текущий месяц,
+// выбор пользователя запоминается в localStorage.
+const WO_MONTH_PAGE = 20;
+
+function monthKeyOf(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr.length === 10 ? dateStr + 'T00:00:00' : dateStr);
+    if (isNaN(d)) return null;
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+function monthLabel(key) {
+    if (key === 'none') return 'Без даты';
+    let s = new Date(key + '-02T00:00:00').toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    // «сентябрь 2026 г.» → «Сентябрь 2026»: хвост « г.» в узких шапках
+    // месячных групп повисал отдельной строкой
+    s = s.replace(/\s*г\.?$/, '').trim();
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// key месяца -> true (развёрнут). Отсутствие ключа = дефолт.
+function woMonthStates() {
+    try { return JSON.parse(localStorage.getItem('crm_writeoffs_months')) || {}; } catch (e) { return {}; }
+}
+function woSaveMonthStates(states) {
+    try { localStorage.setItem('crm_writeoffs_months', JSON.stringify(states)); } catch (e) {}
+}
+
+// Сумма с видимого текста плитки или самого элемента суммы: у списанных
+// карточек data-amount равен нулю (остаток), поэтому dataset не подходит.
+function parseTileMoney(el) {
+    const amountEl = el.classList && el.classList.contains('card-amount')
+        ? el
+        : el.querySelector('.card-amount');
+    const t = (amountEl?.textContent || '').replace(/[\s\u00a0]/g, '').replace('BYN', '').replace(',', '.');
+    return parseFloat(t) || 0;
+}
+
+function renderDoneColumn(container, items) {
+    const buckets = new Map();
+    items.forEach(({ el, month }) => {
+        const key = month || 'none';
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(el);
+    });
+
+    const states = woMonthStates();
+    const nowKey = monthKeyOf(new Date().toISOString().slice(0, 10));
+    const keys = Array.from(buckets.keys()).sort().reverse(); // новые месяцы сверху
+
+    keys.forEach(key => {
+        const els = buckets.get(key);
+        const sum = els.reduce((s, el) => s + parseTileMoney(el), 0);
+        const groupEl = document.createElement('div');
+        groupEl.className = 'wo-month-group';
+        groupEl.dataset.month = key;
+        const collapsed = states[key] !== undefined ? !states[key] : (key === 'none' || key !== nowKey);
+        if (collapsed) groupEl.classList.add('collapsed');
+
+        const header = document.createElement('div');
+        header.className = 'wo-month-header';
+        // « BYN» в шапке месяца не показываем: валюта видна в заголовке
+        // склада и на каждой плитке, а ширины колонки не хватало — сумма
+        // резалась краем («…BY»). Полное значение — в title.
+        const sumStr = formatMoneyBYN(sum);
+        header.innerHTML = `
+            <span class="wo-month-arrow">${collapsed ? '&#9656;' : '&#9662;'}</span>
+            <span class="wo-month-name">${monthLabel(key)}</span>
+            <span class="wo-month-count">${els.length}</span>
+            <span class="wo-month-sum tabular-nums" title="${sumStr}">${sumStr.replace(/\s*BYN$/, '')}</span>`;
+        header.onclick = () => {
+            const isCollapsed = groupEl.classList.toggle('collapsed');
+            header.querySelector('.wo-month-arrow').innerHTML = isCollapsed ? '&#9656;' : '&#9662;';
+            const st = woMonthStates();
+            st[key] = !isCollapsed;
+            woSaveMonthStates(st);
+        };
+
+        const cardsWrap = document.createElement('div');
+        cardsWrap.className = 'wo-month-cards';
+        els.forEach(el => cardsWrap.appendChild(el));
+        groupEl.appendChild(header);
+        groupEl.appendChild(cardsWrap);
+
+        // Ленивая подгрузка: первые WO_MONTH_PAGE видны сразу, остальные — кнопкой.
+        if (els.length > WO_MONTH_PAGE) {
+            els.forEach((el, i) => { if (i >= WO_MONTH_PAGE) el.classList.add('wo-hidden-extra'); });
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'wo-show-more';
+            const updateBtn = () => {
+                const hidden = cardsWrap.querySelectorAll('.wo-hidden-extra').length;
+                if (!hidden) { btn.remove(); return; }
+                btn.textContent = `Показать ещё ${Math.min(WO_MONTH_PAGE, hidden)} (всего ${els.length})`;
+            };
+            btn.onclick = () => {
+                cardsWrap.querySelectorAll('.wo-hidden-extra').forEach((el, i) => {
+                    if (i < WO_MONTH_PAGE) el.classList.remove('wo-hidden-extra');
+                });
+                updateBtn();
+            };
+            updateBtn();
+            groupEl.appendChild(btn);
+        }
+
+        container.appendChild(groupEl);
+    });
+}
+
 function renderWriteoffsBoard() {
     const { transactions, cards, groups } = _writeoffsData;
     const q = (_writeoffsSearchQuery || '').trim().toLowerCase();
 
+    // набор складов мог измениться после загрузки данных
+    ensureStoreBlocks();
     document.querySelectorAll('.writeoff-cards').forEach(col => col.innerHTML = '');
 
     const knownStores = Array.from(document.querySelectorAll('.writeoff-store-block'))
@@ -84,14 +259,23 @@ function renderWriteoffsBoard() {
     const totalItems = (groups || []).length + cardMap.size;
     let visibleItems = 0;
 
+    // Элементы складываем по колонкам; колонку «Списано» потом раскладываем
+    // по месячным группам (renderDoneColumn).
+    const byColumn = new Map();
+    const putTile = (store, status, el, month) => {
+        const key = `${store}|${status}`;
+        if (!byColumn.has(key)) byColumn.set(key, []);
+        byColumn.get(key).push({ el, month });
+    };
+
     // Сначала групповые плитки — они отображают несколько сделок одной накладной.
     (groups || []).forEach(g => {
         if (!g.store_location) return;
         if (q && !groupMatchesSearch(g, q)) return;
-        const container = document.querySelector(`.writeoff-column[data-store="${g.store_location}"][data-status="${g.written_off}"] .writeoff-cards`);
-        if (!container) return;
-        renderGroupTile(g, container);
+        const el = renderGroupTile(g);
+        if (!el) return;
         visibleItems++;
+        putTile(g.store_location, !!g.written_off, el, monthKeyOf(g.invoice_date));
     });
 
     // Карточки
@@ -110,10 +294,6 @@ function renderWriteoffsBoard() {
             const pendingInvoiceTx = pendingTxs.find(t => (t.invoice_number || '').trim());
             const repTx = pendingInvoiceTx || pendingTxs[0] || txs[0];
 
-            const selector = `.writeoff-column[data-store="${store}"][data-status="${isDone}"] .writeoff-cards`;
-            const container = document.querySelector(selector);
-            if (!container) return;
-
             const cardEl = document.createElement('div');
             cardEl.className = 'kanban-card writeoff-card reveal reveal-fast' + (isDone ? ' writeoff-done' : '');
             cardEl.dataset.group = card.id;
@@ -125,6 +305,8 @@ function renderWriteoffsBoard() {
             const dateStr = repTx.date ? new Date(repTx.date).toLocaleDateString('ru-RU') : '—';
 
             let invoiceHtml = '';
+            let invoiceMissing = false;
+            let pendingInvNum = '';
             if (isDone) {
                 const inv = writtenTxs.find(t => (t.invoice_number || '').trim()) || invoices[0];
                 if (inv) {
@@ -134,28 +316,42 @@ function renderWriteoffsBoard() {
                     invoiceHtml = `<div class="wo-invoice"><span class="wo-inv-num">${escapeHtml(inv.invoice_number)}</span>${invDateStr ? `<span class="wo-inv-date">${invDateStr}</span>` : ''}</div>`;
                 }
             } else if (pendingInvoiceTx) {
-                const invDateStr = pendingInvoiceTx.invoice_date
-                    ? new Date(pendingInvoiceTx.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
-                    : '';
-                invoiceHtml = `<div class="wo-invoice"><span class="wo-inv-num">${escapeHtml(pendingInvoiceTx.invoice_number)}</span>${invDateStr ? `<span class="wo-inv-date">${invDateStr}</span>` : ''}</div>`;
+                // Номер ТН уходит в строку даты — отдельная строка не нужна
+                pendingInvNum = pendingInvoiceTx.invoice_number.trim();
+                if (invoices.length > 1) {
+                    invoiceHtml = `<div class="wo-note wo-note-empty">ещё ${invoices.length - 1} ${invoices.length - 1 === 1 ? 'накладная' : 'накладных'} · ждёт остаток</div>`;
+                }
             } else if (invoices.length) {
                 invoiceHtml = `<div class="wo-note wo-note-empty">выписано ${invoices.length} ${invoices.length === 1 ? 'накладная' : 'накладных'} · ждёт остаток</div>`;
             } else {
-                invoiceHtml = `<div class="badge-warning">${ICON_WARNING} Накладная не выписана</div>`;
+                // Бейдж «Накладная не выписана» и кнопка «Выписать накладную»
+                // дублировали друг друга и растягивали карточку вниз (фидбек
+                // 2026-09-04): сигнал перенесён на саму кнопку — она станет
+                // янтарной (.btn-invoice-missing), отдельная строка не нужна.
+                invoiceMissing = true;
             }
 
-            const remainderHtml = isDone
-                ? ''
-                : `<div class="wo-remainder">к списанию: ${formatMoneyBYN(pendingAmount)}</div>`;
+            // Компактная карточка (фидбек 00:56: на 100% колонка из 5 плиток
+            // не влезала в экран): сумма и «к списанию» — одна строка, дата
+            // и номер ТН — одна строка. Частичная оплата показывает «из …».
+            const amountValue = isDone ? displayAmount : pendingAmount;
+            const partialNote = (!isDone && totalAmount - pendingAmount > 0.005)
+                ? `<span class="wo-from">из ${formatMoneyBYN(totalAmount)}</span>` : '';
+            const amountRow = `
+                <div class="card-amount-row">
+                    <span class="card-amount tabular-nums" data-amount="${pendingAmount}">${formatMoneyBYN(amountValue)}</span>
+                    ${isDone ? '' : '<span class="wo-amount-label">к списанию</span>'}
+                    ${partialNote}
+                </div>`;
+            const dateLine = `<div class="card-date">${pendingInvNum ? `<span class="wo-meta-inv">ТН ${escapeHtml(pendingInvNum)}</span>` : ''}<span>Оплата: ${dateStr}</span></div>`;
 
             cardEl.innerHTML = `
                 <div class="card-header">
                     <strong class="card-title">${escapeHtml(card.title || repTx.company_name)}</strong>
                     <button class="btn-delete-writeoff" data-tx-id="${repTx.id}" data-card-id="${card.id}" title="Убрать из списания" data-tooltip="Убрать из списания">${ICON_CROSS}</button>
                 </div>
-                <div class="card-amount tabular-nums" data-amount="${pendingAmount}">${formatMoneyBYN(displayAmount)}</div>
-                ${remainderHtml}
-                <div class="card-date">Оплата: ${dateStr}</div>
+                ${amountRow}
+                ${dateLine}
                 ${invoiceHtml}
             `;
 
@@ -213,8 +409,8 @@ function renderWriteoffsBoard() {
                         }
                     };
                 } else {
-                    btn.className = 'btn-secondary';
-                    btn.innerHTML = `${ICON_FILE} Выписать накладную`;
+                    btn.className = 'btn-secondary' + (invoiceMissing ? ' btn-invoice-missing' : '');
+                    btn.innerHTML = `${invoiceMissing ? ICON_WARNING : ICON_FILE} Выписать накладную`;
                     btn.onclick = (e) => {
                         e.stopPropagation();
                         openCardModal(card.id);
@@ -229,12 +425,29 @@ function renderWriteoffsBoard() {
             });
             cardEl.addEventListener('dragend', () => cardEl.classList.remove('dragging'));
 
-            container.appendChild(cardEl);
+            const doneDate = isDone
+                ? ((writtenTxs.find(t => (t.invoice_number || '').trim()) || {}).invoice_date || repTx.date)
+                : null;
+            putTile(store, isDone, cardEl, monthKeyOf(doneDate));
         });
 
-        renderWriteoffEmptyStates();
-        updateWriteoffCounters();
-        updateWriteoffSearchCount(visibleItems, totalItems);
+    // Раскладка по колонкам: «На списание» — напрямую, «Списано» — по месяцам.
+    byColumn.forEach((items, key) => {
+        const sep = key.lastIndexOf('|');
+        const store = key.slice(0, sep);
+        const status = key.slice(sep + 1);
+        const container = document.querySelector(`.writeoff-column[data-store="${store}"][data-status="${status}"] .writeoff-cards`);
+        if (!container) return;
+        if (status === 'false') {
+            items.forEach(({ el }) => container.appendChild(el));
+        } else {
+            renderDoneColumn(container, items);
+        }
+    });
+
+    renderWriteoffEmptyStates();
+    updateWriteoffCounters();
+    updateWriteoffSearchCount(visibleItems, totalItems);
 }
 
 function updateWriteoffSearchCount(visible, total) {
@@ -267,7 +480,7 @@ function cardMatchesSearch(card, txs, q) {
     return title.includes(q) || company.includes(q) || invoiceNumbers.includes(q) || store.includes(q);
 }
 
-function renderGroupTile(group, container) {
+function renderGroupTile(group) {
     const total = parseFloat(group.total_amount) || 0;
     const count = group.cards ? group.cards.length : 0;
     const dateStr = group.invoice_date
@@ -325,7 +538,7 @@ function renderGroupTile(group, container) {
         if (group.cards && group.cards.length) openCardModal(group.cards[0].id);
     };
 
-    container.appendChild(el);
+    return el;
 }
 
 // saveFieldWithFeedback() удалена: на доске списаний нет редактируемых
@@ -369,20 +582,59 @@ function updateWriteoffCounters() {
             .reduce((acc, el) => acc + (parseFloat(el.dataset.amount) || 0), 0);
         const h3 = block.querySelector('h3');
         if (!h3) return;
-        let total = h3.querySelector('.store-total');
+        // Итоги живут в своём столбике справа от названия склада: без обёртки
+        // span'ы наследовали 16px заголовка и ломали строку на три части.
+        let totals = h3.querySelector('.store-totals');
+        if (!totals) {
+            totals = document.createElement('span');
+            totals.className = 'store-totals';
+            h3.appendChild(totals);
+        }
+        let total = totals.querySelector('.store-total');
         if (!total) {
             total = document.createElement('span');
             total.className = 'store-total';
-            h3.appendChild(total);
+            totals.appendChild(total);
         }
         total.textContent = sum > 0 ? `к списанию ${formatMoneyBYN(sum)}` : '';
+
+        // Списано за текущий месяц — по месячной группе колонки «Списано».
+        const nowKey = monthKeyOf(new Date().toISOString().slice(0, 10));
+        const writtenSum = Array.from(block.querySelectorAll(`.writeoff-column[data-status="true"] .wo-month-group[data-month="${nowKey}"] .card-amount`))
+            .reduce((acc, el) => acc + parseTileMoney(el), 0);
+        let written = totals.querySelector('.store-written-month');
+        if (!written) {
+            written = document.createElement('span');
+            written.className = 'store-written-month';
+            totals.appendChild(written);
+        }
+        written.textContent = writtenSum > 0 ? `списано за ${monthLabel(nowKey).toLowerCase()} · ${formatMoneyBYN(writtenSum)}` : '';
     });
+
+    updateScrollHints();
 
     if (typeof window.revealRefresh === 'function') window.revealRefresh();
 }
 
-async function updateTransactionData(transactionId, data) {
-    try {
+// --- Подсказка «ниже есть ещё» у скроллящихся колонок (2026-09-04):
+// полосы прокрутки убраны со всех досок (фидбек: «не нравится нигде,
+// листаю мышкой»), поэтому нижний край скроллящейся колонки канбана
+// или списания плавно затухает, у дна затухание снимается. ---
+function updateScrollHints() {
+    document.querySelectorAll('.writeoff-cards, .kanban-cards').forEach(w => {
+        const max = w.scrollHeight - w.clientHeight;
+        w.classList.toggle('is-scrollable', max > 2);
+        w.classList.toggle('wo-at-bottom', w.scrollTop >= max - 4);
+    });
+}
+window.updateScrollHints = updateScrollHints;
+document.addEventListener('scroll', (e) => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains('writeoff-cards')) updateScrollHints();
+}, true);
+window.addEventListener('resize', updateScrollHints);
+
+async function updateTransactionData(transactionId, data) {    try {
         await apiFetch(`/payments/transactions/${transactionId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -437,20 +689,33 @@ async function executeWriteoff(transactionId, isWrittenOff, targetStore = null, 
 }
 
 function setupWriteoffDragAndDrop() {
-    const columns = document.querySelectorAll('.writeoff-column');
-    columns.forEach(column => {
-        column.addEventListener('dragover', e => { e.preventDefault(); column.style.boxShadow = '0 0 10px rgba(0,0,0,0.1) inset'; });
-        column.addEventListener('dragleave', () => { column.style.boxShadow = 'none'; });
-        column.addEventListener('drop', async e => {
-            e.preventDefault();
-            column.style.boxShadow = 'none';
-            const transactionId = e.dataTransfer.getData('text/plain');
-            if (!transactionId) return;
-            const targetStatus = column.getAttribute('data-status') === 'true'; 
-            const targetStore = column.getAttribute('data-store');
-            const cardEl = document.querySelector(`.kanban-card[data-id="${transactionId}"]`);
-            const cardId = cardEl ? cardEl.dataset.cardId : null;
-            await executeWriteoff(transactionId, targetStatus, targetStore, cardId);
-        });
+    const container = document.querySelector('.writeoffs-container');
+    if (!container) return;
+    // Делегирование: блоки складов создаются динамически, вешать обработчики
+    // на колонки напрямую нельзя — доска пересобирается без них.
+    const clearHighlights = () => container.querySelectorAll('.writeoff-column').forEach(c => { c.style.boxShadow = ''; });
+
+    container.addEventListener('dragover', e => {
+        const col = e.target.closest('.writeoff-column');
+        if (!col || !container.contains(col)) return;
+        e.preventDefault();
+        if (col.style.boxShadow) return;
+        clearHighlights();
+        col.style.boxShadow = '0 0 10px rgba(0,0,0,0.1) inset';
     });
+    container.addEventListener('drop', async e => {
+        const col = e.target.closest('.writeoff-column');
+        if (!col || !container.contains(col)) return;
+        e.preventDefault();
+        clearHighlights();
+        const transactionId = e.dataTransfer.getData('text/plain');
+        if (!transactionId) return;
+        const targetStatus = col.getAttribute('data-status') === 'true';
+        const targetStore = col.getAttribute('data-store');
+        const cardEl = container.querySelector(`.kanban-card[data-id="${transactionId}"]`);
+        const cardId = cardEl ? cardEl.dataset.cardId : null;
+        await executeWriteoff(transactionId, targetStatus, targetStore, cardId);
+    });
+    // dragend с карточки не всегда попадает в контейнер — чистим глобально.
+    document.addEventListener('dragend', clearHighlights);
 }
