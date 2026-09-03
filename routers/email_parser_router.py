@@ -83,7 +83,7 @@ try:
     _fernet = Fernet(_load_secret_key())
 except Exception:
     _fernet = None
-from database import get_db, get_tenant_db
+from database import get_db
 from db_utils import resolve_tenant_db as _db
 import models
 import models_tenant
@@ -292,7 +292,9 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         return {"tenant_id": tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
 
     imported_cards = []
-    tdb = get_tenant_db(tenant_id) if tenant_id else db
+    # FIX 2026-09-03: всегда основная БД — tenant-БД пустые и выключены
+    # (см. db_utils.py), импорт в tenant-БД делал письма невидимыми.
+    tdb = db
 
     try:
         mail = imaplib.IMAP4_SSL(imap_server)
