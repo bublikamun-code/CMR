@@ -12950,3 +12950,114 @@ textarea {
     background: rgba(255,255,255,0.06);
     border-color: var(--border-interactive);
 }
+
+/* 8. Списание: месячные группы «Списано» + компактная раскладка
+      (2026-09-03, фидбек: «не нравится растянутый дизайн»).
+      Блоки складов больше не растягиваются на всю ширину экрана,
+      карточки ниже и плотнее, лишние отступы убраны. */
+.writeoffs-container {
+    grid-template-columns: repeat(auto-fit, minmax(480px, 560px));
+    justify-content: start;
+}
+
+.writeoff-card {
+    padding: 8px 10px !important;
+}
+.writeoff-card:not(.writeoff-done) {
+    padding-bottom: 32px !important; /* место под кнопку «Списать» */
+}
+.writeoff-card .card-title {
+    line-height: 1.25 !important;
+}
+.writeoff-card .card-amount {
+    margin-top: 2px !important;
+}
+.writeoff-card .card-date {
+    margin-top: 0 !important;
+    margin-bottom: 6px !important;
+}
+.writeoff-card .wo-invoice,
+.writeoff-card .wo-note,
+.writeoff-card .wo-remainder {
+    margin-top: 2px !important;
+}
+
+.writeoff-empty-state {
+    min-height: 100px;
+    padding: 16px 12px;
+    gap: 6px;
+}
+
+/* Месячная группа колонки «Списано» */
+.wo-month-group {
+    margin-bottom: var(--space-sm);
+}
+.wo-month-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    font-weight: 600;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+.wo-month-header .wo-month-arrow {
+    width: 12px;
+    color: var(--text-faint);
+}
+.wo-month-header .wo-month-name {
+    text-transform: capitalize;
+    color: var(--text-color);
+}
+.wo-month-header .wo-month-count {
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    font-variant-numeric: tabular-nums;
+}
+.wo-month-header .wo-month-sum {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+.wo-month-group.collapsed .wo-month-cards {
+    display: none;
+}
+.wo-month-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-sm);
+    align-content: start;
+}
+.wo-hidden-extra {
+    display: none !important; /* против display:flex !important базовой .kanban-card */
+}
+.wo-show-more {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px;
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    cursor: pointer;
+    transition: var(--transition-ui);
+}
+.wo-show-more:hover {
+    color: var(--text-color);
+    border-color: var(--border-interactive);
+}
+
+/* Итог «списано за месяц» в заголовке склада */
+.writeoff-store-block h3 .store-written-month {
+    color: var(--success-color);
+    font-weight: 600;
+}
