@@ -12,3 +12,4 @@ tmp/
 .secret_key
 .cron_token
 *.bak_*
+.qwen/
