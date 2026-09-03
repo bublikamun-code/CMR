@@ -145,6 +145,10 @@ def get_tenant_engine(tenant_id: int):
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA journal_mode=WAL")
             cur.execute("PRAGMA busy_timeout=10000")
+            # FIX 2026-09-03: паритет с основным движком — иначе каскады
+            # ondelete=CASCADE/SET NULL из models.py в tenant-БД не работали.
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.execute("PRAGMA foreign_keys=ON")
             cur.close()
 
         _tenant_engines[tenant_id] = eng

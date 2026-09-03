@@ -490,23 +490,71 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         return {"tenant_id": tenant_id, "success": False, "error": f"Ошибка подключения к почте: {e}", "count": 0}
 
 
+# FIX 2026-09-03: IMAP-синхронизация работает в фоновом потоке со своей
+# сессией. Раньше _sync_tenant_emails исполнялся внутри запроса, и каждый
+# вызов (а фронт дёргает /sync ещё и автоинтервалом с каждого клиента)
+# занимал поток воркера на всё время подключения к почте. Запрос ждёт
+# результата не дольше _SYNC_WAIT_SEC — типичный синк 2–10 с, так что
+# фронт получает прежний ответ; при превышении возвращается running=True.
+# Блокировка не даёт синкам накладываться (IMAP и SQLite не любят параллель).
+import threading
+_sync_lock = threading.Lock()
+_sync_state = {"running": False, "last_result": None, "last_finished_at": None}
+_SYNC_WAIT_SEC = 25
+
 @router.post("/sync")
 def sync_emails(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)
     email_addr = settings.get("email")
     password = _get_smtp_password(settings)
-    imap_server = settings.get("imap_server")
-    target_status = settings.get("target_status", "Новый запрос")
 
     if not email_addr or not password:
         raise HTTPException(status_code=400, detail="Настройки почты не заполнены")
 
-    result = _sync_tenant_emails(tenant_id, settings, db)
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail=result["error"])
+    if not _sync_lock.acquire(blocking=False):
+        # Синхронизация уже идёт (другой клиент или автоинтервал) —
+        # не плодим параллельные подключения к IMAP.
+        return {"success": True, "count": 0, "running": True}
 
-    return result
+    done = threading.Event()
+    holder = {}
+
+    def _run():
+        from database import SessionLocal
+        s = SessionLocal()
+        try:
+            holder["result"] = _sync_tenant_emails(tenant_id, settings, s)
+        except Exception as e:
+            logger.error("background email sync failed (tenant=%s): %s: %s",
+                         tenant_id, type(e).__name__, e)
+            holder["result"] = {"tenant_id": tenant_id, "success": False,
+                                "error": str(e), "count": 0}
+        finally:
+            s.close()
+            _sync_state.update({
+                "running": False,
+                "last_result": holder.get("result"),
+                "last_finished_at": datetime.now(timezone.utc).isoformat(),
+            })
+            _sync_lock.release()
+            done.set()
+
+    _sync_state["running"] = True
+    threading.Thread(target=_run, daemon=True).start()
+
+    if done.wait(timeout=_SYNC_WAIT_SEC):
+        result = holder["result"]
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result["error"])
+        return result
+    return {"success": True, "count": 0, "running": True}
+
+
+@router.get("/sync-status")
+def sync_status(current_user: models.User = Depends(get_current_user)):
+    """Состояние фоновой синхронизации — для диагностики из UI/логов."""
+    return dict(_sync_state)
 
 
 @cron_router.post("/sync-all")
