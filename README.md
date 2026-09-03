@@ -5,7 +5,7 @@
 | Что нужно | Куда идти |
 |-----------|-----------|
 | Запустить локально за 2 минуты | [`docs/deployment/QUICK_START.txt`](docs/deployment/QUICK_START.txt) |
-| Что работает прямо сейчас | [`STATUS.md`](STATUS.md) |
+| Что работает прямо сейчас | [`docs/STATUS.md`](docs/STATUS.md) |
 | Что было сделано 08.08.2026 | [`docs/RESULT-2026-08-08.md`](docs/RESULT-2026-08-08.md) |
 | Развернуть на сервере | [`docs/deployment/DEPLOYMENT.md`](docs/deployment/DEPLOYMENT.md) |
 | Вся документация | [`docs/README.md`](docs/README.md) |
@@ -15,7 +15,24 @@ docker compose up -d       # приложение на http://localhost
 ```
 
 > Документы в `docs/phases/` — исторические планы, местами расходятся с фактами.
-> При противоречии верен [`STATUS.md`](STATUS.md).
+> При противоречии верен [`docs/STATUS.md`](docs/STATUS.md).
+
+## Структура репозитория
+
+| Путь | Что это | Кто использует |
+|------|---------|----------------|
+| `site/` | **Фронтенд — единственный источник истины** (html, css, js, статики) | `tools/deploy.sh front` → прод; `Dockerfile.frontend` |
+| `server_snapshot/` | **Бэкенд** (Python, routers, скрипты сервера). Фронт-файлов тут нет — не дублировать | `tools/deploy.sh back <file>` → прод; CI (тесты, Bandit); `Dockerfile.backend` |
+| `tools/` | Локальная разработка: `deploy.sh` (деплой на прод), `check_js.sh`, `stamp_assets.py` (версии `?v=`) | с рабочей машины |
+| `scripts/` | Админ-утилиты: `generate_keys.sh`, `setup_ssl.sh`, `audit_idor.py` | вручную при настройке |
+| `docs/` | Вся документация, включая `STATUS.md` (фактическое состояние) и дневники сессий | люди |
+| `nginx/`, `Dockerfile.*`, `docker-compose*.yml` | Docker-окружение: CI собирает и сканирует образы; прод работает без Docker — PM2 + venv (см. `docs/deployment/DEPLOYMENT.md`) | CI, локальный запуск |
+| `server_snapshot/scripts/` | Серверные скрипты: `backup_crm.sh` (крон 03:00 → `~/backups`), `watchdog_crm.sh` (крон */5), `backup.sh` (перед деплоем → `~/data/crm_backups_predeploy`) | cron на сервере |
+
+Правила:
+- Правки фронтенда — только в `site/`, затем `tools/deploy.sh front` (штампы `?v=` обновятся сами).
+- Правки бэкенда — в `server_snapshot/`, затем `tools/deploy.sh back <файлы>` (синтаксис проверится, PM2 перезапустится).
+- Ничего не редактировать на сервере напрямую — изменения потеряются при следующем деплое.
 
 ---
 
