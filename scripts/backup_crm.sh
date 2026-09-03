@@ -36,6 +36,33 @@ else
     exit 1
 fi
 
+# 1b) Тенант-базы — FIX 2026-09-03 (аудит): раньше бэкапилась только
+# основная БД, данные тенантов при аварии терялись. Тот же .backup +
+# integrity_check, архив с правами 600.
+if [ -d "$DATA/tenants" ]; then
+    TDIR="$DST/.tenants_$TS"
+    mkdir -p "$TDIR"
+    for tdb in "$DATA"/tenants/*.db; do
+        [ -f "$tdb" ] || continue
+        name=$(basename "$tdb")
+        if sqlite3 "$tdb" ".backup '$TDIR/$name'"; then
+            CHECK=$(sqlite3 "$TDIR/$name" "PRAGMA integrity_check;")
+            if [ "$CHECK" != "ok" ]; then
+                log "FAIL: tenants/$name integrity_check = $CHECK"
+                rm -f "$TDIR/$name"
+            fi
+        else
+            log "FAIL: sqlite3 .backup tenants/$name"
+        fi
+    done
+    if [ -n "$(ls -A "$TDIR" 2>/dev/null)" ]; then
+        tar czf "$DST/tenants_$TS.tar.gz" -C "$TDIR" . \
+            && chmod 600 "$DST/tenants_$TS.tar.gz" \
+            && log "OK tenants -> tenants_$TS.tar.gz ($(du -h "$DST/tenants_$TS.tar.gz" | cut -f1))"
+    fi
+    rm -rf "$TDIR"
+fi
+
 # 2) Загруженные файлы — ежедневно (417 файлов, ~6 МБ, дешевле потери)
 if [ -d "$DATA/uploads" ]; then
     tar czf "$DST/uploads_$TS.tar.gz" -C "$DATA" uploads 2>/dev/null && log "OK uploads -> uploads_$TS.tar.gz ($(du -h "$DST/uploads_$TS.tar.gz" | cut -f1))"
@@ -57,7 +84,7 @@ if [ -d "$DATA" ]; then
 fi
 
 # 5) Ротация — держим KEEP последних каждого вида
-for pat in db_ code_ uploads_ crmdata_secret_; do
+for pat in db_ code_ uploads_ crmdata_secret_ tenants_; do
     ls -t "$DST"/${pat}* 2>/dev/null | tail -n +$((KEEP+1)) | xargs -r rm -f
 done
 
