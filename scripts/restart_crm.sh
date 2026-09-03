@@ -9,6 +9,17 @@ sleep 3
 pkill -9 -u "$(id -u)" -f "$APP/server.py" 2>/dev/null
 sleep 1
 
+# FIX 2026-09-03: ждём, пока порт освободится. Uvicorn-воркеры отпускают
+# сокет до ~10 с при graceful shutdown — раньше новая копия падала с
+# «Address already in use», а веб оставался лежать.
+PORT_WAIT="${APPS_PORT:-20008}"
+for i in $(seq 1 20); do
+    if ! ss -lptn 2>/dev/null | grep -q ":$PORT_WAIT "; then
+        break
+    fi
+    sleep 1
+done
+
 cd "$APP" || exit 1
 nohup "$APP/.venv/bin/python" "$APP/server.py" >> "$APP/logs/crm.log" 2>&1 &
 sleep 6
