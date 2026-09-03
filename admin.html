@@ -179,7 +179,6 @@
                         <h2>Пользователи</h2>
                         <div style="display:flex;gap:8px;">
                             <button class="btn-primary btn-sm" onclick="showCreateModal()">+ Добавить</button>
-                            <button id="btn-create-admin" class="btn-primary btn-sm hidden" onclick="showCreateAdminModal()">+ Создать админа</button>
                         </div>
                     </div>
                     <div id="users-empty" class="admin-empty hidden"></div>
@@ -223,25 +222,6 @@
             <div class="admin-modal-actions">
                 <button class="btn-secondary" onclick="closeCreateModal()">Отмена</button>
                 <button class="btn-primary" onclick="createUser()">Создать</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="create-admin-modal" class="admin-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="create-admin-modal-title">
-        <div class="admin-modal">
-            <h3 id="create-admin-modal-title">Новый администратор</h3>
-            <p class="text-muted-sm" style="margin-bottom:16px;">Будет создана новая пустая CRM-система</p>
-            <div class="admin-form-group">
-                <label for="admin-username">Логин</label>
-                <input type="text" id="admin-username" placeholder="Введите логин" required minlength="3">
-            </div>
-            <div class="admin-form-group">
-                <label for="admin-password">Пароль</label>
-                <input type="password" id="admin-password" placeholder="Минимум 6 символов" required minlength="6">
-            </div>
-            <div class="admin-modal-actions">
-                <button class="btn-secondary" onclick="closeCreateAdminModal()">Отмена</button>
-                <button class="btn-primary" onclick="createAdmin()">Создать</button>
             </div>
         </div>
     </div>
@@ -410,9 +390,6 @@
             document.getElementById('admin-app').classList.remove('hidden');
             currentRole = localStorage.getItem(ADMIN_ROLE_KEY) || '';
             document.getElementById('current-user').textContent = `Роль: ${currentRole}`;
-            if (currentRole === 'superadmin') {
-                document.getElementById('btn-create-admin').classList.remove('hidden');
-            }
             await loadUsers();
             await loadStats();
         }
@@ -490,13 +467,6 @@
         }
         function closeCreateModal() { document.getElementById('create-modal').classList.remove('active'); }
 
-        function showCreateAdminModal() {
-            document.getElementById('create-admin-modal').classList.add('active');
-            document.getElementById('admin-username').value = '';
-            document.getElementById('admin-password').value = '';
-        }
-        function closeCreateAdminModal() { document.getElementById('create-admin-modal').classList.remove('active'); }
-
         async function createUser() {
             const username = document.getElementById('new-username').value.trim();
             const password = document.getElementById('new-password').value;
@@ -506,18 +476,6 @@
                 await adminApiFetch('/auth/users', { method: 'POST', body: JSON.stringify({ username, password, role }) });
                 closeCreateModal();
                 showToast('Пользователь создан', 'success');
-                await loadUsers();
-            } catch(e) { showToast(e.message, 'error'); }
-        }
-
-        async function createAdmin() {
-            const username = document.getElementById('admin-username').value.trim();
-            const password = document.getElementById('admin-password').value;
-            if (!username || !password) { showToast('Заполните все поля', 'error'); return; }
-            try {
-                await adminApiFetch('/auth/create-tenant', { method: 'POST', body: JSON.stringify({ username, password, role: 'admin' }) });
-                closeCreateAdminModal();
-                showToast('Админ создан с пустой CRM', 'success');
                 await loadUsers();
             } catch(e) { showToast(e.message, 'error'); }
         }

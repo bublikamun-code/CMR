@@ -562,31 +562,57 @@ def sync_status(current_user: models.User = Depends(get_current_user)):
 
 @cron_router.post("/sync-all")
 def sync_all_tenants(db: Session = Depends(get_db)):
-    results = []
-    # Главный аккаунт (без тенанта) — именно в нём лежат все рабочие карточки.
-    # Раньше он не синхронизировался вообще: цикл шёл только по таблице tenants.
-    try:
-        results.append(_sync_tenant_emails(None, load_settings(None), db))
-    except Exception as e:
-        logger.error(f"main account sync failed: {e}")
-        results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
+    # FIX 2026-09-03: уходим в фон сразу — cron больше не держит запрос,
+    # пока все ящики синхронизируются последовательно. Результат в
+    # GET /sync-status и в логе.
+    if not _sync_lock.acquire(blocking=False):
+        return {"started": False, "running": True}
 
-    tenants = db.query(models_tenant.Tenant).all()
-    for tenant in tenants:
-        settings = load_settings(tenant.id)
-        result = _sync_tenant_emails(tenant.id, settings, db)
-        results.append(result)
+    def _run():
+        from database import SessionLocal
+        s = SessionLocal()
+        results = []
+        try:
+            # Главный аккаунт (без тенанта) — в нём лежат все рабочие карточки.
+            try:
+                results.append(_sync_tenant_emails(None, load_settings(None), s))
+            except Exception as e:
+                logger.error(f"main account sync failed: {e}")
+                results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
 
-    total_count = sum(r.get("count", 0) for r in results if r.get("success"))
-    errors = [r for r in results if not r.get("success")]
+            tenants = s.query(models_tenant.Tenant).all()
+            for tenant in tenants:
+                settings = load_settings(tenant.id)
+                results.append(_sync_tenant_emails(tenant.id, settings, s))
 
-    return {
-        "success": True,
-        "total_count": total_count,
-        "tenants_processed": len(results),
-        "tenants_failed": len(errors),
-        "results": results
-    }
+            total_count = sum(r.get("count", 0) for r in results if r.get("success"))
+            errors = [r for r in results if not r.get("success")]
+            summary = {
+                "success": True,
+                "total_count": total_count,
+                "tenants_processed": len(results),
+                "tenants_failed": len(errors),
+                "results": results,
+            }
+            if errors:
+                logger.error("sync-all finished with errors: %s", errors)
+            else:
+                logger.info("sync-all ok: %s cards imported", total_count)
+        except Exception as e:
+            logger.error("sync-all crashed: %s: %s", type(e).__name__, e)
+            summary = {"success": False, "error": str(e)}
+        finally:
+            s.close()
+            _sync_state.update({
+                "running": False,
+                "last_result": summary,
+                "last_finished_at": datetime.now(timezone.utc).isoformat(),
+            })
+            _sync_lock.release()
+
+    _sync_state["running"] = True
+    threading.Thread(target=_run, daemon=True).start()
+    return {"started": True, "running": True}
 
 
 class LinkCardRequest(BaseModel):
