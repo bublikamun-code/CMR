@@ -33,25 +33,59 @@ document.addEventListener('DOMContentLoaded', () => {
     loadWriteoffsBoard();
 });
 
-// Склады берём из APP_STORES (js/constants.js) — единый источник,
-// оттуда же заполняется фильтр канбана. В html блоки не захардкожены:
-// доска собирается здесь, новый склад появляется автоматически.
+// Склады для доски списаний берутся из данных (store_location транзакций
+// и групп), порядок — по APP_STORES, подпись — label оттуда, если есть.
+// Пустых блоков нет: склад появляется на доске, когда по нему есть хоть
+// одна сделка к списанию/списанная или группа. «БН» — способ оплаты,
+// а не точка: данных со складом «БН» нет, и блок он не создаёт.
+function computeWriteoffStores() {
+    const { transactions, cards, groups } = _writeoffsData;
+    const names = new Set();
+    (transactions || []).forEach(t => {
+        if (t.is_document) return;
+        if ((parseFloat(t.amount) || 0) <= 0) return;
+        if (!t.card_id || !t.store_location) return;
+        const c = (cards || []).find(x => x.id === t.card_id);
+        if (c && (c.status === 'На списание' || c.status === 'Закрыто') && !c.writeoff_group_id) {
+            names.add(t.store_location);
+        }
+    });
+    (groups || []).forEach(g => { if (g.store_location) names.add(g.store_location); });
+    const order = (typeof APP_STORES !== 'undefined' ? APP_STORES : []).map(s => s.value);
+    const labels = new Map((typeof APP_STORES !== 'undefined' ? APP_STORES : []).map(s => [s.value, s.label]));
+    return Array.from(names).sort((a, b) => {
+        const ia = order.indexOf(a), ib = order.indexOf(b);
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib) || a.localeCompare(b, 'ru');
+    }).map(value => ({ value, label: labels.get(value) || value }));
+}
+
 function ensureStoreBlocks() {
     const container = document.querySelector('.writeoffs-container');
     if (!container) return;
-    const wanted = (typeof APP_STORES !== 'undefined' ? APP_STORES : []).map(s => s.value);
-    if (!wanted.length) return;
+    const wanted = computeWriteoffStores();
+    if (!wanted.length) {
+        // данных нет вообще — показываем блоки всех магазинов с пустыми колонками
+        const all = (typeof APP_STORES !== 'undefined' ? APP_STORES : []).filter(s => s.value !== 'БН');
+        if (all.length) { renderStoreBlocks(container, all); return; }
+        container.innerHTML = '';
+        return;
+    }
+    renderStoreBlocks(container, wanted);
+}
+
+function renderStoreBlocks(container, stores) {
     const existing = Array.from(container.querySelectorAll('.writeoff-store-block')).map(b => b.dataset.store);
-    if (existing.length === wanted.length && existing.every((s, i) => s === wanted[i])) return;
-    container.innerHTML = wanted.map(store => `
-        <div class="writeoff-store-block" data-store="${escapeHtml(store)}">
-            <h3>${escapeHtml(store)}</h3>
+    const wantedValues = stores.map(s => s.value);
+    if (existing.length === wantedValues.length && existing.every((s, i) => s === wantedValues[i])) return;
+    container.innerHTML = stores.map(s => `
+        <div class="writeoff-store-block" data-store="${escapeHtml(s.value)}">
+            <h3>${escapeHtml(s.label)}</h3>
             <div class="writeoff-columns">
-                <div class="kanban-column writeoff-column" data-store="${escapeHtml(store)}" data-status="false">
+                <div class="kanban-column writeoff-column" data-store="${escapeHtml(s.value)}" data-status="false">
                     <h4>На списание</h4>
                     <div class="writeoff-cards"></div>
                 </div>
-                <div class="kanban-column writeoff-column" data-store="${escapeHtml(store)}" data-status="true">
+                <div class="kanban-column writeoff-column" data-store="${escapeHtml(s.value)}" data-status="true">
                     <h4>Списано</h4>
                     <div class="writeoff-cards"></div>
                 </div>
@@ -61,6 +95,7 @@ function ensureStoreBlocks() {
 
 async function loadWriteoffsBoard() {
     if (!hasToken()) return;
+    if (!document.querySelector('.writeoffs-container')) return;
     ensureStoreBlocks();
     const boardExists = document.querySelector('.writeoff-column');
     if (!boardExists) return;
@@ -113,10 +148,13 @@ function woSaveMonthStates(states) {
     try { localStorage.setItem('crm_writeoffs_months', JSON.stringify(states)); } catch (e) {}
 }
 
-// Сумма с видимого текста плитки: у списанных карточек data-amount
-// равен нулю (остаток), поэтому dataset не подходит ни им, ни группам.
+// Сумма с видимого текста плитки или самого элемента суммы: у списанных
+// карточек data-amount равен нулю (остаток), поэтому dataset не подходит.
 function parseTileMoney(el) {
-    const t = (el.querySelector('.card-amount')?.textContent || '').replace(/[\s\u00a0]/g, '').replace('BYN', '').replace(',', '.');
+    const amountEl = el.classList && el.classList.contains('card-amount')
+        ? el
+        : el.querySelector('.card-amount');
+    const t = (amountEl?.textContent || '').replace(/[\s\u00a0]/g, '').replace('BYN', '').replace(',', '.');
     return parseFloat(t) || 0;
 }
 
@@ -191,6 +229,8 @@ function renderWriteoffsBoard() {
     const { transactions, cards, groups } = _writeoffsData;
     const q = (_writeoffsSearchQuery || '').trim().toLowerCase();
 
+    // набор складов мог измениться после загрузки данных
+    ensureStoreBlocks();
     document.querySelectorAll('.writeoff-cards').forEach(col => col.innerHTML = '');
 
     const knownStores = Array.from(document.querySelectorAll('.writeoff-store-block'))
@@ -603,7 +643,7 @@ function setupWriteoffDragAndDrop() {
     if (!container) return;
     // Делегирование: блоки складов создаются динамически, вешать обработчики
     // на колонки напрямую нельзя — доска пересобирается без них.
-    const clearHighlights = () => container.querySelectorAll('.writeoff-column').forEach(c => { c.style.boxShadow = 'none'; });
+    const clearHighlights = () => container.querySelectorAll('.writeoff-column').forEach(c => { c.style.boxShadow = ''; });
 
     container.addEventListener('dragover', e => {
         const col = e.target.closest('.writeoff-column');
