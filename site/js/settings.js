@@ -60,7 +60,10 @@
                 showToast(res.detail || 'Пароль изменён', 'success');
                 // Смена пароля отзывает токен — выходим на экран входа.
                 setTimeout(() => {
+                    // FIX 2026-09-03 (аудит): раньше чистились только storage —
+                    // cookie-фолбэк токена оставался, и «выход» мог не сработать.
                     try {
+                        if (typeof clearToken === 'function') clearToken();
                         localStorage.removeItem('crm_token');
                         localStorage.removeItem('crm_role');
                         sessionStorage.removeItem('crm_token');

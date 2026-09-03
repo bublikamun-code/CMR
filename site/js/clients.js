@@ -146,6 +146,16 @@ function renderClients() {
         td.onclick = () => openClientCards(parseInt(td.dataset.id));
     });
 
+    // FIX 2026-09-03 (аудит): вся строка открывает карточки клиента —
+    // раньше кликабельна была только ячейка с названием.
+    tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+        tr.style.cursor = 'pointer';
+        tr.onclick = (e) => {
+            if (e.target.closest('.row-action-btn') || e.target.closest('.clickable-company')) return;
+            openClientCards(parseInt(tr.dataset.id));
+        };
+    });
+
     tbody.querySelectorAll('.btn-edit-client').forEach(btn => {
         btn.onclick = () => openClientModal(parseInt(btn.dataset.id));
     });
@@ -248,6 +258,11 @@ async function saveClient() {
         return;
     }
 
+    // FIX 2026-09-03 (аудит): двойной клик по «Сохранить» слал два POST —
+    // дубли контрагентов. Блокируем кнопку на время запроса.
+    const saveBtn = document.getElementById('client-save');
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
     const contacts = CRM_CONTACTS.serialize(CRM_CONTACTS.collect('client-contacts'));
     const data = {
         name: name,
@@ -312,5 +327,7 @@ async function saveClient() {
         else { cModal.classList.add('hidden'); loadClientsTable(); }
     } catch (err) {
         showToast('Ошибка: ' + err.message, 'error');
+    } finally {
+        saveBtn.disabled = false;
     }
 }

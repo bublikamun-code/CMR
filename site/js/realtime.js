@@ -35,7 +35,9 @@
     function isBusy() {
         if (document.hidden) return true;
         if (typeof hasToken === 'function' && !hasToken()) return true;
-        if (document.querySelector('#card-modal:not(.hidden), #create-modal:not(.hidden), #trash-modal:not(.hidden), #client-modal:not(.hidden), #supplier-modal:not(.hidden)')) return true;
+        // FIX 2026-09-03 (аудит): polling перерисовывал данные под открытыми
+        // модалками задач/закупок/карточек клиента — добавлены в «занято».
+        if (document.querySelector('#card-modal:not(.hidden), #create-modal:not(.hidden), #trash-modal:not(.hidden), #client-modal:not(.hidden), #supplier-modal:not(.hidden), #task-modal:not(.hidden), #supplier-purchases-modal:not(.hidden), #client-cards-modal:not(.hidden)')) return true;
         if (document.querySelector('.dropdown.open')) return true;
         if (document.querySelector('.dragging')) return true;
         if (document.querySelector('.tag-dropdown-menu')) return true;
