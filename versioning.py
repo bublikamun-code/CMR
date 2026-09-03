@@ -3,7 +3,11 @@
 Сохраняет историю изменений для карточек, клиентов и других объектов.
 """
 import json
+import logging
+
 from models import RecordVersion
+
+logger = logging.getLogger(__name__)
 
 
 def save_version(db, table_name, record_id, data, user_id=None, change_type="update", tenant_id=None):
@@ -30,7 +34,11 @@ def save_version(db, table_name, record_id, data, user_id=None, change_type="upd
         db.add(new_version)
         db.commit()
         return version
-    except Exception:
+    except Exception as e:
+        # FIX 2026-09-03 (аудит): ошибка раньше глоталась наглухо —
+        # история правок терялась без следа. Теперь причина в логе.
+        logger.warning("save_version failed (%s/%s, tenant=%s): %s",
+                       table_name, record_id, tenant_id, e)
         db.rollback()
         return None
 
