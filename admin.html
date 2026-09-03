@@ -299,7 +299,8 @@
 
         function restoreSidebarState() {
             try {
-                const collapsed = localStorage.getItem('crm_sidebar_collapsed') === '1';
+                const _sbv = localStorage.getItem('crm_sidebar_collapsed');
+                const collapsed = _sbv === '1' || _sbv === 'true';
                 const sidebar = document.getElementById('app-sidebar');
                 if (collapsed) sidebar.classList.add('collapsed');
             } catch (e) {}

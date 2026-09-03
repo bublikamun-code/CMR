@@ -146,6 +146,16 @@ function renderClients() {
         td.onclick = () => openClientCards(parseInt(td.dataset.id));
     });
 
+    // FIX 2026-09-03 (аудит): вся строка открывает карточки клиента —
+    // раньше кликабельна была только ячейка с названием.
+    tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+        tr.style.cursor = 'pointer';
+        tr.onclick = (e) => {
+            if (e.target.closest('.row-action-btn') || e.target.closest('.clickable-company')) return;
+            openClientCards(parseInt(tr.dataset.id));
+        };
+    });
+
     tbody.querySelectorAll('.btn-edit-client').forEach(btn => {
         btn.onclick = () => openClientModal(parseInt(btn.dataset.id));
     });

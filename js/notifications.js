@@ -108,14 +108,14 @@ function closeNotifPanel() {
 }
 
 /** Перенести колокольчик в строку действий шапки активного раздела.
- *  Именно prepend: строка действий гибкая и может переноситься —
- *  первый элемент всегда остаётся на первой линии и ничего не перекрывает. */
+ *  FIX 2026-09-03 (аудит): всегда последний в строке — на всех страницах
+ *  справа (раньше prepend ставил его слева на канбане и справа на остальных). */
 function placeBell() {
     const wrap = document.getElementById('notif-bell-wrap');
     if (!wrap) return;
     const target = document.querySelector('.page-section.active .page-header .header-actions');
     if (target && wrap.parentElement !== target) {
-        target.prepend(wrap);
+        target.append(wrap);
     }
 }
 

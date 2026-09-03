@@ -138,6 +138,16 @@ function renderSuppliers() {
         el.onclick = () => openSupplierPurchases(parseInt(el.dataset.id));
     });
 
+    // FIX 2026-09-03 (аудит): вся строка открывает закупки поставщика —
+    // раньше кликабельно было только название.
+    tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+        tr.style.cursor = 'pointer';
+        tr.onclick = (e) => {
+            if (e.target.closest('.row-action-btn') || e.target.closest('.supplier-name-link')) return;
+            openSupplierPurchases(parseInt(tr.dataset.id));
+        };
+    });
+
     tbody.querySelectorAll('.btn-edit-supplier').forEach(btn => {
         btn.onclick = () => openSupplierModal(parseInt(btn.dataset.id));
     });

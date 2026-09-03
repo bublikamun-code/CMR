@@ -439,12 +439,15 @@
             ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
             : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
         toggle.setAttribute('aria-label', isCollapsed ? 'Развернуть меню' : 'Свернуть меню');
-        try { localStorage.setItem('crm_sidebar_collapsed', isCollapsed); }
+        try { localStorage.setItem('crm_sidebar_collapsed', isCollapsed ? '1' : '0'); }
         catch(e) {}
     }
     (function() {
-        const saved = localStorage.getItem('crm_sidebar_collapsed');
-        if (saved === 'true') {
+        let saved = null;
+        try { saved = localStorage.getItem('crm_sidebar_collapsed'); } catch (e) {}
+        // FIX 2026-09-03 (аудит): на узких экранах без явного выбора
+        // пользователя сайдбар свёрнут — больше места таблицам.
+        if (saved === '1' || saved === 'true' || (saved === null && window.innerWidth <= 1100)) {
             const sidebar = document.getElementById('app-sidebar');
             if (sidebar) {
                 sidebar.classList.add('collapsed');
