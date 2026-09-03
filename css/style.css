@@ -12851,3 +12851,37 @@ textarea {
    тем же зелёным, что и «Списать» на доске. */
 .btn-writeoff-action { background-color: var(--success-color); }
 .btn-writeoff-action:hover { background-color: #036647; }
+
+/* 5. Мета-строка канбан-карточки: бейджи ровной строкой, а не вразнобой
+      (фидбек пользователя: «выглядят разбросанными и не на одном уровне»). */
+.card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+.card-meta .store-badge {
+    margin-top: 0;
+    padding: 3px 10px;
+    font-size: 11px;
+}
+.card-meta .card-manager {
+    margin-top: 0;
+    margin-left: auto;
+}
+
+/* 6. Жёлтые заливки → контурные бейджи (фидбек: жёлтый фон не нравится
+      ни на лицевой карточке, ни «Осталось оплатить» в модалке). */
+.badge-warning,
+.incomplete-badge {
+    background: transparent;
+    border: 1px solid rgba(180, 83, 9, 0.35);
+    color: var(--warning-color);
+}
+[data-theme="dark"] .badge-warning,
+[data-theme="dark"] .incomplete-badge {
+    background: transparent;
+    border-color: rgba(245, 158, 11, 0.40);
+    color: #fbbf24;
+}
