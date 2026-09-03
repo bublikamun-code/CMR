@@ -242,6 +242,9 @@ def save_settings(settings, tenant_id: int = None):
             settings["password"] = _encrypt_password(settings["password"])
     with open(settings_file, "w", encoding="utf-8") as f:
         json.dump(settings, f, ensure_ascii=False, indent=4)
+    # FIX 2026-09-03: файл держал права 644 — umask хостинга; внутри
+    # зашифрованный пароль ящика. Выставляем 600, как у ключа шифрования.
+    os.chmod(settings_file, 0o600)
 
 # SECURITY 2026-09-03: настройки ящика (включая пароль) читают и меняют
 # только админы — раньше это было доступно любому менеджеру.
