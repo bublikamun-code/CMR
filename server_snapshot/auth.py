@@ -5,7 +5,7 @@ import jwt
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import models
@@ -59,14 +59,21 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire, "iat": now, "jti": str(uuid.uuid4())})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # P2-1 (аудит 04.09): основной носитель токена — httpOnly-cookie
+    # (нечитаема из JS), Authorization-заголовок оставлен как переходный
+    # путь (admin.html, старые сессии). Приоритет: заголовок, затем cookie.
+    if not token:
+        token = request.cookies.get("crm_token")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось проверить токен",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token:
+        raise credentials_exception
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")

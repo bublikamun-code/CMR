@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
 @router.post("/login")
 @limiter.limit("10/minute")
-def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.username == form_data.username).first()
 
     if not user or not auth.verify_password(form_data.password, user.hashed_password):
@@ -27,7 +27,28 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     # pv (password version) — первые 8 символов хэша: смена пароля
     # инвалидирует все ранее выданные токены (проверка в get_current_user).
     access_token = auth.create_access_token(data={"sub": user.username, "tenant_id": user.tenant_id, "pv": user.hashed_password[:8]})
+    # P2-1 (аудит 04.09): дублируем токен httpOnly-cookie — JS не может её
+    # прочитать, поэтому кража токена через XSS невозможна. SameSite=Lax
+    # закрывает CSRF для кросс-сайтовых POST. Secure — только по https,
+    # пока прод живёт на HTTP (иначе кука не отправится вовсе).
+    response.set_cookie(
+        key="crm_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        secure=(request.url.scheme == "https"),
+        max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
     return {"access_token": access_token, "token_type": "bearer", "role": user.role}
+
+
+@router.post("/logout")
+def logout(response: Response):
+    # P2-1: выход — сервер гасит httpOnly-куку. Фронт дополнительно чистит
+    # свой localStorage (переходный период, пока заголовок ещё используется).
+    response.delete_cookie(key="crm_token", path="/")
+    return {"detail": "Вы вышли из системы"}
 
 
 @router.get("/users", response_model=List[schemas.UserResponse])

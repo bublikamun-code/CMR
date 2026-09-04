@@ -65,14 +65,25 @@ function getRole(roleKey = DEFAULT_ROLE_KEY) {
 function clearToken(tokenKey = DEFAULT_TOKEN_KEY, roleKey = DEFAULT_ROLE_KEY) {
     try { localStorage.removeItem(tokenKey); localStorage.removeItem(roleKey); } catch (e) {}
     try { sessionStorage.removeItem(tokenKey); sessionStorage.removeItem(roleKey); } catch (e) {}
+    // P2-1: маркер входа гасим вместе с токеном (токен теперь в
+    // httpOnly-cookie, которую JS не видит — её гасит /auth/logout)
+    try { localStorage.removeItem('crm_logged_in'); } catch (e) {}
+    try { sessionStorage.removeItem('crm_logged_in'); } catch (e) {}
     try {
         document.cookie = tokenKey + '=; path=/; max-age=0';
         document.cookie = roleKey + '=; path=/; max-age=0';
+        document.cookie = 'crm_token=; path=/; max-age=0';
     } catch (e) {}
 }
 
 function hasToken(tokenKey = DEFAULT_TOKEN_KEY) {
-    return !!getToken(tokenKey);
+    if (getToken(tokenKey)) return true;
+    // P2-1: сессия на httpOnly-cookie — сам токен JS не виден. Ориентируемся
+    // на несекретный маркер входа; реальную валидность сессии проверит
+    // сервер, при просрочке сработает 401-хук ниже (clearToken → логин).
+    try { if (localStorage.getItem('crm_logged_in')) return true; } catch (e) {}
+    try { if (sessionStorage.getItem('crm_logged_in')) return true; } catch (e) {}
+    return false;
 }
 
 // Предельное время ожидания ответа. Без него оборванное соединение
