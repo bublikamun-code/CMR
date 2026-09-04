@@ -527,7 +527,10 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
     Логика (по согласованному сценарию):
       1. По сделке всегда существует максимум ОДНА «пустая» запись-остаток,
          которая висит в колонке «На списание».
-      2. Выписанная накладная сразу уходит в «Списано» и в «Документы».
+      2. Выписка ставит только «Выписку» (is_invoice_issued); сделка с
+         накладной остаётся в «На списание» до явного «Списать» с доски
+         (фидбек 2026-09-04: «Списание» не должно ставиться вместе
+         с выпиской). Копия накладной при этом уходит в «Документы».
       3. Если накладная закрыла остаток не полностью — остаток уменьшается
          на её сумму и остаётся ждать следующую накладную.
       4. Остаток закрыт полностью — запись-остаток исчезает, сделка закрывается.
@@ -586,8 +589,9 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             invoice.invoice_date = payload.invoice_date or None
             invoice.amount = amount
             invoice.store_location = store
-            invoice.is_warehouse_writeoff = True
-            invoice.is_written_off = True
+            # Фидбек 2026-09-04: выписка накладной ставит ТОЛЬКО «Выписку».
+            # «Списание» — отдельное действие с доски списания (кнопка
+            # «Списать» → is_warehouse_writeoff/is_written_off).
             invoice.is_invoice_issued = True
             new_remainder = None
         else:
@@ -595,7 +599,7 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             invoice = models.Transaction(
                 company_name=card.title, amount=amount, store_location=store,
                 invoice_number=number, invoice_date=(payload.invoice_date or None),
-                is_warehouse_writeoff=True, is_written_off=True, is_invoice_issued=True,
+                is_invoice_issued=True,
                 card_id=card_id,
             )
             session.add(invoice)

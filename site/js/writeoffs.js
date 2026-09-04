@@ -649,7 +649,10 @@ async function executeWriteoff(transactionId, isWrittenOff, targetStore = null, 
     try {
         // Поля накладной с доски больше не читаем — их там нет,
         // номер и дата задаются только внутри карточки сделки.
-        const patchData = { is_warehouse_writeoff: isWrittenOff };
+        // is_written_off — синхронно с is_warehouse_writeoff: галочка
+        // «Списание с магазина» в реестре оплат отражает списание с доски
+        // (фидбек 2026-09-04).
+        const patchData = { is_warehouse_writeoff: isWrittenOff, is_written_off: isWrittenOff };
         if (targetStore) patchData.store_location = targetStore;
 
         await apiFetch(`/payments/transactions/${transactionId}`, {
