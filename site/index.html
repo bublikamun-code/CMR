@@ -28,7 +28,7 @@
 .sidebar-footer { padding: 20px; }
 .nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
 </style>
-    <link rel="stylesheet" href="css/style.css?v=1437059332">
+    <link rel="stylesheet" href="css/style.css?v=00ccb151d4">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1f2937">
     <meta name="mobile-web-app-capable" content="yes">
@@ -188,6 +188,7 @@
                         <button type="button" class="settings-tab active" data-finance-tab="payments" role="tab" aria-selected="true">Реестр оплат</button>
                         <button type="button" class="settings-tab" data-finance-tab="writeoffs" role="tab" aria-selected="false">Списание</button>
                         <button type="button" class="settings-tab" data-finance-tab="documents" role="tab" aria-selected="false">Документы</button>
+                        <button type="button" class="settings-tab" data-finance-tab="control" role="tab" aria-selected="false">Контроль</button>
                     </div>
                     <div class="panel-toolbar finance-toolbar active" data-panel="payments">
                         <div id="payments-month" class="month-filter" title="Фильтр по дате оплаты"></div>
@@ -207,6 +208,11 @@
                         <div id="documents-month" class="month-filter" title="Фильтр по дате накладной"></div>
                         <input type="text" id="documents-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по документам">
                         <button id="documents-export" class="btn-secondary btn-export">Экспорт CSV</button>
+                    </div>
+                </header>
+                    <div class="panel-toolbar finance-toolbar" data-panel="control">
+                        <button id="control-refresh" class="btn-secondary btn-export">Обновить</button>
+                        <span id="control-updated" class="search-count"></span>
                     </div>
                 </header>
 
@@ -246,6 +252,46 @@
                 <!-- тулбар (поиск) переехал в .finance-header сверху -->
                 <div class="writeoffs-container"></div>
             </div>
+
+                <div id="page-control" class="finance-panel" role="tabpanel">
+                    <section class="control-section">
+                        <h2 class="control-title">Дебиторка <span id="control-debt-summary" class="control-summary"></span></h2>
+                        <div class="table-container">
+                            <table class="data-table" id="control-debt-table">
+                                <thead>
+                                    <tr>
+                                        <th>Сделка</th>
+                                        <th>Магазин</th>
+                                        <th>Статус</th>
+                                        <th>Сумма</th>
+                                        <th>Оплачено</th>
+                                        <th>Остаток</th>
+                                        <th>Дней</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </section>
+                    <section class="control-section">
+                        <h2 class="control-title">Очередь на списание <span id="control-queue-summary" class="control-summary"></span></h2>
+                        <div class="table-container">
+                            <table class="data-table" id="control-queue-table">
+                                <thead>
+                                    <tr>
+                                        <th>№ ТН</th>
+                                        <th>Дата ТН</th>
+                                        <th>Сделка</th>
+                                        <th>Магазин</th>
+                                        <th>Сумма</th>
+                                        <th>Дней</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
 
             <div id="page-documents" class="finance-panel" role="tabpanel">
                 <div class="table-container">
@@ -846,14 +892,15 @@
     <script defer src="js/constants.js?v=7787449fb0"></script>
     <script defer src="js/crm_store.js?v=dd6baeb897"></script>
     <script defer src="js/api.js?v=f9183f34c5"></script>
-    <script defer src="js/features.js?v=d753a3c94b"></script>
+    <script defer src="js/features.js?v=467ff4c557"></script>
     <script defer src="js/auth.js?v=f03e2276b8"></script>
     <script defer src="js/kanban.js?v=463e77934a"></script>
     <script defer src="js/tasks.js?v=d81276a6f3"></script>
     <script defer src="js/notifications.js?v=8494223614"></script>
     <script defer src="js/card_modal.js?v=49bc012986"></script>
     <script defer src="js/payments.js?v=cde60611fb"></script>
-    <script defer src="js/writeoffs.js?v=1dc1466738"></script>
+    <script defer src="js/writeoffs.js?v=052095d9a4"></script>
+    <script defer src="js/control.js?v=e8dd13d4d1"></script>
     <script defer src="js/documents.js?v=689ca3b643"></script>
     <script defer src="js/contacts.js?v=f3ff5b3c89"></script>
     <script defer src="js/clients.js?v=24bcff3a2a"></script>

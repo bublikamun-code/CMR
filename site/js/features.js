@@ -756,12 +756,13 @@ function parseMoney(value) {
     if (!tabsWrap) return;
     const tabs = tabsWrap.querySelectorAll('.settings-tab');
     const panels = document.querySelectorAll('.finance-panel');
-    const FINANCE_TABS = ['payments', 'writeoffs', 'documents'];
+    const FINANCE_TABS = ['payments', 'writeoffs', 'documents', 'control'];
 
     function loaderFor(key) {
         if (key === 'payments') return typeof loadPaymentsTable === 'function' ? loadPaymentsTable : null;
         if (key === 'writeoffs') return typeof loadWriteoffsBoard === 'function' ? loadWriteoffsBoard : null;
         if (key === 'documents') return typeof loadDocumentsTable === 'function' ? loadDocumentsTable : null;
+        if (key === 'control') return typeof loadControlBoard === 'function' ? loadControlBoard : null;
         return null;
     }
 

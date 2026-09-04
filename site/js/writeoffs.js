@@ -417,6 +417,20 @@ function renderWriteoffsBoard() {
                     };
                 }
                 cardEl.appendChild(btn);
+
+                // P3-A: «Прикрепить сделку» — общая накладная на 2+ счета.
+                // Кандидаты: тот же клиент + тот же склад, статус Сборка/На
+                // списание, без своей группы (правила writeoff_groups API).
+                const attach = document.createElement('button');
+                attach.className = 'wo-attach';
+                attach.type = 'button';
+                attach.title = 'Прикрепить другую сделку: одна накладная на два счёта';
+                attach.textContent = '⧉ Прикрепить сделку';
+                attach.onclick = (e) => {
+                    e.stopPropagation();
+                    openAttachPicker(card);
+                };
+                cardEl.appendChild(attach);
             }
 
             cardEl.addEventListener('dragstart', (e) => {
@@ -531,6 +545,19 @@ function renderGroupTile(group) {
             }
         };
         el.appendChild(btn);
+
+        // P3-A: прикрепить ещё одну сделку к группе (ещё один счёт под
+        // той же накладной). Работает, пока группа не закрыта.
+        const addBtn = document.createElement('button');
+        addBtn.className = 'wo-attach';
+        addBtn.type = 'button';
+        addBtn.title = 'Прикрепить другую сделку к этой накладной';
+        addBtn.textContent = '⧉ Прикрепить сделку';
+        addBtn.onclick = (e) => {
+            e.stopPropagation();
+            openAttachPicker(null, group);
+        };
+        el.appendChild(addBtn);
     }
 
     el.onclick = (e) => {
@@ -721,4 +748,91 @@ function setupWriteoffDragAndDrop() {
     });
     // dragend с карточки не всегда попадает в контейнер — чистим глобально.
     document.addEventListener('dragend', clearHighlights);
+}
+
+// --- P3-A: прикрепление сделки к накладной (одна накладная на 2+ счёта).
+// Кандидаты — сделки того же клиента и склада в статусе «Сборка»/«На
+// списание», не состоящие ни в какой группе (правила writeoff_groups API).
+// Для группы-источника — добавление в неё; для карточки — создание группы
+// из двух, после чего на плитке группы выписывается одна общая накладная.
+function openAttachPicker(srcCard, group) {
+    const groupId = group ? group.id : null;
+    const baseClient = srcCard ? srcCard.client_id : group.client_id;
+    const baseStore = srcCard ? srcCard.store_location : group.store_location;
+    const memberIds = new Set(group ? (group.cards || []).map(c => c.id) : []);
+
+    const candidates = (_writeoffsData.cards || []).filter(c => {
+        if (srcCard && c.id === srcCard.id) return false;
+        if (memberIds.has(c.id)) return false;
+        if (c.writeoff_group_id) return false;
+        if (c.status !== 'Сборка' && c.status !== 'На списание') return false;
+        if ((c.client_id || null) !== (baseClient || null)) return false;
+        if ((c.store_location || '') !== (baseStore || '')) return false;
+        return true;
+    });
+
+    const title = srcCard
+        ? `Прикрепить сделку к «${srcCard.title || 'сделке'}»`
+        : `Прикрепить сделку к «${group.name}»`;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'wo-picker-overlay';
+    overlay.innerHTML = `
+        <div class="wo-picker" role="dialog" aria-label="${escapeHtml(title)}">
+            <div class="wo-picker-head">
+                <strong>${escapeHtml(title)}</strong>
+                <button type="button" class="wo-picker-close" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wo-picker-sub">Одна накладная закроет обе сделки. Клиент и склад должны совпадать${baseStore ? ' — склад: ' + escapeHtml(baseStore) : ''}.</div>
+            <input type="text" class="wo-picker-search" placeholder="Поиск по названию...">
+            <div class="wo-picker-list"></div>
+        </div>`;
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('.wo-picker-close').onclick = close;
+
+    const listEl = overlay.querySelector('.wo-picker-list');
+    const searchEl = overlay.querySelector('.wo-picker-search');
+
+    const renderList = (q) => {
+        const query = (q || '').trim().toLowerCase();
+        const rows = candidates.filter(c => !query || (c.title || '').toLowerCase().includes(query));
+        listEl.innerHTML = rows.length ? '' : '<div class="wo-picker-empty">Нет сделок этого клиента и склада для прикрепления</div>';
+        rows.forEach(c => {
+            const hasInv = (_writeoffsData.transactions || []).some(t =>
+                String(t.card_id) === String(c.id) && (t.invoice_number || '').trim() && !t.is_document && !t.is_warehouse_writeoff);
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'wo-picker-row';
+            row.innerHTML = `
+                <span class="wo-picker-title">${escapeHtml(c.title || 'Без названия')}${hasInv ? ' <em class="wo-picker-warn">· ТН уже выписана</em>' : ''}</span>
+                <span class="wo-picker-sum tabular-nums">${formatMoneyBYN(parseFloat(c.total_amount) || 0)}</span>`;
+            row.onclick = async () => {
+                row.disabled = true;
+                try {
+                    if (groupId) {
+                        await apiFetch(`/writeoffs/groups/${groupId}/cards/${c.id}`, { method: 'POST' });
+                    } else {
+                        await apiFetch('/writeoffs/groups/', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ card_ids: [srcCard.id, c.id] })
+                        });
+                    }
+                    close();
+                    showToast('Сделка прикреплена. Теперь выписывайте общую накладную с плитки группы.', 'success');
+                    loadWriteoffsBoard();
+                } catch (err) {
+                    row.disabled = false;
+                    showToast('Ошибка: ' + err.message, 'error');
+                }
+            };
+            listEl.appendChild(row);
+        });
+    };
+    renderList('');
+    searchEl.addEventListener('input', () => renderList(searchEl.value));
+    document.body.appendChild(overlay);
+    searchEl.focus();
 }
