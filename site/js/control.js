@@ -30,14 +30,16 @@ async function loadControlBoard() {
     const fmtDays = (n) => (n === null || n === undefined) ? '—' : String(n);
     const esc = (s) => escapeHtml(String(s ?? ''));
 
-    // --- Дебиторка: сделки с непогашенным остатком (не закрытые) ---
+    // --- Дебиторка: сделки из «Сборки» и «Ждет оплаты» с непогашенным
+    // остатком (фидбек 2026-09-04: ранние статусы — ещё не дебиторка) ---
+    const DEBTOR_STATUSES = ['Сборка', 'Ждет оплаты'];
     const debtors = cards
         .map(c => {
             const total = parseFloat(c.total_amount) || 0;
             const paid = parseFloat(c.paid_amount) || 0;
             return { c, total, paid, debt: Math.round((total - paid) * 100) / 100 };
         })
-        .filter(x => x.debt > 0.01 && x.c.status !== 'Закрыто')
+        .filter(x => x.debt > 0.01 && DEBTOR_STATUSES.includes(x.c.status))
         .sort((a, b) => b.debt - a.debt);
 
     const debtBody = panel.querySelector('#control-debt-table tbody');
