@@ -21,6 +21,17 @@ let showOldCards = { "Новый запрос": false, "В работе": false,
 // а при возврате из архива статус пересчитывается сервером.
 const KANBAN_COLUMNS = ["Новый запрос", "В работе", "Ждет оплаты", "Сборка"];
 const OLD_CARD_DAYS = 15;
+// Фидбек 2026-09-04: в «Сборке» и «Ждет оплаты» старые карточки не прячем
+// и не помечаем «старостью» — там каждая карточка важна (деньги и отгрузка).
+// «Новый запрос» и «В работе» работают по-старому.
+const NO_OLD_HIDING = new Set(["Сборка", "Ждет оплаты"]);
+
+function isOldCardIn(colName, card) {
+    if (NO_OLD_HIDING.has(colName)) return false;
+    const created = (card && (card.created_at || card.date)) || null;
+    if (!created) return false;
+    return Math.ceil((new Date() - new Date(created)) / (1000 * 60 * 60 * 24)) > OLD_CARD_DAYS;
+}
 
 function renderPaymentBadge(card) {
     const total = parseFloat(card.total_amount) || 0;
@@ -142,9 +153,7 @@ async function loadKanbanBoard() {
             // сортированную позицию, а не на место броска.
 
             const visibleCards = colCards.filter(c => {
-                const diffDays = Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24));
-                const isOld = diffDays > OLD_CARD_DAYS;
-                if (isOld && !showOldCards[colName]) return false;
+                if (isOldCardIn(colName, c)) return false;
 
                 // Фильтрация по поиску
                 const q = (_kanbanSearchQuery || '').trim().toLowerCase();
@@ -212,8 +221,8 @@ async function loadKanbanBoard() {
 
             const ICON_CHEVRON = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
             const oldBtn = col.querySelector('.btn-show-old');
-            const hasOld = colCards.some(c => Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24)) > OLD_CARD_DAYS);
-            const oldCount = colCards.filter(c => Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24)) > OLD_CARD_DAYS).length;
+            const hasOld = colCards.some(c => isOldCardIn(colName, c));
+            const oldCount = colCards.filter(c => isOldCardIn(colName, c)).length;
             if (hasOld) {
                 const label = showOldCards[colName] ? 'Скрыть старые' : `${oldCount} старых`;
                 if (!oldBtn) {
@@ -289,9 +298,8 @@ async function loadKanbanBoard() {
 function renderCard(card, columnContainer) {
     if (!columnContainer) return;
 
-    const diffDays = Math.ceil((new Date() - new Date(card.created_at)) / (1000 * 60 * 60 * 24));
-    const isOld = diffDays > OLD_CARD_DAYS;
-    if (isOld && !showOldCards[card.status]) return;
+    const isOld = isOldCardIn(card.status, card);
+    if (isOld) return;
 
     const cardEl = document.createElement('div');
     cardEl.className = 'kanban-card' + (isOld ? ' old-card' : '');
