@@ -165,12 +165,18 @@ jobs:
 
       - name: Backup database on server
         if: ${{ env.HAS_SECRETS == 'true' }}
+        # ВАЖНО: бэкап ВНЕ веб-корна (фидбек безопасности 07.09). Раньше
+        # копия базы писалась в webroot/backups и становилась потенциально
+        # скачиваемой при любой смене конфига nginx. Снимок делается через
+        # sqlite3 .backup (консистентный на живой базе с WAL), права 600.
         run: |
           ssh -i ~/.ssh/crm_svetvdome_deploy \
             ${{ secrets.CRM_DEPLOY_USER }}@${{ secrets.CRM_DEPLOY_HOST }} \
-            "cd /var/www/h212005/data/www/cmr-svetvdome.online && \
-             mkdir -p backups && \
-             cp crm_app.db backups/crm_app.db.$(date +%Y%m%d_%H%M%S).bak"
+            'D=/var/www/h212005/data; P=$D/backups_predeploy; \
+             mkdir -p "$P" && chmod 700 "$P"; \
+             TS=$(date +%Y%m%d_%H%M%S); \
+             python3 -c "import sqlite3; sqlite3.connect(\"$D/crm_data/crm_app.db\").backup(sqlite3.connect(\"$P/crm_app.db.$TS\"))" && chmod 600 "$P/crm_app.db.$TS"; \
+             ls -t "$P"/crm_app.db.* | tail -n +6 | xargs -r rm -f'
 
       - name: Deploy frontend
         if: ${{ env.HAS_SECRETS == 'true' }}
