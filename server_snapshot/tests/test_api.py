@@ -122,6 +122,47 @@ def test_issue_invoice_rejects_amount_over_remainder(superadmin_client):
     assert "больше остатка" in response.json()["detail"]
 
 
+# --- Н13 (регрессия унификации сессий): менеджер без tenant_id читает
+# основную базу через resolve_tenant_db — бойлерплейт-ветки удалены.
+def test_manager_reads_business_lists(manager_client):
+    for ep in ("/kanban/cards", "/kanban/trash", "/clients", "/suppliers", "/tags", "/writeoffs/pending"):
+        response = manager_client.get(ep)
+        assert response.status_code == 200, f"{ep}: {response.status_code} {response.text[:200]}"
+
+
+# --- Н19 (валидации) ----------------------------------------------------
+
+def test_card_status_rejects_unknown_value(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест валидации статуса", 50.0)
+    response = superadmin_client.patch(f"/kanban/cards/{card_id}/status", json={"status": "Черновик"})
+    assert response.status_code == 422, "опечатка в статусе не должна уходить в БД"
+
+
+def test_transaction_amount_must_be_positive(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест валидации суммы", 80.0)
+    tx = superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).json()
+    for bad in (-5, 0):
+        response = superadmin_client.patch(f"/payments/transactions/{tx['id']}", json={"amount": bad})
+        assert response.status_code == 422, f"amount={bad} не должен приниматься"
+
+
+# --- Н9 (гонка остатка) -------------------------------------------------
+
+def test_trigger_from_card_returns_existing_under_unique_index(superadmin_client):
+    # После миграции 0004 второй остаток невозможен физически: IntegrityError
+    # ловится и возвращается существующая запись (идемпотентность из теста
+    # выше — теперь подкреплена индексом на уровне БД).
+    card_id = _create_card(superadmin_client, "Тест unique-остатка", 300.0)
+    first = superadmin_client.post(f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"})
+    second = superadmin_client.post(f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"})
+    assert first.status_code == 200 and second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
+    txs = [t for t in _card_transactions(card_id) if not t.is_document]
+    assert len(txs) == 1
+
+
 # --- Лимиты (С3) -------------------------------------------------------
 
 def test_login_rate_limited():

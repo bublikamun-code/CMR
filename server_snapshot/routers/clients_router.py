@@ -19,8 +19,6 @@ def list_clients(q: str = Query(None), response: Response = None, db: Session = 
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Client)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Client)
         if q:
             pattern = f"%{q}%"
             query = query.filter(or_(
@@ -39,8 +37,6 @@ def get_client(client_id: int, db: Session = Depends(get_db), current_user: mode
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Client).filter(models.Client.id == client_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Client).filter(models.Client.id == client_id)
         client = query.first()
         if not client:
             raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -54,8 +50,6 @@ def get_client_cards(client_id: int, db: Session = Depends(get_db), current_user
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Card).filter(models.Card.client_id == client_id, models.Card.is_deleted == False)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Card).filter(models.Card.client_id == client_id, models.Card.is_deleted == False)
         # Н12 (аудит 06.09): selectinload вместо ленивых SELECT на каждую
         # карточку ( CardResponse тянет вложенные отношения при сериализации).
         return query.options(
@@ -117,9 +111,6 @@ def update_client(client_id: int, update: schemas.ClientUpdate, db: Session = De
     try:
         session = tdb
         query = tdb.query(models.Client).filter(models.Client.id == client_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Client).filter(models.Client.id == client_id)
         client = query.first()
         if not client:
             raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -143,9 +134,6 @@ def delete_client(client_id: int, db: Session = Depends(get_db), current_user: m
     try:
         session = tdb
         query = tdb.query(models.Client).filter(models.Client.id == client_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Client).filter(models.Client.id == client_id)
         client = query.first()
         if not client:
             raise HTTPException(status_code=404, detail="Клиент не найден")

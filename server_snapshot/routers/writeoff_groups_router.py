@@ -46,9 +46,6 @@ def create_group(payload: GroupCreateRequest, db: Session = Depends(get_db), cur
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         if len(payload.card_ids) < 2:
             raise HTTPException(status_code=400, detail="Группа объединяет минимум две карточки")
 
@@ -102,8 +99,6 @@ def list_groups(db: Session = Depends(get_db), current_user: models.User = Depen
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         groups = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).order_by(models.WriteoffGroup.id.desc()).all()
         return groups
     finally:
@@ -116,8 +111,6 @@ def get_group(group_id: int, db: Session = Depends(get_db), current_user: models
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -132,9 +125,6 @@ def add_card_to_group(group_id: int, card_id: int, db: Session = Depends(get_db)
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -166,9 +156,6 @@ def remove_card_from_group(group_id: int, card_id: int, db: Session = Depends(ge
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -200,9 +187,6 @@ def issue_group_invoice(group_id: int, payload: IssueGroupInvoiceRequest, db: Se
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -279,9 +263,6 @@ def disband_group(group_id: int, db: Session = Depends(get_db), current_user: mo
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")

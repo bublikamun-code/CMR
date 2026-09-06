@@ -408,6 +408,7 @@ function fillCardHTML(cardEl, card) {
         <div class="card-hover-actions" data-card-menu>
             <button class="card-hover-btn btn-edit-card" title="Редактировать" data-card-id="${card.id}">${ICON_PENCIL}</button>
             <button class="card-hover-btn btn-delete-card" title="Удалить">${ICON_CROSS}</button>
+            ${KANBAN_COLUMNS.filter(s => s !== card.status).map(s => `<button class="card-hover-btn btn-move-card" data-target-status="${s}" title="Перенести в «${s}»" aria-label="Перенести в «${s}»">→ ${s}</button>`).join('')}
         </div>
         <button class="card-menu-trigger" title="Действия с карточкой" aria-label="Действия с карточкой" aria-haspopup="menu">${ICON_ELLIPSIS}</button>
         <div class="card-main">
@@ -458,6 +459,16 @@ function fillCardHTML(cardEl, card) {
         e.stopPropagation();
         openCardModal(card.id);
     };
+
+    // У3 (аудит 06.09): перенос между колонками кнопкой меню — клавиатурная
+    // и тач-альтернатива drag&drop (кнопки доступны с Tab, действия видны
+    // при :focus-within).
+    cardEl.querySelectorAll('.btn-move-card').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            moveCardToStatus(card.id, btn.dataset.targetStatus);
+        };
+    });
 }
 
 // Закрытие popover при клике вне карточки (чтобы не оставался открытым)
@@ -491,6 +502,45 @@ window.refreshCardOnBoard = async function(cardId) {
         console.error("Ошибка обновления карточки на доске:", e);
     }
 };
+
+// У3 (аудит 06.09): перенос карточки без перетаскивания. Бизнес-правила те
+// же, что у drag&drop: без суммы сделки дальше «Нового запроса» нельзя;
+// уход из «Сборки» назад (не на списание/закрытие) убирает запись из реестра.
+async function moveCardToStatus(cardId, newStatus) {
+    if (_isDropping) return;
+    _isDropping = true;
+    try {
+        const moved = (_allCards || []).find(c => c.id === cardId);
+        if (!moved || moved.status === newStatus) return;
+        if (newStatus !== 'Новый запрос' && (parseFloat(moved.total_amount) || 0) <= 0) {
+            showToast('Укажите сумму сделки — откройте карточку и заполните', 'error');
+            return;
+        }
+        await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
+
+        const FORWARD = ['На списание', 'Закрыто'];
+        if (moved.status === 'Сборка' && !FORWARD.includes(newStatus)) {
+            try {
+                const transactions = await apiFetch('/payments/transactions?grouped=false');
+                const tx = transactions.find(t => t.card_id == cardId && !t.is_document);
+                if (tx) {
+                    await apiFetch(`/payments/transactions/${tx.id}`, { method: 'DELETE' });
+                    showToast('Транзакция удалена из реестра', 'info');
+                }
+            } catch (txErr) { console.error('Ошибка удаления транзакции:', txErr); }
+        }
+
+        showToast(`Карточка перенесена в «${newStatus}»`, 'success');
+        if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+        loadKanbanBoard();
+        if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+        if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+    } catch (err) {
+        showToast('Не удалось перенести карточку: ' + err.message, 'error');
+    } finally {
+        _isDropping = false;
+    }
+}
 
 async function handleDrop(e) {
     e.preventDefault();

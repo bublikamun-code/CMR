@@ -19,8 +19,6 @@ def finish_assembly(card_id: int, db: Session = Depends(get_db), current_user: m
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -39,8 +37,6 @@ def get_pending_writeoffs(response: Response, db: Session = Depends(get_db), cur
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Card).filter(models.Card.status == "На списание")
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Card).filter(models.Card.status == "На списание")
         cards = query.options(
             # Н12 (аудит 06.09): без selectinload сериализация CardResponse
             # давала ленивый SELECT на каждую карточку очереди списания.
@@ -61,8 +57,6 @@ def execute_writeoff(card_id: int, db: Session = Depends(get_db), current_user: 
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")

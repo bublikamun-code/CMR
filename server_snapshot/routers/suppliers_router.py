@@ -18,8 +18,6 @@ def list_suppliers(q: str = Query(None), response: Response = None, db: Session 
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Supplier)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Supplier)
         if q:
             pattern = f"%{q}%"
             query = query.filter(or_(
@@ -38,8 +36,6 @@ def get_supplier(supplier_id: int, db: Session = Depends(get_db), current_user: 
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Supplier).filter(models.Supplier.id == supplier_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -67,9 +63,6 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
     try:
         session = tdb
         query = tdb.query(models.Supplier).filter(models.Supplier.id == supplier_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -88,9 +81,6 @@ def delete_supplier(supplier_id: int, db: Session = Depends(get_db), current_use
     try:
         session = tdb
         query = tdb.query(models.Supplier).filter(models.Supplier.id == supplier_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -115,9 +105,6 @@ def supplier_purchases(supplier_id: int, db: Session = Depends(get_db), current_
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         sup = session.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
         if not sup:
             raise HTTPException(status_code=404, detail="Поставщик не найден")

@@ -96,8 +96,6 @@ def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session 
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -130,8 +128,6 @@ def update_checklist_item(checklist_id: int, item_update: schemas.ChecklistUpdat
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -160,8 +156,6 @@ def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), curr
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -183,8 +177,6 @@ def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFi
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -226,8 +218,6 @@ def delete_checklist_invoice(checklist_id: int, db: Session = Depends(get_db), c
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -288,8 +278,6 @@ def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -325,8 +313,6 @@ def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         attachment = session.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
         if not attachment:
             raise HTTPException(status_code=404, detail="Файл не найден")
@@ -344,8 +330,6 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -442,8 +426,6 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -548,8 +530,6 @@ def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db),
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         attachment = session.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
         if not attachment:
             raise HTTPException(status_code=404, detail="Вложение не найдено")
@@ -573,8 +553,6 @@ def download_checklist_invoice_by_id(checklist_id: int, db: Session = Depends(ge
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")

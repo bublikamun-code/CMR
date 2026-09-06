@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from typing import List
 from pydantic import BaseModel
@@ -41,9 +42,6 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
     try:
         session = tdb
         query = tdb.query(models.Card).filter(models.Card.id == card_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Card).filter(models.Card.id == card_id)
         card = query.first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -61,7 +59,21 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             return _tx_dict(existing)
         new_tx = models.Transaction(company_name=card.title, amount=card.total_amount, store_location=payload.store_location, card_id=card.id)
         session.add(new_tx)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            # Н9 (аудит 06.09): гонка двух конкурентных вызовов. Частичный
+            # unique-индекс uq_remainder_per_card (миграция 0004) не даёт
+            # создать второй остаток — проигравшая гонка возвращает запись
+            # победителя вместо 500.
+            session.rollback()
+            winner = session.query(models.Transaction).filter(
+                models.Transaction.card_id == card.id,
+                models.Transaction.is_document == False
+            ).first()
+            if winner:
+                return _tx_dict(winner)
+            raise
         session.refresh(new_tx)
         # Версионирование
         from versioning import save_version as _save_version
@@ -104,10 +116,6 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.is_document == False)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.is_document == False)
-
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
         ).limit(REGISTRY_HARD_LIMIT).all()
@@ -208,9 +216,6 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.is_document == True)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.is_document == True)
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.date.desc()
         ).limit(REGISTRY_HARD_LIMIT).all()
@@ -229,9 +234,6 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
         original = query.first()
         if not original:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
@@ -265,9 +267,6 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
         tx = query.first()
         if not tx:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
@@ -377,9 +376,6 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
         tx = query.first()
         if not tx:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
@@ -412,8 +408,6 @@ def card_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -447,8 +441,6 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -538,9 +530,6 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -662,8 +651,6 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -716,9 +703,6 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         rows = session.query(models.Transaction).filter(
             models.Transaction.card_id == card_id
         ).all()
@@ -765,9 +749,6 @@ def sync_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -807,9 +788,6 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         def _norm(v):
             return "".join(ch for ch in (v or "") if ch.isdigit())
 

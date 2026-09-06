@@ -613,7 +613,7 @@
                                     <option value="send_email">Отправить email</option>
                                     <option value="http_request">HTTP-запрос</option>
                                 </select>
-                                <input type="text" id="sst-config" placeholder="Параметры (JSON)" class="input-settings">
+                                <input type="text" id="sst-config" placeholder="Параметры (JSON)" aria-label="Параметры шага (JSON)" class="input-settings">
                                 <button class="btn btn-primary btn-sm" data-handler="SettingsUI.addStep">Добавить</button>
                             </div>
                             <div id="sst-container"></div>
@@ -879,7 +879,7 @@
                     </div>
                     <div id="task-checklist-items"></div>
                     <div class="task-checklist-add">
-                        <input type="text" id="task-checklist-input" placeholder="Новый пункт подзадачи..." maxlength="255">
+                        <input type="text" id="task-checklist-input" placeholder="Новый пункт подзадачи..." aria-label="Новый пункт подзадачи" maxlength="255">
                         <button type="button" class="btn-secondary btn-sm" id="task-checklist-add-btn">Добавить</button>
                     </div>
                 </div>
@@ -896,7 +896,7 @@
     <script defer src="js/api.js?v=0eea5fdde0"></script>
     <script defer src="js/features.js?v=3b6db604ef"></script>
     <script defer src="js/auth.js?v=f03e2276b8"></script>
-    <script defer src="js/kanban.js?v=eafc7c73ed"></script>
+    <script defer src="js/kanban.js?v=3778b78897"></script>
     <script defer src="js/tasks.js?v=65f64bcaa6"></script>
     <script defer src="js/notifications.js?v=8494223614"></script>
     <script defer src="js/card_modal.js?v=ef542b41e1"></script>
