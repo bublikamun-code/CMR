@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import IntegrityError
 
 import models
 import models_tenant
@@ -56,6 +57,17 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error: {exc}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "Внутренняя ошибка сервера"})
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    # Н8 (аудит 06.09): нарушение констрейнтов БД (уникальность/связи) раньше
+    # уходило в общий 500 без объяснений. Наружу — читаемый 409; детали в лог.
+    logger.error(f"IntegrityError on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Действие конфликтует с существующими данными (дубликат или нарушена связь). Изменения не сохранены."},
+    )
 
 # CORS: the app is served same-origin, so this list only needs the hosts the
 # UI is actually reached by. Override with CRM_CORS_ORIGINS when the domain
@@ -121,17 +133,11 @@ def serve_frontend():
 def serve_admin():
     return FileResponse("admin.html")
 
-@app.get("/custom_objects.html")
-def serve_custom_objects():
-    return FileResponse("custom_objects.html")
-
-@app.get("/workflows.html")
-def serve_workflows():
-    return FileResponse("workflows.html")
-
-@app.get("/settings.html")
-def serve_settings():
-    return FileResponse("settings.html")
+# У1 (решение владельца, 06.09): страницы-сироты settings.html /
+# workflows.html / custom_objects.html удалены — их функционал полностью
+# покрывают вкладки «Настройки» внутри index.html. Отдельные роуты и файлы
+# больше не нужны (страница воркфлоу вдобавок описывала несуществующий
+# движок — Н20; сам CRUD воркфлоу в API и вкладке «Настройки» сохранён).
 
 @app.get("/api/version")
 def get_version():

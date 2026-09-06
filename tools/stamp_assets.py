@@ -27,8 +27,10 @@ SITE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "site")
 SITE = os.path.normpath(SITE)
 
 # В каких файлах искать ссылки на статику.
-HTML_FILES = ["index.html", "admin.html", "settings.html",
-              "workflows.html", "custom_objects.html"]
+# В каких файлах искать ссылки на статику.
+# (settings/workflows/custom_objects.html удалены 06.09 — страницы-сироты,
+# функционал покрывают вкладки index.html; У1 аудита 06.09)
+HTML_FILES = ["index.html", "admin.html"]
 
 # src="js/foo.js?v=..." или href="css/style.css?v=..."
 ASSET_RE = re.compile(

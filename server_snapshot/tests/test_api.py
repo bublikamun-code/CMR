@@ -163,6 +163,21 @@ def test_trigger_from_card_returns_existing_under_unique_index(superadmin_client
     assert len(txs) == 1
 
 
+# --- Н8 (глобальный обработчик IntegrityError) --------------------------
+
+def test_integrity_error_handler_returns_409():
+    import asyncio
+    from types import SimpleNamespace
+    from main import integrity_error_handler
+    from sqlalchemy.exc import IntegrityError
+
+    request = SimpleNamespace(url=SimpleNamespace(path="/tags"))
+    exc = IntegrityError("INSERT INTO tags ...", {}, Exception("UNIQUE constraint failed: tags.name"))
+    response = asyncio.run(integrity_error_handler(request, exc))
+    assert response.status_code == 409
+    assert "конфликт" in response.body.decode().lower()
+
+
 # --- Просрочки сделок (фидбек 06.09: «На списание» — сделка выписана) --
 
 def test_sync_overdue_skips_cards_in_writeoff(admin_client):

@@ -272,7 +272,9 @@ function renderDashboard() {
     }
 
     // График продаж по месяцам
-    setTimeout(() => renderMonthlyChart(cards), 100);
+    // Ф9 (аудит 06.09): Chart.js (205КБ) грузится лениво — только когда
+    // дашборду реально нужен график, а не при каждом открытии приложения.
+    ensureChartLib().then(() => setTimeout(() => renderMonthlyChart(cards), 100));
 
     // Активировать reveal-анимации для свежесозданных элементов
     if (typeof window.revealRefresh === 'function') window.revealRefresh();
@@ -373,6 +375,23 @@ function renderMonthlyChart(cards) {
     });
 }
 
+// Ф9 (аудит 06.09): ленивая загрузка Chart.js — подключает вендора один раз
+// по первому требованию (вендорский файл не меняется, ?v= не нужен).
+var _chartLibPromise = null;
+function ensureChartLib() {
+    if (window.Chart) return Promise.resolve();
+    if (!_chartLibPromise) {
+        _chartLibPromise = new Promise(function (resolve, reject) {
+            var s = document.createElement('script');
+            s.src = 'js/vendor/chart.umd.min.js';
+            s.onload = function () { resolve(); };
+            s.onerror = function () { _chartLibPromise = null; reject(new Error('Chart.js не загрузился')); };
+            document.head.appendChild(s);
+        });
+    }
+    return _chartLibPromise;
+}
+
 // UI Audit (2026-08-09, C.3): при смене темы перерендер графика с новыми цветами.
 // Хранить последние cards глобально, чтобы перерендерить без повторной загрузки.
 let _lastCards = null;
@@ -384,6 +403,6 @@ renderMonthlyChart = function(cards) {
 document.addEventListener('crm:theme-changed', () => {
     if (_lastCards) {
         // Даём CSS-переменным время примениться прежде, чем мы их читаем
-        setTimeout(() => _origRender(_lastCards), 50);
+        ensureChartLib().then(() => setTimeout(() => _origRender(_lastCards), 50));
     }
 });

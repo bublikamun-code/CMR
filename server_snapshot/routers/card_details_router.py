@@ -369,6 +369,10 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
                     store_location=card.store_location, card_id=card.id,
                 ))
         if 'store_location' in card_update.model_fields_set:
+            # Н4 (решение владельца, 06.09): правило «склад сделки единый» —
+            # СОЗНАТЕЛЬНОЕ. Смена склада сделки синхронно обновляет склад у
+            # всех её транзакций, включая выписанные накладные: сделка
+            # ведётся с одного склада. Вопросы оплат от склада не зависят.
             card.store_location = card_update.store_location
             for tx in card.transactions:
                 tx.store_location = card_update.store_location

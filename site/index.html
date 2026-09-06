@@ -28,7 +28,7 @@
 .sidebar-footer { padding: 20px; }
 .nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
 </style>
-    <link rel="stylesheet" href="css/style.css?v=870e172b98">
+    <link rel="stylesheet" href="css/style.css?v=924acfa444">
     <link rel="stylesheet" href="css/liquid-glass.css?v=704369191d">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1f2937">
@@ -907,7 +907,7 @@
     <script defer src="js/contacts.js?v=f3ff5b3c89"></script>
     <script defer src="js/clients.js?v=cccc897731"></script>
     <script defer src="js/suppliers.js?v=42396bfb46"></script>
-    <script defer src="js/dashboard.js?v=082d3a2007"></script>
+    <script defer src="js/dashboard.js?v=77b86a93b1"></script>
     <script defer src="js/email_parser.js?v=77dc60c7d5"></script>
     <script defer src="js/page-freshness.js?v=b4408b42ee"></script>
     <script defer src="js/realtime.js?v=e073f8333d"></script>
@@ -916,9 +916,10 @@
     <script defer src="js/ui-polish.js?v=7b803c455b"></script>
     <script defer src="js/reveal.js?v=559fd1b3f1"></script>
     <script defer src="js/handlers.js?v=094c93cb27"></script>
-    <!-- Chart.js размещён локально: внешний CDN был единой точкой отказа для
-         дашборда и мог подменить код, имеющий доступ к токену сессии. -->
-    <script defer src="js/vendor/chart.umd.min.js?v=dc3b8d9901"></script>
+    <!-- Chart.js (вендор) НЕ грузится здесь: dashboard.js подключает его
+         лениво при первом открытии Дашборда (Ф9, аудиторская оценка 06.09).
+         Файл локальный: внешний CDN был единой точкой отказа для дашборда
+         и мог подменить код, имеющий доступ к токену сессии. -->
 
     <div id="client-cards-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="client-cards-title">
         <div class="modal-content">
