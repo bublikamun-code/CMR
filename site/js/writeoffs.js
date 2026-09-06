@@ -396,6 +396,10 @@ function renderWriteoffsBoard() {
             });
 
             if (!isDone) {
+                // Фидбек 2026-09-06: кнопки действий плитки появляются при
+                // наведении/фокусе (как панель переноса на канбане)
+                const actions = document.createElement('div');
+                actions.className = 'writeoff-tile-actions';
                 const btn = document.createElement('button');
                 if (pendingInvoiceTx) {
                     btn.className = 'btn-writeoff';
@@ -416,7 +420,7 @@ function renderWriteoffsBoard() {
                         openCardModal(card.id);
                     };
                 }
-                cardEl.appendChild(btn);
+                actions.appendChild(btn);
 
                 // P3-A: «Прикрепить сделку» — общая накладная на 2+ счета.
                 // Кандидаты: тот же клиент + тот же склад, статус Сборка/На
@@ -430,7 +434,8 @@ function renderWriteoffsBoard() {
                     e.stopPropagation();
                     openAttachPicker(card);
                 };
-                cardEl.appendChild(attach);
+                actions.appendChild(attach);
+                cardEl.appendChild(actions);
             }
 
             cardEl.addEventListener('dragstart', (e) => {
@@ -522,6 +527,9 @@ function renderGroupTile(group) {
     `;
 
     if (!group.written_off) {
+        // Фидбек 2026-09-06: кнопки группы — в той же всплывающей панели
+        const actions = document.createElement('div');
+        actions.className = 'writeoff-tile-actions';
         const btn = document.createElement('button');
         btn.className = 'btn-secondary';
         btn.innerHTML = `${ICON_FILE} Выписать накладную`;
@@ -544,7 +552,7 @@ function renderGroupTile(group) {
                 showToast('Ошибка: ' + err.message, 'error');
             }
         };
-        el.appendChild(btn);
+        actions.appendChild(btn);
 
         // P3-A: прикрепить ещё одну сделку к группе (ещё один счёт под
         // той же накладной). Работает, пока группа не закрыта.
@@ -557,7 +565,8 @@ function renderGroupTile(group) {
             e.stopPropagation();
             openAttachPicker(null, group);
         };
-        el.appendChild(addBtn);
+        actions.appendChild(addBtn);
+        el.appendChild(actions);
     }
 
     el.onclick = (e) => {

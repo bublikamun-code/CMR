@@ -13512,6 +13512,25 @@ textarea {
     grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
 }
 
+/* Фидбек 2026-09-06: кнопки действий на плитках «Списания» (Выписать
+   накладную / Списать / Прикрепить сделку) появляются при наведении или
+   фокусе с клавиатуры — как панель переноса на канбане. Место под кнопки
+   зарезервировано (opacity, а не display), поэтому высота плиток не прыгает;
+   на тач-устройствах (hover: none) кнопки видны всегда. */
+.writeoff-tile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.writeoff-card:hover .writeoff-tile-actions,
+.writeoff-card:focus-within .writeoff-tile-actions { opacity: 1; }
+@media (hover: none) {
+    .writeoff-tile-actions { opacity: 1; }
+}
+
 /* ==========================================================
    РАУНД 2026-09-04 (глубокая ночь): прикрепление сделок к одной
    накладной + вкладка «Контроль» (дебиторка, очередь на списание).
