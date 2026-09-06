@@ -9,11 +9,12 @@ import base64
 from pathlib import Path
 from email.header import decode_header, make_header
 from email.utils import collapse_rfc2231_value
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from typing import Optional, List
 from pydantic import BaseModel
+from limiter_config import limiter
 try:
     from cryptography.fernet import Fernet, InvalidToken
     _fernet_available = True
@@ -481,13 +482,16 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         }
 
     except imaplib.IMAP4.error as e:
+        # FIX 2026-09-06 (аудит С7): текст исключения почтового сервера раньше
+        # уходил клиенту в detail (там бывают имя хоста и данные сессии) —
+        # наружу только обобщённая формулировка, детали в логе выше.
         logger.error(f"IMAP error for tenant {tenant_id}: {e}")
-        return {"tenant_id": tenant_id, "success": False, "error": f"Ошибка авторизации на почтовом сервере: {e}", "count": 0}
+        return {"tenant_id": tenant_id, "success": False, "error": "Ошибка авторизации на почтовом сервере: проверьте логин и пароль ящика", "count": 0}
     except TimeoutError:
         return {"tenant_id": tenant_id, "success": False, "error": "Превышено время ожидания при подключении к почте", "count": 0}
     except Exception as e:
         logger.error(f"Email sync error for tenant {tenant_id}: {type(e).__name__}: {e}")
-        return {"tenant_id": tenant_id, "success": False, "error": f"Ошибка подключения к почте: {e}", "count": 0}
+        return {"tenant_id": tenant_id, "success": False, "error": "Ошибка подключения к почтовому серверу", "count": 0}
     finally:
         # FIX 2026-09-06 (аудит): logout был только на успехе — при ошибке
         # посреди выборки соединение с IMAP оставалось висеть до таймаута.
@@ -499,7 +503,11 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
 
 
 @router.post("/sync")
-def sync_emails(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+# FIX 2026-09-06 (аудит С3): синк ходит на внешний IMAP и может зваться
+# многократно подряд из UI — ограничиваем. За nginx должен быть включён
+# proxy-headers, иначе лимит общий на всех (см. P0-HTTPS).
+@limiter.limit("5/minute")
+def sync_emails(request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)
     email_addr = settings.get("email")

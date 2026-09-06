@@ -2,7 +2,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 import models
@@ -10,6 +10,7 @@ import schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
 from db_utils import resolve_tenant_db as _db
+from limiter_config import limiter
 
 router = APIRouter(
     tags=["Детали карточки (Чек-листы и Файлы)"],
@@ -173,8 +174,12 @@ def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), curr
         if tdb is not db:
             tdb.close()
 
+# FIX 2026-09-06 (аудит С3): загрузки — тяжёлые операции (стриминг до 25 МБ)
+# и вектор записи мусора в uploads; лимит на оба upload-эндпоинта.
+# За nginx должен быть включён proxy-headers, иначе лимит общий на всех.
 @router.post("/checklists/{checklist_id}/invoice", response_model=schemas.ChecklistResponse)
-def upload_checklist_invoice(checklist_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+@limiter.limit("30/minute")
+def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         session = tdb
@@ -278,7 +283,8 @@ def _validate_upload_content(file, ext: str):
 
 
 @router.post("/cards/{card_id}/attachments", response_model=schemas.AttachmentResponse)
-def upload_file(card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+@limiter.limit("30/minute")
+def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         session = tdb

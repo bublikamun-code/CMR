@@ -39,7 +39,13 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Снабжение и Продажи API",
     description="Бэкенд для Канбан-доски, учета оплат и списаний",
-    version=__version__
+    version=__version__,
+    # FIX 2026-09-06 (аудит С6): интерактивная карта API (/docs, /redoc,
+    # /openapi.json) публично раскрывала структуру всех эндпоинтов. Данных она
+    # не отдавала, но незачем рисовать атакующему схему — выключаем.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 app.state.limiter = limiter
@@ -151,9 +157,13 @@ async def add_headers(request: Request, call_next):
     # только Google Fonts. frame-ancestors дублирует X-Frame-Options.
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # FIX 2026-09-06 (аудит С5): 'unsafe-inline' убран из script-src — все
+    # инлайн-скрипты и onclick перенесены в внешние файлы (js/boot.js,
+    # js/handlers.js, *-page.js). style-src сохраняет 'unsafe-inline':
+    # разметка опирается на атрибуты style="…", их перенос — не задача CSP.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' data: https:; "

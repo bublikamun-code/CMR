@@ -62,7 +62,12 @@ def list_users(db: Session = Depends(get_db), current_user: models.User = Depend
 
 
 @router.put("/me/password")
-def change_own_password(data: schemas.PasswordChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+# FIX 2026-09-06 (аудит С3): здесь проверяется СТАРЫЙ пароль — без лимита
+# эндпоинт годится для брутфорса чужого аккаунта при оставшейся открытой
+# сессии/украденной куке. Ключ — IP; за nginx должен быть включён
+# proxy-headers, иначе лимит станет общим на всех (см. P0-HTTPS).
+@limiter.limit("5/minute")
+def change_own_password(request: Request, data: schemas.PasswordChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     """Самостоятельная смена пароля: старый проверяется, после смены
     все прежние токены пользователя умирают (claim pv)."""
     if not auth.verify_password(data.old_password, current_user.hashed_password):
