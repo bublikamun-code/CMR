@@ -94,12 +94,12 @@
 
         let html = `
             <div class="calendar-toolbar">
-                <button class="btn btn-secondary" onclick="CalendarView.prevMonth()"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Назад</button>
+                <button class="btn btn-secondary" data-handler="CalendarView.prevMonth"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Назад</button>
                 <div class="calendar-title">
                     <h2>${MONTHS[month]} ${year}</h2>
-                    <button class="btn btn-sm btn-secondary" onclick="CalendarView.today()">Сегодня</button>
+                    <button class="btn btn-sm btn-secondary" data-handler="CalendarView.today">Сегодня</button>
                 </div>
-                <button class="btn btn-secondary" onclick="CalendarView.nextMonth()">Вперёд <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
+                <button class="btn btn-secondary" data-handler="CalendarView.nextMonth">Вперёд <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
             </div>
             <div class="calendar-legend">
                 <span class="calendar-legend-item"><span class="calendar-dot" style="background:${TYPE_DEAL.color}"></span>${TYPE_DEAL.label}</span>
@@ -130,11 +130,11 @@
                     ${visible.map(e => `
                         <div class="calendar-chip" style="--chip-color:${e.type.color};--chip-bg:${e.type.bg};"
                              title="${escapeHtml(e.title)}${e.status ? ' (' + escapeHtml(e.status) + ')' : ''}${e.amount ? ' — ' + formatMoneyBYN(e.amount) : ''}"
-                             onclick="CalendarView.openEvent(${e.cardId || 0})">
+                             data-handler="CalendarView.openEvent" data-arg="${e.cardId || 0}">
                             ${escapeHtml(e.title)}
                         </div>
                     `).join('')}
-                    ${more > 0 ? `<div class="calendar-chip calendar-chip-more" onclick="CalendarView.showDayEvents(${year}, ${month}, ${day})">ещё ${more}</div>` : ''}
+                    ${more > 0 ? `<div class="calendar-chip calendar-chip-more" data-handler="CalendarView.showDayEvents" data-args="${year},${month},${day}">ещё ${more}</div>` : ''}
                 </div>
             </div>`;
         }
@@ -161,7 +161,7 @@
         const d = new Date(year, month, day);
         const title = `События ${d.toLocaleDateString('ru-RU')}`;
         const rows = events.map(e => `
-            <tr style="cursor:pointer" onclick="CalendarView.openEvent(${e.cardId || 0}); document.getElementById('day-events-modal')?.classList.add('hidden')">
+            <tr style="cursor:pointer" data-handler="CalendarView.openEventFromDay" data-arg="${e.cardId || 0}">
                 <td><span class="calendar-dot" style="background:${e.type.color};margin-right:6px;"></span>${escapeHtml(e.type.label)}</td>
                 <td>${escapeHtml(e.title)}</td>
                 <td class="tabular-nums">${e.amount ? formatMoneyBYN(e.amount) : '—'}</td>
@@ -177,7 +177,7 @@
         }
         modal.innerHTML = `
             <div class="modal-content" style="max-width:520px;">
-                <button class="close-btn" onclick="document.getElementById('day-events-modal').classList.add('hidden')">${ICON_CROSS}</button>
+                <button class="close-btn" data-handler="CalendarView.hideDayEvents">${ICON_CROSS}</button>
                 <h3>${title}</h3>
                 <table class="data-table" style="margin-top:12px;"><thead><tr><th>Тип</th><th>Событие</th><th>Сумма</th></tr></thead><tbody>${rows}</tbody></table>
             </div>
@@ -204,6 +204,15 @@
         },
         openEvent(id) {
             if (id && typeof openCardModal === 'function') openCardModal(id);
+        },
+        // Открытие события из модалки «События дня»: сначала закрыть её
+        // (бывший второй statement в inline-onclick, запрещённом CSP).
+        openEventFromDay(id) {
+            document.getElementById('day-events-modal')?.classList.add('hidden');
+            this.openEvent(id);
+        },
+        hideDayEvents() {
+            document.getElementById('day-events-modal')?.classList.add('hidden');
         },
         showDayEvents
     };

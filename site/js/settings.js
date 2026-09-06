@@ -22,8 +22,11 @@
         switchTab(tab) {
             document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
-            const tabs = {objects:1,workflows:2,email:3,webhooks:4,profile:5};
-            document.querySelector(`.settings-tab:nth-child(${tabs[tab]||1})`).classList.add('active');
+            // Активный класс — строго по data-tab: голый .settings-tab:nth-child(N)
+            // цеплял чипы статусов задач, у которых тот же класс (они стоят
+            // в DOM раньше настроек), и вкладка не подсвечивалась.
+            const btn = document.querySelector(`.settings-tab[data-tab="${tab}"]`);
+            if (btn) btn.classList.add('active');
             document.getElementById('stab-' + tab).classList.add('active');
             if (tab === 'objects') this.loadObjs();
             if (tab === 'workflows') this.loadWfs();
@@ -95,7 +98,11 @@
                 objs.forEach(o => {
                     const d = document.createElement('div'); d.className = 'list-item';
                     d.innerHTML = `<div class="list-item-info"><strong>${escapeHtml(o.label)}</strong><span class="text-muted-sm">${escapeHtml(o.name)}</span></div>
-                    <div class="list-item-actions"><button class="btn btn-secondary btn-sm" onclick="SettingsUI.openObj(${o.id})">Открыть</button><button class="btn btn-danger btn-sm" onclick="SettingsUI.delObj(${o.id},'${escapeHtml(o.name).replace(/'/g,"\\'")}')">Удалить</button></div>`;
+                    <div class="list-item-actions"><button class="btn btn-secondary btn-sm obj-open-btn">Открыть</button><button class="btn btn-danger btn-sm obj-del-btn">Удалить</button></div>`;
+                    // Два аргумента (id + имя) — замыканием вместо inline-onclick
+                    // (CSP) и хрупкого экранирования кавычек в имени.
+                    d.querySelector('.obj-open-btn').addEventListener('click', () => SettingsUI.openObj(o.id));
+                    d.querySelector('.obj-del-btn').addEventListener('click', () => SettingsUI.delObj(o.id, o.name));
                     c.appendChild(d);
                 });
             } catch(e) { console.error(e); }
@@ -122,7 +129,7 @@
             const c = document.getElementById('sfields-container'); c.innerHTML = '';
             curFields.forEach(f => {
                 const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<span><b>${escapeHtml(f.label)}</b> <span class="text-muted-sm">(${escapeHtml(f.name)}, ${f.field_type})</span></span><button class="btn btn-danger btn-sm" onclick="SettingsUI.delField(${f.id})">Удалить</button>`;
+                d.innerHTML = `<span><b>${escapeHtml(f.label)}</b> <span class="text-muted-sm">(${escapeHtml(f.name)}, ${f.field_type})</span></span><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delField" data-arg="${f.id}">Удалить</button>`;
                 c.appendChild(d);
             });
         },
@@ -172,7 +179,7 @@
                     }
                     h += `<td>${d}</td>`;
                 });
-                h += `<td><button class="btn btn-danger btn-sm" onclick="SettingsUI.delRec(${r.id})" title="Удалить">${ICON_CROSS}</button></td></tr>`;
+                h += `<td><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delRec" data-arg="${r.id}" title="Удалить">${ICON_CROSS}</button></td></tr>`;
             });
             h += '</tbody></table>';
             c.innerHTML = h;
@@ -190,7 +197,7 @@
                     else i = `<input type="text" id="srf-${inp.id}">`;
                     f.innerHTML += `<div class="form-group-sm"><label class="form-label-sm">${escapeHtml(inp.label)}</label>${i}</div>`;
                 });
-                f.innerHTML += '<button class="btn btn-primary" onclick="SettingsUI.createRec()" style="margin-top:8px;">Создать</button>';
+                f.innerHTML += '<button class="btn btn-primary" data-handler="SettingsUI.createRec" style="margin-top:8px;">Создать</button>';
             }
         },
         async createRec() {
@@ -227,7 +234,7 @@
                 wfs.forEach(w => {
                     const d = document.createElement('div'); d.className = 'list-item';
                     d.innerHTML = `<div class="list-item-info"><strong>${escapeHtml(w.name)}</strong><span class="text-muted-sm">${escapeHtml(w.description||'')}</span></div>
-                    <div class="list-item-actions"><span class="wf-badge ${w.is_active?'wf-active':'wf-inactive'}">${w.is_active?'Активен':'Выкл'}</span><button class="btn btn-secondary btn-sm" onclick="SettingsUI.openWf(${w.id})">Открыть</button></div>`;
+                    <div class="list-item-actions"><span class="wf-badge ${w.is_active?'wf-active':'wf-inactive'}">${w.is_active?'Активен':'Выкл'}</span><button class="btn btn-secondary btn-sm" data-handler="SettingsUI.openWf" data-arg="${w.id}">Открыть</button></div>`;
                     c.appendChild(d);
                 });
             } catch(e) { console.error(e); }
@@ -265,7 +272,7 @@
             ts.forEach(t => {
                 const cfg = t.config || {};
                 const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<div class="flex-center-gap"><span style="font-size:18px;">${icons[t.trigger_type]||'?'}</span><strong>${lbl[t.trigger_type]||t.trigger_type}</strong>${cfg.object?` <span class="text-muted-sm"> — ${obj[cfg.object]||cfg.object} ${evt[cfg.event]||''}</span>`:''}</div><button class="btn btn-danger btn-sm" onclick="SettingsUI.delTrigger(${t.id})">Удалить</button>`;
+                d.innerHTML = `<div class="flex-center-gap"><span style="font-size:18px;">${icons[t.trigger_type]||'?'}</span><strong>${lbl[t.trigger_type]||t.trigger_type}</strong>${cfg.object?` <span class="text-muted-sm"> — ${obj[cfg.object]||cfg.object} ${evt[cfg.event]||''}</span>`:''}</div><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delTrigger" data-arg="${t.id}">Удалить</button>`;
                 c.appendChild(d);
             });
         },
@@ -285,7 +292,7 @@
             ss.forEach((s, i) => {
                 if (i > 0) { const conn = document.createElement('div'); conn.className='wf-connector'; conn.innerHTML=ICON_ARROW_DOWN; c.appendChild(conn); }
                 const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<div class="flex-center-gap"><span class="text-muted-sm">#${i+1}</span><span>${icons[s.action_type]||ICON_LIGHTNING} <strong>${s.step_type}</strong> — ${al[s.action_type]||s.action_type}</span></div><button class="btn btn-danger btn-sm" onclick="SettingsUI.delStep(${s.id})">Удалить</button>`;
+                d.innerHTML = `<div class="flex-center-gap"><span class="text-muted-sm">#${i+1}</span><span>${icons[s.action_type]||ICON_LIGHTNING} <strong>${s.step_type}</strong> — ${al[s.action_type]||s.action_type}</span></div><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delStep" data-arg="${s.id}">Удалить</button>`;
                 c.appendChild(d);
             });
         },
@@ -408,8 +415,8 @@
                     d.innerHTML = `<div class="list-item-info"><strong class="word-break-all">${escapeHtml(h.url)}</strong><span class="text-muted-sm">События: ${h.events.join(', ')}</span></div>
                     <div class="list-item-actions">
                         <span class="wf-badge ${h.is_active?'wf-active':'wf-inactive'}">${h.is_active?'Активен':'Выкл'}</span>
-                        <button class="btn btn-secondary btn-sm" onclick="SettingsUI.testWebhook(${h.id})">Тест</button>
-                        <button class="btn btn-danger btn-sm" onclick="SettingsUI.delWebhook(${h.id})">Удалить</button>
+                        <button class="btn btn-secondary btn-sm" data-handler="SettingsUI.testWebhook" data-arg="${h.id}">Тест</button>
+                        <button class="btn btn-danger btn-sm" data-handler="SettingsUI.delWebhook" data-arg="${h.id}">Удалить</button>
                     </div>`;
                     c.appendChild(d);
                 });

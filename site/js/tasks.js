@@ -48,7 +48,7 @@ async function loadTasks() {
         if (board) board.innerHTML = `<div class="empty-state" style="padding:32px 16px;margin:0 auto">
             <div class="empty-state-title">Ошибка загрузки задач</div>
             <div class="empty-state-desc">${escapeHtml(e.message || 'Сервер недоступен')}</div>
-            <button class="btn-secondary btn-sm" onclick="loadTasks()">Повторить</button>
+            <button class="btn-secondary btn-sm" data-handler="loadTasks">Повторить</button>
         </div>`;
     }
 }
@@ -118,12 +118,12 @@ function taskCardHtml(t) {
     const overdueCls = isTaskOverdue(t) ? ' task-card-overdue' : '';
     const doneChecked = t.status === 'done' ? 'checked' : '';
     const link = t.card_id
-        ? `<a class="task-chip task-chip-link" href="#" onclick="return TasksUI.openCard(event, ${t.card_id})" title="Открыть сделку: ${escapeHtml(t.card_title || '#' + t.card_id)}">${SVG_LINK}<span>${escapeHtml(t.card_title || '#' + t.card_id)}</span></a>`
+        ? `<a class="task-chip task-chip-link" href="#" data-handler="TasksUI.openCard" data-arg="${t.card_id}" title="Открыть сделку: ${escapeHtml(t.card_title || '#' + t.card_id)}">${SVG_LINK}<span>${escapeHtml(t.card_title || '#' + t.card_id)}</span></a>`
         : (t.client_id ? `<span class="task-chip task-chip-client" title="Клиент">${escapeHtml(t.client_name || '')}</span>` : '');
     return `<div class="task-card${doneCls}${overdueCls}" draggable="true" data-task-id="${t.id}">
         <div class="task-card-row">
             <input type="checkbox" class="task-check-circle" aria-label="Выполнена" ${doneChecked}
-                   onchange="TasksUI.toggleDone(${t.id}, this.checked)" title="Отметить выполненной">
+                   data-change="TasksUI.toggleDone" data-arg="${t.id}" data-change-checked title="Отметить выполненной">
             <div class="task-card-body">
                 <div class="task-card-title" title="${escapeHtml(t.description || '')}">${escapeHtml(t.title)}</div>
                 <div class="task-card-meta">
@@ -148,13 +148,13 @@ function taskRowHtml(t) {
     const dueStr = t.due_date ? new Date(t.due_date).toLocaleString('ru-RU',
         { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
     const linkHtml = t.card_id
-        ? `<a href="#" onclick="return TasksUI.openCard(event, ${t.card_id})">${escapeHtml(t.card_title || '#' + t.card_id)}</a>`
+        ? `<a href="#" data-handler="TasksUI.openCard" data-arg="${t.card_id}">${escapeHtml(t.card_title || '#' + t.card_id)}</a>`
         : (t.client_id ? `<span class="muted">${escapeHtml(t.client_name || '')}</span>` : '<span class="muted">—</span>');
     return `<tr data-task-id="${t.id}" class="${t.status === 'done' ? 'task-row-done' : ''}">
-        <td><input type="checkbox" aria-label="Выполнена" ${doneChecked} onchange="TasksUI.toggleDone(${t.id}, this.checked)"></td>
+        <td><input type="checkbox" aria-label="Выполнена" ${doneChecked} data-change="TasksUI.toggleDone" data-arg="${t.id}" data-change-checked></td>
         <td>
             <div class="task-title-cell" title="${escapeHtml(t.description || '')}">${escapeHtml(t.title)}</div>
-            <select class="task-status-select task-status-${t.status}" onchange="TasksUI.setStatus(${t.id}, this.value)">
+            <select class="task-status-select task-status-${t.status}" data-change="TasksUI.setStatus" data-arg="${t.id}" data-change-value>
                 <option value="todo" ${t.status === 'todo' ? 'selected' : ''}>К выполнению</option>
                 <option value="in_work" ${t.status === 'in_work' ? 'selected' : ''}>В работе</option>
                 <option value="done" ${t.status === 'done' ? 'selected' : ''}>Выполнена</option>
@@ -165,7 +165,7 @@ function taskRowHtml(t) {
         <td>${total ? `${done}/${total}` : '—'}</td>
         <td>${linkHtml}</td>
         <td><button class="btn-icon-delete" title="Удалить задачу" aria-label="Удалить"
-            onclick="TasksUI.remove(${t.id})"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></td>
+            data-handler="TasksUI.remove" data-arg="${t.id}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button></td>
     </tr>`;
 }
 
@@ -304,10 +304,10 @@ window.TasksUI = {
             showToast('Задача удалена');
         } catch (e) { showToast('Не удалось удалить: ' + e.message, 'error'); }
     },
-    openCard(evt, cardId) {
-        evt.preventDefault();
+    // Вызывается через handlers.js (делегирование): preventDefault для
+    // ссылок-«кнопок» делает само делегирование.
+    openCard(cardId) {
         openCardModal(cardId);
-        return false;
     },
 
     // --- Чек-лист в модалке ---
@@ -355,9 +355,9 @@ window.TasksUI = {
         if (progress) progress.textContent = items.length ? `${done} из ${items.length}` : '';
         box.innerHTML = items.map(i => `
             <div class="task-checklist-item ${i.is_done ? 'done' : ''}">
-                <input type="checkbox" ${i.is_done ? 'checked' : ''} onchange="TasksUI.checklistToggle(${i.id}, this.checked)">
+                <input type="checkbox" ${i.is_done ? 'checked' : ''} data-change="TasksUI.checklistToggle" data-arg="${i.id}" data-change-checked>
                 <span class="task-checklist-title">${escapeHtml(i.title)}</span>
-                <button type="button" class="task-checklist-del" title="Удалить" onclick="TasksUI.checklistDelete(${i.id})">✕</button>
+                <button type="button" class="task-checklist-del" title="Удалить" data-handler="TasksUI.checklistDelete" data-arg="${i.id}">✕</button>
             </div>`).join('');
     },
 

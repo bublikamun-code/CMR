@@ -35,17 +35,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <script>
-        (function() {
-            var theme = localStorage.getItem('crm_theme');
-            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-            if (localStorage.getItem('crm_glass') !== 'off') document.documentElement.setAttribute('data-glass', 'on');
-            var compact = localStorage.getItem('crm_compact');
-            if (compact === 'true') document.addEventListener('DOMContentLoaded', function() {
-                document.body.classList.add('compact-mode');
-            });
-        })();
-    </script>
+    <script src="js/boot.js?v=ab23ad71f2"></script>
 </head>
 <body>
     <a href="#main-content" class="skip-link">К содержимому</a>
@@ -56,7 +46,7 @@
 
     <div class="app-container">
         <aside class="sidebar" id="app-sidebar">
-            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button class="sidebar-toggle" data-handler="toggleSidebar" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
             <div class="sidebar-header">
                 <h2>CRM Система</h2>
             </div>
@@ -126,8 +116,8 @@
                     <h1 id="kanban-page-title">Воронка продаж — Доска</h1>
                     <div class="header-actions">
                         <div class="view-toggle">
-                            <button id="view-board" class="btn btn-sm view-toggle-btn active" onclick="switchKanbanView('board')"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg> Доска</button>
-                            <button id="view-list" class="btn btn-sm view-toggle-btn" onclick="switchKanbanView('list')"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg> Список</button>
+                            <button id="view-board" class="btn btn-sm view-toggle-btn active" ><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg> Доска</button>
+                            <button id="view-list" class="btn btn-sm view-toggle-btn" ><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg> Список</button>
                         </div>
                         <div class="density-toggle" id="kanban-density-toggle" title="Плотность карточек">
                             <button class="density-btn active" data-density="detailed" aria-label="Подробно"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="8" rx="1"/><rect x="3" y="15" width="18" height="6" rx="1"/></svg></button>
@@ -139,22 +129,22 @@
                         <button id="btn-export-csv" class="btn-secondary" title="Экспорт CSV"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> CSV</button>
                     </div>
                 </header>
-                <button class="filter-toggle" onclick="toggleFilters()"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg> Фильтры <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
+                <button class="filter-toggle" data-handler="toggleFilters"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg> Фильтры <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
                 <div class="filter-bar" id="kanban-filters">
                     <span class="filter-label">Фильтры:</span>
-                    <select id="filter-store" aria-label="Магазин" onchange="applyKanbanFilters()">
+                    <select id="filter-store" aria-label="Магазин">
                         <option value="">Все магазины</option>
                     </select>
-                    <input type="number" id="filter-amount-min" aria-label="Сумма от" placeholder="Сумма от" style="width:100px;" onchange="applyKanbanFilters()">
-                    <input type="number" id="filter-amount-max" aria-label="Сумма до" placeholder="Сумма до" style="width:100px;" onchange="applyKanbanFilters()">
-                    <input type="text" id="filter-client" aria-label="Клиент" placeholder="Клиент" style="width:120px;" onchange="applyKanbanFilters()">
-                    <select id="filter-priority" aria-label="Приоритет" onchange="applyKanbanFilters()">
+                    <input type="number" id="filter-amount-min" aria-label="Сумма от" placeholder="Сумма от" style="width:100px;">
+                    <input type="number" id="filter-amount-max" aria-label="Сумма до" placeholder="Сумма до" style="width:100px;">
+                    <input type="text" id="filter-client" aria-label="Клиент" placeholder="Клиент" style="width:120px;">
+                    <select id="filter-priority" aria-label="Приоритет">
                         <option value="">Все приоритеты</option>
                         <option value="3">Высокий</option>
                         <option value="2">Средний</option>
                         <option value="1">Низкий</option>
                     </select>
-                    <button class="filter-reset" onclick="resetKanbanFilters()">Сбросить</button>
+                    <button class="filter-reset" data-handler="resetKanbanFilters">Сбросить</button>
                 </div>
                 <div class="kanban-board" id="kanban-board">
                 </div>
@@ -483,11 +473,11 @@
                 </header>
 
                 <div class="settings-tabs" id="settings-tabs">
-                    <button class="settings-tab active" data-admin-only onclick="SettingsUI.switchTab('objects')">Кастомные объекты</button>
-                    <button class="settings-tab" data-admin-only onclick="SettingsUI.switchTab('workflows')">Воркфлоу</button>
-                    <button class="settings-tab" onclick="SettingsUI.switchTab('email')">Почта</button>
-                    <button class="settings-tab" data-admin-only onclick="SettingsUI.switchTab('webhooks')">Webhooks</button>
-                    <button class="settings-tab" onclick="SettingsUI.switchTab('profile')">Профиль</button>
+                    <button class="settings-tab active" data-admin-only data-tab="objects">Кастомные объекты</button>
+                    <button class="settings-tab" data-admin-only data-tab="workflows">Воркфлоу</button>
+                    <button class="settings-tab" data-tab="email">Почта</button>
+                    <button class="settings-tab" data-admin-only data-tab="webhooks">Webhooks</button>
+                    <button class="settings-tab" data-tab="profile">Профиль</button>
                 </div>
 
                 <!-- ПРОФИЛЬ: смена собственного пароля -->
@@ -515,7 +505,7 @@
                             <label for="profile-new-password2">Новый пароль ещё раз</label>
                             <input type="password" id="profile-new-password2" autocomplete="new-password" placeholder="••••••••">
                         </div>
-                        <button class="btn btn-primary" onclick="SettingsUI.changePassword()">
+                        <button class="btn btn-primary" data-handler="SettingsUI.changePassword">
                             <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                             Сменить пароль
                         </button>
@@ -530,13 +520,13 @@
                             <div class="settings-row">
                                 <input type="text" id="sobj-label" aria-label="Название объекта" placeholder="Название (Товар)" class="input-settings">
                                 <input type="text" id="sobj-name" aria-label="Системное имя объекта латиницей" placeholder="Имя (product)" class="input-settings">
-                                <button class="btn btn-primary" onclick="SettingsUI.createObj()">Создать</button>
+                                <button class="btn btn-primary" data-handler="SettingsUI.createObj">Создать</button>
                             </div>
                         </div>
                         <div id="sobj-container"></div>
                     </div>
                     <div id="sobj-detail" class="hidden">
-                        <button class="btn btn-secondary" onclick="SettingsUI.backObj()" style="margin-bottom:16px;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Назад</button>
+                        <button class="btn btn-secondary" data-handler="SettingsUI.backObj" style="margin-bottom:16px;"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Назад</button>
                         <h2 id="sobj-detail-title" style="margin-bottom:16px;"></h2>
                         <div class="settings-card">
                             <h3>Поля</h3>
@@ -547,14 +537,14 @@
                                     <option value="text">Текст</option><option value="number">Число</option><option value="select">Выбор</option>
                                     <option value="date">Дата</option><option value="currency">Валюта</option><option value="boolean">Да/Нет</option>
                                 </select>
-                                <button class="btn btn-primary" onclick="SettingsUI.addField()">Добавить</button>
+                                <button class="btn btn-primary" data-handler="SettingsUI.addField">Добавить</button>
                             </div>
                             <div id="sfields-container"></div>
                         </div>
                         <div class="settings-card">
                             <div class="settings-card-header">
                                 <h3>Записи</h3>
-                                <button class="btn btn-primary btn-sm" onclick="SettingsUI.showNewRec()"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Новая</button>
+                                <button class="btn btn-primary btn-sm" data-handler="SettingsUI.showNewRec"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Новая</button>
                             </div>
                             <div id="snew-rec-form" class="hidden settings-new-form"></div>
                             <div id="srecords-container"></div>
@@ -569,21 +559,21 @@
                             <h3>Создать воркфлоу</h3>
                             <div class="settings-row">
                                 <input type="text" id="swf-name" aria-label="Название воркфлоу" placeholder="Название (Уведомление о заказе)" class="input-settings input-settings--wide">
-                                <button class="btn btn-primary" onclick="SettingsUI.createWf()">Создать</button>
+                                <button class="btn btn-primary" data-handler="SettingsUI.createWf">Создать</button>
                             </div>
                         </div>
                         <div id="swf-container"></div>
                     </div>
                     <div id="swf-detail" class="hidden panel-enter">
-                        <button class="btn btn-secondary" onclick="SettingsUI.backWf()" style="margin-bottom:16px;">
+                        <button class="btn btn-secondary" data-handler="SettingsUI.backWf" style="margin-bottom:16px;">
                             <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
                             Назад
                         </button>
                         <div class="settings-card-header" style="margin-bottom:16px;">
                             <h2 id="swf-detail-title"></h2>
                             <div class="settings-card-header-actions">
-                                <button id="swf-toggle-btn" class="btn btn-success btn-sm" onclick="SettingsUI.toggleWf()">Включить</button>
-                                <button class="btn btn-danger btn-sm" onclick="SettingsUI.delWf()">Удалить</button>
+                                <button id="swf-toggle-btn" class="btn btn-success btn-sm" data-handler="SettingsUI.toggleWf">Включить</button>
+                                <button class="btn btn-danger btn-sm" data-handler="SettingsUI.delWf">Удалить</button>
                             </div>
                         </div>
                         <div class="settings-card">
@@ -605,7 +595,7 @@
                                     <option value="updated">Обновлена</option>
                                     <option value="deleted">Удалена</option>
                                 </select>
-                                <button class="btn btn-primary btn-sm" onclick="SettingsUI.addTrigger()">Добавить</button>
+                                <button class="btn btn-primary btn-sm" data-handler="SettingsUI.addTrigger">Добавить</button>
                             </div>
                             <div id="str-container"></div>
                         </div>
@@ -624,7 +614,7 @@
                                     <option value="http_request">HTTP-запрос</option>
                                 </select>
                                 <input type="text" id="sst-config" placeholder="Параметры (JSON)" class="input-settings">
-                                <button class="btn btn-primary btn-sm" onclick="SettingsUI.addStep()">Добавить</button>
+                                <button class="btn btn-primary btn-sm" data-handler="SettingsUI.addStep">Добавить</button>
                             </div>
                             <div id="sst-container"></div>
                         </div>
@@ -662,7 +652,7 @@
                                     <option value="Сборка">Сборка</option>
                                 </select>
                             </div>
-                            <button class="btn btn-primary" onclick="SettingsUI.saveEmail()">Сохранить настройки</button>
+                            <button class="btn btn-primary" data-handler="SettingsUI.saveEmail">Сохранить настройки</button>
                         </div>
                         <div class="settings-card email-sync-card">
                             <div class="email-sync-header">
@@ -684,7 +674,7 @@
                                     <span id="email-prev-sync" class="email-sync-date__value">—</span>
                                 </div>
                             </div>
-                            <button class="btn btn-primary" onclick="SettingsUI.syncEmail()">
+                            <button class="btn btn-primary" data-handler="SettingsUI.syncEmail">
                                 <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
                                 Проверить почту и импортировать
                             </button>
@@ -714,7 +704,7 @@
                                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;"><input type="checkbox" value="supplier.updated"> Поставщик обновлён</label>
                             </div>
                         </div>
-                        <button class="btn btn-primary" onclick="SettingsUI.createWebhook()">Создать</button>
+                        <button class="btn btn-primary" data-handler="SettingsUI.createWebhook">Создать</button>
                     </div>
                     <div id="webhooks-container"></div>
                 </div>
@@ -859,7 +849,7 @@
         <div class="modal-content">
             <div class="modal-header-split">
                 <h2 id="task-modal-title">Новая задача</h2>
-                <button type="button" class="close-btn" onclick="TasksUI.closeModal()" aria-label="Закрыть">✕</button>
+                <button type="button" class="close-btn" data-handler="TasksUI.closeModal" aria-label="Закрыть">✕</button>
             </div>
             <form id="task-form" autocomplete="off" novalidate>
                 <div class="settings-content form-grid-2col">
@@ -894,7 +884,7 @@
                     </div>
                 </div>
                 <div class="header-actions" style="justify-content:flex-end;margin-top:16px">
-                    <button type="button" class="btn-secondary btn-sm" onclick="TasksUI.closeModal()">Отмена</button>
+                    <button type="button" class="btn-secondary btn-sm" data-handler="TasksUI.closeModal">Отмена</button>
                     <button type="submit" class="btn-primary btn-sm" id="task-save-btn">Сохранить</button>
                 </div>
             </form>
@@ -907,7 +897,7 @@
     <script defer src="js/features.js?v=3b6db604ef"></script>
     <script defer src="js/auth.js?v=f03e2276b8"></script>
     <script defer src="js/kanban.js?v=c4a88f7594"></script>
-    <script defer src="js/tasks.js?v=d81276a6f3"></script>
+    <script defer src="js/tasks.js?v=65f64bcaa6"></script>
     <script defer src="js/notifications.js?v=8494223614"></script>
     <script defer src="js/card_modal.js?v=ef542b41e1"></script>
     <script defer src="js/payments.js?v=cde60611fb"></script>
@@ -915,16 +905,17 @@
     <script defer src="js/control.js?v=34c347ee11"></script>
     <script defer src="js/documents.js?v=689ca3b643"></script>
     <script defer src="js/contacts.js?v=f3ff5b3c89"></script>
-    <script defer src="js/clients.js?v=24bcff3a2a"></script>
-    <script defer src="js/suppliers.js?v=a05e861a6d"></script>
+    <script defer src="js/clients.js?v=cccc897731"></script>
+    <script defer src="js/suppliers.js?v=42396bfb46"></script>
     <script defer src="js/dashboard.js?v=082d3a2007"></script>
-    <script defer src="js/email_parser.js?v=0f9d6aa2cb"></script>
+    <script defer src="js/email_parser.js?v=77dc60c7d5"></script>
     <script defer src="js/page-freshness.js?v=b4408b42ee"></script>
     <script defer src="js/realtime.js?v=e073f8333d"></script>
-    <script defer src="js/settings.js?v=8ab09bb036"></script>
-    <script defer src="js/calendar.js?v=8a70084b68"></script>
+    <script defer src="js/settings.js?v=fb01b77412"></script>
+    <script defer src="js/calendar.js?v=cb77694fe2"></script>
     <script defer src="js/ui-polish.js?v=7b803c455b"></script>
     <script defer src="js/reveal.js?v=559fd1b3f1"></script>
+    <script defer src="js/handlers.js?v=094c93cb27"></script>
     <!-- Chart.js размещён локально: внешний CDN был единой точкой отказа для
          дашборда и мог подменить код, имеющий доступ к токену сессии. -->
     <script defer src="js/vendor/chart.umd.min.js?v=dc3b8d9901"></script>
@@ -944,65 +935,4 @@
         </div>
     </div>
 
-    <script>
-    // === SIDEBAR TOGGLE ===
-    function toggleSidebar() {
-        const sidebar = document.getElementById('app-sidebar');
-        const toggle = sidebar.querySelector('.sidebar-toggle');
-        sidebar.classList.toggle('collapsed');
-        const isCollapsed = sidebar.classList.contains('collapsed');
-        toggle.innerHTML = isCollapsed
-            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
-            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
-        toggle.setAttribute('aria-label', isCollapsed ? 'Развернуть меню' : 'Свернуть меню');
-        try { localStorage.setItem('crm_sidebar_collapsed', isCollapsed ? '1' : '0'); }
-        catch(e) {}
-    }
-    (function() {
-        let saved = null;
-        try { saved = localStorage.getItem('crm_sidebar_collapsed'); } catch (e) {}
-        // FIX 2026-09-03 (аудит): на узких экранах без явного выбора
-        // пользователя сайдбар свёрнут — больше места таблицам.
-        if (saved === '1' || saved === 'true' || (saved === null && window.innerWidth <= 1100)) {
-            const sidebar = document.getElementById('app-sidebar');
-            if (sidebar) {
-                sidebar.classList.add('collapsed');
-                const toggle = sidebar.querySelector('.sidebar-toggle');
-                if (toggle) {
-                    toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
-                    toggle.setAttribute('aria-label', 'Развернуть меню');
-                }
-            }
-        }
-    })();
-
-    // === BROWSER NOTIFICATIONS ===
-    function requestNotificationPermission() {
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
-    }
-    function sendBrowserNotification(title, body, icon) {
-        if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(title, { body: body, icon: icon || '/favicon.ico' });
-        }
-    }
-    // Запрашиваем разрешение при загрузке
-    document.addEventListener('DOMContentLoaded', () => {
-        setTimeout(requestNotificationPermission, 3000);
-    });
-
-    // Уведомления о новых сделках. Источник данных — периодический опрос
-    // в js/realtime.js (WebSocket не используется), событие приходит после
-    // каждой успешной загрузки доски.
-    if (window.crmOn) {
-        crmOn('kanban:loaded', (data) => {
-            const prev = parseInt(sessionStorage.getItem('kanban_card_count') || '0');
-            if (prev > 0 && data.count > prev) {
-                sendBrowserNotification('Новая сделка', 'Добавлена новая сделка на Kanban-доске');
-            }
-            sessionStorage.setItem('kanban_card_count', data.count);
-        });
-    }
-    </script>
 

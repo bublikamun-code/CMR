@@ -30,14 +30,7 @@
 </style>
     <link rel="stylesheet" href="css/style.css?v=efa0cd372b">
     <link rel="stylesheet" href="css/liquid-glass.css?v=704369191d">
-    <script>
-        // UI Audit (2026-08-09, D.1): инициализация темы до отрисовки.
-        (function() {
-            var theme = localStorage.getItem('crm_theme');
-            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-            if (localStorage.getItem('crm_glass') !== 'off') document.documentElement.setAttribute('data-glass', 'on');
-        })();
-    </script>
+    <script src="js/boot.js?v=ab23ad71f2"></script>
     <style>
         .custom-objects-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
         .custom-objects-page h1 { margin-bottom: 24px; }
@@ -56,7 +49,7 @@
 <body>
     <div class="app-container">
         <aside class="sidebar" id="app-sidebar">
-            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button class="sidebar-toggle" data-handler="toggleSidebar" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
             <div class="sidebar-header">
                 <h2>CRM Система</h2>
             </div>
@@ -101,7 +94,7 @@
                         <div class="flex-row flex-row--wrap">
                             <input type="text" id="new-object-label" placeholder="Название (например: Товар)" class="form-input-flex">
                             <input type="text" id="new-object-name" placeholder="Имя (латиницей: product)" class="form-input-flex">
-                            <button class="btn btn-primary" onclick="customObjects.createObject()">Создать</button>
+                            <button class="btn btn-primary" data-handler="customObjects.createObject">Создать</button>
                         </div>
                     </div>
 
@@ -110,7 +103,7 @@
 
                 <!-- Детали объекта -->
                 <div id="object-detail" class="hidden">
-                    <button class="btn btn-secondary back-btn" onclick="customObjects.backToList()">← Назад к списку</button>
+                    <button class="btn btn-secondary back-btn" data-handler="customObjects.backToList">← Назад к списку</button>
                     <h1 id="object-detail-title"></h1>
 
                     <div class="section-card reveal">
@@ -126,7 +119,7 @@
                                 <option value="currency">Валюта</option>
                                 <option value="boolean">Да/Нет</option>
                             </select>
-                            <button class="btn btn-primary" onclick="customObjects.createField()">Добавить</button>
+                            <button class="btn btn-primary" data-handler="customObjects.createField">Добавить</button>
                         </div>
                         <div id="fields-list"></div>
                     </div>
@@ -134,7 +127,7 @@
                     <div class="section-card reveal" style="--d:80ms">
                         <div class="flex-row flex-row--between flex-row--mb">
                             <h2 class="h-no-margin">Записи</h2>
-                            <button class="btn btn-primary btn-sm" onclick="customObjects.showNewRecordForm()">+ Новая запись</button>
+                            <button class="btn btn-primary btn-sm" data-handler="customObjects.showNewRecordForm">+ Новая запись</button>
                         </div>
                         <div id="new-record-form" class="hidden" class="bg-subtle"></div>
                         <div id="records-container"></div>
@@ -147,64 +140,9 @@
 
     <script src="js/api.js?v=f9183f34c5"></script>
     <script src="js/features.js?v=3b6db604ef"></script>
-    <script src="js/custom_objects.js?v=a0eb67a016"></script>
+    <script src="js/custom_objects.js?v=1a10f150a2"></script>
     <script defer src="js/reveal.js?v=559fd1b3f1"></script>
-    <script>
-        // UI Audit (2026-08-09, D.1): theme toggle для страницы кастомных объектов
-        document.addEventListener('DOMContentLoaded', () => {
-            const toggle = document.getElementById('theme-toggle');
-            if (!toggle) return;
-            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-            toggle.querySelector('.nav-icon').textContent = isDark ? '☾' : '☀';
-            toggle.title = isDark ? 'Светлая тема' : 'Тёмная тема';
-            toggle.addEventListener('click', () => {
-                const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-                if (dark) {
-                    document.documentElement.removeAttribute('data-theme');
-                    try { localStorage.setItem('crm_theme', 'light'); } catch(e) {}
-                    toggle.querySelector('.nav-icon').textContent = '☀';
-                    toggle.title = 'Тёмная тема';
-                } else {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                    try { localStorage.setItem('crm_theme', 'dark'); } catch(e) {}
-                    toggle.querySelector('.nav-icon').textContent = '☾';
-                    toggle.title = 'Светлая тема';
-                }
-            });
-        });
-    </script>
-    <script>
-    // === SIDEBAR TOGGLE (shared sidebar markup from index.html) ===
-    function toggleSidebar() {
-        const sidebar = document.getElementById('app-sidebar');
-        const toggle = sidebar.querySelector('.sidebar-toggle');
-        sidebar.classList.toggle('collapsed');
-        const isCollapsed = sidebar.classList.contains('collapsed');
-        toggle.innerHTML = isCollapsed
-            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
-            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
-        toggle.setAttribute('aria-label', isCollapsed ? 'Развернуть меню' : 'Свернуть меню');
-        try { localStorage.setItem('crm_sidebar_collapsed', isCollapsed ? '1' : '0'); }
-        catch(e) {}
-    }
-    (function() {
-        let saved = null;
-        try { saved = localStorage.getItem('crm_sidebar_collapsed'); } catch (e) {}
-        // FIX 2026-09-03 (аудит): на узких экранах без явного выбора
-        // пользователя сайдбар свёрнут — больше места таблицам.
-        if (saved === '1' || saved === 'true' || (saved === null && window.innerWidth <= 1100)) {
-            const sidebar = document.getElementById('app-sidebar');
-            if (sidebar) {
-                sidebar.classList.add('collapsed');
-                const toggle = sidebar.querySelector('.sidebar-toggle');
-                if (toggle) {
-                    toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
-                    toggle.setAttribute('aria-label', 'Развернуть меню');
-                }
-            }
-        }
-    })();
-    </script>
     <script defer src="js/ui-polish.js?v=7b803c455b"></script>
+    <script defer src="js/handlers.js?v=094c93cb27"></script>
 </body>
 </html>

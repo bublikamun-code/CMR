@@ -30,15 +30,7 @@
 </style>
     <link rel="stylesheet" href="css/style.css?v=efa0cd372b">
     <link rel="stylesheet" href="css/liquid-glass.css?v=704369191d">
-    <script>
-        // UI Audit (2026-08-09, D.1): инициализация темы до отрисовки.
-        // Идентично index.html — читаем localStorage и ставим data-theme.
-        (function() {
-            var theme = localStorage.getItem('crm_theme');
-            if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-            if (localStorage.getItem('crm_glass') !== 'off') document.documentElement.setAttribute('data-glass', 'on');
-        })();
-    </script>
+    <script src="js/boot.js?v=ab23ad71f2"></script>
     <style>
         .settings-page { padding: 24px; max-width: 1200px; margin: 0 auto; }
         .settings-page h1 { margin-bottom: 24px; }
@@ -74,7 +66,7 @@
 <body>
     <div class="app-container">
         <aside class="sidebar" id="app-sidebar">
-            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button class="sidebar-toggle" data-handler="toggleSidebar" title="Свернуть/развернуть меню" aria-label="Свернуть меню"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
             <div class="sidebar-header">
                 <h2>CRM Система</h2>
             </div>
@@ -131,9 +123,9 @@
                 <h1>Настройки</h1>
 
                 <div class="settings-tabs">
-                    <button class="settings-tab active" onclick="switchTab(event,'objects')">Кастомные объекты</button>
-                    <button class="settings-tab" onclick="switchTab(event,'workflows')">Воркфлоу</button>
-                    <button class="settings-tab" onclick="switchTab(event,'email')">Почта</button>
+                    <button class="settings-tab active" data-tab="objects">Кастомные объекты</button>
+                    <button class="settings-tab" data-tab="workflows">Воркфлоу</button>
+                    <button class="settings-tab" data-tab="email">Почта</button>
                 </div>
 
                 <div class="settings-content">
@@ -146,14 +138,14 @@
                                 <div class="form-row">
                                     <input type="text" id="obj-label" placeholder="Название (Товар)" class="form-input-flex">
                                     <input type="text" id="obj-name" placeholder="Имя (product)" class="form-input-flex">
-                                    <button class="btn btn-primary" onclick="ObjAPI.create()">Создать</button>
+                                    <button class="btn btn-primary" data-handler="ObjAPI.create">Создать</button>
                                 </div>
                             </div>
                             <div id="objects-container"></div>
                         </div>
 
                         <div id="obj-detail-view" class="hidden">
-                            <button class="btn btn-secondary back-btn reveal" onclick="ObjAPI.backToList()">← Назад</button>
+                            <button class="btn btn-secondary back-btn reveal" data-handler="ObjAPI.backToList">← Назад</button>
                             <h2 id="obj-detail-title" class="reveal"></h2>
                             <div class="section-card reveal">
                                 <h3>Поля</h3>
@@ -168,14 +160,14 @@
                                         <option value="currency">Валюта</option>
                                         <option value="boolean">Да/Нет</option>
                                     </select>
-                                    <button class="btn btn-primary" onclick="ObjAPI.addField()">Добавить</button>
+                                    <button class="btn btn-primary" data-handler="ObjAPI.addField">Добавить</button>
                                 </div>
                                 <div id="fields-container"></div>
                             </div>
                             <div class="section-card">
                                 <div class="flex-row flex-row--between flex-row--mb">
                                     <h3 class="h-no-margin">Записи</h3>
-                                    <button class="btn btn-primary btn-sm" onclick="ObjAPI.showNewRecord()">+ Новая запись</button>
+                                    <button class="btn btn-primary btn-sm" data-handler="ObjAPI.showNewRecord">+ Новая запись</button>
                                 </div>
                                 <div id="new-record-form" class="hidden" class="bg-subtle"></div>
                                 <div id="records-container"></div>
@@ -190,19 +182,19 @@
                                 <h2>Создать воркфлоу</h2>
                                 <div class="form-row">
                                     <input type="text" id="wf-name" placeholder="Название (Уведомление о заказе)" class="form-input-flex form-input-flex--wide">
-                                    <button class="btn btn-primary" onclick="WfAPI.create()">Создать</button>
+                                    <button class="btn btn-primary" data-handler="WfAPI.create">Создать</button>
                                 </div>
                             </div>
                             <div id="workflows-container"></div>
                         </div>
 
                         <div id="wf-detail-view" class="hidden">
-                            <button class="btn btn-secondary back-btn reveal" onclick="WfAPI.backToList()">← Назад</button>
+                            <button class="btn btn-secondary back-btn reveal" data-handler="WfAPI.backToList">← Назад</button>
                             <div class="flex-row flex-row--between flex-row--mb-lg reveal">
                                 <h2 id="wf-detail-title" class="h-no-margin"></h2>
                                 <div class="flex-row">
-                                    <button id="wf-toggle-btn" class="btn btn-success btn-sm" onclick="WfAPI.toggleActive()">Включить</button>
-                                    <button class="btn btn-danger btn-sm" onclick="WfAPI.deleteWf()">Удалить</button>
+                                    <button id="wf-toggle-btn" class="btn btn-success btn-sm" data-handler="WfAPI.toggleActive">Включить</button>
+                                    <button class="btn btn-danger btn-sm" data-handler="WfAPI.deleteWf">Удалить</button>
                                 </div>
                             </div>
                             <div class="section-card reveal">
@@ -220,7 +212,7 @@
                                     <select id="tr-event" class="form-input-flex">
                                         <option value="created">Создана</option><option value="updated">Обновлена</option><option value="deleted">Удалена</option>
                                     </select>
-                                    <button class="btn btn-primary btn-sm" onclick="WfAPI.addTrigger()">Добавить</button>
+                                    <button class="btn btn-primary btn-sm" data-handler="WfAPI.addTrigger">Добавить</button>
                                 </div>
                                 <div id="triggers-container"></div>
                             </div>
@@ -235,7 +227,7 @@
                                         <option value="send_email">Отправить email</option><option value="http_request">HTTP-запрос</option>
                                     </select>
                                     <input type="text" id="st-config" placeholder="Параметры (JSON)" class="form-input-flex">
-                                    <button class="btn btn-primary btn-sm" onclick="WfAPI.addStep()">Добавить</button>
+                                    <button class="btn btn-primary btn-sm" data-handler="WfAPI.addStep">Добавить</button>
                                 </div>
                                 <div id="steps-container"></div>
                             </div>
@@ -271,12 +263,12 @@
                                     <option value="Сборка">Сборка</option>
                                 </select>
                             </div>
-                            <button class="btn btn-primary" onclick="EmailAPI.save()">Сохранить настройки</button>
+                            <button class="btn btn-primary" data-handler="EmailAPI.save">Сохранить настройки</button>
                         </div>
                         <div class="section-card reveal" style="--d:80ms">
                             <h2>Синхронизация</h2>
                             <div id="email-status"><p>Статус: <span id="email-status-text">—</span></p></div>
-                            <button class="btn btn-primary" onclick="EmailAPI.sync()" style="margin-top:12px">Проверить почту и импортировать</button>
+                            <button class="btn btn-primary" data-handler="EmailAPI.sync" style="margin-top:12px">Проверить почту и импортировать</button>
                             <div id="email-results" style="margin-top:16px;"></div>
                         </div>
                     </div>
@@ -289,174 +281,8 @@
     <script src="js/api.js?v=f9183f34c5"></script>
     <script src="js/features.js?v=3b6db604ef"></script>
     <script defer src="js/reveal.js?v=559fd1b3f1"></script>
-    <script>
-    // === ТАБЫ ===
-    function switchTab(e, tab) {
-        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
-        e.currentTarget.classList.add('active');
-        document.getElementById('tab-' + tab).classList.add('active');
-    }
-
-    // === ОБЪЕКТЫ ===
-    let curObj = null, curFields = [], curRecords = [];
-    const ObjAPI = {
-        async load() {
-            const objs = await apiFetch('/custom/objects');
-            const c = document.getElementById('objects-container');
-            c.innerHTML = objs.length === 0 ? '<p class="empty-state">Нет объектов</p>' : '';
-            objs.forEach(o => {
-                const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<div class="list-item-info"><strong>${escapeHtml(o.label)}</strong><span class="text-muted-sm">${escapeHtml(o.name)}</span></div>
-                <div class="list-item-actions"><button class="btn btn-secondary btn-sm" onclick="ObjAPI.open(${o.id})">Открыть</button><button class="btn btn-danger btn-sm" onclick="ObjAPI.del(${o.id},'${escapeHtml(o.name)}')">Удалить</button></div>`;
-                c.appendChild(d);
-            });
-        },
-        async create() {
-            const label = document.getElementById('obj-label').value.trim();
-            const name = document.getElementById('obj-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'_');
-            if (!label || !name) { showToast('Заполните все поля','error'); return; }
-            await apiFetch('/custom/objects', { method:'POST', body:JSON.stringify({name,label}) });
-            document.getElementById('obj-label').value=''; document.getElementById('obj-name').value='';
-            showToast('Создано','success'); await this.load();
-        },
-        async del(id, name) { if (!confirm(`Удалить "${name}"?`)) return; await apiFetch(`/custom/objects/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.load(); },
-        async open(id) {
-            const objs = await apiFetch('/custom/objects'); curObj = objs.find(o=>o.id===id);
-            document.getElementById('obj-list-view').classList.add('hidden');
-            document.getElementById('obj-detail-view').classList.remove('hidden');
-            document.getElementById('obj-detail-title').textContent = curObj.label;
-            await this.loadFields(); await this.loadRecords();
-        },
-        backToList() { curObj=null; document.getElementById('obj-list-view').classList.remove('hidden'); document.getElementById('obj-detail-view').classList.add('hidden'); },
-        async loadFields() { curFields = await apiFetch(`/custom/objects/${curObj.id}/fields`); const c=document.getElementById('fields-container'); c.innerHTML=''; curFields.forEach(f=>{const d=document.createElement('div');d.className='list-item';d.innerHTML=`<span><b>${escapeHtml(f.label)}</b> <span class="text-muted-sm">(${escapeHtml(f.name)}, ${f.field_type})</span></span><button class="btn btn-danger btn-sm" onclick="ObjAPI.delField(${f.id})">Удалить</button>`;c.appendChild(d);}); },
-        async addField() { const label=document.getElementById('field-label').value.trim(),name=document.getElementById('field-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'_'),type=document.getElementById('field-type').value; if(!label||!name){showToast('Заполните все поля','error');return;} await apiFetch(`/custom/objects/${curObj.id}/fields`,{method:'POST',body:JSON.stringify({name,label,field_type:type,position:curFields.length})}); document.getElementById('field-label').value='';document.getElementById('field-name').value='';showToast('Поле добавлено','success');await this.loadFields(); },
-        async delField(id) { if(!confirm('Удалить поле?'))return; await apiFetch(`/custom/fields/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.loadFields(); },
-        async loadRecords() { curRecords = await apiFetch(`/custom/objects/${curObj.id}/records`); const c=document.getElementById('records-container'); if(curFields.length===0){c.innerHTML='<p class="empty-state">Добавьте поля</p>';return;} if(curRecords.length===0){c.innerHTML='<p class="empty-state">Нет записей</p>';return;} let h='<table style="width:100%;border-collapse:collapse;"><thead><tr>';curFields.forEach(f=>{h+=`<th style="padding:8px;text-align:left;border-bottom:2px solid var(--border-color);font-size:13px;color:var(--text-muted);">${escapeHtml(f.label)}</th>`;});h+='<th style="padding:8px;"></th></tr></thead><tbody>';curRecords.forEach(r=>{h+='<tr>';curFields.forEach(f=>{const v=r.data[f.name];let d='';if(v!==undefined&&v!==null){if(f.field_type==='boolean')d=`<span class=\"boolean-icon\">${v?'✓':'✕'}</span>`;else if(f.field_type==='currency')d=formatMoneyBYN(v);else d=escapeHtml(String(v));}h+=`<td style="padding:8px;border-bottom:1px solid var(--border-color);">${d}</td>`;});h+=`<td style="padding:8px;border-bottom:1px solid var(--border-color);"><button class="btn btn-danger btn-sm" onclick="ObjAPI.delRecord(${r.id})">Удалить</button></td></tr>`;});h+='</tbody></table>';c.innerHTML=h; },
-        showNewRecord() { const f=document.getElementById('new-record-form'); f.classList.toggle('hidden'); if(!f.classList.contains('hidden')){f.innerHTML='';curFields.forEach(inp=>{let i='';if(inp.field_type==='boolean')i=`<input type="checkbox" id="rf-${inp.id}">`;else if(inp.field_type==='date')i=`<input type="date" id="rf-${inp.id}">`;else if(inp.field_type==='number'||inp.field_type==='currency')i=`<input type="number" step="0.01" id="rf-${inp.id}">`;else i=`<input type="text" id="rf-${inp.id}">`;f.innerHTML+=`<div class="form-group"><label>${escapeHtml(inp.label)}</label>${i}</div>`;});f.innerHTML+='<button class="btn btn-primary" onclick="ObjAPI.createRecord()" style="margin-top:8px">Создать</button>';} },
-        async createRecord() { const data={};curFields.forEach(f=>{const el=document.getElementById(`rf-${f.id}`);if(!el)return;if(f.field_type==='boolean')data[f.name]=el.checked;else if(f.field_type==='number'||f.field_type==='currency')data[f.name]=el.value?parseFloat(el.value):null;else data[f.name]=el.value||null;}); await apiFetch(`/custom/objects/${curObj.id}/records`,{method:'POST',body:JSON.stringify({data})}); showToast('Создано','success');document.getElementById('new-record-form').classList.add('hidden');await this.loadRecords(); },
-        async delRecord(id) { if(!confirm('Удалить?'))return; await apiFetch(`/custom/records/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.loadRecords(); }
-    };
-
-    // === ВОРКФЛОУ ===
-    let curWf = null;
-    const WfAPI = {
-        async load() {
-            const wfs = await apiFetch('/workflows');
-            const c = document.getElementById('workflows-container');
-            c.innerHTML = wfs.length === 0 ? '<p class="empty-state">Нет воркфлоу</p>' : '';
-            wfs.forEach(w => {
-                const d = document.createElement('div'); d.className = 'wf-item';
-                d.innerHTML = `<div><strong>${escapeHtml(w.name)}</strong><br><span class="text-muted-sm">${escapeHtml(w.description||'')}</span></div>
-                <div style="display:flex;gap:8px;align-items:center"><span class="wf-badge ${w.is_active?'wf-active':'wf-inactive'}">${w.is_active?'Активен':'Выкл'}</span><button class="btn btn-secondary btn-sm" onclick="WfAPI.open(${w.id})">Открыть</button></div>`;
-                c.appendChild(d);
-            });
-        },
-        async create() { const name=document.getElementById('wf-name').value.trim(); if(!name){showToast('Введите название','error');return;} await apiFetch('/workflows',{method:'POST',body:JSON.stringify({name})}); document.getElementById('wf-name').value='';showToast('Создано','success');await this.load(); },
-        async open(id) { const wfs=await apiFetch('/workflows');curWf=wfs.find(w=>w.id===id); document.getElementById('wf-list-view').classList.add('hidden');document.getElementById('wf-detail-view').classList.remove('hidden');document.getElementById('wf-detail-title').textContent=curWf.name;document.getElementById('wf-toggle-btn').textContent=curWf.is_active?'Выключить':'Включить'; await this.loadTriggers();await this.loadSteps();await this.loadRuns(); },
-        backToList() { curWf=null;document.getElementById('wf-list-view').classList.remove('hidden');document.getElementById('wf-detail-view').classList.add('hidden'); },
-        async toggleActive() { await apiFetch(`/workflows/${curWf.id}`,{method:'PATCH',body:JSON.stringify({is_active:!curWf.is_active})}); curWf.is_active=!curWf.is_active;document.getElementById('wf-toggle-btn').textContent=curWf.is_active?'Выключить':'Включить';showToast(curWf.is_active?'Включён':'Выключен','success'); },
-        async deleteWf() { if(!confirm('Удалить?'))return; await apiFetch(`/workflows/${curWf.id}`,{method:'DELETE'});showToast('Удалено','success');this.backToList();await this.load(); },
-        async loadTriggers() { const ts=await apiFetch(`/workflows/${curWf.id}/triggers`);const c=document.getElementById('triggers-container');c.innerHTML='';const icons={record_event:'📋',schedule:'⏰',webhook:'🌐',manual:'👆'};const cls={record_event:'trigger-record',schedule:'trigger-schedule',webhook:'trigger-webhook',manual:'trigger-manual'};const lbl={record_event:'Изменение записи',schedule:'По расписанию',webhook:'Webhook',manual:'Ручной'};const obj={card:'Сделка',client:'Клиент',payment:'Оплата'};const evt={created:'создана',updated:'обновлена',deleted:'удалена'};ts.forEach(t=>{const cfg=t.config||{};const d=document.createElement('div');d.className='list-item';d.innerHTML=`<div class="flex-row" style="gap:0;"><span class="trigger-icon wf-action-icon ${cls[t.trigger_type]||''}">${icons[t.trigger_type]||'?'}</span><strong>${lbl[t.trigger_type]||t.trigger_type}</strong>${cfg.object?` <span class="text-muted-sm"> — ${obj[cfg.object]||cfg.object} ${evt[cfg.event]||''}</span>`:''}</div><button class="btn btn-danger btn-sm" onclick="WfAPI.delTrigger(${t.id})">Удалить</button>`;c.appendChild(d);}); },
-        async addTrigger() { const type=document.getElementById('tr-type').value;const cfg={};if(type==='record_event'){cfg.object=document.getElementById('tr-object').value;cfg.event=document.getElementById('tr-event').value;} await apiFetch(`/workflows/${curWf.id}/triggers`,{method:'POST',body:JSON.stringify({trigger_type:type,config:cfg})});showToast('Добавлено','success');await this.loadTriggers(); },
-        async delTrigger(id) { if(!confirm('Удалить?'))return;await apiFetch(`/workflows/triggers/${id}`,{method:'DELETE'});showToast('Удалено','success');await this.loadTriggers(); },
-        async loadSteps() { const ss=await apiFetch(`/workflows/${curWf.id}/steps`);const c=document.getElementById('steps-container');c.innerHTML='';const icons={create_record:'➕',update_record:'✏️',send_email:'📧',http_request:'🌐'};const al={create_record:'Создать запись',update_record:'Обновить',send_email:'Email',http_request:'HTTP'};ss.forEach((s,i)=>{if(i>0){const conn=document.createElement('div');conn.className='step-connector';conn.textContent='↓';c.appendChild(conn);}const d=document.createElement('div');d.className='list-item';d.innerHTML=`<div style="display:flex;align-items:center;gap:8px;"><span style="color:var(--text-muted);font-size:13px">#${i+1}</span><span><span class="wf-action-icon">${icons[s.action_type]||'⚡'}</span> <strong>${s.step_type}</strong> — ${al[s.action_type]||s.action_type}</span></div><button class="btn btn-danger btn-sm" onclick="WfAPI.delStep(${s.id})">Удалить</button>`;c.appendChild(d);}); },
-        async addStep() { const st=document.getElementById('st-type').value,sa=document.getElementById('st-action').value;let cfg={};const cs=document.getElementById('st-config').value.trim();if(cs){try{cfg=JSON.parse(cs);}catch(e){showToast('Неверный JSON','error');return;}} const steps=await apiFetch(`/workflows/${curWf.id}/steps`);await apiFetch(`/workflows/${curWf.id}/steps`,{method:'POST',body:JSON.stringify({step_type:st,action_type:sa,config:cfg,position:steps.length})});document.getElementById('st-config').value='';showToast('Добавлено','success');await this.loadSteps(); },
-        async delStep(id) { if(!confirm('Удалить?'))return;await apiFetch(`/workflows/steps/${id}`,{method:'DELETE'});showToast('Удалено','success');await this.loadSteps(); },
-        async loadRuns() { const rs=await apiFetch(`/workflows/${curWf.id}/runs`);const c=document.getElementById('runs-container');if(rs.length===0){c.innerHTML='<p class="empty-state empty-state--sm">Запусков пока нет</p>';return;} c.innerHTML='';rs.forEach(r=>{const sc=r.status==='completed'?'background:#d1fae5;color:#065f46':r.status==='failed'?'background:#fee2e2;color:#991b1b':'background:#fef3c7;color:#92400e';const d=document.createElement('div');d.style.cssText='display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border-color);';d.innerHTML=`<span>${r.started_at?new Date(r.started_at).toLocaleString('ru-RU'):'—'}</span><span style="padding:4px 8px;border-radius:4px;font-size:12px;font-weight:600;${sc}">${r.status}</span>${r.error?`<span style="color:var(--danger-color);font-size:12px">${escapeHtml(r.error)}</span>`:''}`;c.appendChild(d);}); }
-    };
-
-    // === ПОЧТА ===
-    const EmailAPI = {
-        async save() {
-            const settings = {
-                imap_server: document.getElementById('email-imap').value,
-                username: document.getElementById('email-user').value,
-                password: document.getElementById('email-pass').value,
-                target_status: document.getElementById('email-target').value
-            };
-            await apiFetch('/email-parser/settings', { method: 'POST', body: JSON.stringify(settings) });
-            showToast('Настройки сохранены', 'success');
-        },
-        async sync() {
-            showToast('Синхронизация...', 'info');
-            const r = await apiFetch('/email-parser/sync', { method: 'POST' });
-            document.getElementById('email-status-text').textContent = new Date().toLocaleString('ru-RU');
-            document.getElementById('email-results').innerHTML = `<p style="margin-top:8px;">Импортировано: <strong>${r.imported || 0}</strong> писем</p>`;
-            showToast('Синхронизация завершена', 'success');
-        },
-        async loadSettings() {
-            try {
-                const s = await apiFetch('/email-parser/settings');
-                if (s.imap_server) document.getElementById('email-imap').value = s.imap_server;
-                if (s.username) document.getElementById('email-user').value = s.username;
-                if (s.target_status) document.getElementById('email-target').value = s.target_status;
-            } catch(e) {}
-        }
-    };
-
-    // ИНИЦИАЛИЗАЦИЯ
-    document.addEventListener('DOMContentLoaded', () => {
-        // UI Audit (2026-08-09, D.1): theme toggle
-        (function initTheme() {
-            const toggle = document.getElementById('theme-toggle');
-            if (!toggle) return;
-            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-            toggle.querySelector('.nav-icon').textContent = isDark ? '☾' : '☀';
-            toggle.title = isDark ? 'Светлая тема' : 'Тёмная тема';
-            toggle.addEventListener('click', () => {
-                const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-                if (dark) {
-                    document.documentElement.removeAttribute('data-theme');
-                    try { localStorage.setItem('crm_theme', 'light'); } catch(e) {}
-                    toggle.querySelector('.nav-icon').textContent = '☀';
-                    toggle.title = 'Тёмная тема';
-                } else {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                    try { localStorage.setItem('crm_theme', 'dark'); } catch(e) {}
-                    toggle.querySelector('.nav-icon').textContent = '☾';
-                    toggle.title = 'Светлая тема';
-                }
-            });
-        })();
-
-        ObjAPI.load();
-        WfAPI.load();
-        EmailAPI.loadSettings();
-    });
-    </script>
-    <script>
-    // === SIDEBAR TOGGLE (shared sidebar markup from index.html) ===
-    function toggleSidebar() {
-        const sidebar = document.getElementById('app-sidebar');
-        const toggle = sidebar.querySelector('.sidebar-toggle');
-        sidebar.classList.toggle('collapsed');
-        const isCollapsed = sidebar.classList.contains('collapsed');
-        toggle.innerHTML = isCollapsed
-            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
-            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
-        toggle.setAttribute('aria-label', isCollapsed ? 'Развернуть меню' : 'Свернуть меню');
-        try { localStorage.setItem('crm_sidebar_collapsed', isCollapsed ? '1' : '0'); }
-        catch(e) {}
-    }
-    (function() {
-        let saved = null;
-        try { saved = localStorage.getItem('crm_sidebar_collapsed'); } catch (e) {}
-        // FIX 2026-09-03 (аудит): на узких экранах без явного выбора
-        // пользователя сайдбар свёрнут — больше места таблицам.
-        if (saved === '1' || saved === 'true' || (saved === null && window.innerWidth <= 1100)) {
-            const sidebar = document.getElementById('app-sidebar');
-            if (sidebar) {
-                sidebar.classList.add('collapsed');
-                const toggle = sidebar.querySelector('.sidebar-toggle');
-                if (toggle) {
-                    toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
-                    toggle.setAttribute('aria-label', 'Развернуть меню');
-                }
-            }
-        }
-    })();
-    </script>
+    <script src="js/settings_page.js?v=61998eba6c"></script>
     <script defer src="js/ui-polish.js?v=7b803c455b"></script>
+    <script defer src="js/handlers.js?v=094c93cb27"></script>
 </body>
 </html>

@@ -151,7 +151,7 @@ async function runEmailSync() {
                 
                 res.cards.forEach(card => {
                     html += `
-                        <div class="imported-item clickable-card-row" onclick="openCardModal(${card.id})">
+                        <div class="imported-item clickable-card-row" data-handler="openCardModal" data-arg="${card.id}">
                             <span class="imported-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span>
                             <div class="imported-details">
                                 <span class="imported-title">${escapeHtml(card.title)}</span>

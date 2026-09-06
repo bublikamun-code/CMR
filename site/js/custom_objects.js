@@ -36,10 +36,14 @@
                     <span style="color:var(--text-muted);font-size:12px;">${escapeHtml(obj.name)}</span>
                 </div>
                 <div class="custom-object-actions">
-                    <button class="btn btn-secondary btn-sm" onclick="customObjects.openObject(${obj.id})">Открыть</button>
-                    <button class="btn btn-danger btn-sm" onclick="customObjects.deleteObject(${obj.id}, '${escapeHtml(obj.name)}')">Удалить</button>
+                    <button class="btn btn-secondary btn-sm obj-open-btn">Открыть</button>
+                    <button class="btn btn-danger btn-sm obj-del-btn">Удалить</button>
                 </div>
             `;
+            // У «Удалить» два аргумента (id + имя) — биндим программно вместо
+            // inline-onclick (CSP) и ручного экранирования кавычек в имени.
+            div.querySelector('.obj-open-btn').addEventListener('click', () => customObjects.openObject(obj.id));
+            div.querySelector('.obj-del-btn').addEventListener('click', () => customObjects.deleteObject(obj.id, obj.name));
             list.appendChild(div);
         });
     }
@@ -105,7 +109,7 @@
             div.className = 'field-item';
             div.innerHTML = `
                 <span><b>${escapeHtml(f.label)}</b> <span style="color:var(--text-muted);font-size:12px;">(${escapeHtml(f.name)}, ${typeLabel})</span></span>
-                <button class="btn btn-danger btn-sm" onclick="customObjects.deleteField(${f.id})">Удалить</button>
+                <button class="btn btn-danger btn-sm" data-handler="customObjects.deleteField" data-arg="${f.id}">Удалить</button>
             `;
             list.appendChild(div);
         });
@@ -177,7 +181,7 @@
                 }
                 html += `<td>${display}</td>`;
             });
-            html += `<td><button class="btn btn-danger btn-sm" onclick="customObjects.deleteRecord(${rec.id})">Удалить</button></td>`;
+            html += `<td><button class="btn btn-danger btn-sm" data-handler="customObjects.deleteRecord" data-arg="${rec.id}">Удалить</button></td>`;
             html += '</tr>';
         });
         html += '</tbody></table>';
@@ -239,7 +243,7 @@
                 }
                 form.innerHTML += `<div class="form-group"><label>${escapeHtml(f.label)}${f.is_required ? ' *' : ''}</label>${input}</div>`;
             });
-            form.innerHTML += `<button class="btn btn-primary" onclick="customObjects.createRecord()" style="margin-top:12px">Создать</button>`;
+            form.innerHTML += `<button class="btn btn-primary" data-handler="customObjects.createRecord" style="margin-top:12px">Создать</button>`;
         }
     }
 
