@@ -408,7 +408,9 @@ function fillCardHTML(cardEl, card) {
         <div class="card-hover-actions" data-card-menu>
             <button class="card-hover-btn btn-edit-card" title="Редактировать" data-card-id="${card.id}">${ICON_PENCIL}</button>
             <button class="card-hover-btn btn-delete-card" title="Удалить">${ICON_CROSS}</button>
-            ${KANBAN_COLUMNS.filter(s => s !== card.status).map(s => `<button class="card-hover-btn btn-move-card" data-target-status="${s}" title="Перенести в «${s}»" aria-label="Перенести в «${s}»">→ ${s}</button>`).join('')}
+        </div>
+        <div class="card-move-actions" data-card-menu>
+            ${KANBAN_COLUMNS.filter(s => s !== card.status).map(s => `<button type="button" class="card-move-btn" data-target-status="${s}" aria-label="Перенести в «${s}»" title="Перенести в «${s}»">${s}</button>`).join('')}
         </div>
         <button class="card-menu-trigger" title="Действия с карточкой" aria-label="Действия с карточкой" aria-haspopup="menu">${ICON_ELLIPSIS}</button>
         <div class="card-main">
@@ -435,6 +437,8 @@ function fillCardHTML(cardEl, card) {
             const actions = cardEl.querySelector('.card-hover-actions');
             if (actions) {
                 const isOpen = actions.classList.toggle('popover-open');
+                // Панель переноса открывается тем же ⋯-меню на тачах
+                cardEl.querySelector('.card-move-actions')?.classList.toggle('popover-open', isOpen);
                 menuTrigger.setAttribute('aria-expanded', isOpen);
             }
         };
@@ -460,10 +464,9 @@ function fillCardHTML(cardEl, card) {
         openCardModal(card.id);
     };
 
-    // У3 (аудит 06.09): перенос между колонками кнопкой меню — клавиатурная
-    // и тач-альтернатива drag&drop (кнопки доступны с Tab, действия видны
-    // при :focus-within).
-    cardEl.querySelectorAll('.btn-move-card').forEach(btn => {
+    // У3 (аудит 06.09): перенос между колонками кнопкой панели внизу
+    // карточки — клавиатурная и тач-альтернатива drag&drop.
+    cardEl.querySelectorAll('.card-move-btn').forEach(btn => {
         btn.onclick = (e) => {
             e.stopPropagation();
             moveCardToStatus(card.id, btn.dataset.targetStatus);
