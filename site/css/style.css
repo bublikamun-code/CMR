@@ -8289,7 +8289,9 @@ textarea.auto-expand-title{
   border-color: var(--primary-color);
   background: var(--primary-soft);
 }
-.settings-card input[type="checkbox"]{
+/* Исключение #glass-mode-toggle: это тумблер-пилюля (liquid-glass.css),
+   а не обычный чекбокс — 16px и accent-color его ломали. */
+.settings-card input[type="checkbox"]:not(#glass-mode-toggle){
   width: 16px !important; height: 16px !important;
   margin: 0 !important;
   accent-color: var(--primary-color);

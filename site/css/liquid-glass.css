@@ -25,11 +25,13 @@
 
 /* === 0. Переключатель «Liquid Glass» в Настройках.
    (Кнопка-капля в сайдбаре убрана по фидбеку 2026-09-05: рядом с тумблером
-   темы выглядела второй кнопкой темы и путала. Одна кнопка темы — одна.) === */
+   темы выглядела второй кнопкой темы и путала. Одна кнопка темы — одна.)
+   Фидбек 2026-09-07: увеличен до полноценного тумблера 44×24, трек и обводка
+   знают про тёмную тему, чекбокс скрыт (рисуется пилюля). === */
 .glass-switch {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     cursor: pointer;
     user-select: none;
     font-weight: 600;
@@ -38,24 +40,28 @@
 .glass-switch input {
     appearance: none;
     -webkit-appearance: none;
-    width: 40px;
-    height: 22px;
+    width: 44px;
+    height: 24px;
     margin: 0;
-    flex: 0 0 40px;
+    flex: 0 0 44px;
     border-radius: 999px;
-    background: var(--border-color);
-    border: 1px solid var(--border-interactive, var(--border-color));
+    background: var(--switch-track, #ccd3de);
+    border: 1px solid rgba(15, 23, 42, 0.14);
     position: relative;
     cursor: pointer;
     transition: background var(--transition-normal);
+}
+[data-theme="dark"] .glass-switch input {
+    background: rgba(255, 255, 255, 0.22);
+    border-color: rgba(255, 255, 255, 0.28);
 }
 .glass-switch input::before {
     content: '';
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
     background: #fff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -65,7 +71,7 @@
     background: linear-gradient(135deg, #0ea5e9, #6366f1);
     border-color: transparent;
 }
-.glass-switch input:checked::before { transform: translateX(18px); }
+.glass-switch input:checked::before { transform: translateX(20px); }
 .glass-switch input:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
 
 /* === 1. Mesh-фон: цветная подложка, сквозь которую видно стекло === */
