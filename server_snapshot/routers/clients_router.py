@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List
 import models, schemas
 from versioning import save_version
 from database import get_db, get_tenant_db
 from auth import get_current_user
-from db_utils import resolve_tenant_db as _db
+from db_utils import resolve_tenant_db as _db, cap_list
 
 router = APIRouter(
     prefix="/clients",
@@ -15,7 +15,7 @@ router = APIRouter(
 )
 
 @router.get("", response_model=List[schemas.ClientResponse])
-def list_clients(q: str = Query(None), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def list_clients(q: str = Query(None), response: Response = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Client)
@@ -28,7 +28,8 @@ def list_clients(q: str = Query(None), db: Session = Depends(get_db), current_us
                 models.Client.unp.ilike(pattern),
                 models.Client.phone.ilike(pattern),
             ))
-        return query.order_by(models.Client.name).all()
+        # Н11 (аудит 06.09): предохранитель от неограниченного списка
+        return cap_list(query.order_by(models.Client.name).all(), response)
     finally:
         if tdb is not db:
             tdb.close()
@@ -55,7 +56,15 @@ def get_client_cards(client_id: int, db: Session = Depends(get_db), current_user
         query = tdb.query(models.Card).filter(models.Card.client_id == client_id, models.Card.is_deleted == False)
         if current_user.role == "superadmin" and current_user.tenant_id is None:
             query = db.query(models.Card).filter(models.Card.client_id == client_id, models.Card.is_deleted == False)
-        return query.all()
+        # Н12 (аудит 06.09): selectinload вместо ленивых SELECT на каждую
+        # карточку ( CardResponse тянет вложенные отношения при сериализации).
+        return query.options(
+            selectinload(models.Card.attachments),
+            selectinload(models.Card.checklists).selectinload(models.CardChecklist.supplier),
+            selectinload(models.Card.owner),
+            selectinload(models.Card.client),
+            selectinload(models.Card.tags),
+        ).all()
     finally:
         if tdb is not db:
             tdb.close()

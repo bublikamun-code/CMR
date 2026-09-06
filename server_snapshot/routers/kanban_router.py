@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
 from auth import get_current_user, require_role
@@ -7,7 +7,7 @@ import schemas
 import os
 from database import get_db, get_tenant_db
 from versioning import save_version
-from db_utils import resolve_tenant_db as _db
+from db_utils import resolve_tenant_db as _db, cap_list
 
 router = APIRouter(
     prefix="/kanban",
@@ -16,20 +16,23 @@ router = APIRouter(
 )
 
 @router.get("/cards", response_model=list[schemas.CardResponse])
-def get_cards(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_cards(response: Response, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         if tdb is db:
             query = db.query(models.Card).filter(models.Card.is_deleted == False)
         else:
             query = tdb.query(models.Card).filter(models.Card.is_deleted == False)
-        return query.options(
+        cards = query.options(
             selectinload(models.Card.attachments),
             selectinload(models.Card.checklists).selectinload(models.CardChecklist.supplier),
             selectinload(models.Card.owner),
             selectinload(models.Card.client),
             selectinload(models.Card.tags),
         ).order_by(models.Card.position, models.Card.id.desc()).all()
+        # Н11 (аудит 06.09): предохранитель от аномального роста таблицы —
+        # канбану нужны все карточки сразу, так что это пробка, не пагинация.
+        return cap_list(cards, response)
     finally:
         if tdb is not db:
             tdb.close()
@@ -62,7 +65,7 @@ def get_card(card_id: int, db: Session = Depends(get_db), current_user: models.U
             tdb.close()
 
 @router.get("/trash", response_model=list[schemas.CardResponse])
-def get_trash(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_trash(response: Response, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         if tdb is db:
@@ -81,7 +84,8 @@ def get_trash(db: Session = Depends(get_db), current_user: models.User = Depends
                 selectinload(models.Card.client),
                 selectinload(models.Card.tags),
             ).order_by(models.Card.position, models.Card.id.desc()).all()
-        return cards
+        # Н11: предохранитель, как в /cards
+        return cap_list(cards, response)
     finally:
         if tdb is not db:
             tdb.close()

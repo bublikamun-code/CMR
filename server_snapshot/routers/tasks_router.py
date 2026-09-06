@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import models
 import schemas
@@ -153,7 +153,7 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         creator_id=current_user.id,
         card_id=data.card_id,
         client_id=data.client_id,
-        completed_at=datetime.utcnow() if data.status == "done" else None,
+        completed_at=datetime.now(timezone.utc) if data.status == "done" else None,
     )
     db.add(task)
     db.commit()
@@ -201,7 +201,7 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
         if data.status not in schemas.TASK_STATUSES:
             raise HTTPException(status_code=400, detail="Недопустимый статус")
         task.status = data.status
-        task.completed_at = datetime.utcnow() if data.status == "done" else None
+        task.completed_at = datetime.now(timezone.utc) if data.status == "done" else None
 
     db.commit()
     db.refresh(task)

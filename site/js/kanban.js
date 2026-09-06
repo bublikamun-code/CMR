@@ -138,6 +138,28 @@ async function loadKanbanBoard() {
             });
         }
 
+        // У6 (аудит 06.09): при полностью пустой доске — CTA «Создать первую
+        // сделку», как в клиентах. В колонках при этом остаётся подсказка
+        // про перетаскивание. Кнопка переиспользует модалку создания.
+        // ВАЖНО: после ветки создания колонок — та делает board.innerHTML=''
+        // и стёрла бы баннер, созданный раньше неё.
+        let emptyBanner = document.getElementById('kanban-empty-banner');
+        if (!emptyBanner) {
+            emptyBanner = document.createElement('div');
+            emptyBanner.id = 'kanban-empty-banner';
+            emptyBanner.className = 'empty-state';
+            emptyBanner.style.cssText = 'margin:8px 0 16px;text-align:center;';
+            emptyBanner.innerHTML = `
+                <div class="empty-state-title">Сделок пока нет</div>
+                <div class="empty-state-desc">Создайте первую сделку — она появится в колонке «Новый запрос».</div>
+                <button type="button" id="kanban-empty-create" class="btn btn-primary" style="margin-top:12px;">+ Создать первую сделку</button>`;
+            board.insertBefore(emptyBanner, board.firstChild);
+        }
+        emptyBanner.classList.toggle('hidden', cards.length > 0);
+        emptyBanner.querySelector('#kanban-empty-create').onclick = () => {
+            document.getElementById('btn-create-card')?.click();
+        };
+
         KANBAN_COLUMNS.forEach(colName => {
             const col = board.querySelector(`.kanban-column[data-status="${colName}"]`);
             if (!col) return;

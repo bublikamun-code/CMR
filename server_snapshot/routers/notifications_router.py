@@ -11,7 +11,7 @@ sync-overdue вызывается внешним cron'ом (заголовок X
 уведомление того же типа — новое не создаётся. Повторная просрочка после
 прочтения старого снова уведомит.
 """
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -74,7 +74,7 @@ def mark_read(data: schemas.NotificationReadRequest, db: Session = Depends(get_d
         if data.ids:
             query = query.filter(models.Notification.id.in_(data.ids))
         rows = query.all()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for n in rows:
             n.is_read = True
             n.read_at = now
@@ -126,7 +126,7 @@ def sync_overdue(db: Session = Depends(get_db)):
     """
     created_total = 0
     day_key = date.today().isoformat()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # 0. Просроченные задачи — задачи живут в ОСНОВНОЙ базе, один проход.
     overdue_tasks = (db.query(models.Task)
@@ -199,13 +199,13 @@ def sync_overdue(db: Session = Depends(get_db)):
 
     # FIX 2026-08-29: ретенция данных (раньше росли безлимитно).
     # Уведомления: прочитанные старше 30 дней.
-    cutoff_read = datetime.utcnow() - timedelta(days=30)
+    cutoff_read = datetime.now(timezone.utc) - timedelta(days=30)
     notif_purged = (db.query(models.Notification)
                     .filter(models.Notification.is_read == True,
                             models.Notification.read_at < cutoff_read)
                     .delete(synchronize_session=False))
     # Версии: старше 180 дней, но всегда оставляем последние 20 на запись.
-    cutoff_versions = datetime.utcnow() - timedelta(days=180)
+    cutoff_versions = datetime.now(timezone.utc) - timedelta(days=180)
     old_versions = (db.query(models.RecordVersion)
                     .filter(models.RecordVersion.changed_at < cutoff_versions)
                     .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,

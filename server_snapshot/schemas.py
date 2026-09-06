@@ -256,6 +256,16 @@ class CardStatusUpdate(BaseModel):
 class CardUpdateStatus(BaseModel):
     status: str
 
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        # Н19 (аудит 06.09): раньше принималась любая строка —
+        # опечатка уходила в БД и карточка пропадала с доски.
+        VALID = {"Новый запрос", "В работе", "Ждет оплаты", "Сборка", "На списание", "Закрыто"}
+        if v not in VALID:
+            raise ValueError(f"Недопустимый статус: {v}")
+        return v
+
 class CardResponse(CardBase):
     id: int
     owner_id: Optional[int] = None
@@ -294,6 +304,15 @@ class TransactionCreate(TransactionBase):
 
 class TransactionUpdate(BaseModel):
     amount: Optional[float] = None          # раньше отсутствовало — правка суммы молча терялась
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, v):
+        # Н19 (аудит 06.09): ноль/отрицательная сумма в транзакции ломают
+        # реестр оплат и остатки по сделке.
+        if v is not None and v <= 0:
+            raise ValueError("Сумма транзакции должна быть больше нуля")
+        return v
     store_location: Optional[str] = None
     is_calculated: Optional[bool] = None
     is_invoice_issued: Optional[bool] = None

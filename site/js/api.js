@@ -39,10 +39,8 @@ function getToken(tokenKey = DEFAULT_TOKEN_KEY) {
         const t = sessionStorage.getItem(tokenKey);
         if (t) return t;
     } catch (e) {}
-    try {
-        const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + tokenKey + '=([^;]+)'));
-        if (m) return decodeURIComponent(m[1]);
-    } catch (e) {}
+    // Ф6 (аудит 06.09): чтение токена из cookie удалено — кука crm_token
+    // httpOnly (P2-1), JS её не видит, ветка всегда возвращала null.
     return null;
 }
 

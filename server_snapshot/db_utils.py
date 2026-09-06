@@ -44,3 +44,22 @@ def resolve_tenant_db_standalone(current_user):
     """
     tid = getattr(current_user, 'tenant_id', None)
     return get_tenant_db(tid)
+
+
+# Н11 (аудит 06.09): предохранитель для списочных эндпоинтов без пагинации.
+# Это не замена пагинации (канбану нужны все карточки сразу), а защита от
+# аномального роста таблицы. При срабатывании ответ помечается заголовками
+# X-Total-Count / X-Truncated — тот же контракт, что у реестра оплат
+# (payments_router.REGISTRY_HARD_LIMIT).
+LIST_HARD_LIMIT = 5000
+
+
+def cap_list(items, response=None, limit: int = LIST_HARD_LIMIT):
+    """Обрезать список до `limit`; при усечении пометить ответ заголовками."""
+    total = len(items)
+    if total <= limit:
+        return items
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Truncated"] = "true"
+    return items[:limit]

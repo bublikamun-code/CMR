@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -60,6 +61,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 # UI is actually reached by. Override with CRM_CORS_ORIGINS when the domain
 # changes; do not add wildcards, allow_credentials=True forbids them.
 _DEFAULT_ORIGINS = ",".join([
+    "https://cmr-svetvdome.online",
+    "http://cmr-svetvdome.online",
     "http://87-232-64-12.nip.io",
     "https://87-232-64-12.nip.io",
     "http://87.232.64.12",
@@ -77,6 +80,12 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# Н22 (аудит 06.09): gzip ответов приложения. На голом хостинге nginx
+# пользователям недоступен, и 250КБ CSS / большие JSON уходили без сжатия;
+# сжатие на уровне приложения работает при любой схеме проксирования
+# (nginx не пережимает уже сжатое — Content-Encoding проходит насквозь).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("tenants", exist_ok=True)

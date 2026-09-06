@@ -177,13 +177,21 @@ def list_records(obj_id: int, current_user=Depends(get_current_user)):
         ).all()
         field_map = {f.id: f for f in fields}
 
+        # Н12 (аудит 06.09): значения всех записей одним запросом IN —
+        # раньше был SELECT на каждую запись (запрос в цикле).
+        record_ids = [r.id for r in records]
+        values_by_record = {}
+        if record_ids:
+            all_values = db.query(models.CustomFieldValue).filter(
+                models.CustomFieldValue.record_id.in_(record_ids)
+            ).all()
+            for v in all_values:
+                values_by_record.setdefault(v.record_id, []).append(v)
+
         result = []
         for r in records:
-            values = db.query(models.CustomFieldValue).filter(
-                models.CustomFieldValue.record_id == r.id
-            ).all()
             data = {}
-            for v in values:
+            for v in values_by_record.get(r.id, []):
                 field = field_map.get(v.field_def_id)
                 if field:
                     if v.value_text is not None:
