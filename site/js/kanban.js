@@ -323,11 +323,13 @@ function fillCardHTML(cardEl, card) {
     const diffDays = Math.ceil((new Date() - new Date(card.created_at)) / (1000 * 60 * 60 * 24));
     const isOld = diffDays > OLD_CARD_DAYS;
 
-    // Deal Rotting: warning if >3 days in active columns
+    // Deal Rotting: warning if >3 days in active columns.
+    // Оплаченная сделка не «гниёт»: статус оплаты старше напоминания о простое.
+    const isPaidEarly = card.payment_status === 'Оплачен';
     const updatedDiff = card.updated_at ? Math.ceil((new Date() - new Date(card.updated_at)) / (1000 * 60 * 60 * 24)) : 0;
     const isActiveColumn = ['В работе', 'Сборка'].includes(card.status);
-    const isRotting = isActiveColumn && updatedDiff > 3;
-    const isRottingDanger = isActiveColumn && updatedDiff > 7;
+    const isRotting = isActiveColumn && !isPaidEarly && updatedDiff > 3;
+    const isRottingDanger = isActiveColumn && !isPaidEarly && updatedDiff > 7;
     cardEl.classList.remove('deal-rotting', 'deal-rotting-danger');
     if (isRottingDanger) cardEl.classList.add('deal-rotting-danger');
     else if (isRotting) cardEl.classList.add('deal-rotting');
@@ -346,12 +348,16 @@ function fillCardHTML(cardEl, card) {
 
     const now = new Date();
     const dueDate = card.due_date ? new Date(card.due_date + 'T00:00:00') : null;
-    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто';
-    const isDueSoon = dueDate && !isOverdue && (dueDate - now) < (3 * 24 * 60 * 60 * 1000);
+    // Фидбек 2026-09-05: оплаченная сделка — не просрочка. Красная полоса
+    // фасада сбрасывается сразу после «Оплачен», карточка получает зелёную.
+    const isPaid = card.payment_status === 'Оплачен';
+    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто' && !isPaid;
+    const isDueSoon = dueDate && !isOverdue && !isPaid && (dueDate - now) < (3 * 24 * 60 * 60 * 1000);
 
-    cardEl.classList.remove('card-overdue', 'card-due-soon');
+    cardEl.classList.remove('card-overdue', 'card-due-soon', 'card-paid');
     if (isOverdue) cardEl.classList.add('card-overdue');
     else if (isDueSoon) cardEl.classList.add('card-due-soon');
+    if (isPaid) cardEl.classList.add('card-paid');
 
     const tagsHtml = (card.tags && card.tags.length > 0)
         ? `<div class="card-tags">${card.tags.map(t => {

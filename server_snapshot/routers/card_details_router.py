@@ -357,8 +357,27 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
                 tx.company_name = card_update.title
         if card_update.total_amount is not None:
             card.total_amount = card_update.total_amount
-            for tx in card.transactions:
-                tx.amount = card_update.total_amount
+            # FIX 2026-09-06 (аудит): раньше новая сумма сделки копировалась в
+            # ВСЕ транзакции — правка суммы после выписки накладных затирала и
+            # их суммы (реестр оплат расходился с напечатанными ТН).
+            # Пересчитываем только запись-остаток: сумма сделки минус уже
+            # выписанное (накладные/списания). Сами накладные не трогаем.
+            ledger = [t for t in card.transactions if not t.is_document]
+            issued_total = round(sum(float(t.amount or 0) for t in ledger
+                                     if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+            new_rest = round(float(card_update.total_amount) - issued_total, 2)
+            remainder = next((t for t in ledger
+                              if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
+            if remainder is not None:
+                if new_rest <= 0.01:
+                    session.delete(remainder)
+                else:
+                    remainder.amount = new_rest
+            elif new_rest > 0.01:
+                session.add(models.Transaction(
+                    company_name=card.title, amount=new_rest,
+                    store_location=card.store_location, card_id=card.id,
+                ))
         if 'store_location' in card_update.model_fields_set:
             card.store_location = card_update.store_location
             for tx in card.transactions:
@@ -463,22 +482,11 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         if tdb is not db:
             tdb.close()
 
-@router.get("/files/{filename}")
-def download_file(filename: str, current_user: models.User = Depends(get_current_user)):
-    safe_name = os.path.basename(filename)
-    file_path = os.path.realpath(os.path.join(UPLOAD_DIR, safe_name))
-    if not file_path.startswith(os.path.realpath(UPLOAD_DIR)):
-        raise HTTPException(status_code=403, detail="Доступ запрещён")
-    if not os.path.isfile(file_path):
-        # Диагностика: логируем запрошенное имя и папку, чтобы понять расхождение
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            "File not found: requested=%r resolved=%r upload_dir=%r cwd=%r",
-            filename, file_path, os.path.realpath(UPLOAD_DIR), os.getcwd()
-        )
-        raise HTTPException(status_code=404, detail="Файл не найден")
-    return FileResponse(file_path, filename=safe_name)
+# FIX 2026-09-06 (аудит): эндпоинт GET /files/{filename} удалён.
+# Он отдавал любой файл из uploads любому авторизованному пользователю без
+# проверки владельца/тенанта (IDOR), а фронтенд им уже не пользуется —
+# скачивание идёт по id: /attachments/{id}/download и
+# /checklists/{id}/invoice/download.
 
 
 def _sanitize_download_name(name: str) -> str:

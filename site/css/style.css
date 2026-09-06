@@ -13565,3 +13565,110 @@ textarea {
 .tabular-nums.age-danger { color: #dc2626; font-weight: 700; }
 [data-theme="dark"] .tabular-nums.age-warn { color: #fbbf24; }
 [data-theme="dark"] .tabular-nums.age-danger { color: #f87171; }
+
+/* ============================================================
+   ФИКСЫ 2026-09-05 (фидбек): оплата/индикаторы/скролл «Списания»
+   ============================================================ */
+
+/* 1. Оплаченная карточка — зелёная полоса фасада (класс ставит kanban.js).
+      #5aa98c — тот же шалфей, что у «Сборки»: одна зелёная семья на доске.
+      Правило в конце файла — перебивает quieting-цвета колонок. */
+.kanban-card.card-paid { border-left-color: #5aa98c !important; }
+[data-theme="dark"] .kanban-card.card-paid { border-left-color: #5aa98c !important; }
+
+/* 2. Единая приглушённая шкала полосок (паранойя двух красных/двух
+      янтарных устранена): просрочка — роза #c45a68 (как высокий
+      приоритет и тосты-ошибки), «скоро дедлайн» — тан #d4a373
+      (как «Ждет оплаты»). В glass-режиме те же значения объявлены
+      в liquid-glass.css — цвета не прыгают при включении стекла. */
+.kanban-card.card-overdue { border-left-color: #c45a68 !important; }
+.kanban-card.card-due-soon { border-left-color: #d4a373 !important; }
+[data-theme="dark"] .kanban-card.card-overdue { border-left-color: #c45a68 !important; }
+[data-theme="dark"] .kanban-card.card-due-soon { border-left-color: #d4a373 !important; }
+
+/* 3. Плашка «Просрочено» и сводка — та же роза вместо яркого --danger.
+      Белый текст: 5.3:1 на #b04a58 (было 4.8:1 на #dc2626). */
+.overdue-badge,
+.overdue-badge-card,
+.overdue-summary-bar { background: #b04a58; }
+
+/* 4. «Списание»: колонки больше не режутся.
+      Внутренний max-height давал двойной скролл (страница + колонка),
+      а маска-затухание нижних 26px визуально «обрезала» карточки
+      (фидбек: «не листается до конца, карточки обрезаются»).
+      Скролл — у самой страницы #page-writeoffs, до самого конца. */
+.writeoff-cards {
+    max-height: none !important;
+    overflow-y: visible !important;
+    overscroll-behavior: auto;
+    scrollbar-gutter: auto;
+    padding-right: 0;
+}
+.writeoff-cards.is-scrollable,
+.writeoff-cards.is-scrollable.wo-at-bottom {
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+}
+
+/* 4. «Списание» (фидбек 2026-09-06: «каждая колонка должна листаться
+      отдельно»). Колонки снова скроллятся сами, но их высота — не магический
+      calc(100vh - Npx) (прошлые версии с неверным N давали недостижимый
+      низ и «обрезанные» карточки), а честный флекс-остаток до низа экрана:
+      контейнер растягивается, колонка и список карточек заполняют высоту.
+      Маска-затухание нижних 26px убрана — читалась как обрезанная карточка. */
+.finance-panel#page-writeoffs { overflow-y: hidden !important; }
+.writeoffs-container {
+    flex: 1 1 0;
+    min-height: 0;
+    align-items: stretch;
+}
+.writeoff-store-block,
+.writeoff-columns,
+.writeoff-column { min-height: 0; }
+.writeoff-columns {
+    flex: 1 1 0;
+    align-items: stretch;
+}
+.writeoff-cards {
+    flex: 1 1 0 !important;
+    min-height: 92px;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    /* Фикс 2026-09-06: при определённой (флексной) высоте контейнера Chromium
+       делит авторяды грида поровну — карточки сплющивались до ~60px, и
+       overflow:hidden прятал заголовок/сумму/кнопку («скрывают часть
+       информации»). min-content возвращает рядам размер по содержимому. */
+    grid-auto-rows: min-content;
+}
+.writeoff-cards.is-scrollable,
+.writeoff-cards.is-scrollable.wo-at-bottom {
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+}
+
+/* 5. Канбан: колонки тоже листаются независимо (фидбек 2026-09-06), но
+      доска — не устаревший calc(100vh - 120px), из-за которого низ колонок
+      уходил за край экрана и последняя карточка не дочитывалась («не на
+      весь экран, карточку целиком не видно»). Доска — флекс-остаток
+      страницы: низ колонок ровно у низа вьюпорта. */
+#page-kanban { overflow-y: hidden !important; }
+.kanban-board {
+    height: auto !important;
+    flex: 1 1 0 !important;
+    min-height: 240px;
+}
+.kanban-cards {
+    flex: 1 1 0 !important;
+    min-height: 80px;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    /* постоянный тонкий скроллбар — как в «Списании» (фидбек 2026-09-04:
+       на macOS оверлейные полосы невидимы, колонка выглядела обрезанной) */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-interactive) rgba(127, 137, 152, 0.12);
+}
+.kanban-cards.is-scrollable,
+.kanban-cards.is-scrollable.wo-at-bottom {
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+}

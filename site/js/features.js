@@ -736,6 +736,29 @@ function parseMoney(value) {
     });
 })();
 
+// === LIQUID GLASS MODE ===
+// Стеклянный интерфейс включён по умолчанию (ранняя инициализация в <head>).
+// Переключатель — чекбокс «Liquid Glass» в Настройках → Профиль (SPA).
+// Выключение сохраняется в localStorage и уважается при загрузке.
+(function initGlass() {
+    const toggle = document.getElementById('glass-mode-toggle');
+    if (!toggle) return;
+    function syncGlass() {
+        const on = document.documentElement.getAttribute('data-glass') === 'on';
+        toggle.checked = on;
+    }
+    syncGlass();
+    toggle.addEventListener('change', () => {
+        if (toggle.checked) {
+            document.documentElement.setAttribute('data-glass', 'on');
+            try { localStorage.setItem('crm_glass', 'on'); } catch(e) {}
+        } else {
+            document.documentElement.removeAttribute('data-glass');
+            try { localStorage.setItem('crm_glass', 'off'); } catch(e) {}
+        }
+    });
+})();
+
 // === COMPACT MODE ===
 (function initCompact() {
     const toggle = document.getElementById('compact-toggle');

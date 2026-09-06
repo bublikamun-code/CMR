@@ -389,7 +389,9 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     const container = leftContainer; // backward compat
     const now = new Date();
     const dueDate = card.due_date ? new Date(card.due_date + 'T00:00:00') : null;
-    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто';
+    // Синхронно с kanban.js: оплаченная сделка не помечается просрочкой
+    const isPaid = card.payment_status === 'Оплачен';
+    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто' && !isPaid;
     const dueDateStr = card.due_date || '';
 
     // LEFT COLUMN: Static fields
@@ -1462,47 +1464,10 @@ async function sniffExt(blob) {
     return '';
 }
 
-async function downloadFile(filename, niceName) {
-    const token = getToken();
-    try {
-        const resp = await fetch(API_BASE_URL + '/files/' + encodeURIComponent(filename), {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
-        if (!resp.ok) {
-            // UI FIX 2026-08-29: показываем detail от сервера — раньше любое 404
-            // маскировалось общим «файл утерян при переносе», и причину было не понять.
-            let detail = '';
-            try { const j = await resp.json(); if (j && j.detail) detail = String(j.detail); } catch (e) {}
-            if (resp.status === 404) {
-                throw new Error('Файл не найден на сервере' + (detail ? ': ' + detail : ''));
-            }
-            throw new Error(detail || ('Ошибка ' + resp.status));
-        }
-        const blob = await resp.blob();
-
-        // выбираем имя для сохранения
-        let outName = (niceName || '').trim() || filename;
-        if (window.CRM_DECODE_MIME) outName = window.CRM_DECODE_MIME(outName) || outName;
-        outName = outName.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim();
-
-        const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(outName);
-        if (!hasExt) {
-            const fromDisk = (filename.match(/\.[A-Za-z0-9]{2,5}$/) || [''])[0];
-            outName += fromDisk || (await sniffExt(blob));
-        }
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = outName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    } catch (err) {
-        showToast('Не удалось скачать файл: ' + err.message, 'error');
-    }
-}
+// FIX 2026-09-06 (аудит): downloadFile(filename) удалена — она ходила в
+// GET /files/{filename}, который закрыт как IDOR (отдача любого файла из
+// uploads без проверки владельца) и с 31.08 не использовалась: скачивание
+// идёт через downloadById по id вложения/счёта.
 
 async function downloadById(endpoint, id, niceName) {
     // UI FIX 2026-08-31: id = null → endpoint уже полный путь до /download.

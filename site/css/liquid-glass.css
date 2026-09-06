@@ -1,0 +1,404 @@
+/* ============================================================
+   LIQUID GLASS — опциональный режим оформления (2026-09-05)
+   ============================================================
+   Включается атрибутом data-glass="on" на <html> (тумблер-капля
+   в сайдбаре, хранится в localStorage: crm_glass). Работает
+   ПОВЕРХ обеих тем (светлая/тёмная) — не заменяет их.
+
+   Принципы:
+   - Стекло только на «хроме»: сайдбар, модалки, тосты,
+     дропдауны, панель уведомлений. Реальный backdrop-filter
+     единовременно на 2-3 крупных поверхностях — сотни карточек
+     канбана блюрят фон только полупрозрачностью, без фильтра,
+     иначе скролл доски просядет на слабых машинах.
+   - Красочный mesh-фон на body — без него блюру нечего
+     преломлять и стекло выглядит как серая пелена.
+   - Статусные тинты карточек («Сборка», старые, гниющие)
+     переобъявлены полупрозрачными — иерархия статусов сохранена.
+   - Фолбэки: браузеры без backdrop-filter и пользователи с
+     prefers-reduced-transparency получают плотные поверхности.
+
+   Специфичность: html[data-glass="on"] … = (0,3,1) — старше
+   «тёмных» правил style.css вида [data-theme="dark"] … (0,2,1),
+   включая их !important-фоны на тех же поверхностях.
+   ============================================================ */
+
+/* === 0. Переключатель «Liquid Glass» в Настройках.
+   (Кнопка-капля в сайдбаре убрана по фидбеку 2026-09-05: рядом с тумблером
+   темы выглядела второй кнопкой темы и путала. Одна кнопка темы — одна.) === */
+.glass-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    color: var(--text-color);
+}
+.glass-switch input {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 40px;
+    height: 22px;
+    margin: 0;
+    flex: 0 0 40px;
+    border-radius: 999px;
+    background: var(--border-color);
+    border: 1px solid var(--border-interactive, var(--border-color));
+    position: relative;
+    cursor: pointer;
+    transition: background var(--transition-normal);
+}
+.glass-switch input::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: transform var(--transition-normal);
+}
+.glass-switch input:checked {
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    border-color: transparent;
+}
+.glass-switch input:checked::before { transform: translateX(18px); }
+.glass-switch input:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+
+/* === 1. Mesh-фон: цветная подложка, сквозь которую видно стекло === */
+html[data-glass="on"] body {
+    background:
+        radial-gradient(1100px 750px at 7% -8%,  rgba(99, 102, 241, 0.20), transparent 60%),
+        radial-gradient(950px 650px at 102% 2%,  rgba(14, 165, 233, 0.16), transparent 55%),
+        radial-gradient(900px 850px at 48% 118%, rgba(236, 72, 153, 0.11), transparent 60%),
+        radial-gradient(720px 520px at 88% 82%,  rgba(20, 184, 166, 0.13), transparent 55%),
+        linear-gradient(180deg, #f4f6fd, #ecf1f8);
+    background-attachment: fixed;
+}
+html[data-theme="dark"][data-glass="on"] body {
+    /* Правка 2026-09-05 (фидбек): тёмный фон заметно тише — цветные пятна
+       почти сведены, база почти плоская. Прежние альфы 0.26/0.13/0.14/0.11
+       давали пёстрый «неоновый» фон, жаловались на яркость. */
+    background:
+        radial-gradient(1100px 750px at 7% -8%,  rgba(99, 102, 241, 0.09), transparent 60%),
+        radial-gradient(950px 650px at 102% 2%,  rgba(56, 189, 248, 0.05), transparent 55%),
+        radial-gradient(900px 850px at 48% 118%, rgba(168, 85, 247, 0.05), transparent 60%),
+        radial-gradient(720px 520px at 88% 82%,  rgba(45, 212, 191, 0.04), transparent 55%),
+        linear-gradient(180deg, #12151c, #0e1117);
+    background-attachment: fixed;
+}
+
+/* === 2. Сайдбар — витрина режима === */
+html[data-glass="on"] .sidebar {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.80), rgba(2, 6, 23, 0.72)) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+    border-right: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06), 4px 0 28px rgba(2, 6, 23, 0.28);
+}
+html[data-theme="dark"][data-glass="on"] .sidebar {
+    background: linear-gradient(180deg, rgba(11, 14, 20, 0.74), rgba(8, 10, 15, 0.68)) !important;
+    /* Фидбек 2026-09-05: в тёмной теме ниже насыщенность блюра — стекло
+       спокойнее, без цветного свечения по краям. */
+    -webkit-backdrop-filter: blur(22px) saturate(115%);
+    backdrop-filter: blur(22px) saturate(115%);
+    border-right-color: rgba(129, 140, 248, 0.10);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04), 4px 0 28px rgba(0, 0, 0, 0.5);
+}
+html[data-theme="dark"][data-glass="on"] .nav-btn.active {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.55), rgba(109, 84, 218, 0.45)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 8px rgba(0, 0, 0, 0.35);
+    border-color: rgba(255, 255, 255, 0.10);
+}
+/* Активный пункт меню: стеклянная капсула с бликом сверху */
+html[data-glass="on"] .nav-btn.active {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.85), rgba(139, 92, 246, 0.75)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 14px rgba(79, 70, 229, 0.4);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+/* Ховер пункта меню: «мыльное» стекло — диагональный блик, светлая
+   кромка сверху, тонкое кольцо и мягкая тень. Плоская заливка
+   rgba(255,255,255,0.10) выглядела серым пятном (фидбек 2026-09-05).
+   Собственный blur не нужен: фон сайдбара уже блюрится. */
+html[data-glass="on"] .nav-btn:not(.active):hover {
+    background: linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.05) 52%, rgba(255,255,255,0.11)) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.25),
+                inset 0 0 0 1px rgba(255,255,255,0.08),
+                0 4px 14px rgba(2, 6, 23, 0.22);
+    color: #fff !important;
+}
+html[data-glass="on"] .nav-btn:not(.active):hover .nav-icon { opacity: 1; }
+/* Логотип: мягкое стеклянное свечение вместо плоского градиента текста */
+html[data-glass="on"] .sidebar-header {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+/* === 3. Канбан: колонки-стекло, карточки — полупрозрачные (без blur) === */
+html[data-glass="on"] .kanban-column {
+    background-color: rgba(255, 255, 255, 0.42) !important;
+    border-color: rgba(255, 255, 255, 0.55) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 8px 28px rgba(15, 23, 42, 0.07);
+}
+html[data-theme="dark"][data-glass="on"] .kanban-column {
+    background-color: rgba(28, 33, 46, 0.52) !important;
+    border-color: rgba(255, 255, 255, 0.09) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+/* Правка 2026-09-05 (фидбек): карточки почти плотные — на просвет они
+   читались как «пустая обводка», текст терял опору. Статусные цвета левой
+   границы переобъявлены: их правила в style.css слабее по специфичности,
+   и стеклянный border-color их глушил. Зелёный фон «Сборки» убран вовсе —
+   не сочетался с янтарными бейджами; статус остаётся зелёной полоской. */
+html[data-glass="on"] .kanban-card {
+    background-color: rgba(255, 255, 255, 0.93) !important;
+    border-color: rgba(255, 255, 255, 0.85) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 2px 8px rgba(15, 23, 42, 0.08) !important;
+}
+html[data-theme="dark"][data-glass="on"] .kanban-card {
+    background-color: rgba(43, 49, 66, 0.94) !important;
+    border-color: rgba(255, 255, 255, 0.13) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+/* Статусы — только цвет полосы, фон карточки нейтральный стеклянный.
+   Фикс 2026-09-05: та же приглушённая шкала, что и вне стекла
+   (style.css, конец файла) — раньше стекло возвращало яркие
+   --success/--danger/--warning, и доска «пестрела» только в этом режиме. */
+html[data-glass="on"] .kanban-card.card-assembly { border-left-color: #5aa98c !important; }
+html[data-glass="on"] .kanban-card.card-paid     { border-left-color: #5aa98c !important; }
+html[data-glass="on"] .kanban-card.card-overdue  { border-left-color: #c45a68 !important; }
+html[data-glass="on"] .kanban-card.card-due-soon { border-left-color: #d4a373 !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-assembly { border-left-color: #5aa98c !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-paid     { border-left-color: #5aa98c !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-overdue  { border-left-color: #c45a68 !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-due-soon { border-left-color: #d4a373 !important; }
+/* deal-rotting/-danger красятся через background-image — переживают
+   смену background-color и поверх стекла работают как раньше */
+
+/* === 4. Модалки === */
+html[data-glass="on"] .modal-overlay {
+    background-color: rgba(15, 23, 42, 0.38) !important;
+    -webkit-backdrop-filter: blur(10px) saturate(140%);
+    backdrop-filter: blur(10px) saturate(140%);
+}
+html[data-theme="dark"][data-glass="on"] .modal-overlay {
+    background-color: rgba(2, 6, 23, 0.55) !important;
+}
+/* Фикс 2026-09-05: сплит-панели убраны из списка стеклянных поверхностей.
+   Раньше левая и правая половины модалки получали собственный полупрозрачный
+   фон, границу и большую тень — внутри одной модалки возникали серая шапка
+   и шов с тенью между блоками (фидбек). Стекло теперь одно, на
+   .modal-content-split; панели прозрачные, между ними тонкий разделитель.
+   Альфа поднята 0.80 → 0.88: на просвет сквозь шапку проступал тёмный
+   заголовок страницы, и верх модалки выглядел серым. */
+html[data-glass="on"] .modal-content,
+html[data-glass="on"] .modal-content-wide,
+html[data-glass="on"] .modal-content-split {
+    background-color: rgba(255, 255, 255, 0.93) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.70) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85),
+                0 24px 80px rgba(2, 6, 23, 0.28),
+                0 4px 16px rgba(2, 6, 23, 0.10);
+}
+html[data-glass="on"] .modal-split-left,
+html[data-glass="on"] .modal-split-right {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+html[data-glass="on"] .modal-split-left {
+    border-right: 1px solid rgba(15, 23, 42, 0.10) !important;
+}
+html[data-glass="on"] .modal-split-header {
+    background: transparent !important;
+    border-bottom-color: rgba(15, 23, 42, 0.08) !important;
+}
+/* Липкая панель действий с плотным var(--card-bg) читалась серой
+   вставкой поверх стекла; в потоке она статична — прозрачна безопасно */
+html[data-glass="on"] .modal-split-left .modal-actions {
+    background: transparent !important;
+}
+html[data-theme="dark"][data-glass="on"] .modal-content,
+html[data-theme="dark"][data-glass="on"] .modal-content-wide,
+html[data-theme="dark"][data-glass="on"] .modal-content-split {
+    background-color: rgba(24, 28, 38, 0.93) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(130%);
+    backdrop-filter: blur(28px) saturate(130%);
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                0 24px 80px rgba(0, 0, 0, 0.55),
+                0 4px 16px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-left,
+html[data-theme="dark"][data-glass="on"] .modal-split-right {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-left {
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-header {
+    background: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.07) !important;
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-left .modal-actions {
+    background: transparent !important;
+}
+
+/* === 5. Тосты, дропдауны, панель уведомлений === */
+html[data-glass="on"] .toast {
+    background-color: rgba(255, 255, 255, 0.82) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(170%);
+    backdrop-filter: blur(18px) saturate(170%);
+    border-color: rgba(255, 255, 255, 0.7) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 12px 32px rgba(2, 6, 23, 0.18);
+}
+html[data-theme="dark"][data-glass="on"] .toast {
+    background-color: rgba(30, 35, 48, 0.88) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(120%);
+    backdrop-filter: blur(18px) saturate(120%);
+    border-color: rgba(255, 255, 255, 0.10) !important;
+}
+/* Цветные тосты (успех/ошибка/инфо) остаются плотными — читаемость важнее */
+html[data-theme="dark"][data-glass="on"] .toast-success,
+html[data-theme="dark"][data-glass="on"] .toast-error,
+html[data-theme="dark"][data-glass="on"] .toast-info {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+html[data-glass="on"] .dropdown-menu,
+html[data-glass="on"] .notif-panel {
+    background-color: rgba(255, 255, 255, 0.86) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    backdrop-filter: blur(20px) saturate(170%);
+    border-color: rgba(255, 255, 255, 0.7) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 16px 48px rgba(2, 6, 23, 0.20);
+}
+html[data-theme="dark"][data-glass="on"] .dropdown-menu,
+html[data-theme="dark"][data-glass="on"] .notif-panel {
+    background-color: rgba(28, 33, 46, 0.90) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    backdrop-filter: blur(20px) saturate(120%);
+    border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* === 6. Поля ввода — лёгкое стекло без blur (их сотни).
+   Чекбоксы и радио ИСКЛЮЧЕНЫ: у них кастомная отрисовка с own background
+   (галочка белая на цветной заливке) — полупрозрачный фон делал «галочку»
+   белой на белом в светлой теме (фидбек 2026-09-05). === */
+html[data-glass="on"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-glass="on"] select,
+html[data-glass="on"] textarea {
+    background-color: rgba(255, 255, 255, 0.60) !important;
+}
+html[data-theme="dark"][data-glass="on"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"][data-glass="on"] select,
+html[data-theme="dark"][data-glass="on"] textarea {
+    background-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* === 7. Карточки дашборда и секции === */
+html[data-glass="on"] .dash-stat,
+html[data-glass="on"] .stat-card,
+html[data-glass="on"] .section-card,
+html[data-glass="on"] .login-card {
+    background-color: rgba(255, 255, 255, 0.68) !important;
+    border-color: rgba(255, 255, 255, 0.65) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), var(--shadow-md);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+}
+html[data-theme="dark"][data-glass="on"] .dash-stat,
+html[data-theme="dark"][data-glass="on"] .stat-card,
+html[data-theme="dark"][data-glass="on"] .section-card,
+html[data-theme="dark"][data-glass="on"] .login-card {
+    background-color: rgba(30, 35, 48, 0.72) !important;
+    border-color: rgba(255, 255, 255, 0.09) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--shadow-md);
+}
+
+/* === 8. Блик на кнопках (без blur — дёшево) === */
+html[data-glass="on"] .btn,
+html[data-glass="on"] .settings-tab,
+html[data-glass="on"] .view-toggle-btn {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+html[data-glass="on"] .btn-primary {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 14px rgba(79, 70, 229, 0.35);
+}
+
+/* ============================================================
+   ФОЛБЭКИ
+   ============================================================ */
+
+/* Браузер без backdrop-filter: плотные поверхности вместо стекла */
+@supports not ((backdrop-filter: blur(4px)) or (-webkit-backdrop-filter: blur(4px))) {
+    html[data-glass="on"] .sidebar {
+        background: linear-gradient(180deg, #0f172a, #020617) !important;
+    }
+    html[data-glass="on"] .modal-overlay { background-color: rgba(15, 23, 42, 0.65) !important; }
+    html[data-glass="on"] .modal-content,
+    html[data-glass="on"] .modal-content-wide,
+    html[data-glass="on"] .modal-content-split,
+    html[data-glass="on"] .toast,
+    html[data-glass="on"] .dropdown-menu,
+    html[data-glass="on"] .notif-panel,
+    html[data-glass="on"] .dash-stat,
+    html[data-glass="on"] .stat-card,
+    html[data-glass="on"] .section-card,
+    html[data-glass="on"] .login-card {
+        background-color: #ffffff !important;
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+    html[data-theme="dark"][data-glass="on"] .modal-content,
+    html[data-theme="dark"][data-glass="on"] .modal-content-wide,
+    html[data-theme="dark"][data-glass="on"] .modal-content-split,
+    html[data-theme="dark"][data-glass="on"] .toast,
+    html[data-theme="dark"][data-glass="on"] .dropdown-menu,
+    html[data-theme="dark"][data-glass="on"] .notif-panel,
+    html[data-theme="dark"][data-glass="on"] .dash-stat,
+    html[data-theme="dark"][data-glass="on"] .stat-card,
+    html[data-theme="dark"][data-glass="on"] .section-card,
+    html[data-theme="dark"][data-glass="on"] .login-card {
+        background-color: #22262e !important;
+    }
+}
+
+/* Пользователь просил меньше прозрачности (настройка ОС) — уважаем */
+@media (prefers-reduced-transparency: reduce) {
+    html[data-glass="on"] .sidebar {
+        background: linear-gradient(180deg, #0f172a, #020617) !important;
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+    html[data-glass="on"] .modal-overlay,
+    html[data-glass="on"] .modal-content,
+    html[data-glass="on"] .modal-content-wide,
+    html[data-glass="on"] .modal-content-split,
+    html[data-glass="on"] .toast,
+    html[data-glass="on"] .dropdown-menu,
+    html[data-glass="on"] .notif-panel,
+    html[data-glass="on"] .dash-stat,
+    html[data-glass="on"] .stat-card,
+    html[data-glass="on"] .section-card,
+    html[data-glass="on"] .login-card {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+    html[data-glass="on"] body {
+        background: #f8fafc;
+    }
+    html[data-theme="dark"][data-glass="on"] body {
+        background: #1a1d24;
+    }
+}

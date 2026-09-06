@@ -291,10 +291,17 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
 
     imported_cards = []
     tdb = get_tenant_db(tenant_id) if tenant_id else db
+    mail = None
 
     try:
-        mail = imaplib.IMAP4_SSL(imap_server)
-        mail.socket().settimeout(15)
+        # FIX 2026-09-06 (аудит): таймаут на сам TCP-connect. Раньше settimeout
+        # ставился уже после конструктора — «зависший» IMAP-хост подвешивал
+        # запрос/cron на системный таймаут (минуты).
+        try:
+            mail = imaplib.IMAP4_SSL(imap_server, timeout=15)
+        except TypeError:  # Python < 3.9: параметра timeout ещё нет
+            mail = imaplib.IMAP4_SSL(imap_server)
+            mail.socket().settimeout(15)
         mail.login(email_addr, password)
         mail.select("inbox")
 
@@ -463,8 +470,6 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                 logger.warning(f"Failed to process email {e_id} for tenant {tenant_id}: {e}")
                 continue
 
-        mail.logout()
-
         settings["last_sync"] = datetime.now(timezone.utc).isoformat()
         save_settings(settings, tenant_id)
 
@@ -483,6 +488,14 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
     except Exception as e:
         logger.error(f"Email sync error for tenant {tenant_id}: {type(e).__name__}: {e}")
         return {"tenant_id": tenant_id, "success": False, "error": f"Ошибка подключения к почте: {e}", "count": 0}
+    finally:
+        # FIX 2026-09-06 (аудит): logout был только на успехе — при ошибке
+        # посреди выборки соединение с IMAP оставалось висеть до таймаута.
+        if mail is not None:
+            try:
+                mail.logout()
+            except Exception:
+                pass
 
 
 @router.post("/sync")
