@@ -389,9 +389,11 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     const container = leftContainer; // backward compat
     const now = new Date();
     const dueDate = card.due_date ? new Date(card.due_date + 'T00:00:00') : null;
-    // Синхронно с kanban.js: оплаченная сделка не помечается просрочкой
+    // Синхронно с kanban.js: оплаченная сделка не помечается просрочкой;
+    // сделка в «Списании»/«Закрыто» фактически выписана — тоже (фидбек 06.09)
     const isPaid = card.payment_status === 'Оплачен';
-    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто' && !isPaid;
+    const dealDone = card.status === 'На списание' || card.status === 'Закрыто';
+    const isOverdue = dueDate && dueDate < now && !dealDone && !isPaid;
     const dueDateStr = card.due_date || '';
 
     // LEFT COLUMN: Static fields

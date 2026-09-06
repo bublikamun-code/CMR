@@ -20,6 +20,10 @@ let showOldCards = { "Новый запрос": false, "В работе": false,
 // на канбан-доске колонок для них нет. Такие сделки живут в своих разделах,
 // а при возврате из архива статус пересчитывается сервером.
 const KANBAN_COLUMNS = ["Новый запрос", "В работе", "Ждет оплаты", "Сборка"];
+// Фидбек 2026-09-06: сделка, ушедшая в «Списание» (и тем более «Закрыто»),
+// фактически выписана — её дата окончания больше не помечает просрочкой.
+// «Висят» только вопросы оплат, они отслеживаются отдельно (payment_due_date).
+const DEAL_DEADLINE_DONE = ['На списание', 'Закрыто'];
 const OLD_CARD_DAYS = 15;
 // Фидбек 2026-09-04: в «Сборке» и «Ждет оплаты» старые карточки не прячем
 // и не помечаем «старостью» — там каждая карточка важна (деньги и отгрузка).
@@ -267,7 +271,7 @@ async function loadKanbanBoard() {
         // Сводка по просроченным карточкам
         const now = new Date();
         const overdueCards = cards.filter(c =>
-            c.due_date && new Date(c.due_date + 'T00:00:00') < now && c.status !== 'Закрыто'
+            c.due_date && new Date(c.due_date + 'T00:00:00') < now && !DEAL_DEADLINE_DONE.includes(c.status)
         );
         let overdueBar = board.querySelector('.overdue-summary-bar');
         if (overdueCards.length > 0) {
@@ -373,8 +377,8 @@ function fillCardHTML(cardEl, card) {
     // Фидбек 2026-09-05: оплаченная сделка — не просрочка. Красная полоса
     // фасада сбрасывается сразу после «Оплачен», карточка получает зелёную.
     const isPaid = card.payment_status === 'Оплачен';
-    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто' && !isPaid;
-    const isDueSoon = dueDate && !isOverdue && !isPaid && (dueDate - now) < (3 * 24 * 60 * 60 * 1000);
+    const isOverdue = dueDate && dueDate < now && !DEAL_DEADLINE_DONE.includes(card.status) && !isPaid;
+    const isDueSoon = dueDate && !isOverdue && !isPaid && !DEAL_DEADLINE_DONE.includes(card.status) && (dueDate - now) < (3 * 24 * 60 * 60 * 1000);
 
     cardEl.classList.remove('card-overdue', 'card-due-soon', 'card-paid');
     if (isOverdue) cardEl.classList.add('card-overdue');
@@ -1043,7 +1047,7 @@ function renderListView() {
 
     pageCards.forEach(c => {
         const dueDate = c.due_date ? new Date(c.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : null;
-        const isOverdue = c.due_date && new Date(c.due_date + 'T00:00:00') < now && c.status !== 'Закрыто';
+        const isOverdue = c.due_date && new Date(c.due_date + 'T00:00:00') < now && !DEAL_DEADLINE_DONE.includes(c.status);
         const tr = document.createElement('tr');
         tr.className = 'kanban-list-row';
         tr.onclick = () => openCardModal(c.id);

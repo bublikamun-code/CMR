@@ -163,6 +163,51 @@ def test_trigger_from_card_returns_existing_under_unique_index(superadmin_client
     assert len(txs) == 1
 
 
+# --- Просрочки сделок (фидбек 06.09: «На списание» — сделка выписана) --
+
+def test_sync_overdue_skips_cards_in_writeoff(admin_client):
+    # Просроченная дата окончания: сделка «В работе» даёт уведомление,
+    # сделка «На списание» — нет (она фактически выписана; вопросы только
+    # по оплатам, они считаются по payment_due_date отдельно).
+    import models
+    from database import SessionLocal
+    from datetime import date
+
+    db = SessionLocal()
+    try:
+        owner = db.query(models.User).filter(models.User.username == "test_admin").first()
+        past = date.today().replace(year=date.today().year - 1)
+        c_done = models.Card(title="Просрочка-тест: На списании", status="На списание",
+                             total_amount=100, due_date=past, owner_id=owner.id)
+        c_open = models.Card(title="Просрочка-тест: В работе", status="В работе",
+                             total_amount=100, due_date=past, owner_id=owner.id)
+        db.add(c_done); db.add(c_open); db.commit()
+        done_id, open_id = c_done.id, c_open.id
+    finally:
+        db.close()
+
+    import auth
+    r = admin_client.post("/notifications/sync-overdue", headers={"X-Cron-Token": auth.CRON_TOKEN})
+    assert r.status_code == 200, r.text
+
+    db = SessionLocal()
+    try:
+        notes = db.query(models.Notification).filter(
+            models.Notification.entity_type == "card",
+            models.Notification.type == "card_overdue",
+            models.Notification.entity_id.in_([done_id, open_id]),
+        ).all()
+        notified = {n.entity_id for n in notes}
+        assert open_id in notified, "сделка «В работе» должна получить просрочку"
+        assert done_id not in notified, "сделка «На списании» не должна получать просрочку по дате окончания"
+        # прибираем, чтобы не влиять на другие тесты
+        for n in notes:
+            db.delete(n)
+        db.commit()
+    finally:
+        db.close()
+
+
 # --- Лимиты (С3) -------------------------------------------------------
 
 def test_login_rate_limited():

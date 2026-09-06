@@ -35,7 +35,9 @@
     }
 
     function isOverdue(card, today) {
-        if (!card.due_date || card.status === 'Закрыто') return false;
+        // Сделка в «Списании» фактически выписана — просрочкой не считается
+        // (фидбек 2026-09-06), как и «Закрыто»
+        if (!card.due_date || card.status === 'Закрыто' || card.status === 'На списание') return false;
         const d = new Date(card.due_date + 'T00:00:00');
         return d < today;
     }
