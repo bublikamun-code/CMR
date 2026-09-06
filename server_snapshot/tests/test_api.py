@@ -232,6 +232,53 @@ def test_login_rate_limited():
     assert client.post("/auth/login", data={"username": "test_admin", "password": "nope"}).status_code == 429
 
 
+# --- «Запомнить меня» + скользящее продление (фидбек 07.09) -------------
+
+def test_login_remember_me_30_days():
+    client = TestClient(app)
+    r = client.post("/auth/login", data={
+        "username": "test_admin", "password": USERS["test_admin"][0], "remember": "1",
+    })
+    assert r.status_code == 200
+    assert "Max-Age=2592000" in r.headers.get("set-cookie", ""), "кука «Запомнить меня» должна жить 30 дней"
+    import jwt as pyjwt
+    from auth import SECRET_KEY, ALGORITHM
+    payload = pyjwt.decode(client.cookies.get("crm_token"), SECRET_KEY, algorithms=[ALGORITHM])
+    assert payload.get("rm") == 1
+    assert 29 < (payload["exp"] - payload["iat"]) / 86400 <= 30.01, "срок токена — 30 дней"
+
+
+def test_login_default_is_24h():
+    client = TestClient(app)
+    r = client.post("/auth/login", data={"username": "test_admin", "password": USERS["test_admin"][0]})
+    set_cookie = r.headers.get("set-cookie", "")
+    assert "Max-Age=86400" in set_cookie, "без «Запомнить меня» — сутки"
+    assert "Max-Age=2592000" not in set_cookie
+
+
+def test_sliding_renewal_extends_cookie():
+    # Токен «в работе» с половиной срока: /auth/me должен продлить куку
+    # на полный срок (24ч) — активный пользователь больше не вылетает.
+    import jwt as pyjwt
+    from auth import SECRET_KEY, ALGORITHM, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+    from database import SessionLocal as _S
+    import models as _m
+    db = _S()
+    try:
+        user = db.query(_m.User).filter(_m.User.username == "test_admin").first()
+        pv = user.hashed_password[:8]
+    finally:
+        db.close()
+    token = create_access_token(
+        {"sub": "test_admin", "tenant_id": None, "pv": pv},
+        expires_minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES / 2),
+    )
+    client = TestClient(app)
+    r = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert "Max-Age=86400" in r.headers.get("set-cookie", ""), "скользящее продление должно обновить куку"
+
+
 def test_password_change_rate_limited(manager_client):
     for _ in range(5):
         assert manager_client.put("/auth/me/password", json={

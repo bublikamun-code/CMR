@@ -10702,6 +10702,26 @@ td.td-center > .btn-edit-row .ui-icon{
 .login-form-group {
     margin-bottom: 16px;
 }
+
+/* Фидбек 07.09: «Запомнить меня» на форме входа */
+.login-remember {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 2px 0 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+.login-remember input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    flex: none;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
 .login-form-group label {
     display: block;
     font-size: 12px;

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
 @router.post("/login")
 @limiter.limit("10/minute")
-def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), remember: str = Form(""), db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.username == form_data.username).first()
 
     if not user or not auth.verify_password(form_data.password, user.hashed_password):
@@ -26,7 +26,14 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     logger.info(f"Login: {user.username} (role={user.role})")
     # pv (password version) — первые 8 символов хэша: смена пароля
     # инвалидирует все ранее выданные токены (проверка в get_current_user).
-    access_token = auth.create_access_token(data={"sub": user.username, "tenant_id": user.tenant_id, "pv": user.hashed_password[:8]})
+    # «Запомнить меня» (фидбек 07.09): срок токена и куки — 30 дней вместо
+    # 24 часов; claim rm включает скользящее продление в get_current_user.
+    remember_on = remember.lower() in ("1", "true", "on", "yes")
+    minutes = auth.REMEMBER_MINUTES if remember_on else auth.ACCESS_TOKEN_EXPIRE_MINUTES
+    token_data = {"sub": user.username, "tenant_id": user.tenant_id, "pv": user.hashed_password[:8]}
+    if remember_on:
+        token_data["rm"] = 1
+    access_token = auth.create_access_token(token_data, expires_minutes=minutes)
     # P2-1 (аудит 04.09): дублируем токен httpOnly-cookie — JS не может её
     # прочитать, поэтому кража токена через XSS невозможна. SameSite=Lax
     # закрывает CSRF для кросс-сайтовых POST. Secure — только по https,
@@ -37,7 +44,7 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
         httponly=True,
         samesite="lax",
         secure=(request.url.scheme == "https"),
-        max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=minutes * 60,
         path="/",
     )
     return {"access_token": access_token, "token_type": "bearer", "role": user.role}

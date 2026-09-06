@@ -83,6 +83,10 @@ function renderLoginScreen() {
                         </button>
                     </div>
                 </div>
+                <label class="login-remember" for="login-remember">
+                    <input type="checkbox" id="login-remember" checked>
+                    <span>Запомнить меня на этом устройстве (30 дней)</span>
+                </label>
                 <button type="button" id="login-submit" class="btn-primary btn-login">
                     <span class="btn-text">Войти</span>
                 </button>
@@ -150,6 +154,11 @@ function renderLoginScreen() {
         const params = new URLSearchParams();
         params.append('username', username);
         params.append('password', password);
+        // «Запомнить меня» (фидбек 07.09): сервер выпустит токен и куку
+        // на 30 дней вместо 24 часов + включит скользящее продление.
+        if (document.getElementById('login-remember')?.checked) {
+            params.append('remember', '1');
+        }
 
         const controller = new AbortController();
         const loginTimeout = setTimeout(() => controller.abort(), 15000);
