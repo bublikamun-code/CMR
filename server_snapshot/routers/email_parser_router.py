@@ -23,7 +23,6 @@ except ImportError:
     InvalidToken = Exception
     _fernet_available = False
 
-
 from auth import get_current_user, require_role, require_cron_token
 from email_cleaner import clean_email_body, html_to_text, normalize_subject
 
@@ -82,8 +81,14 @@ def _load_secret_key() -> bytes:
 
 try:
     _fernet = Fernet(_load_secret_key())
-except Exception:
+    _fernet_init_error = None
+except Exception as e:
     _fernet = None
+    _fernet_init_error = f"{type(e).__name__}: {e}"
+    # Фидбек 07.09: без cryptography пароль ящика не расшифровать — синк
+    # падает с «неверным паролем». Раньше это молчало (пароль лежал
+    # открытым текстом и не требовал расшифровки).
+    logger.error(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
 from database import get_db, get_tenant_db
 from db_utils import resolve_tenant_db as _db
 import models
