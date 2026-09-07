@@ -16,9 +16,12 @@
     async function loadData() {
         try {
             const token = getToken();
+            // P2-1: токен обычно null (httpOnly-кука) — «Bearer null» давал 401,
+            // календарь молча оставался пустым. Авторизация идёт по куке.
+            const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
             const [cardsRes, txRes] = await Promise.all([
-                fetch('/kanban/cards', { headers: { 'Authorization': `Bearer ${token}` } }),
-                fetch('/payments/transactions', { headers: { 'Authorization': `Bearer ${token}` } })
+                fetch('/kanban/cards', { headers: authHeaders }),
+                fetch('/payments/transactions', { headers: authHeaders })
             ]);
             if (cardsRes.ok) cards = await cardsRes.json();
             if (txRes.ok) transactions = await txRes.json();

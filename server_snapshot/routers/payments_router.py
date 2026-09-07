@@ -261,6 +261,46 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
     finally:
         tdb.close()
 
+def _find_invoice_twins(session, tx):
+    """Пара накладной: её копия в «Документах» (или исходник, если правят копию).
+
+    «Накладная + копия» — ОДНА сущность: правки и удаление должны касаться
+    обеих сторон. Поиск — по тем же правилам, что и при удалении: по номеру
+    без нецифровых символов, затем по сумме, затем единственный кандидат.
+    Вызывать ДО изменения полей tx: пара ищется по текущим (старым) значениям.
+    """
+    if tx.card_id is None:
+        return []
+    number = (tx.invoice_number or "").strip()
+    amount = float(tx.amount or 0)
+    was_doc = bool(tx.is_document)
+
+    def _norm(v):
+        """Номера накладных пишут по-разному: «ТТН4881006» и «4881006» —
+        это одна накладная. Сравниваем только цифры."""
+        return "".join(ch for ch in (v or "") if ch.isdigit())
+
+    candidates = session.query(models.Transaction).filter(
+        models.Transaction.card_id == tx.card_id,
+        models.Transaction.id != tx.id,
+        models.Transaction.is_document == (not was_doc),
+    ).all()
+
+    key = _norm(number)
+    twins = []
+    if key:
+        twins = [c for c in candidates if _norm(c.invoice_number) == key]
+    # запасной путь: номер не совпал (или его нет) — ищем по сумме
+    if not twins:
+        twins = [c for c in candidates
+                 if abs(float(c.amount or 0) - amount) < 0.01
+                 and (not key or not _norm(c.invoice_number))]
+    # у сделки ровно одна накладная — пара однозначна
+    if not twins and len(candidates) == 1:
+        twins = candidates
+    return twins
+
+
 @router.delete("/transactions/{transaction_id}")
 def delete_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
@@ -279,36 +319,12 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
         number = (tx.invoice_number or "").strip()
         amount = float(tx.amount or 0)
         store = tx.store_location
-        was_doc = bool(tx.is_document)
         was_invoice = bool(tx.is_warehouse_writeoff or number)
 
         # Накладная и её копия в «Документах» — ОДНА сущность.
         # Удаление с любой стороны должно снести обе, иначе разъезжается:
         # из «Документов» удаляли копию, а накладная оставалась в карточке.
-        def _norm(v):
-            """Номера накладных пишут по-разному: «ТТН4881006» и «4881006» —
-            это одна накладная. Сравниваем только цифры."""
-            return "".join(ch for ch in (v or "") if ch.isdigit())
-
-        twins = []
-        if card_id is not None:
-            candidates = session.query(models.Transaction).filter(
-                models.Transaction.card_id == card_id,
-                models.Transaction.id != tx.id,
-                models.Transaction.is_document == (not was_doc),
-            ).all()
-
-            key = _norm(number)
-            if key:
-                twins = [c for c in candidates if _norm(c.invoice_number) == key]
-            # запасной путь: номер не совпал (или его нет) — ищем по сумме
-            if not twins:
-                twins = [c for c in candidates
-                         if abs(float(c.amount or 0) - amount) < 0.01
-                         and (not key or not _norm(c.invoice_number))]
-            # у сделки ровно одна накладная — пара однозначна
-            if not twins and len(candidates) == 1:
-                twins = candidates
+        twins = _find_invoice_twins(session, tx)
 
         for t in twins:
             session.delete(t)
@@ -380,8 +396,19 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         if not tx:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
         update_data = updates.model_dump(exclude_unset=True) if hasattr(updates, 'model_dump') else updates.dict(exclude_unset=True)
+        # Пара «накладная + копия в Документах» ищется по СТАРЫМ значениям
+        # (как при удалении) — поэтому до применения правок.
+        invoice_fields = {"invoice_date", "invoice_number"} & update_data.keys()
+        invoice_twins = _find_invoice_twins(session, tx) if invoice_fields else []
         for key, value in update_data.items():
             setattr(tx, key, value)
+        # Дата/номер — часть пары «накладная + копия»: правим с любой
+        # стороны, копия подтягивается, иначе в разделах разъезжается.
+        for twin in invoice_twins:
+            if "invoice_date" in invoice_fields:
+                twin.invoice_date = tx.invoice_date
+            if "invoice_number" in invoice_fields:
+                twin.invoice_number = tx.invoice_number
         if "print_status" in update_data and tx.card_id is not None:
             for twin in session.query(models.Transaction).filter(models.Transaction.card_id == tx.card_id, models.Transaction.id != tx.id).all():
                 twin.print_status = update_data["print_status"]

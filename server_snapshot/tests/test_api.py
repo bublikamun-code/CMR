@@ -122,6 +122,44 @@ def test_issue_invoice_rejects_amount_over_remainder(superadmin_client):
     assert "больше остатка" in response.json()["detail"]
 
 
+# --- Правка даты выписки накладной из карточки (фидбек 07.09) -----------
+
+def test_invoice_date_edit_syncs_document_copy(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест правки даты накладной", 300.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-9", "invoice_date": "2026-09-01",
+        "amount": 300.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+
+    txs = _card_transactions(card_id)
+    invoice = next(t for t in txs if not t.is_document)
+    doc = next(t for t in txs if t.is_document)
+
+    response = superadmin_client.patch(
+        f"/payments/transactions/{invoice.id}", json={"invoice_date": "2026-09-07"})
+    assert response.status_code == 200, response.text
+    assert response.json()["invoice_date"] == "2026-09-07"
+    doc_after = next(t for t in _card_transactions(card_id) if t.is_document)
+    assert doc_after.invoice_date == "2026-09-07", "копия в «Документах» должна получить ту же дату"
+
+    # правка с копии в «Документах» синхронизируется обратно на накладную
+    response = superadmin_client.patch(
+        f"/payments/transactions/{doc.id}", json={"invoice_date": "2026-08-30"})
+    assert response.status_code == 200, response.text
+    inv_after = next(t for t in _card_transactions(card_id) if not t.is_document)
+    assert inv_after.invoice_date == "2026-08-30"
+
+    # очистка даты тоже синхронизируется на пару
+    assert superadmin_client.patch(
+        f"/payments/transactions/{invoice.id}", json={"invoice_date": None}).status_code == 200
+    pair = _card_transactions(card_id)
+    assert next(t for t in pair if not t.is_document).invoice_date is None
+    assert next(t for t in pair if t.is_document).invoice_date is None
+
+
 # --- Н13 (регрессия унификации сессий): менеджер без tenant_id читает
 # основную базу через resolve_tenant_db — бойлерплейт-ветки удалены.
 def test_manager_reads_business_lists(manager_client):

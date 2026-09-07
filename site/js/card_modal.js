@@ -1478,10 +1478,16 @@ async function downloadById(endpoint, id, niceName) {
     const downloadUrl = (id === null || id === undefined)
         ? `${API_BASE_URL}${endpoint}`
         : `${API_BASE_URL}${endpoint}/${id}/download`;
+    // P2-1: токен в httpOnly-куке, getToken() возвращает null. Безусловный
+    // заголовок давал «Bearer null»: бэкенд видел непустой Authorization,
+    // не переключался на куку и отвечал 401 «Не удалось проверить токен».
+    // Кука уходит с запросом сама (same-origin), заголовок — только если
+    // токен реально есть.
     const token = getToken();
     try {
         const resp = await fetch(downloadUrl, {
-            headers: { 'Authorization': 'Bearer ' + token }
+            credentials: 'same-origin',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         });
         if (!resp.ok) {
             let detail = '';
@@ -1734,8 +1740,12 @@ async function renderCardInvoices(card) {
     data.issued.forEach((inv, i) => {
         const row = document.createElement('div');
         row.className = 'checklist-item inv-item is-done';
-        const dateStr = inv.invoice_date
-            ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
+        // дата хранится строкой; в <input type="date"> подставляется только
+        // YYYY-MM-DD — записи со старым форматом открываются с пустым полем
+        const rawDate = (inv.invoice_date || '').trim();
+        const dateIso = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : '';
+        const legacyDateStr = (!dateIso && rawDate)
+            ? new Date(rawDate + 'T00:00:00').toLocaleDateString('ru-RU')
             : '';
         row.innerHTML = `
             <div class="checklist-item-header">
@@ -1750,7 +1760,12 @@ async function renderCardInvoices(card) {
                     <button class="delete-checklist inv-del" data-id="${inv.id}" title="Удалить накладную">${ICON_TRASH}</button>
                 </span>
             </div>
-            <div class="inv-sub">${dateStr ? escapeHtml(dateStr) + ' · ' : ''}${escapeHtml(inv.store_location || '')}${inv.store_location ? ' · ' : ''}${inv.written_off ? 'списана' : 'ждёт списания'}</div>
+            <div class="inv-sub">
+                <input type="date" class="inv-date-edit" data-id="${inv.id}" value="${dateIso}"
+                       title="Дата выписки — нажмите, чтобы изменить" aria-label="Дата выписки накладной">
+                ${legacyDateStr ? `<span title="Дата из старой записи">${escapeHtml(legacyDateStr)}</span>` : ''}
+                <span>${escapeHtml(inv.store_location || '')}${inv.store_location ? ' · ' : ''}${inv.written_off ? 'списана' : 'ждёт списания'}</span>
+            </div>
         `;
         container.appendChild(row);
     });
@@ -1835,6 +1850,27 @@ async function renderCardInvoices(card) {
             description: 'Выписанные накладные будут отображаться здесь.'
         }));
     }
+
+    // --- правка даты выписки накладной ---
+    container.querySelectorAll('.inv-date-edit').forEach(inp => {
+        inp.addEventListener('change', async () => {
+            try {
+                await apiFetch(`/payments/transactions/${inp.dataset.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoice_date: inp.value || null })
+                });
+                showToast('Дата накладной сохранена', 'success');
+                // сервер синхронизирует дату и на копии в «Документах» —
+                // перезагрузим блок и таблицу, чтобы нигде не осталась старая
+                await renderCardInvoices(card);
+                if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+            } catch (err) {
+                showToast('Не удалось сохранить дату: ' + err.message, 'error');
+                renderCardInvoices(card); // вернуть в поле серверное значение
+            }
+        });
+    });
 
     // --- удаление выписанной накладной ---
     container.querySelectorAll('.inv-del').forEach(btn => {
