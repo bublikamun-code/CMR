@@ -11,7 +11,7 @@
 
     const TYPE_DEAL = { key: 'deal', label: 'Сделка', color: '#4f46e5', bg: 'rgba(79,70,229,0.12)' };
     const TYPE_PAYMENT = { key: 'payment', label: 'Оплата', color: '#10b981', bg: 'rgba(16,185,129,0.12)' };
-    const TYPE_OVERDUE = { key: 'overdue', label: 'Просрочено', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' };
+    const TYPE_OVERDUE = { key: 'overdue', label: 'Просрочено', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' };
 
     async function loadData() {
         try {

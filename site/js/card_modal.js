@@ -1342,7 +1342,7 @@ function renderCardActivityList(cardId, activities) {
 }
 
 const TAG_COLORS = [
-    '#4f7cf5', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6',
+    '#4f46e5', '#dc2626', '#f59e0b', '#10b981', '#8b5cf6',
     '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6',
     '#e11d48', '#84cc16', '#0ea5e9', '#a855f7', '#64748b'
 ];

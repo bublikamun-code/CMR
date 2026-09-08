@@ -44,7 +44,7 @@ async function loadDashboard() {
     try {
         if (!_dashLoaded) {
             container.innerHTML = `
-                <div class="dash-grid" style="opacity: 0.6;">
+                <div class="dash-grid dash-skeleton">
                     <div class="dash-card">
                         <div class="skeleton-line" style="width: 30%; height: 20px; margin-bottom: 20px;"></div>
                         <div class="dash-summary-grid">
@@ -310,8 +310,8 @@ function renderMonthlyChart(cards) {
     if (canvas._chart) canvas._chart.destroy();
 
     const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const primaryColor = cssVar('--primary-color') || '#4a57a4';
-    const successColor = cssVar('--success-color') || '#10b981';
+    const primaryColor = cssVar('--primary-color') || '#4f46e5';
+    const successColor = cssVar('--success-color') || '#047857';
     const textColor = cssVar('--text-color') || '#1e293b';
     const borderColor = cssVar('--border-color') || 'rgba(0,0,0,0.1)';
 

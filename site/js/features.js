@@ -7,7 +7,7 @@
 // цепочке, из-за чего фокус уезжал не туда.
 
 const SAFE_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-function sanitizeColor(c) { return (c && SAFE_COLOR_RE.test(c)) ? c : '#4f7cf5'; }
+function sanitizeColor(c) { return (c && SAFE_COLOR_RE.test(c)) ? c : '#4f46e5'; }
 
 function getSkeletonHTML(cols, rowsCount = 5) {
     let html = '';
@@ -130,6 +130,14 @@ function confirmDialog(message, { okText = 'Удалить', cancelText = 'От�
 // Закрываем все открытые дропдауны при клике вне их / прокрутке / ресайзе
 function closeAllDropdowns() {
     document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+    // меню, перенесённые в <body> на время открытия, возвращаем на место
+    document.querySelectorAll('.dropdown-menu-portal').forEach(menu => {
+        const home = menu._home;
+        if (home && home.isConnected) home.appendChild(menu);
+        else menu.remove();
+        menu.classList.remove('dropdown-menu-portal');
+        menu.removeAttribute('style');
+    });
 }
 
 // Клик ВНУТРИ меню (включая полосу прокрутки) закрывать не должен.
@@ -159,7 +167,20 @@ function positionDropdownMenu(root) {
     const r = toggle.getBoundingClientRect();
     const menuH = menu.scrollHeight || 160;
 
+    // FIX (фидбек 08.09): «Liquid Glass» вешает backdrop-filter на содержимое
+    // модалок, а backdrop-filter/transform делают элемент containing block
+    // для position:fixed — viewport-координаты меню истолковывались
+    // относительно модалки: в карточке меню уезжало вниз, в «Новой сделке»
+    // (overflow: hidden) не было видно вовсе. Пока меню открыто, переносим
+    // его в <body> — там содержащего блока у fixed нет.
+    if (menu.parentElement !== document.body) {
+        menu._home = menu.parentElement;
+        document.body.appendChild(menu);
+        menu.classList.add('dropdown-menu-portal');
+    }
     menu.style.position = 'fixed';
+    // Выше модалки (z-index 1000): меню живёт вне её DOM
+    menu.style.zIndex = '1200';
     menu.style.right = 'auto';
     // Меню повторяет ширину поля, а не растягивается на минимум 250px.
     menu.style.minWidth = r.width + 'px';
@@ -225,7 +246,9 @@ function createDropdown({ options, value, onChange, searchable = false }) {
             root.dataset.value = opt.value;
             valueLabel.innerHTML = opt.html ? opt.html : escapeHtml(opt.label);
             menu.querySelectorAll('.dropdown-item').forEach(i => i.classList.toggle('selected', i === item));
-            root.classList.remove('open');
+            // closeAllDropdowns, а не просто classList.remove('open'):
+            // меню могло быть перенесено в <body> — его надо вернуть на место
+            closeAllDropdowns();
             if (onChange) onChange(opt.value);
         });
         menu.appendChild(item);

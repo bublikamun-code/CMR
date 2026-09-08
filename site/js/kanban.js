@@ -87,16 +87,16 @@ async function loadKanbanBoard() {
     if (!hasToken()) return;
 
     if (!board.querySelector('.kanban-column')) {
-        board.innerHTML = `<div style="display:flex;gap:16px;">
-            ${KANBAN_COLUMNS.map(() => `<div style="flex:1;background:var(--bg-color);border-radius:var(--radius-lg);padding:12px;">
+        board.innerHTML = `<div class="kanban-skeleton-board">
+            ${KANBAN_COLUMNS.map(() => `<div class="kanban-skeleton-col">
                 <div class="skeleton-line" style="height:18px;width:60%;margin-bottom:16px;"></div>
-                ${Array(3).fill('').map(() => `<div style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:14px;margin-bottom:10px;">
+                ${Array(3).fill('').map(() => `<div class="kanban-skeleton-card">
                     <div class="skeleton-line" style="height:14px;width:70%;margin-bottom:8px;"></div>
                     <div class="skeleton-line short" style="height:12px;width:40%;margin-bottom:8px;"></div>
                     <div class="skeleton-line" style="height:10px;width:50%;margin-bottom:6px;"></div>
-                    <div style="display:flex;gap:4px;margin-top:8px;">
-                        <div class="skeleton-line" style="height:6px;flex:1;border-radius:99px;"></div>
-                        <div class="skeleton-line" style="height:6px;flex:1;border-radius:99px;"></div>
+                    <div class="kanban-skeleton-bars">
+                        <div class="skeleton-pill"></div>
+                        <div class="skeleton-pill"></div>
                     </div>
                 </div>`).join('')}
             </div>`).join('')}
@@ -151,12 +151,11 @@ async function loadKanbanBoard() {
         if (!emptyBanner) {
             emptyBanner = document.createElement('div');
             emptyBanner.id = 'kanban-empty-banner';
-            emptyBanner.className = 'empty-state';
-            emptyBanner.style.cssText = 'margin:8px 0 16px;text-align:center;';
+            emptyBanner.className = 'empty-state kanban-empty-banner';
             emptyBanner.innerHTML = `
                 <div class="empty-state-title">Сделок пока нет</div>
                 <div class="empty-state-desc">Создайте первую сделку — она появится в колонке «Новый запрос».</div>
-                <button type="button" id="kanban-empty-create" class="btn btn-primary" style="margin-top:12px;">+ Создать первую сделку</button>`;
+                <button type="button" id="kanban-empty-create" class="btn btn-primary">+ Создать первую сделку</button>`;
             board.insertBefore(emptyBanner, board.firstChild);
         }
         emptyBanner.classList.toggle('hidden', cards.length > 0);
