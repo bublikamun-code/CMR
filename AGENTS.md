@@ -1,0 +1,41 @@
+# AGENTS — конвенции проекта CRM «Свет в доме»
+
+## Перед любой правкой фронтенда
+
+Прочитай `docs/design-system/SKILL.md` (роутер) и модули, на которые он ссылается
+(`tokens.md`, `themes.md`, `components.md`, `principles.md`). Новые стили —
+только через канонические токены и классы; проверка изменений — скриншотами в
+матрице тем (светлая / тёмная / ± glass), эталоны в
+`gui-test-screenshots/design-system-baseline/`.
+
+## Стек и устройство
+
+- Фронт: vanilla HTML/CSS/JS без сборки — `site/` (SPA `index.html`, `admin.html`).
+  Монолит `site/css/style.css` + опциональный слой `site/css/liquid-glass.css`
+  (правила слоёв — docs/design-system/themes.md).
+- Бэк: FastAPI + SQLite — `server_snapshot/` (запуск `server.py`, миграции
+  `python3 migrate.py`, тесты `server_snapshot/tests/`).
+- Раздача: nginx отдаёт статику; API — PM2 (прод).
+- CSP: `script-src 'self'` — никаких инлайн-скриптов и onclick; только
+  `data-handler` / addEventListener. Инлайн-атрибуты `style` разрешены
+  (границы — docs/design-system/components.md).
+
+## Верификация
+
+- JS: `bash tools/check_js.sh` (после любых правок site/js).
+- CSS: избыточные `!important` оценивает `tools/css_cascade.py report` —
+  самостоятельное снятие `!important` вне отдельной кампании не делать.
+- Кэш: после правки css/js прогонять `python3 tools/stamp_assets.py`
+  (обновляет `?v=`-штампы в HTML).
+
+## Деплой (по договорённости с владельцем, не автоматом)
+
+- `tools/deploy.sh front` — rsync `site/` на сервер (статика, рестарт не нужен).
+- `tools/deploy.sh back <file>...` — файл(ы) бэка + рестарт PM2.
+- `tools/deploy.sh status | logs` — диагностика.
+
+## Стиль
+
+- Комментарии и тексты UI — по-русски; идентификаторы — по-английски.
+- Коммиты — по-русски, развёрнуто: что и зачем, что проверено (см. `git log`).
+- Каждый логичный шаг — отдельный коммит; деплой — отдельное решение владельца.
