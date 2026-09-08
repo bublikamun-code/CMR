@@ -145,14 +145,14 @@ html {
     /* === ДИЗАЙН-СИСТЕМА 2026-09-08 (docs/design-system/tokens.md §1):
        софт-триады бейджей/алертов, приглушённая статусная шкала канбана,
        фокус-кольцо и вспомогательные токены. Значения = прежним литералам. === */
-    --danger-soft-bg: #fee2e2;
-    --danger-soft-border: #fecaca;
-    --danger-soft-text: #991b1b;
-    --success-soft-bg: #d1fae5;
-    --success-soft-border: #a7f3d0;
-    --success-soft-text: #065f46;
-    --warning-soft-bg: #fef3c7;
-    --warning-soft-text: #92400e;
+    --danger-soft-bg: #f9eaea;
+    --danger-soft-border: #ecd0d0;
+    --danger-soft-text: #a04a4a;
+    --success-soft-bg: #e8f1ec;
+    --success-soft-border: #cfe0d6;
+    --success-soft-text: #356952;
+    --warning-soft-bg: #f7efe0;
+    --warning-soft-text: #8a6224;
     --status-success: #5aa98c;
     --status-danger: #c45a68;
     --status-warning: #d4a373;
@@ -13882,3 +13882,13 @@ textarea {
 /* Пустая доска канбана: отступы баннера и кнопки */
 .kanban-empty-banner { margin: 8px 0 16px; text-align: center; }
 .kanban-empty-banner .btn { margin-top: 12px; }
+
+/* ДИЗАЙН-ПОЛИШ 2026-09-08: длинные названия в ячейках — одна строка
+   с многоточием (полное название — в title ячейки). Утилита для таблиц,
+   где названия раздували строки на 2-4 строки («Контроль»). */
+.td-clamp {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

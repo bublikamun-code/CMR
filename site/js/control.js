@@ -56,7 +56,7 @@ async function loadControlBoard() {
         tr.style.cursor = 'pointer';
         tr.title = 'Открыть карточку сделки';
         tr.innerHTML = `
-            <td>${esc(c.title || '')}</td>
+            <td class="td-clamp" title="${esc(c.title || '')}">${esc(c.title || '')}</td>
             <td>${esc(c.store_location || '')}</td>
             <td>${esc(c.status || '')}</td>
             <td class="tabular-nums">${formatMoneyBYN(total)}</td>

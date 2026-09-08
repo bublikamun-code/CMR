@@ -20,12 +20,14 @@
 
 ### Новые токены (добавляются в `:root`, значения = фактическим литералам)
 
-Софт-триады для бейджей, алертов и плашек (фон / граница / текст):
+Софт-триады для бейджей, алертов и плашек (фон / граница / текст).
+Палитра пыльная, приглушённая — Tailwind-пастели (#fee2e2 и ко) считаются
+дрейфом; контраст текста на фоне ≥ 4.5:1:
 
 ```css
---danger-soft-bg: #fee2e2;   --danger-soft-border: #fecaca;  --danger-soft-text: #991b1b;
---success-soft-bg: #d1fae5;  --success-soft-border: #a7f3d0; --success-soft-text: #065f46;
---warning-soft-bg: #fef3c7;  --warning-soft-text: #92400e;
+--danger-soft-bg: #f9eaea;   --danger-soft-border: #ecd0d0;  --danger-soft-text: #a04a4a;
+--success-soft-bg: #e8f1ec;  --success-soft-border: #cfe0d6; --success-soft-text: #356952;
+--warning-soft-bg: #f7efe0;  --warning-soft-text: #8a6224;
 ```
 
 Приглушённая статусная шкала канбана (левая полоса карточек: «Сборка»/оплачен
@@ -74,7 +76,7 @@
 | `#6b7280` | `var(--text-muted)` | gray-500 ≈ slate-500 |
 | `#cbd5e1` | `var(--border-strong)` | токенизация без смены значения |
 | `#94a3b8` (в светлой теме) | `var(--text-disabled)` | токенизация |
-| `#fee2e2` / `#fecaca` / `#991b1b` | `--danger-soft-*` | |
+| `#fee2e2` / `#fecaca` / `#991b1b` | `--danger-soft-*` | значениям триад = новая пыльная палитра (см. §1) |
 | `#d1fae5` / `#a7f3d0` / `#065f46` | `--success-soft-*` | |
 | `#fef3c7` / `#92400e` | `--warning-soft-*` | |
 | `#5aa98c` / `#c45a68` / `#d4a373` | `--status-*` | и в style.css, и в liquid-glass.css |
