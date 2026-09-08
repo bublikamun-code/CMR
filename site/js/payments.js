@@ -145,6 +145,13 @@ function renderPayments() {
         // Обновляем/добавляем строки
         rows.forEach(tr => {
             const dateStr = new Date(tr.date).toLocaleDateString('ru-RU');
+            // ISO-дата для инлайн-редактора (<input type="date">): берём из
+            // показанной dateStr, чтобы редактор открывался ровно с той датой,
+            // что видит пользователь (серверное время может отличаться)
+            const isoFromParts = (() => {
+                const [d, m, y] = dateStr.split('.');
+                return dateStr.includes('.') ? `${y}-${m}-${d}` : '';
+            })();
             const existing = existingRows[tr.id];
 
             if (existing) {
@@ -158,9 +165,18 @@ function renderPayments() {
                 const cbWrittenOff = existing.querySelector('.cb-written-off');
                 if (cbWrittenOff) cbWrittenOff.checked = tr.is_written_off;
 
-                // Сумма и примечание — inline-edit ячейки. Пока пользователь их
-                // редактирует, <span> подменён на <input>: в этот момент не трогаем,
-                // иначе опрос затрёт незакоммиченный ввод.
+                // Дата, сумма и примечание — inline-edit ячейки. Пока
+                // пользователь их редактирует, <span> подменён на <input>:
+                // в этот момент не трогаем, иначе опрос затрёт ввод.
+                const dateCell = existing.querySelector('.inline-edit-cell[data-field="date"]');
+                if (dateCell && !dateCell.querySelector('input')) {
+                    const dateSpan = dateCell.querySelector('.inline-edit');
+                    if (dateSpan) {
+                        dateSpan.textContent = dateStr;
+                        dateCell.dataset.iso = isoFromParts;
+                    }
+                }
+
                 const amountCell = existing.querySelector('.inline-edit-cell[data-field="amount"]');
                 if (amountCell && !amountCell.querySelector('input')) {
                     const amountSpan = amountCell.querySelector('.inline-edit');
@@ -189,7 +205,9 @@ function renderPayments() {
                 row.setAttribute('data-id', tr.id);
                 row.className = 'reveal reveal-fast';
                 row.innerHTML = `
-                    <td>${dateStr}</td>
+                    <td class="inline-edit-cell" data-field="date" data-id="${tr.id}" data-iso="${isoFromParts}" title="Дата оплаты — нажмите, чтобы изменить">
+                        <span class="inline-edit">${escapeHtml(dateStr)}</span>
+                    </td>
                     <td class="clickable-company" data-card-id="${tr.card_id || ''}" title="${escapeHtml(tr.company_name)}">
                         ${escapeHtml(tr.company_name)}
                     </td>
@@ -304,9 +322,10 @@ document.addEventListener('click', (e) => {
     // выравнивание по правому краю и уезжало влево.
     const spanClass = span.className;
     const input = document.createElement('input');
-    input.type = field === 'amount' ? 'number' : 'text';
+    input.type = field === 'amount' ? 'number' : (field === 'date' ? 'date' : 'text');
     input.className = 'inline-edit-input';
-    input.value = field === 'amount' ? currentValue.replace(/[^0-9.]/g, '') : currentValue;
+    input.value = field === 'amount' ? currentValue.replace(/[^0-9.]/g, '')
+        : (field === 'date' ? (cell.dataset.iso || '') : currentValue);
     if (field === 'amount') { input.step = '0.01'; input.min = '0'; }
     
     span.replaceWith(input);
@@ -336,6 +355,32 @@ document.addEventListener('click', (e) => {
                     showToast('Сумма сохранена', 'success');
                     if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
                 } catch (err) { showToast('Ошибка: ' + err.message, 'error'); failed = true; }
+            }
+        } else if (field === 'date') {
+            // Дата обязательна: пустое поле просто закрывается без правки
+            if (!newVal) {
+                input.replaceWith(span);
+                return;
+            }
+            if (newVal !== (cell.dataset.iso || '')) {
+                const [yy, mm, dd] = newVal.split('-');
+                spanNew.textContent = `${dd}.${mm}.${yy}`;
+                try {
+                    await apiFetch('/payments/transactions/' + id, {
+                        method: 'PATCH',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ date: newVal })
+                    });
+                    cell.dataset.iso = newVal;
+                    showToast('Дата оплаты сохранена', 'success');
+                } catch (err) {
+                    showToast('Ошибка: ' + err.message, 'error');
+                    failed = true;
+                    input.replaceWith(span);
+                    return;
+                }
+            } else {
+                spanNew.textContent = currentValue;
             }
         } else {
             spanNew.textContent = newVal || '';

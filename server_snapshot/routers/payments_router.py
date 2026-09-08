@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from typing import List
+from datetime import datetime
 from pydantic import BaseModel
 import models
 import schemas
@@ -400,6 +401,13 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         # (как при удалении) — поэтому до применения правок.
         invoice_fields = {"invoice_date", "invoice_number"} & update_data.keys()
         invoice_twins = _find_invoice_twins(session, tx) if invoice_fields else []
+        # Дата оплаты: присланную дату соединяем со временем исходной записи —
+        # меняется только день, порядок записей внутри дня не скачет.
+        # Копии в «Документах» дата не касается: там своя, документная.
+        if update_data.get("date"):
+            new_day = datetime.strptime(update_data["date"], "%Y-%m-%d").date()
+            old_ts = tx.date or datetime.now()
+            update_data["date"] = datetime.combine(new_day, old_ts.time())
         for key, value in update_data.items():
             setattr(tx, key, value)
         # Дата/номер — часть пары «накладная + копия»: правим с любой

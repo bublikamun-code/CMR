@@ -110,6 +110,32 @@ def test_issue_invoice_partial_keeps_remainder(superadmin_client):
     assert len(remainders) == 1 and abs(float(remainders[0].amount) - 800.0) < 0.01, "остаток = 1200 − 400"
 
 
+# --- Правка даты оплаты в реестре (фидбек 08.09) -------------------------
+
+def test_transaction_date_edit(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест правки даты оплаты", 250.0)
+    tx = superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).json()
+    assert tx["date"], "у записи должна быть дата создания"
+    old_time = tx["date"][10:]  # 'THH:MM:SS' либо хвост после даты
+
+    response = superadmin_client.patch(
+        f"/payments/transactions/{tx['id']}", json={"date": "2026-08-15"})
+    assert response.status_code == 200, response.text
+    new_date = response.json()["date"]
+    assert new_date.startswith("2026-08-15"), "день оплаты заменён"
+    assert new_date[10:] == old_time, "время исходной записи сохранено"
+
+    # невалидный формат отвергается, запись не портится
+    bad = superadmin_client.patch(
+        f"/payments/transactions/{tx['id']}", json={"date": "15.08.2026"})
+    assert bad.status_code == 422
+    still = superadmin_client.get("/payments/transactions").json()
+    kept = next(t for t in still if t["id"] == tx["id"])
+    assert kept["date"].startswith("2026-08-15")
+
+
 def test_issue_invoice_rejects_amount_over_remainder(superadmin_client):
     card_id = _create_card(superadmin_client, "Тест превышения остатка", 100.0)
     assert superadmin_client.post(

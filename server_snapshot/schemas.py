@@ -321,10 +321,25 @@ class TransactionUpdate(BaseModel):
     note: Optional[str] = None
     invoice_number: Optional[str] = None
     invoice_date: Optional[str] = None
+    # Дата оплаты в реестре (фидбек 08.09): карточка не всегда создаётся или
+    # переезжает в «Сборку» в день фактической оплаты — дату записи дают
+    # править. Формат ГГГГ-ММ-ДД; время записи сохраняет роутер.
+    date: Optional[str] = None
     is_document: Optional[bool] = None
     is_invoice_doc: Optional[bool] = None
     is_bill_doc: Optional[bool] = None
     is_warehouse_writeoff: Optional[bool] = None
+
+    @field_validator("date")
+    @classmethod
+    def validate_payment_date(cls, v):
+        if v is None:
+            return None
+        try:
+            datetime.strptime(v.strip(), "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("Дата должна быть в формате ГГГГ-ММ-ДД")
+        return v.strip()
 
 class TransactionResponse(TransactionBase):
     id: int
