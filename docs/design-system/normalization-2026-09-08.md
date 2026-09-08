@@ -1,0 +1,346 @@
+# Журнал нормализации style.css (2026-09-08)
+
+Правила маппинга — [tokens.md](tokens.md). Разовый скрипт этапа 2,
+контекст каждой замены = (селектор, свойство). Тёмные правила защищены там,
+где токен имеет тёмное переопределение (bg-*, danger-*, shadow-*).
+
+Всего замен: 325
+
+| Категория | Замен |
+|---|---|
+| NEW | 1 |
+| HEX | 145 |
+| FONT | 49 |
+| RADIUS | 100 |
+| SHADOW | 30 |
+
+<details>
+<summary>Полный список</summary>
+
+- `NEW` `:root`: `блок токенов дизайн-системы` → `добавлен`
+- `RADIUS` `::-webkit-scrollbar-thumb`: `border-radius: 99px` → `border-radius: 999px`
+- `FONT` `.compact-mode .dash-stat-value`: `font-size: 15px` → `font-size: 14px`
+- `RADIUS` `inate), как в современных прогресс-барах. */ #net-activity-bar::before`: `border-radius: 99px` → `border-radius: 999px`
+- `HEX` `дж сделки-«сироты» (нет ответственного или суммы) */ .incomplete-badge`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `дж сделки-«сироты» (нет ответственного или суммы) */ .incomplete-badge`: `color: …#92400e` → `var(--warning-soft-text)`
+- `FONT` `дж сделки-«сироты» (нет ответственного или суммы) */ .incomplete-badge`: `font-size: 10.5px` → `font-size: 11px`
+- `SHADOW` `.search-input:focus`: `0 0 0 3px rgba(79, 70, 229, 0.15)` → `var(--ring-strong)`
+- `FONT` `.btn-clear-search`: `font-size: 15px` → `font-size: 14px`
+- `HEX` `.data-table th`: `background: …#f4f7fb` → `var(--bg-color)`
+- `HEX` `.list-actions-menu .list-action-archive:hover`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.list-actions-menu .list-action-archive:hover`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `HEX` `ксы в таблицах, по центру ячейки */ .data-table input[type="checkbox"]`: `border: …#cbd5e1` → `var(--border-strong)`
+- `RADIUS` `ксы в таблицах, по центру ячейки */ .data-table input[type="checkbox"]`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `SHADOW` `.data-table input[type="checkbox"]:focus-visible`: `0 0 0 2px rgba(79,124,245,0.12)` → `var(--ring)`
+- `SHADOW` `.data-table select:focus`: `0 0 0 2px rgba(79,124,245,0.10)` → `var(--ring)`
+- `FONT` `.modal-section h3`: `font-size: 15px` → `font-size: 14px`
+- `SHADOW` `.modal-input-row input:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `HEX` `.file-dropzone`: `background: …#f8fafc` → `var(--bg-color)`
+- `HEX` `.attachment-item`: `background: …#f1f5f9` → `var(--bg-secondary)`
+- `HEX` `.attachment-item:hover`: `border-color: …#cbd5e1` → `var(--border-strong)`
+- `SHADOW` `.store-select:focus`: `0 0 0 2px rgba(79,124,245,0.10)` → `var(--ring)`
+- `HEX` `.checklist-item`: `background: …#f9fafb` → `var(--bg-color)`
+- `RADIUS` `.checklist-item`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `FONT` `.checklist-invoice-link`: `font-size: 12.5px` → `font-size: 13px`
+- `RADIUS` `.contact-more`: `border-radius: 9px` → `border-radius: var(--radius-md)`
+- `SHADOW` `.modal-content input:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `HEX` `.kanban-column`: `background-color: …#eef1f6` → `var(--bg-secondary)`
+- `RADIUS` `.card-store`: `border-radius: 12px` → `border-radius: var(--radius-md)`
+- `SHADOW` `pe="text"]:focus, input[type="number"]:focus, input[type="date"]:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `FONT` `.confirm-message`: `font-size: 15px` → `font-size: 14px`
+- `SHADOW` `.dropdown.open .dropdown-toggle`: `0 0 0 3px rgba(79, 70, 229, 0.15)` → `var(--ring-strong)`
+- `HEX` `.print-badge[data-print="Доверенность"]`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `SHADOW` `#input-description:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `HEX` `.pay-unpaid`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.pay-unpaid`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `HEX` `.pay-partial`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.pay-partial`: `color: …#92400e` → `var(--warning-soft-text)`
+- `HEX` `.pay-paid`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.pay-paid`: `color: …#065f46` → `var(--success-soft-text)`
+- `SHADOW` `.pay-badge.pay-select:focus`: `0 0 0 2px rgba(79, 70, 229, 0.15)` → `var(--ring-strong)`
+- `HEX` `.pay-badge.pay-select option[value="Не оплачен"]`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.pay-badge.pay-select option[value="Не оплачен"]`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `HEX` `.pay-badge.pay-select option[value="Частично"]`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.pay-badge.pay-select option[value="Частично"]`: `color: …#92400e` → `var(--warning-soft-text)`
+- `HEX` `.pay-badge.pay-select option[value="Оплачен"]`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.pay-badge.pay-select option[value="Оплачен"]`: `color: …#065f46` → `var(--success-soft-text)`
+- `HEX` `.due-soon-badge`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.due-soon-badge`: `color: …#92400e` → `var(--warning-soft-text)`
+- `RADIUS` `.activity-manage button`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `SHADOW` `.activity-edit-text:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `HEX` `.dash-card h3`: `border-bottom: …#f1f5f9` → `var(--bg-secondary)`
+- `RADIUS` `.dash-stat-icon`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `HEX` `.dash-funnel-bar-track`: `background: …#f1f5f9` → `var(--bg-secondary)`
+- `RADIUS` `/* --- МОБИЛЬНАЯ АДАПТИВНОСТЬ --- */ .mobile-menu-toggle`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `SHADOW` `.tag-create-input:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `RADIUS` `.tag-color-sq`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` ` правил, которые могут остаться в кэше браузера. */ .kanban-card:hover`: `background-color: …#f8fafc` → `var(--bg-color)`
+- `SHADOW` `text"]:focus, input[type="number"]:focus, select:focus, textarea:focus`: `0 0 0 2px rgba(79, 70, 229, 0.08) !important` → `var(--ring)`
+- `RADIUS` `* === MODERN KANBAN CARD & OLD CARD PREMIUM DESIGN === */ .kanban-card`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `HEX` `Современный дизайн старой карточки (>15 дней) */ .kanban-card.old-card`: `border: …#cbd5e1` → `var(--border-strong)`
+- `HEX` `.kanban-card.old-card:hover`: `background-color: …#f1f5f9` → `var(--bg-secondary)`
+- `FONT` `ль). */ /* Стилизация заголовка, сумм и кнопки удаления */ .card-title`: `font-size: 13.5px` → `font-size: 13px`
+- `FONT` `.card-amount`: `font-size: 15px` → `font-size: 14px`
+- `FONT` `.card-amount`: `font-size: 15px` → `font-size: 14px`
+- `HEX` `/* Продвинутые индикаторы прогресса */ .card-progress`: `border-top: …#f1f5f9` → `var(--bg-secondary)`
+- `FONT` `.progress-label`: `font-size: 10.5px` → `font-size: 11px`
+- `HEX` `.progress-track`: `background-color: …#f1f5f9` → `var(--bg-secondary)`
+- `HEX` `.old-card-badge`: `background: …#f1f5f9` → `var(--bg-secondary)`
+- `HEX` `.old-card-badge`: `border: …#cbd5e1` → `var(--border-strong)`
+- `RADIUS` `.old-card-badge`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `HEX` `ts-table thead th:nth-child(1), #documents-table thead th:nth-child(2)`: `background: …#f4f7fb` → `var(--bg-color)`
+- `SHADOW` `.form-group input:focus, .form-group select:focus`: `0 0 0 2px rgba(79, 124, 245, 0.10)` → `var(--ring)`
+- `HEX` `.sync-status`: `background: …#f8fafc` → `var(--bg-color)`
+- `HEX` `.email-sync-badge--active`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.email-sync-badge--active`: `color: …#065f46` → `var(--success-soft-text)`
+- `HEX` `.email-sync-badge--never`: `background: …#f3f4f6` → `var(--bg-secondary)`
+- `HEX` `.email-sync-badge--never`: `color: …#6b7280` → `var(--text-muted)`
+- `HEX` `.email-sync-result`: `color: …#065f46` → `var(--success-soft-text)`
+- `RADIUS` `.status-active`: `border-radius: 12px` → `border-radius: var(--radius-md)`
+- `HEX` `.status-never`: `color: …#ef4444` → `var(--danger-color)`
+- `RADIUS` `.status-never`: `border-radius: 12px` → `border-radius: var(--radius-md)`
+- `HEX` `.sync-results-error`: `color: …#ef4444` → `var(--danger-color)`
+- `FONT` `.empty-state .empty-state-title`: `font-size: 15px` → `font-size: 14px`
+- `HEX` `.alert-error`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.alert-error`: `border: …#fecaca` → `var(--danger-soft-border)`
+- `HEX` `.alert-error`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `HEX` `.alert-warning`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.alert-warning`: `color: …#92400e` → `var(--warning-soft-text)`
+- `HEX` `.alert-success`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.alert-success`: `border: …#a7f3d0` → `var(--success-soft-border)`
+- `HEX` `.alert-success`: `color: …#065f46` → `var(--success-soft-text)`
+- `FONT` `.sidebar-controls .theme-toggle, .sidebar-controls .compact-toggle`: `font-size: 15px` → `font-size: 14px`
+- `RADIUS` `.cmd-palette-item`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `/* === INLINE EDIT === */ .inline-edit`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `.inline-edit-input`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `SHADOW` `.inline-edit-input`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `RADIUS` `.card-move-btn`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `.card-hover-btn`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `SHADOW` `.card-hover-btn`: `0 1px 3px rgba(0,0,0,0.12)` → `var(--shadow-sm)`
+- `RADIUS` `канбане, где ✎ и × занимали бы драгоценные 24px. */ .card-menu-trigger`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `SHADOW` `канбане, где ✎ и × занимали бы драгоценные 24px. */ .card-menu-trigger`: `0 1px 3px rgba(0,0,0,0.12)` → `var(--shadow-sm)`
+- `RADIUS` `.modal-split-header .close-btn`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `SHADOW` `ocus, .modal-split-left select:focus, .modal-split-left textarea:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `HEX` `.notif-badge`: `background: …#e5484d` → `var(--danger-color)`
+- `RADIUS` `.notif-badge`: `border-radius: 9px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.notif-panel`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `HEX` `.notif-close:hover`: `color: …#e5484d` → `var(--danger-color)`
+- `HEX` `.task-overdue-date`: `color: …#e5484d` → `var(--danger-color)`
+- `HEX` `.task-col-count`: `background: …#eef1f6` → `var(--bg-secondary)`
+- `HEX` `.task-card-overdue`: `border-left: …#e5484d` → `var(--danger-color)`
+- `FONT` `.task-card-title`: `font-size: 13.5px` → `font-size: 13px`
+- `HEX` `.task-due`: `background: …#eef1f6` → `var(--bg-secondary)`
+- `FONT` `.task-due`: `font-size: 11.5px` → `font-size: 11px`
+- `HEX` `.task-due-overdue`: `color: …#e5484d` → `var(--danger-color)`
+- `FONT` `/* Ссылка на сделку / клиент — аккуратный чип */ .task-chip`: `font-size: 11.5px` → `font-size: 11px`
+- `HEX` `.task-chip-client`: `background: …#eef1f6` → `var(--bg-secondary)`
+- `HEX` `.task-card-delete:hover`: `color: …#e5484d` → `var(--danger-color)`
+- `HEX` `.task-progress-bar`: `background: …#eef1f6` → `var(--bg-secondary)`
+- `RADIUS` `.task-progress-bar`: `border-radius: 3px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `.task-progress-fill`: `border-radius: 3px` → `border-radius: var(--radius-sm)`
+- `FONT` `стемные) */ .filter-select, .header-actions select, .filter-bar select`: `font-size: 13.5px` → `font-size: 13px`
+- `SHADOW` `r-select:focus, .header-actions select:focus, .filter-bar select:focus`: `0 0 0 3px rgba(79, 124, 245, .15)` → `var(--ring-strong)`
+- `FONT` `.task-checklist-item`: `font-size: 13.5px` → `font-size: 13px`
+- `HEX` `.task-checklist-del:hover`: `color: …#e5484d` → `var(--danger-color)`
+- `FONT` `.task-checklist-add input`: `font-size: 13.5px` → `font-size: 13px`
+- `RADIUS` `.task-checklist-add input`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `form-grid-2col input, .form-grid-2col select, .form-grid-2col textarea`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` `.wf-active`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.wf-active`: `color: …#065f46` → `var(--success-soft-text)`
+- `HEX` `.wf-inactive`: `background: …#f3f4f6` → `var(--bg-secondary)`
+- `HEX` `.wf-inactive`: `color: …#6b7280` → `var(--text-muted)`
+- `RADIUS` `.wf-status-badge`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `HEX` `.priority-high`: `color: …#ef4444` → `var(--danger-color)`
+- `RADIUS` `ардкод-цвета первого не переключались в тёмной теме. */ .skeleton-line`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `HEX` `.due-badge-ok`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.due-badge-ok`: `color: …#065f46` → `var(--success-soft-text)`
+- `HEX` `.due-badge-soon`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.due-badge-soon`: `color: …#92400e` → `var(--warning-soft-text)`
+- `HEX` `.due-badge-overdue`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.due-badge-overdue`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `SHADOW` `, [data-theme="dark"] select:focus, [data-theme="dark"] textarea:focus`: `0 0 0 2px rgba(79, 70, 229, 0.15)` → `var(--ring-strong)`
+- `RADIUS` `чекбоксы */ [data-theme="dark"] .checklist-item input[type="checkbox"]`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `.calendar-chip`: `border-radius: 3px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `-- 5. Счётчик элементов в заголовке колонки списания --- */ .col-count`: `border-radius: 9px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.writeoff-card-meta .invoice-progress`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `FONT` `.writeoff-card .btn-delete-writeoff`: `font-size: 15px` → `font-size: 14px`
+- `RADIUS` `.writeoff-card-meta .invoice-progress`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `HEX` `.inv-check-empty`: `border: …#cbd5e1` → `var(--border-strong)`
+- `SHADOW` `.inv-in:focus`: `0 0 0 2px rgba(79,124,245,0.08)` → `var(--ring)`
+- `FONT` `.inv-sum-line`: `font-size: 11.5px` → `font-size: 11px`
+- `FONT` `.inv-badge`: `font-size: 10.5px` → `font-size: 11px`
+- `RADIUS` `.inv-badge`: `border-radius: 20px` → `border-radius: var(--radius-lg)`
+- `HEX` `.badge-warn`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.badge-warn`: `color: …#92400e` → `var(--warning-soft-text)`
+- `HEX` `.badge-over`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.badge-over`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `HEX` `.badge-ok`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.badge-ok`: `color: …#065f46` → `var(--success-soft-text)`
+- `FONT` `.wo-inv-num`: `font-size: 11.5px` → `font-size: 11px`
+- `RADIUS` `.wo-inv-num`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `HEX` `.badge-warning`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.badge-warning`: `color: …#92400e` → `var(--warning-soft-text)`
+- `FONT` `=== */ /* --- Реестр оплат: пометка частичной оплаты --- */ .pay-badge`: `font-size: 10.5px` → `font-size: 11px`
+- `RADIUS` `=== */ /* --- Реестр оплат: пометка частичной оплаты --- */ .pay-badge`: `border-radius: 20px` → `border-radius: var(--radius-lg)`
+- `HEX` `.pay-partial`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.pay-partial`: `color: …#92400e` → `var(--warning-soft-text)`
+- `FONT` `.pay-sub`: `font-size: 10.5px` → `font-size: 11px`
+- `RADIUS` `/* --- Документы: накладные одной сделки связаны --- */ .doc-group`: `border-radius: 9px` → `border-radius: var(--radius-md)`
+- `FONT` `.chk-sum-line`: `font-size: 11.5px` → `font-size: 11px`
+- `HEX` `.pay-full`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.pay-full`: `color: …#065f46` → `var(--success-soft-text)`
+- `FONT` `.supplier-empty`: `font-size: 11.5px` → `font-size: 11px`
+- `RADIUS` `* Пометка старой записи, введённой текстом */ .checklist-link-supplier`: `border-radius: 20px` → `border-radius: var(--radius-lg)`
+- `HEX` `.checklist-link-supplier:hover`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `FONT` `.sup-pur-stat-label`: `font-size: 10.5px` → `font-size: 11px`
+- `RADIUS` `.sup-pur-status`: `border-radius: 20px` → `border-radius: var(--radius-lg)`
+- `RADIUS` `.dropdown-menu::-webkit-scrollbar-track`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.dropdown-menu::-webkit-scrollbar-thumb`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `цо. Закрывает WCAG 2.4.7 -------------------------- */ *:focus-visible`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `ствий: тёмная тема + зона нажатия 44px ------------ */ .card-hover-btn`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` ` 15x24 -> 32x32 + зона 44 -------- */ .btn-delete-row, .sidebar-toggle`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `HEX` `.sup-pur-stat`: `border: …#f1f5f9` → `var(--bg-secondary)`
+- `RADIUS` `link --------------------------------------------------- */ .skip-link`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.search-input`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `нию с поиском. */ .filter-reset, .filter-bar select, .filter-bar input`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `="number"], input[type="date"], input[type="search"], select, textarea`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `------- */ .kanban-card, .dash-card, .dash-stat, .writeoff-store-block`: `border-radius: 12px` → `border-radius: var(--radius-md)`
+- `RADIUS` `ontent, .modal-content-auto, .modal-content-split, .modal-content-wide`: `border-radius: 16px` → `border-radius: var(--radius-lg)`
+- `RADIUS` `.dash-stat .stat-icon, .dash-stat [class*="icon"]`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `HEX` `ы: тёмная -> светлая, как у Stripe ----------- */ .data-table thead th`: `background: …#f1f5f9` → `var(--bg-secondary)`
+- `HEX` `.kanban-column [class*="count"]`: `background: …#f1f5f9` → `var(--bg-secondary)`
+- `RADIUS` `ip-link: активируется разметкой в index.html ----------- */ .skip-link`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.sidebar-toggle`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.settings-block, .settings-card, .settings-section`: `border-radius: 12px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.calendar-event, #calendar-container [class*="event"]`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `FONT` `, сумма подчинённая 14px/600. */ .kanban-card .card-title, .card-title`: `font-size: 17px` → `font-size: 16px`
+- `FONT` `тся читаемым --------------- */ .compact-mode .kanban-card .card-title`: `font-size: 15px` → `font-size: 14px`
+- `FONT` `.kanban-card .card-amount, .card-amount`: `font-size: 15px` → `font-size: 14px`
+- `FONT` `t-split #edit-card-title, #edit-card-title, textarea.auto-expand-title`: `font-size: 22px` → `font-size: 20px`
+- `RADIUS` ` */ /* form-group шли вплотную: margin-bottom было 0 */ .settings-card`: `border-radius: 12px` → `border-radius: var(--radius-md)`
+- `RADIUS` `card input[type="url"], .settings-card select, .settings-card textarea`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `put[type="checkbox"]), .settings-card label:has(> input[type="radio"])`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `#webhooks-container > *`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `RADIUS` `мин-панель»/«Выйти» ниже тоже 10px). */ .theme-toggle, .compact-toggle`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.kanban-cards`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `Базовая кнопка закрытия -------------------------------- */ .close-btn`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `той 32px */ .modal label:has(> input[type="checkbox"]), .checklist-row`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` `илюлей: margin-top 8px, radius 999, капс в HTML */ .overdue-badge-card`: `color: …#b91c1c` → `var(--danger-dark)`
+- `HEX` `илюлей: margin-top 8px, radius 999, капс в HTML */ .overdue-badge-card`: `border: …#fecaca` → `var(--danger-soft-border)`
+- `RADIUS` `илюлей: margin-top 8px, radius 999, капс в HTML */ .overdue-badge-card`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` `есто ничего — бейдж читается как статус */ .overdue-badge-card::before`: `background: …#dc2626` → `var(--danger-color)`
+- `RADIUS` `ловок, примечание и счёт встали в ряд вместо стопки */ .checklist-item`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `ьна только строка с чекбоксом, а не весь блок */ .checklist-item label`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `FONT` `к-листе: круглые, зона 44 */ .delete-checklist, .checklist-invoice-del`: `font-size: 15px` → `font-size: 14px`
+- `RADIUS` `к-листе: круглые, зона 44 */ .delete-checklist, .checklist-invoice-del`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` `3px/26px, сплошная красная пилюля рядом с полем даты */ .overdue-badge`: `color: …#b91c1c` → `var(--danger-dark)`
+- `HEX` `3px/26px, сплошная красная пилюля рядом с полем даты */ .overdue-badge`: `border: …#fecaca` → `var(--danger-soft-border)`
+- `RADIUS` `3px/26px, сплошная красная пилюля рядом с полем даты */ .overdue-badge`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` `.overdue-badge::before`: `background: …#dc2626` → `var(--danger-color)`
+- `HEX` `оле просроченной даты — рамка, а не тяжёлое свечение */ .input-overdue`: `border-color: …#dc2626` → `var(--danger-color)`
+- `RADIUS` `адиусы вне шкалы (8 / 12 / 999) ----------------------- */ .wo-inv-num`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `="border-radius:2px"], #calendar-grid div[style*="border-radius: 2px"]`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `FONT` `единственное дробное значение ------------ */ .wo-inv-date, .card-date`: `font-size: 11.5px` → `font-size: 11px`
+- `RADIUS` `ставщика: высота 21px, зона мала -------------- */ .supplier-name-link`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `три контакта: 36px вместо 42px — блок компактнее */ .contact-row input`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `/* кнопка удаления контакта: 28×28, зона нажатия 44 */ .contact-del`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `HEX` `.contact-del:hover`: `border-color: …#fecaca` → `var(--danger-soft-border)`
+- `RADIUS` `.admin-link-btn, .logout-btn`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `RADIUS` `/* сумма и валюта — одна цельная плашка */ .amount-field`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` ` рамки, чтобы не было рамки в рамке */ .amount-field .checklist-amount`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` `.admin-alert`: `border: …#fecaca` → `var(--danger-soft-border)`
+- `HEX` `.admin-alert`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `HEX` `.role-superadmin`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.role-superadmin`: `color: …#92400e` → `var(--warning-soft-text)`
+- `HEX` `.role-manager`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.role-manager`: `color: …#065f46` → `var(--success-soft-text)`
+- `SHADOW` `.admin-modal input:focus, .admin-modal select:focus`: `0 0 0 2px rgba(79, 70, 229, 0.08)` → `var(--ring)`
+- `FONT` `.density-toggle .density-btn`: `font-size: 15px` → `font-size: 14px`
+- `HEX` `.priority-dot--high`: `background: …#ef4444` → `var(--danger-color)`
+- `SHADOW` `.date-input-wrapper:focus-within`: `0 0 0 2px rgba(79, 70, 229, 0.08)` → `var(--ring)`
+- `HEX` `.date-input-row .overdue-badge`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.date-input-row .overdue-badge`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `RADIUS` `.file-chip__ext`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `.file-chip__delete`: `border-radius: 4px` → `border-radius: var(--radius-sm)`
+- `HEX` `.file-chip__delete:hover`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `FONT` `.login-brand__name`: `font-size: 22px` → `font-size: 20px`
+- `HEX` `.login-alert`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.login-alert`: `border: …#fecaca` → `var(--danger-soft-border)`
+- `HEX` `.login-alert`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `SHADOW` `.login-input:focus`: `0 0 0 2px rgba(79, 70, 229, 0.08)` → `var(--ring)`
+- `FONT` `.btn-login`: `font-size: 15px` → `font-size: 14px`
+- `SHADOW` `.card-line:hover`: `0 8px 20px rgba(15, 23, 42, 0.08)` → `var(--shadow-lg)`
+- `FONT` `----- Form underline variant (optional) ---------- */ .field-underline`: `font-size: 15px` → `font-size: 14px`
+- `SHADOW` `t-item:hover, .field-item:hover, .trigger-item:hover, .step-item:hover`: `0 8px 20px rgba(15, 23, 42, 0.08)` → `var(--shadow-lg)`
+- `HEX` `thinner + muted ---------- */ .kanban-card[data-status="Новый запрос"]`: `border-left-color: …#94a3b8` → `var(--status-neutral)`
+- `HEX` `.kanban-card[data-status="Ждет оплаты"]`: `border-left-color: …#d4a373` → `var(--status-warning)`
+- `HEX` `.kanban-card[data-status="Сборка"]`: `border-left-color: …#5aa98c` → `var(--status-success)`
+- `HEX` `lumn-header, .kanban-column[data-status="Новый запрос"] .column-header`: `border-left-color: …#94a3b8` → `var(--status-neutral)`
+- `HEX` `.kanban-column[data-status="Ждет оплаты"] .column-header`: `border-left-color: …#d4a373` → `var(--status-warning)`
+- `HEX` `.kanban-column[data-status="Сборка"] .column-header`: `border-left-color: …#5aa98c` → `var(--status-success)`
+- `HEX` ` ---------- Priority borders: softer ---------- */ .card-priority-high`: `border-left-color: …#c45a68` → `var(--status-danger)`
+- `HEX` `.card-priority-medium`: `border-left-color: …#d4a373` → `var(--status-warning)`
+- `HEX` `.card-priority-low`: `border-left-color: …#5aa98c` → `var(--status-success)`
+- `HEX` `softer ---------- */ .progress-fill.paid, .inv-progress-fill.fill-done`: `background: …#5aa98c` → `var(--status-success)`
+- `HEX` `----- Toasts: thinner, softer left border ---------- */ .toast-success`: `border-left-color: …#5aa98c` → `var(--status-success)`
+- `HEX` `.toast-error`: `border-left-color: …#c45a68` → `var(--status-danger)`
+- `HEX` `/* ---------- Deal rotting: softer ---------- */ .deal-rotting`: `border-left-color: …#d4a373` → `var(--status-warning)`
+- `HEX` `.deal-rotting-danger`: `border-left-color: …#c45a68` → `var(--status-danger)`
+- `HEX` `лицы админки: наследуем стили .data-table */ .admin-app .data-table th`: `background: …#f4f7fb` → `var(--bg-color)`
+- `HEX` `.status-badge[data-status="Новый запрос"]`: `background: …#f3f4f6` → `var(--bg-secondary)`
+- `HEX` `.status-badge[data-status="Сборка"]`: `border-color: …#a7f3d0` → `var(--success-soft-border)`
+- `SHADOW` `.comment-input-box textarea:focus`: `0 0 0 2px rgba(79, 70, 229, 0.10)` → `var(--ring)`
+- `FONT` `/* --- Сводка по поставщикам --- */ .chk-sum-row .pay-badge`: `font-size: 11.5px` → `font-size: 11px`
+- `RADIUS` `кс в таблицах -------- */ .data-table input[type="checkbox"].cb-custom`: `border-radius: 5px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `.print-cell .dropdown-toggle`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `. Заметка в таблице документов выглядит редактируемой - */ .input-note`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `SHADOW` `.input-note:focus`: `0 0 0 2px rgba(79, 124, 245, 0.10)` → `var(--ring)`
+- `SHADOW` `select:focus`: `0 0 0 3px rgba(79, 70, 229, 0.15)` → `var(--ring-strong)`
+- `RADIUS` `.pay-dd-item`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `HEX` `.pay-dd-dot.pay-unpaid`: `background: …#ef4444` → `var(--danger-color)`
+- `RADIUS` ` Кнопки закрытия (×): единый стиль на всех страницах --- */ .close-btn`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `HEX` `.close-btn:hover`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `.view-delete-btn:hover, .btn-delete-writeoff:hover`: `border-color: …#fecaca` → `var(--danger-soft-border)`
+- `HEX` `wn-toggle → primary») */ .pay-status-dd.open .pay-dd-toggle.pay-unpaid`: `background: …#fee2e2` → `var(--danger-soft-bg)`
+- `HEX` `wn-toggle → primary») */ .pay-status-dd.open .pay-dd-toggle.pay-unpaid`: `color: …#991b1b` → `var(--danger-soft-text)`
+- `HEX` `.pay-status-dd.open .pay-dd-toggle.pay-partial`: `background: …#fef3c7` → `var(--warning-soft-bg)`
+- `HEX` `.pay-status-dd.open .pay-dd-toggle.pay-partial`: `color: …#92400e` → `var(--warning-soft-text)`
+- `HEX` `.pay-status-dd.open .pay-dd-toggle.pay-paid`: `background: …#d1fae5` → `var(--success-soft-bg)`
+- `HEX` `.pay-status-dd.open .pay-dd-toggle.pay-paid`: `color: …#065f46` → `var(--success-soft-text)`
+- `RADIUS` `.save-retry-btn`: `border-radius: 99px` → `border-radius: 999px`
+- `RADIUS` `================================================== */ .activity-filter`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.activity-filter button`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `RADIUS` `#modal-title .title-edit-btn`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `SHADOW` `вместо легаси-оттенка старой палитры (#4a57a4). */ .search-input:focus`: `0 0 0 3px rgba(79, 70, 229, 0.12)` → `var(--ring-strong)`
+- `RADIUS` `.dropdown-menu, .toast, .pay-dd-menu`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `RADIUS` `e="number"], input[type="date"], input[type="email"], select, textarea`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `RADIUS` `ый сегмент-контрол вместо двух тёмных плашек. --- */ .sidebar-controls`: `border-radius: 10px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.sidebar-controls .theme-toggle, .sidebar-controls .compact-toggle`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `FONT` `.writeoff-card .card-amount`: `font-size: 15px` → `font-size: 14px`
+- `FONT` `рь…» выглядела вторым заголовком страницы. */ .writeoff-store-block h3`: `font-size: 15px` → `font-size: 14px`
+- `RADIUS` `ый раунд именно поэтому не сработал). */ .writeoff-card .btn-secondary`: `border-radius: 7px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.writeoff-card .btn-writeoff`: `border-radius: 7px` → `border-radius: var(--radius-md)`
+- `RADIUS` ` кнопка: тоньше, уже, радиус меньше пилюльного. */ .writeoff-column h4`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `FONT` `.finance-header .finance-toolbar .btn-export`: `font-size: 12.5px` → `font-size: 13px`
+- `FONT` `.finance-header .finance-toolbar .dropdown-toggle`: `font-size: 12.5px` → `font-size: 13px`
+- `FONT` `.writeoff-card .wo-amount-label`: `font-size: 10.5px` → `font-size: 11px`
+- `FONT` `итке списания */ .writeoff-card .wo-attach, .writeoff-group .wo-attach`: `font-size: 10.5px` → `font-size: 11px`
+- `RADIUS` `итке списания */ .writeoff-card .wo-attach, .writeoff-group .wo-attach`: `border-radius: 7px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.wo-picker`: `border-radius: 12px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.wo-picker-close`: `border-radius: 6px` → `border-radius: var(--radius-sm)`
+- `FONT` `.wo-picker-sub`: `font-size: 11.5px` → `font-size: 11px`
+- `RADIUS` `.wo-picker-search`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `RADIUS` `.wo-picker-row`: `border-radius: 8px` → `border-radius: var(--radius-md)`
+- `FONT` `.wo-picker-warn`: `font-size: 10.5px` → `font-size: 11px`
+- `FONT` `.wo-picker-empty`: `font-size: 12.5px` → `font-size: 13px`
+- `FONT` `#page-control .control-title`: `font-size: 15px` → `font-size: 14px`
+- `FONT` `#page-control .control-summary`: `font-size: 12.5px` → `font-size: 13px`
+- `HEX` `.tabular-nums.age-danger`: `color: …#dc2626` → `var(--danger-color)`
+- `HEX` `е файла — перебивает quieting-цвета колонок. */ .kanban-card.card-paid`: `border-left-color: …#5aa98c` → `var(--status-success)`
+- `HEX` `[data-theme="dark"] .kanban-card.card-paid`: `border-left-color: …#5aa98c` → `var(--status-success)`
+- `HEX` ` — цвета не прыгают при включении стекла. */ .kanban-card.card-overdue`: `border-left-color: …#c45a68` → `var(--status-danger)`
+- `HEX` `.kanban-card.card-due-soon`: `border-left-color: …#d4a373` → `var(--status-warning)`
+- `HEX` `[data-theme="dark"] .kanban-card.card-overdue`: `border-left-color: …#c45a68` → `var(--status-danger)`
+- `HEX` `[data-theme="dark"] .kanban-card.card-due-soon`: `border-left-color: …#d4a373` → `var(--status-warning)`
+
+</details>

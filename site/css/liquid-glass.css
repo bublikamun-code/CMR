@@ -172,14 +172,14 @@ html[data-theme="dark"][data-glass="on"] .kanban-card {
    Фикс 2026-09-05: та же приглушённая шкала, что и вне стекла
    (style.css, конец файла) — раньше стекло возвращало яркие
    --success/--danger/--warning, и доска «пестрела» только в этом режиме. */
-html[data-glass="on"] .kanban-card.card-assembly { border-left-color: #5aa98c !important; }
-html[data-glass="on"] .kanban-card.card-paid     { border-left-color: #5aa98c !important; }
-html[data-glass="on"] .kanban-card.card-overdue  { border-left-color: #c45a68 !important; }
-html[data-glass="on"] .kanban-card.card-due-soon { border-left-color: #d4a373 !important; }
-html[data-theme="dark"][data-glass="on"] .kanban-card.card-assembly { border-left-color: #5aa98c !important; }
-html[data-theme="dark"][data-glass="on"] .kanban-card.card-paid     { border-left-color: #5aa98c !important; }
-html[data-theme="dark"][data-glass="on"] .kanban-card.card-overdue  { border-left-color: #c45a68 !important; }
-html[data-theme="dark"][data-glass="on"] .kanban-card.card-due-soon { border-left-color: #d4a373 !important; }
+html[data-glass="on"] .kanban-card.card-assembly { border-left-color: var(--status-success) !important; }
+html[data-glass="on"] .kanban-card.card-paid     { border-left-color: var(--status-success) !important; }
+html[data-glass="on"] .kanban-card.card-overdue  { border-left-color: var(--status-danger) !important; }
+html[data-glass="on"] .kanban-card.card-due-soon { border-left-color: var(--status-warning) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-assembly { border-left-color: var(--status-success) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-paid     { border-left-color: var(--status-success) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-overdue  { border-left-color: var(--status-danger) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-due-soon { border-left-color: var(--status-warning) !important; }
 /* deal-rotting/-danger красятся через background-image — переживают
    смену background-color и поверх стекла работают как раньше */
 
