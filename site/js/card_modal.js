@@ -1339,7 +1339,19 @@ function renderCardActivityList(cardId, activities) {
             `;
             container.appendChild(item);
         });
-}
+
+        // Кнопка «показать полностью» имеет смысл только там, где текст
+        // реально обрезан клампом: короткое многострочное письмо и так видно
+        // целиком, и клик по кнопке ничего не меняет — выглядит как «не
+        // разворачивается». У нормально обрезанного scrollHeight больше
+        // видимой высоты (max-height + overflow:hidden), у помещающегося — равен.
+        container.querySelectorAll('.activity-details-long.is-clamped').forEach(el => {
+            if (el.scrollHeight <= el.clientHeight + 2) {
+                const btn = el.parentElement.querySelector('.activity-details-toggle');
+                if (btn) btn.style.display = 'none';
+            }
+        });
+    }
 
 const TAG_COLORS = [
     '#4f46e5', '#dc2626', '#f59e0b', '#10b981', '#8b5cf6',
