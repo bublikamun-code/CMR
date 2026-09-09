@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey, DateTime, Date, Text
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey, DateTime, Date, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from database import Base
@@ -184,6 +184,11 @@ class ActivityLog(Base):
 
 class RecordVersion(Base):
     __tablename__ = "record_versions"
+    # FIX 2026-09-03: уникальность (table_name, record_id, version) — в проде
+    # индекс добавлен миграцией, тут для новых БД (create_all тенант-движков).
+    __table_args__ = (
+        UniqueConstraint("table_name", "record_id", "version", name="ux_record_versions_t_r_v"),
+    )
     id = Column(Integer, primary_key=True, index=True)
     table_name = Column(String(50), nullable=False, index=True)
     record_id = Column(Integer, nullable=False, index=True)
