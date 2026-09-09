@@ -47,16 +47,8 @@
     // === ДЕЛЕГИРОВАНИЕ data-handler ===
     // <button data-handler="SettingsUI.createObj"> — без аргумента
     // <button data-handler="SettingsUI.openObj" data-arg="5"> — один аргумент
-    // (числовые значения приводятся к Number). Случаи с несколькими аргументами
-    // или составные действия биндятся программно в своих модулях.
-    function resolveHandler(path) {
-        let cur = window;
-        for (const part of String(path).split('.')) {
-            if (cur == null) return null;
-            cur = cur[part];
-        }
-        return typeof cur === 'function' ? cur : null;
-    }
+    // (числовые значения приводятся к Number). Случаи с несколькими
+    // аргументами или составные действия биндятся программно в своих модулях.
 
     function coerceArg(raw) {
         if (raw === undefined || raw === '') return undefined;
@@ -66,24 +58,40 @@
     document.addEventListener('click', function(e) {
         const el = e.target.closest('[data-handler]');
         if (!el) return;
-        const fn = resolveHandler(el.dataset.handler);
-        if (!fn) {
-            console.warn('handlers: обработчик не найден:', el.dataset.handler);
+        const path = el.dataset.handler;
+        // Фикс аудита 10.09: метод зовётся на своём объекте-владельце.
+        // Раньше был голый fn(), и внутри SettingsUI.* терялся this —
+        // после успешного запроса падало this.loadX(), списки не
+        // обновлялись, у «Открыть» воркфлоу всегда пустые панели.
+        let owner = window;
+        let key = path;
+        const dot = path.lastIndexOf('.');
+        if (dot > -1) {
+            for (const part of path.slice(0, dot).split('.')) {
+                if (owner == null) break;
+                owner = owner[part];
+            }
+            key = path.slice(dot + 1);
+        }
+        const fn = owner == null ? null : owner[key];
+        if (typeof fn !== 'function') {
+            console.warn('handlers: обработчик не найден:', path);
             return;
         }
         // Ссылки-«кнопки» (<a href="#") не должны вести по href.
         if (el.tagName === 'A') e.preventDefault();
+        const call = (...args) => fn.apply(owner, args);
         if (el.dataset.arg !== undefined) {
-            fn(coerceArg(el.dataset.arg));
+            call(coerceArg(el.dataset.arg));
             return;
         }
         // Несколько аргументов: data-args="2026,8,14" (только простые значения
         // без запятых внутри — числа/короткие токены).
         if (el.dataset.args) {
-            fn(...el.dataset.args.split(',').map(coerceArg));
+            call(...el.dataset.args.split(',').map(coerceArg));
             return;
         }
-        fn();
+        call();
     });
 
     // === ДЕЛЕГИРОВАНИЕ data-change (onchange у инпутов/селектов) ===
@@ -92,15 +100,28 @@
     document.addEventListener('change', function(e) {
         const el = e.target.closest('[data-change]');
         if (!el) return;
-        const fn = resolveHandler(el.dataset.change);
-        if (!fn) {
-            console.warn('handlers: обработчик не найден:', el.dataset.change);
+        const path = el.dataset.change;
+        // Фикс аудита 10.09: как и в click выше — вызов на владельце.
+        let owner = window;
+        let key = path;
+        const dot = path.lastIndexOf('.');
+        if (dot > -1) {
+            for (const part of path.slice(0, dot).split('.')) {
+                if (owner == null) break;
+                owner = owner[part];
+            }
+            key = path.slice(dot + 1);
+        }
+        const fn = owner == null ? null : owner[key];
+        if (typeof fn !== 'function') {
+            console.warn('handlers: обработчик не найден:', path);
             return;
         }
+        const call = (...args) => fn.apply(owner, args);
         const args = [coerceArg(el.dataset.arg)];
         if (el.hasAttribute('data-change-checked')) args.push(el.checked);
         if (el.hasAttribute('data-change-value')) args.push(el.value);
-        fn(...args);
+        call(...args);
     });
 
     // === ВКЛАДКИ НАСТРОЕК ===

@@ -14,18 +14,18 @@
     const TYPE_OVERDUE = { key: 'overdue', label: 'Просрочено', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' };
 
     async function loadData() {
+        // Фикс аудита 10.09: был голый fetch — при истёкшей сессии
+        // календарь молча показывал «Нет событий» вместо 401-хука
+        // (вход заново), без таймаута и без сообщения об ошибке.
         try {
-            const token = getToken();
-            // P2-1: токен обычно null (httpOnly-кука) — «Bearer null» давал 401,
-            // календарь молча оставался пустым. Авторизация идёт по куке.
-            const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
-            const [cardsRes, txRes] = await Promise.all([
-                fetch('/kanban/cards', { headers: authHeaders }),
-                fetch('/payments/transactions', { headers: authHeaders })
+            [cards, transactions] = await Promise.all([
+                apiFetch('/kanban/cards'),
+                apiFetch('/payments/transactions')
             ]);
-            if (cardsRes.ok) cards = await cardsRes.json();
-            if (txRes.ok) transactions = await txRes.json();
-        } catch(e) { console.error(e); }
+        } catch(e) {
+            console.error(e);
+            if (typeof showToast === 'function') showToast('Не удалось загрузить события календаря: ' + e.message, 'error');
+        }
     }
 
     function getDaysInMonth(year, month) {
@@ -196,10 +196,14 @@
             renderCalendar();
         },
         prevMonth() {
+            // Фикс аудита 10.09: setMonth на 29–31 число перепрыгивал месяц
+            // (31 марта − 1 = «31 февраля» = 3 марта). Сначала к 1-му числу.
+            currentDate.setDate(1);
             currentDate.setMonth(currentDate.getMonth() - 1);
             renderCalendar();
         },
         nextMonth() {
+            currentDate.setDate(1);
             currentDate.setMonth(currentDate.getMonth() + 1);
             renderCalendar();
         },
@@ -214,7 +218,9 @@
         // (бывший второй statement в inline-onclick, запрещённом CSP).
         openEventFromDay(id) {
             document.getElementById('day-events-modal')?.classList.add('hidden');
-            this.openEvent(id);
+            // Фикс аудита 10.09: this.openEvent падал — data-handler вызывает
+            // метод без владельца (this === window), сделка не открывалась.
+            CalendarView.openEvent(id);
         },
         hideDayEvents() {
             document.getElementById('day-events-modal')?.classList.add('hidden');

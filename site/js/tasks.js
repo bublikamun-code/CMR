@@ -395,7 +395,16 @@ window.TasksUI = {
             let linkedLabel = '';
             if (t.card_id) linkedLabel = `Сделка: ${t.card_title || ('#' + t.card_id)}`;
             else if (t.client_id) linkedLabel = `Клиент: ${t.client_name || ('#' + t.client_id)}`;
-            document.getElementById('task-link-input').value = linkedLabel;
+            const linkInput = document.getElementById('task-link-input');
+            linkInput.value = linkedLabel;
+            // Фикс аудита 10.09: снимок названия в форме мог не совпасть с
+            // актуальным названием сделки (её переименовали) — тогда поиск по
+            // точному тексту не находил связь и сохранение МОЛЧА ОТВЯЗЫВАЛО
+            // сделку от задачи. Исходные id держим в dataset: пока текст
+            // поля не менялся, при сохранении отправляем их же.
+            linkInput.dataset.origText = linkedLabel;
+            linkInput.dataset.origCardId = t.card_id || '';
+            linkInput.dataset.origClientId = t.client_id || '';
             editor.classList.remove('hidden');
             TasksUI.checklistRender(t);
         } else {
@@ -403,7 +412,11 @@ window.TasksUI = {
             document.getElementById('task-desc-input').value = '';
             document.getElementById('task-due-input').value = '';
             sel.value = '';
-            document.getElementById('task-link-input').value = '';
+            const linkInput = document.getElementById('task-link-input');
+            linkInput.value = '';
+            linkInput.dataset.origText = '';
+            linkInput.dataset.origCardId = '';
+            linkInput.dataset.origClientId = '';
             editor.classList.add('hidden');
         }
         modal.classList.remove('hidden');
@@ -490,10 +503,20 @@ document.addEventListener('DOMContentLoaded', () => {
             due_date: document.getElementById('task-due-input').value
                 ? new Date(document.getElementById('task-due-input').value).toISOString() : null,
         };
-        const linkText = document.getElementById('task-link-input').value.trim();
-        const link = taskLinks.find(l => l.label === linkText);
-        payload.card_id = link && link.type === 'card' ? link.ref_id : null;
-        payload.client_id = link && link.type === 'client' ? link.ref_id : null;
+        const linkInput = document.getElementById('task-link-input');
+        const linkText = linkInput.value.trim();
+        const origCardId = linkInput.dataset.origCardId ? parseInt(linkInput.dataset.origCardId) : null;
+        const origClientId = linkInput.dataset.origClientId ? parseInt(linkInput.dataset.origClientId) : null;
+        if (linkText && linkText === (linkInput.dataset.origText || '') && (origCardId || origClientId)) {
+            // Текст связи не менялся — сохраняем исходную привязку как есть,
+            // даже если название сделки уже не совпадает со снимком.
+            payload.card_id = origCardId;
+            payload.client_id = origClientId;
+        } else {
+            const link = taskLinks.find(l => l.label === linkText);
+            payload.card_id = link && link.type === 'card' ? link.ref_id : null;
+            payload.client_id = link && link.type === 'client' ? link.ref_id : null;
+        }
         if (!payload.title) return showToast('Укажите название задачи', 'error');
         const saveBtn = document.getElementById('task-save-btn');
         saveBtn.disabled = true;

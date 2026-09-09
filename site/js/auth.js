@@ -242,7 +242,10 @@ function applyRoleToSettingsTabs(role) {
     if (objectsPane && objectsTab && objectsPane.classList.contains('active')) {
         objectsTab.classList.remove('active');
         objectsPane.classList.remove('active');
-        const emailTab = document.querySelector('.settings-tab[onclick*="email"]');
+        // Фикс аудита 10.09: селектор с onclick мёртв ещё с ухода от
+        // инлайн-обработчиков (CSP) — вкладка «Почта» не активировалась и
+        // менеджер видел пустую страницу настроек.
+        const emailTab = document.querySelector('.settings-tab[data-tab="email"]');
         const emailPane = document.getElementById('stab-email');
         if (emailTab && emailPane) {
             emailTab.classList.add('active');

@@ -100,7 +100,9 @@
                 <button class="view-delete-btn" data-id="${v.id}" title="Удалить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             `;
             item.addEventListener('click', (e) => {
-                if (e.target.classList.contains('view-delete-btn')) {
+                // Фикс аудита 10.09: клик по SVG-иконке внутри кнопки давал
+                // e.target = svg/line, и вид ЗАГРУЖАЛСЯ вместо удаления.
+                if (e.target.closest('.view-delete-btn')) {
                     e.stopPropagation();
                     deleteView(page, v.id);
                     return;
