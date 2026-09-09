@@ -867,6 +867,8 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
        в списании (сделку удалили с доски, документ остался).
     2. Сделки со списанием, у которых статус не «На списание»/«Закрыто» —
        они не видны ни в одной колонке, хотя записи по ним есть.
+       «Сборка» не перекидывается: сделка с записью реестра в «Сборке» —
+       штатное состояние, статус туда ставят вручную.
     3. Группы списания без участников — плитки-призраки с устаревшей
        суммой на доске списания.
     4. Записи-остатки, разошедшиеся с суммой сделки (сумму правили уже
@@ -914,15 +916,11 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                                             "amount": float(d.amount or 0)})
 
             card = session.query(models.Card).filter(models.Card.id == card_id).first()
-            if card and live:
-                pending = [t for t in live if not t.is_warehouse_writeoff]
-                want = "Закрыто" if not pending else "На списание"
-                if card.status != want and card.status not in ("Отменено",):
-                    fixed_status.append({"card_id": card_id, "title": card.title,
-                                         "from": card.status, "to": want})
-                    if not dry_run:
-                        card.status = want
 
+            # Сначала остатки, потом статус: после удаления лишних записей
+            # сделка может оказаться полностью списанной, и статус должен
+            # считаться уже по факту починки.
+            will_delete_ids = set()
             # Остаток = сумма сделки − выписанные накладные. Без суммы сделки
             # эталона нет — такие записи не трогаем. Карточки в группах
             # списания управляются групповыми сценариями — тоже пропускаем.
@@ -940,15 +938,38 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                         "extra_rows": len(pending_rows) - 1,
                     })
                     if not dry_run:
-                        if pending_rows:
+                        if expected_rest <= 0.01:
+                            # остаток исчерпан — записи-остатки удаляются,
+                            # а не остаются нулевыми
+                            for p in pending_rows:
+                                session.delete(p)
+                        elif pending_rows:
                             pending_rows[0].amount = expected_rest
                             for extra in pending_rows[1:]:
                                 session.delete(extra)
-                        elif expected_rest > 0:
+                        else:
                             session.add(models.Transaction(
                                 company_name=card.title, amount=expected_rest,
                                 store_location=card.store_location, card_id=card_id,
                             ))
+                    if pending_rows:
+                        if expected_rest <= 0.01:
+                            will_delete_ids = {p.id for p in pending_rows}
+                        else:
+                            will_delete_ids = {p.id for p in pending_rows[1:]}
+
+            if card and live:
+                live_eff = [t for t in live if t.id not in will_delete_ids]
+                pending_eff = [t for t in live_eff if not t.is_warehouse_writeoff]
+                want = "Закрыто" if not pending_eff else "На списание"
+                # «Сборку» не трогаем: сделка с записью реестра в «Сборке» —
+                # штатное состояние (кнопка «В Сборку»), её туда поставили
+                # руками, и перекидывать в «На списание» нельзя.
+                if card.status != want and card.status != "Сборка" and card.status not in ("Отменено",):
+                    fixed_status.append({"card_id": card_id, "title": card.title,
+                                         "from": card.status, "to": want})
+                    if not dry_run:
+                        card.status = want
 
         for g in session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).all():
             if not g.cards:
