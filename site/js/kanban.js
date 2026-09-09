@@ -11,7 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (search) search.addEventListener('input', (e) => {
         _kanbanSearchQuery = e.target.value;
         clearTimeout(_searchDebounce);
-        _searchDebounce = setTimeout(() => loadKanbanBoard(), 200);
+        _searchDebounce = setTimeout(() => {
+            // В режиме «Список» доска скрыта: loadKanbanBoard() перерисовывал
+            // только её, и список на поиск не реагировал вовсе.
+            if (_kanbanView === 'list') renderListView();
+            else loadKanbanBoard();
+        }, 200);
     });
 });
 
@@ -177,8 +182,15 @@ async function loadKanbanBoard() {
             // перетаскивания: после перерисовки карточка возвращалась в
             // сортированную позицию, а не на место броска.
 
+            // «Старые» (старше 15 дней) прячем только когда поиск пуст и их
+            // не запросили кнопкой «Показать старые». Раньше флаг кнопки
+            // вообще не читался — клик менял подпись, карточки не появлялись,
+            // а активный поиск не находил старые сделки (кейс «СУ-3 Белстрой»:
+            // в «Списке» видна, поиском на доске не находится).
+            const showOld = !!showOldCards[colName];
+            const searchActive = !!(_kanbanSearchQuery || '').trim();
             const visibleCards = colCards.filter(c => {
-                if (isOldCardIn(colName, c)) return false;
+                if (isOldCardIn(colName, c) && !showOld && !searchActive) return false;
 
                 // Фильтрация по поиску
                 const q = (_kanbanSearchQuery || '').trim().toLowerCase();
@@ -323,8 +335,10 @@ async function loadKanbanBoard() {
 function renderCard(card, columnContainer) {
     if (!columnContainer) return;
 
+    // Старую карточку здесь НЕ отбрасываем: состав видимых карточек уже
+    // отфильтрован в loadKanbanBoard (с учётом «Показать старые» и поиска),
+    // а ранний return делал кнопку «Показать старые» бесполезной.
     const isOld = isOldCardIn(card.status, card);
-    if (isOld) return;
 
     const cardEl = document.createElement('div');
     cardEl.className = 'kanban-card' + (isOld ? ' old-card' : '');
@@ -947,13 +961,18 @@ async function loadTrash() {
 }
 
 // === ФИЛЬТРЫ ===
+function refreshKanbanView() {
+    if (_kanbanView === 'list') renderListView();
+    else loadKanbanBoard();
+}
+
 function applyKanbanFilters() {
     _kanbanFilters.store = document.getElementById('filter-store')?.value || '';
     _kanbanFilters.amountMin = document.getElementById('filter-amount-min')?.value || '';
     _kanbanFilters.amountMax = document.getElementById('filter-amount-max')?.value || '';
     _kanbanFilters.client = document.getElementById('filter-client')?.value || '';
     _kanbanFilters.priority = document.getElementById('filter-priority')?.value || '';
-    loadKanbanBoard();
+    refreshKanbanView();
 }
 
 function resetKanbanFilters() {
@@ -967,7 +986,7 @@ function resetKanbanFilters() {
         syncEnhancedSelect('filter-store');
         syncEnhancedSelect('filter-priority');
     }
-    loadKanbanBoard();
+    refreshKanbanView();
 }
 
 // === LIST VIEW ===
