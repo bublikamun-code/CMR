@@ -363,7 +363,12 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
                     session.delete(remainder)
                 else:
                     remainder.amount = new_rest
-            elif new_rest > 0.01:
+            elif new_rest > 0.01 and card.status in ("Сборка", "На списание", "Закрыто"):
+                # Фикс аудита 10.09: остаток = «сделка в реестре оплат»
+                # (инвариант: запись появляется при входе в «Сборку»).
+                # Правка суммы в «Новом запросе»/«В работе» раньше сразу
+                # протаскивала сделку в реестр. Пересчитать существующий
+                # остаток можно в любом статусе, создавать — только с «Сборки».
                 session.add(models.Transaction(
                     company_name=card.title, amount=new_rest,
                     store_location=card.store_location, card_id=card.id,

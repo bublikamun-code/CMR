@@ -459,7 +459,8 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             user_id=None,
                             card_id=new_card.id,
                             action="Импорт почты",
-                            details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000]
+                            details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000],
+                            tenant_id=tenant_id,
                         )
                         tdb.add(log_entry)
                         tdb.commit()
@@ -617,6 +618,7 @@ def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = 
             card_id=dst.id,
             action="Связано письмо",
             details=f"Письмо из карточки #{src.id} перенесено в сделку #{dst.id}",
+            tenant_id=current_user.tenant_id,
         ))
         src.is_deleted = True
         tdb.commit()

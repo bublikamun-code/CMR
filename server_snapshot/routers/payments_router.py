@@ -439,6 +439,7 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
         if card_id is not None and was_invoice:
             session.add(models.ActivityLog(
                 user_id=current_user.id, card_id=card_id,
+                tenant_id=current_user.tenant_id,
                 action="Накладная отменена",
                 details=(f"{number} на {amount:.2f} BYN" if number else f"запись на {amount:.2f} BYN")
                         + " — удалена, сумма возвращена в остаток",
@@ -534,13 +535,19 @@ def card_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
             models.Transaction.is_document == False
         ).all()
         written = sum(1 for t in txs if t.is_warehouse_writeoff)
-        inv_sum = sum(float(t.amount or 0) for t in txs)
+        # Фикс аудита 10.09: в счёт выписанного идут только накладные
+        # (номер или складская запись). Запись-остаток — это ещё НЕ
+        # выписанная часть сделки; раньше она попадала в inv_sum, и
+        # fully_covered был почти всегда True, а total_invoices считал
+        # остаток как накладную.
+        issued_rows = [t for t in txs if t.is_warehouse_writeoff or (t.invoice_number or "").strip()]
+        inv_sum = sum(float(t.amount or 0) for t in issued_rows)
         card_sum = float(card.total_amount or 0)
         return WriteoffStatus(
             card_id=card_id,
-            total_invoices=len(txs),
+            total_invoices=len(issued_rows),
             written_off=written,
-            pending=len(txs) - written,
+            pending=len(issued_rows) - written,
             invoices_amount=round(inv_sum, 2),
             card_amount=round(card_sum, 2),
             fully_covered=(card_sum > 0 and inv_sum >= card_sum - 0.01),
@@ -571,8 +578,19 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
         ).all()
 
         if payload.amount is not None:
-            # сумму задал пользователь в форме
+            # сумму задал пользователь в форме — проверяем её против остатка
+            # (фикс аудита 10.09): раньше можно было выписать накладную
+            # больше непокрытого остатка, остаток уходил в минус и молча
+            # удалялся, сделка закрывалась. Паритет с issue_invoice ниже.
             amount = round(float(payload.amount), 2)
+            issued_before = round(sum(float(t.amount or 0) for t in existing
+                                      if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+            rest_before = round(float(card.total_amount or 0) - issued_before, 2)
+            if amount > rest_before + 0.01:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Сумма накладной ({amount}) больше остатка по сделке ({rest_before})",
+                )
         else:
             # иначе — непокрытый остаток по сделке: сумма сделки минус
             # уже выписанное (как в форме выписки и на доске)
@@ -774,11 +792,17 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             card.status = "На списание"
 
         session.add(models.ActivityLog(
-            user_id=current_user.id, card_id=card_id, action="Выписана накладная",
+            user_id=current_user.id, card_id=card_id,
+            tenant_id=current_user.tenant_id, action="Выписана накладная",
             details=f"{number} на {amount:.2f} BYN ({store}). Остаток: {max(rest_after, 0):.2f}",
         ))
         session.commit()
         session.refresh(invoice)
+
+        # Фикс аудита 10.09: суммы в сообщении для пользователя в русском
+        # формате («2 500,75»), а не «2500.75» из :.2f.
+        def _fmt_byn(v):
+            return f"{v:,.2f}".replace(",", " ").replace(".", ",")
 
         return {
             "success": True,
@@ -788,8 +812,8 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             "rest": max(rest_after, 0.0),
             "card_amount": card_amount,
             "card_closed": card_closed,
-            "message": (f"Накладная {number} на {amount:.2f} BYN списана. "
-                        + ("Сделка закрыта." if card_closed else f"Остаток {rest_after:.2f} BYN.")),
+            "message": (f"Накладная {number} на {_fmt_byn(amount)} BYN списана. "
+                        + ("Сделка закрыта." if card_closed else f"Остаток {_fmt_byn(max(rest_after, 0.0))} BYN.")),
         }
     finally:
         tdb.close()
@@ -874,16 +898,25 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
         session.flush()
 
         if card:
-            card.status = "Сборка"
-            card.is_deleted = False
-            # Запись-остаток создаём заново: «Сборка» = сделка в реестре
-            # оплат, а раньше после удаления записей сделка исчезала и
-            # из реестра, пока её не «пинали» вручную (В Сборку туда-обратно).
-            ensure_registry_remainder(session, card)
+            # Фикс аудита 10.09: карточку, которую владелец отправил в корзину,
+            # эта ручка раньше насильно возвращала на доску («Сборка» + снятие
+            # is_deleted). В корзине — значит в корзине: записи чистим, статус
+            # и реестр не трогаем.
+            restored = not card.is_deleted
+            if restored:
+                card.status = "Сборка"
+                # Запись-остаток создаём заново: «Сборка» = сделка в реестре
+                # оплат, а раньше после удаления записей сделка исчезала и
+                # из реестра, пока её не «пинали» вручную (В Сборку туда-обратно).
+                ensure_registry_remainder(session, card)
             session.add(models.ActivityLog(
                 user_id=current_user.id, card_id=card_id,
+                tenant_id=current_user.tenant_id,
                 action="Накладные отменены",
-                details=f"Удалено записей: {len(rows)} (из них документов: {docs}). Возврат в «Сборку».",
+                details=(
+                    f"Удалено записей: {len(rows)} (из них документов: {docs})."
+                    + (" Возврат в «Сборку»." if restored else " Карточка осталась в корзине.")
+                ),
             ))
 
         session.commit()

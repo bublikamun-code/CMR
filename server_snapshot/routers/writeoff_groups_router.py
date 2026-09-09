@@ -169,7 +169,12 @@ def remove_card_from_group(group_id: int, card_id: int, db: Session = Depends(ge
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена в группе")
 
-        card.writeoff_group_id = None
+        # Фикс аудита 10.09: раньше ставили card.writeoff_group_id = NULL
+        # напрямую, но загруженная коллекция group.cards об этом не узнавала —
+        # _recompute_group_total считала сумму вместе с удалённой карточкой,
+        # а «последняя карточка» не распускала группу. remove() обновляет
+        # обе стороны back_populates (FK уйдёт в NULL сам).
+        group.cards.remove(card)
         _recompute_group_total(group)
 
         if not group.cards:

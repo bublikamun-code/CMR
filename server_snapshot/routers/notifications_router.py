@@ -130,6 +130,8 @@ def sync_overdue(db: Session = Depends(get_db)):
     поэтому каждый scope обрабатывается своей сессией.
     """
     created_total = 0
+    notif_purged = 0
+    versions_purged = 0
     day_key = date.today().isoformat()
     now = datetime.now(timezone.utc)
 
@@ -199,32 +201,32 @@ def sync_overdue(db: Session = Depends(get_db)):
                 pass
             continue
         finally:
+            # FIX аудита 10.09: ретенция раньше шла только по главной базе,
+            # tenant-базы росли безлимитно. Чистим в каждом scope, пока
+            # сессия ещё открыта (закрытие — в finally ниже).
+            cutoff_read = datetime.now(timezone.utc) - timedelta(days=30)
+            notif_purged += (session.query(models.Notification)
+                             .filter(models.Notification.is_read == True,
+                                     models.Notification.read_at < cutoff_read)
+                             .delete(synchronize_session=False))
+            cutoff_versions = datetime.now(timezone.utc) - timedelta(days=180)
+            old_versions = (session.query(models.RecordVersion)
+                            .filter(models.RecordVersion.changed_at < cutoff_versions)
+                            .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,
+                                      models.RecordVersion.version.desc())
+                            .all())
+            per_record = {}
+            ids_to_delete = []
+            for v in old_versions:
+                key = (v.table_name, v.record_id)
+                per_record[key] = per_record.get(key, 0) + 1
+                if per_record[key] > 20:
+                    ids_to_delete.append(v.id)
+            if ids_to_delete:
+                session.query(models.RecordVersion).filter(models.RecordVersion.id.in_(ids_to_delete)).delete(synchronize_session=False)
+            versions_purged += len(ids_to_delete)
+            session.commit()
             if scope != "main":
                 session.close()
-
-    # FIX 2026-08-29: ретенция данных (раньше росли безлимитно).
-    # Уведомления: прочитанные старше 30 дней.
-    cutoff_read = datetime.now(timezone.utc) - timedelta(days=30)
-    notif_purged = (db.query(models.Notification)
-                    .filter(models.Notification.is_read == True,
-                            models.Notification.read_at < cutoff_read)
-                    .delete(synchronize_session=False))
-    # Версии: старше 180 дней, но всегда оставляем последние 20 на запись.
-    cutoff_versions = datetime.now(timezone.utc) - timedelta(days=180)
-    old_versions = (db.query(models.RecordVersion)
-                    .filter(models.RecordVersion.changed_at < cutoff_versions)
-                    .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,
-                              models.RecordVersion.version.desc())
-                    .all())
-    per_record = {}
-    ids_to_delete = []
-    for v in old_versions:
-        key = (v.table_name, v.record_id)
-        per_record[key] = per_record.get(key, 0) + 1
-        if per_record[key] > 20:
-            ids_to_delete.append(v.id)
-    if ids_to_delete:
-        db.query(models.RecordVersion).filter(models.RecordVersion.id.in_(ids_to_delete)).delete(synchronize_session=False)
-    versions_purged = len(ids_to_delete)
 
     return {"created": created_total, "notifications_purged": notif_purged, "versions_purged": versions_purged}
