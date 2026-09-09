@@ -164,6 +164,13 @@ def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db
                 tenant_id=current_user.tenant_id,
             ))
         card.status = status_update.status
+        # Сделка в «Сборке» обязана быть в реестре оплат. Запись раньше
+        # создавала только кнопка «В Сборку» в карточке; перетаскивание и
+        # кнопки переноса оставляли сделку без записи — она пропадала из
+        # «Реестра оплат» (кейс «ТрансЛИДИЯсервис», фидбек 09.09).
+        if status_update.status == "Сборка":
+            from routers.payments_router import ensure_registry_remainder
+            ensure_registry_remainder(tdb, card)
         tdb.commit()
         tdb.refresh(card)
         save_version(tdb, "cards", card.id,

@@ -268,6 +268,81 @@ def test_list_groups_skips_empty_groups(superadmin_client):
     assert group_id not in ids, "группа без участников не попадает в выдачу"
 
 
+# --- Сделка в «Сборке» всегда в реестре оплат (фидбек 09.09, кейс
+# «ТрансЛИДИЯсервис»: карточка в «Сборке», в реестре её нет) --------------
+
+def test_moving_to_assembly_creates_registry_entry(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест реестра при сборке", 1409.81)
+    # перетаскивание/кнопки переноса меняют статус этим же эндпоинтом
+    response = superadmin_client.patch(
+        f"/kanban/cards/{card_id}/status", json={"status": "Сборка"})
+    assert response.status_code == 200, response.text
+
+    rows = [t for t in superadmin_client.get("/payments/transactions").json()
+            if t["card_id"] == card_id and not t["is_document"]]
+    assert len(rows) == 1, "сделка в «Сборке» появилась в реестре оплат"
+    assert abs(float(rows[0]["amount"]) - 1409.81) < 0.01
+
+    # повторная смена статуса не плодит дубли
+    superadmin_client.patch(f"/kanban/cards/{card_id}/status", json={"status": "Сборка"})
+    rows = [t for t in superadmin_client.get("/payments/transactions").json()
+            if t["card_id"] == card_id and not t["is_document"]]
+    assert len(rows) == 1, "запись-остаток одна"
+
+
+def test_remove_from_writeoff_restores_registry_entry(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест возврата в сборку", 700.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    assert superadmin_client.delete(f"/payments/cards/{card_id}/writeoff").status_code == 200
+
+    card = superadmin_client.get(f"/kanban/cards/{card_id}").json()
+    assert card["status"] == "Сборка"
+    rows = [t for t in superadmin_client.get("/payments/transactions").json()
+            if t["card_id"] == card_id and not t["is_document"]]
+    assert len(rows) == 1 and abs(float(rows[0]["amount"]) - 700.0) < 0.01, \
+        "после «Убрать из списания» запись-остаток восстановлена"
+
+
+def test_moving_left_of_assembly_keeps_new_status(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест переноса влево", 250.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    tx_id = superadmin_client.get("/payments/transactions?grouped=false").json()[0]["id"]
+
+    # фронт при переносе влево сначала меняет статус, потом удаляет запись —
+    # удаление не должно откатывать статус обратно в «Сборку»
+    assert superadmin_client.patch(
+        f"/kanban/cards/{card_id}/status", json={"status": "Ждет оплаты"}).status_code == 200
+    assert superadmin_client.delete(f"/payments/transactions/{tx_id}").status_code == 200
+
+    card = superadmin_client.get(f"/kanban/cards/{card_id}").json()
+    assert card["status"] == "Ждет оплаты", "перенос влево не отскакивает в «Сборку»"
+
+
+def test_repair_reports_assembly_cards_without_registry(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест починки реестра", 333.0)
+    superadmin_client.patch(f"/kanban/cards/{card_id}/status", json={"status": "Сборка"})
+    # убираем запись в обход API — имитируем карточку, «застрявшую» до фикса
+    db = SessionLocal()
+    try:
+        db.query(models.Transaction).filter(models.Transaction.card_id == card_id).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    report = superadmin_client.post("/payments/repair-writeoffs?dry_run=true").json()
+    assert any(m["card_id"] == card_id and m["amount"] == 333.0 for m in report["missing_registry"])
+
+    applied = superadmin_client.post("/payments/repair-writeoffs?dry_run=false").json()
+    assert any(m["card_id"] == card_id for m in applied["missing_registry"])
+    rows = [t for t in superadmin_client.get("/payments/transactions").json()
+            if t["card_id"] == card_id and not t["is_document"]]
+    assert len(rows) == 1 and abs(float(rows[0]["amount"]) - 333.0) < 0.01
+
+
 # --- Правка даты выписки накладной из карточки (фидбек 07.09) -----------
 
 def test_invoice_date_edit_syncs_document_copy(superadmin_client):

@@ -37,6 +37,38 @@ class InvoiceCreateRequest(BaseModel):
     invoice_number: str | None = None
     invoice_date: str | None = None
 
+
+def ensure_registry_remainder(session, card):
+    """Сделка в «Сборке» обязана иметь запись-остаток в реестре оплат.
+
+    Запись создавали только кнопки карточки («В Сборку» / «В Списание» →
+    trigger_from_card), а перетаскивание в «Сборку» и кнопки переноса
+    запись не создавали — сделка пропадала из «Реестра оплат», хотя висела
+    в «Сборке» (кейс «ТрансЛИДИЯсервис», фидбек 09.09). Функция идемпотентна:
+    при существующих записях ничего не делает. Групповые сделки и сделки
+    без суммы пропускаются — первыми управляет группа, вторые по правилам
+    фронта дальше «Нового запроса» не двигаются.
+    """
+    if card is None or card.is_deleted or card.writeoff_group_id is not None:
+        return None
+    if float(card.total_amount or 0) <= 0:
+        return None
+    existing = session.query(models.Transaction).filter(
+        models.Transaction.card_id == card.id,
+        models.Transaction.is_document == False,
+    ).first()
+    if existing:
+        return None
+    tx = models.Transaction(
+        company_name=card.title,
+        amount=float(card.total_amount),
+        store_location=card.store_location,
+        card_id=card.id,
+    )
+    session.add(tx)
+    session.flush()
+    return tx
+
 @router.post("/trigger_from_card/{card_id}", response_model=schemas.TransactionResponse)
 def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
@@ -357,6 +389,10 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
         # Статус ВСЕГДА пересчитываем по факту, даже если остатка не осталось.
         # Раньше при удалении последней записи карточка оставалась в «Закрыто»:
         # она исчезала из «Списания» и из «Сборки», но висела в «Списке».
+        # В «Сборку» возвращаем только сделки из статусов списания: при
+        # переносе «Сборка → В работе/Ждет оплаты» фронт сначала меняет
+        # статус и лишь потом удаляет запись — безусловный откат возвращал
+        # карточку обратно в «Сборку» поверх только что выставленного статуса.
         if card_id is not None:
             card = session.query(models.Card).filter(models.Card.id == card_id).first()
             if card:
@@ -365,11 +401,16 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
                     models.Transaction.is_document == False,
                 ).all()
                 if not left:
-                    card.status = "Сборка"          # списывать нечего
+                    if card.status in ("На списание", "Закрыто"):
+                        card.status = "Сборка"      # списывать нечего
                 elif any(not t.is_warehouse_writeoff for t in left):
                     card.status = "На списание"
                 else:
                     card.status = "Закрыто"
+                # Сделка в «Сборке» без записи реестра пропадала бы из
+                # «Реестра оплат» до первой ручной «пинки» (В Сборку туда-обратно).
+                if card.status == "Сборка":
+                    ensure_registry_remainder(session, card)
 
         # Журнал: помечаем, что накладная отменена. Прошлая запись
         # «Выписана накладная» остаётся, но в карточке будет зачёркнута —
@@ -766,6 +807,10 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
         if card:
             card.status = "Сборка"
             card.is_deleted = False
+            # Запись-остаток создаём заново: «Сборка» = сделка в реестре
+            # оплат, а раньше после удаления записей сделка исчезала и
+            # из реестра, пока её не «пинали» вручную (В Сборку туда-обратно).
+            ensure_registry_remainder(session, card)
             session.add(models.ActivityLog(
                 user_id=current_user.id, card_id=card_id,
                 action="Накладные отменены",
@@ -828,6 +873,8 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
        после создания записи, встречаются и старые опечатки ×100):
        остаток приводится к «сумма сделки − выписанные накладные»,
        лишние записи-остатки удаляются.
+    5. Сделки в «Сборке» без записи реестра оплат — создавалась заново
+       на полную сумму сделки.
     """
     if current_user.role not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -910,6 +957,26 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                 if not dry_run:
                     session.delete(g)
 
+        # 5. Сделки в «Сборке» без записи реестра оплат — в «Реестре оплат»
+        # их не было видно, пока статус не «пинали» туда-обратно
+        # (кейс «ТрансЛИДИЯсервис», фидбек 09.09).
+        missing_registry = []
+        for c in session.query(models.Card).filter(
+            models.Card.status == "Сборка",
+            models.Card.is_deleted == False,
+        ).all():
+            if c.writeoff_group_id is not None or float(c.total_amount or 0) <= 0:
+                continue
+            has_tx = session.query(models.Transaction).filter(
+                models.Transaction.card_id == c.id,
+                models.Transaction.is_document == False,
+            ).first()
+            if not has_tx:
+                missing_registry.append({"card_id": c.id, "title": c.title,
+                                         "amount": float(c.total_amount or 0)})
+                if not dry_run:
+                    ensure_registry_remainder(session, c)
+
         if not dry_run:
             for o in orphan_docs:
                 row = session.query(models.Transaction).filter(models.Transaction.id == o["id"]).first()
@@ -927,6 +994,8 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
             "remainder_fixes_count": len(remainder_fixes),
             "orphan_groups": orphan_groups,
             "orphan_groups_count": len(orphan_groups),
+            "missing_registry": missing_registry,
+            "missing_registry_count": len(missing_registry),
         }
     finally:
         tdb.close()
