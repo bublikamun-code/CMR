@@ -82,14 +82,32 @@ async function loadDashboard() {
             clients: !has('clients'),
             suppliers: !has('suppliers')
         };
+        // Фикс аудита 10.09: .catch(() => []) при любом сбое сети затирал
+        // живой кэш CRM_STORE пустым массивом (group-writeoff в карточке
+        // читает cards из стора и «терял» все сделки). Сбой теперь показываем
+        // как ошибку, стор не трогаем.
         const fetches = {};
-        if (needFetch.cards) fetches.cards = apiFetch('/kanban/cards').catch(() => []);
-        if (needFetch.transactions) fetches.transactions = apiFetch('/payments/transactions').catch(() => []);
-        if (needFetch.clients) fetches.clients = apiFetch('/clients').catch(() => []);
-        if (needFetch.suppliers) fetches.suppliers = apiFetch('/suppliers').catch(() => []);
-        const fetched = Object.fromEntries(await Promise.all(
-            Object.entries(fetches).map(async ([k, p]) => [k, await p])
-        ));
+        if (needFetch.cards) fetches.cards = apiFetch('/kanban/cards');
+        if (needFetch.transactions) fetches.transactions = apiFetch('/payments/transactions');
+        if (needFetch.clients) fetches.clients = apiFetch('/clients');
+        if (needFetch.suppliers) fetches.suppliers = apiFetch('/suppliers');
+        let fetched;
+        try {
+            fetched = Object.fromEntries(await Promise.all(
+                Object.entries(fetches).map(async ([k, p]) => [k, await p])
+            ));
+        } catch (err) {
+            console.error('Ошибка загрузки данных дашборда:', err);
+            const host = document.querySelector('main');
+            if (host) {
+                host.prepend(renderAlert({
+                    type: 'error',
+                    title: 'Не удалось загрузить данные дашборда',
+                    message: err.message,
+                }));
+            }
+            return;
+        }
 
         _dashCards = needFetch.cards ? fetched.cards : CRM_STORE.get('cards');
         _dashTransactions = needFetch.transactions ? fetched.transactions : CRM_STORE.get('transactions') || [];
@@ -274,7 +292,18 @@ function renderDashboard() {
     // График продаж по месяцам
     // Ф9 (аудит 06.09): Chart.js (205КБ) грузится лениво — только когда
     // дашборду реально нужен график, а не при каждом открытии приложения.
-    ensureChartLib().then(() => setTimeout(() => renderMonthlyChart(cards), 100));
+    // Фикс аудита 10.09: без .catch отказ загрузки Chart.js давал
+    // необработанное отклонение и молча пустую область графика.
+    ensureChartLib()
+        .then(() => setTimeout(() => renderMonthlyChart(cards), 100))
+        .catch(() => {
+            const wrap = document.getElementById('dash-chart-monthly')?.closest('.dash-card');
+            if (wrap) wrap.appendChild(renderAlert({
+                type: 'info',
+                title: 'График недоступен',
+                message: 'Не удалось загрузить библиотеку графиков.',
+            }));
+        });
 
     // Активировать reveal-анимации для свежесозданных элементов
     if (typeof window.revealRefresh === 'function') window.revealRefresh();

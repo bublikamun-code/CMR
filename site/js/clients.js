@@ -5,8 +5,9 @@ let clientsCurrentPage = 1;
 const CLIENTS_PAGE_SIZE = 50;
 
 document.addEventListener('DOMContentLoaded', () => {
-    const clientsBtn = document.querySelector('[data-target="page-clients"]');
-    if (clientsBtn) clientsBtn.addEventListener('click', loadClientsTable);
+    // Фикс аудита 10.09: отдельная подписка на кнопку навигации дублировала
+    // загрузку — activatePage уже зовёт лоадер через CRM_FRESHNESS.
+
     if (document.getElementById('page-clients')?.classList.contains('active')) loadClientsTable();
 
     bindTableSearch('clients-search', 'clients-table', 200, (value) => {

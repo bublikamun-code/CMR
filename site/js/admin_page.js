@@ -133,7 +133,15 @@
             document.getElementById('admin-app').classList.remove('hidden');
             currentRole = localStorage.getItem(ADMIN_ROLE_KEY) || '';
             document.getElementById('current-user').textContent = `Роль: ${currentRole}`;
-            await loadUsers();
+            // Фикс аудита 10.09: сетевая ошибка loadUsers роняла showAdminPanel —
+            // loadStats не запускался, панель оставалась пустой без сообщений.
+            try {
+                await loadUsers();
+            } catch (err) {
+                if (!String(err.message).includes('Не авторизован')) {
+                    showToast('Не удалось загрузить пользователей: ' + err.message, 'error');
+                }
+            }
             await loadStats();
         }
 

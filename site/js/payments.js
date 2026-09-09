@@ -14,7 +14,10 @@ function renderPaymentCell(tr) {
     const paid = parseFloat(tr.paid_amount) || 0;
     const status = tr.payment_status || 'Не оплачен';
     const cls = PAYMENT_STATUS_CLASSES[status] || 'pay-unpaid';
-    const rest = Math.max(0, total - paid).toFixed(2);
+    // Фикс аудита 10.09: rest — ЧИСЛО. toFixed() отдавал строку, и
+    // formatMoneyBYN(string) звал String#toLocaleString без локали:
+    // тултип показывал «2500.75 BYN» вместо «2 500,75 BYN».
+    const rest = Math.max(0, total - paid);
     const percent = total > 0 ? Math.min(100, (paid / total) * 100) : (status === 'Оплачен' ? 100 : 0);
 
     const title = `Оплачено ${formatMoneyBYN(paid)} из ${formatMoneyBYN(total)}. Остаток: ${formatMoneyBYN(rest)} (${percent.toFixed(0)}%)`;
@@ -54,7 +57,18 @@ document.addEventListener('DOMContentLoaded', () => {
     bindTableSearch('payments-search', 'payments-table');
 
     const exportBtn = document.getElementById('payments-export');
-    if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentPayments, 'reestr_oplat.csv'));
+    // Фикс аудита 10.09: экспорт выгружал все строки месяца, игнорируя
+    // поле поиска — в файл попадало то, чего на экране не было.
+    if (exportBtn) exportBtn.addEventListener('click', () => {
+        const q = (document.getElementById('payments-search')?.value || '').trim().toLowerCase();
+        const visible = q
+            ? currentPayments.filter(t => {
+                const tr = document.querySelector(`#payments-table tbody tr[data-id="${t.id}"]`);
+                return tr && tr.style.display !== 'none';
+            })
+            : currentPayments;
+        exportTransactionsToCsv(visible, 'reestr_oplat.csv');
+    });
 
     setupTableScrollShadow('page-payments');
 });
@@ -245,6 +259,10 @@ function renderPayments() {
                     'Удалить эту запись из реестра?\n\nБудут удалены её накладные и копии в «Документах». Сделка вернётся в «Сборку».',
                     { okText: 'Удалить', danger: true }
                 )) return;
+                // Фикс аудита 10.09: повторный клик во время запроса давал
+                // 404 и пугающий тост ошибки после успешного удаления.
+                if (btn.disabled) return;
+                btn.disabled = true;
                 try {
                     // Удаляем ВСЁ по сделке разом, иначе документы оставались висеть,
                     // а карточка застревала в «Закрыто» и пропадала со всех досок.
@@ -259,6 +277,7 @@ function renderPayments() {
                     if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
                     showToast('Запись удалена', 'success');
                 } catch (err) {
+                    btn.disabled = false;
                     showToast('Ошибка удаления: ' + err.message, 'error');
                 }
             };
@@ -375,6 +394,10 @@ document.addEventListener('click', (e) => {
                         showToast('Сумма сохранена', 'success');
                     }
                     if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+                    // Фикс аудита 10.09: сумма сделки изменилась — остаток «к
+                    // списанию» на доске списаний и суммы канбана устарели.
+                    if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                    if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
                 } catch (err) { showToast('Ошибка: ' + err.message, 'error'); failed = true; }
             }
         } else if (field === 'date') {
@@ -458,7 +481,10 @@ function setupPaymentsAutoSave() {
                 })));
             } catch (error) {
                 showToast("Не удалось сохранить: " + error.message, 'error');
-                if (e.target.type === 'checkbox') e.target.checked = !e.target.checked;
+                // Фикс аудита 10.09: у составной записи часть частей уже могла
+                // сохраниться — слепой перекат галочки врёт. Перерисовываем
+                // из данных сервера.
+                if (e.target.type === 'checkbox') loadPaymentsTable();
             }
         }
     };

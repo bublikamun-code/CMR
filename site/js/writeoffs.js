@@ -127,11 +127,23 @@ async function loadWriteoffsBoard() {
 // выбор пользователя запоминается в localStorage.
 const WO_MONTH_PAGE = 20;
 
-function monthKeyOf(dateStr) {
+// Фикс аудита 10.09: локальная копия monthKeyOf перекрывала каноническую
+// из features.js (та возвращает 'none' для пустой/кривой даты, эта — null).
+// monthLabelOf/buildMonthFilter из features.js на null падают — страница
+// «Документы» умирала целиком, стоило выписать накладную без даты.
+// Свои ключи считаем под префиксом woMonthKeyOf.
+function woMonthKeyOf(dateStr) {
     if (!dateStr) return null;
     const d = new Date(dateStr.length === 10 ? dateStr + 'T00:00:00' : dateStr);
     if (isNaN(d)) return null;
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+// Текущий месяц по ЛОКАЛЬНЫМ часам: toISOString() в UTC давал прошлый
+// месяц в первую ночь месяца (Минск UTC+3, 00:00–02:59).
+function woCurrentMonthKey() {
+    const n = new Date();
+    return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
 }
 
 function monthLabel(key) {
@@ -170,7 +182,7 @@ function renderDoneColumn(container, items) {
     });
 
     const states = woMonthStates();
-    const nowKey = monthKeyOf(new Date().toISOString().slice(0, 10));
+    const nowKey = woCurrentMonthKey();
     const keys = Array.from(buckets.keys()).sort().reverse(); // новые месяцы сверху
 
     keys.forEach(key => {
@@ -279,7 +291,7 @@ function renderWriteoffsBoard() {
         const el = renderGroupTile(g);
         if (!el) return;
         visibleItems++;
-        putTile(g.store_location, !!g.written_off, el, monthKeyOf(g.invoice_date));
+        putTile(g.store_location, !!g.written_off, el, woMonthKeyOf(g.invoice_date));
     });
 
     // Карточки
@@ -304,7 +316,9 @@ function renderWriteoffsBoard() {
             const cardEl = document.createElement('div');
             cardEl.className = 'kanban-card writeoff-card reveal reveal-fast' + (isDone ? ' writeoff-done' : '');
             cardEl.dataset.group = card.id;
-            cardEl.setAttribute('draggable', 'true');
+            // Фикс аудита 10.09: «Списано» не перетаскиваем — дроп по «На
+            // списание» молча снимал флажки и портил галочку в реестре.
+            cardEl.setAttribute('draggable', isDone ? 'false' : 'true');
             cardEl.setAttribute('data-id', repTx.id);
             cardEl.setAttribute('data-card-id', card.id);
 
@@ -419,8 +433,11 @@ function renderWriteoffsBoard() {
                         e.stopPropagation();
                         const invNum = (pendingInvoiceTx.invoice_number || '').trim();
                         if (await confirmDialog(`Подтвердить списание накладной ${invNum}?`, { okText: 'Списать', danger: false })) {
-                            await executeWriteoff(pendingInvoiceTx.id, true, null, card.id);
-                            showToast('Списано со склада', 'success');
+                            // Фикс аудита 10.09: executeWriteoff гасит ошибки
+                            // внутри и раньше всегда возвращала ok — тост
+                            // «Списано со склада» светился даже при сбое.
+                            const ok = await executeWriteoff(pendingInvoiceTx.id, true, null, card.id);
+                            if (ok) showToast('Списано со склада', 'success');
                         }
                     };
                 } else {
@@ -458,7 +475,7 @@ function renderWriteoffsBoard() {
             const doneDate = isDone
                 ? ((invoices.find(t => t.invoice_date) || {}).invoice_date || repTx.date)
                 : null;
-            putTile(store, isDone, cardEl, monthKeyOf(doneDate));
+            putTile(store, isDone, cardEl, woMonthKeyOf(doneDate));
         });
 
     // Раскладка по колонкам: «На списание» — напрямую, «Списано» — по месяцам.
@@ -651,7 +668,7 @@ function updateWriteoffCounters() {
         total.textContent = sum > 0 ? `к списанию ${formatMoneyBYN(sum)}` : '';
 
         // Списано за текущий месяц — по месячной группе колонки «Списано».
-        const nowKey = monthKeyOf(new Date().toISOString().slice(0, 10));
+        const nowKey = woCurrentMonthKey();
         const writtenSum = Array.from(block.querySelectorAll(`.writeoff-column[data-status="true"] .wo-month-group[data-month="${nowKey}"] .card-amount`))
             .reduce((acc, el) => acc + parseTileMoney(el), 0);
         let written = totals.querySelector('.store-written-month');
@@ -733,7 +750,11 @@ async function executeWriteoff(transactionId, isWrittenOff, targetStore = null, 
         loadWriteoffsBoard();
         if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
         if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
-    } catch (error) { showToast("Ошибка: " + error.message, 'error'); }
+        return true;
+    } catch (error) {
+        showToast("Ошибка: " + error.message, 'error');
+        return false;
+    }
 }
 
 function setupWriteoffDragAndDrop() {

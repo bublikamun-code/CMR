@@ -5,8 +5,9 @@ let suppliersCurrentPage = 1;
 const SUPPLIERS_PAGE_SIZE = 50;
 
 document.addEventListener('DOMContentLoaded', () => {
-    const suppliersBtn = document.querySelector('[data-target="page-suppliers"]');
-    if (suppliersBtn) suppliersBtn.addEventListener('click', loadSuppliersTable);
+    // Фикс аудита 10.09: отдельная подписка на кнопку навигации дублировала
+    // загрузку — activatePage уже зовёт лоадер через CRM_FRESHNESS.
+
     if (document.getElementById('page-suppliers')?.classList.contains('active')) loadSuppliersTable();
 
     bindTableSearch('suppliers-search', 'suppliers-table', 200, (value) => {
@@ -159,6 +160,7 @@ function renderSuppliers() {
             if (!await confirmDialog(`Удалить поставщика "${supplier?.name}"?`)) return;
             try {
                 await apiFetch(`/suppliers/${id}`, { method: 'DELETE' });
+                if (typeof window.invalidateSuppliersCache === 'function') window.invalidateSuppliersCache();
                 showToast('Поставщик удалён', 'success');
                 loadSuppliersTable();
             } catch (err) {
@@ -236,6 +238,9 @@ async function saveSupplier() {
             });
             showToast('Поставщик создан', 'success');
         }
+        // Фикс аудита 10.09: сбрасываем кэш карточки — иначе новый поставщик
+        // не появлялся в чек-листе сделки до перезагрузки страницы.
+        if (typeof window.invalidateSuppliersCache === 'function') window.invalidateSuppliersCache();
         document.getElementById('supplier-modal').classList.add('hidden');
         loadSuppliersTable();
     } catch (err) {
