@@ -94,8 +94,10 @@ def get_me(current_user: models.User = Depends(auth.get_current_user)):
 
 @router.post("/users", response_model=schemas.UserResponse)
 def create_user(data: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_admin())):
-    if current_user.role != "superadmin" and data.role == "admin":
-        raise HTTPException(status_code=403, detail="Только суперадмин может назначать роль администратора")
+    # Фикс аудита 10.09: проверка ловила только role == "admin", и админ мог
+    # создать себе superadmin (как в update_user ниже). Ловим обе роли.
+    if current_user.role != "superadmin" and data.role in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Только суперадмин может назначать роли admin/superadmin")
     existing = db.query(models.User).filter(models.User.username == data.username).first()
     if existing:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")

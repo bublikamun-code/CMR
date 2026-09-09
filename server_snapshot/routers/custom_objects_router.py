@@ -245,7 +245,12 @@ def create_record(obj_id: int, record: RecordData, current_user=Depends(get_curr
             elif field.field_type == 'boolean':
                 fv.value_boolean = bool(value)
             elif field.field_type == 'date':
-                fv.value_date = datetime.fromisoformat(value) if value else None
+                # Фикс аудита 10.09: произвольная строка из формы падала
+                # ValueError'ом и уходила в глобальный 500. Отдаём 400.
+                try:
+                    fv.value_date = datetime.fromisoformat(value) if value else None
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail=f"Некорректная дата в поле «{field.name}»: {value!r}")
             else:
                 fv.value_text = str(value) if value is not None else None
             db.add(fv)

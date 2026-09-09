@@ -136,6 +136,20 @@ def list_tasks(my: Optional[int] = None, status: Optional[str] = None,
     return [_serialize(db, t, usernames) for t in tasks]
 
 
+def _validate_link(db: Session, model, obj_id, label: str):
+    """Фикс аудита 10.09: card_id/client_id приходят из формы без проверки.
+
+    Раньше несуществующий id доезжал до FK-констрейнта и превращался в
+    глобальный 409 «Дубликат или нарушена связь», а в редком случае
+    совпадения чисел с чужой карточкой в снимок названия попадала не та
+    сделка. Теперь проверяем существование сразу и честно.
+    """
+    if not obj_id:
+        return
+    if db.get(model, obj_id) is None:
+        raise HTTPException(status_code=404, detail=f"{label} не найдена")
+
+
 @router.post("", response_model=schemas.TaskResponse)
 def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
                 current_user: models.User = Depends(get_current_user)):
@@ -143,6 +157,8 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="Укажите название задачи")
     if data.status and data.status not in schemas.TASK_STATUSES:
         raise HTTPException(status_code=400, detail="Недопустимый статус")
+    _validate_link(db, models.Card, data.card_id, "Сделка")
+    _validate_link(db, models.Client, data.client_id, "Клиент")
 
     task = models.Task(
         title=data.title.strip()[:255],
@@ -194,8 +210,10 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
     if data.assignee_id is not None:
         task.assignee_id = data.assignee_id or None
     if data.card_id is not None:
+        _validate_link(db, models.Card, data.card_id or None, "Сделка")
         task.card_id = data.card_id or None
     if data.client_id is not None:
+        _validate_link(db, models.Client, data.client_id or None, "Клиент")
         task.client_id = data.client_id or None
     if data.status is not None:
         if data.status not in schemas.TASK_STATUSES:

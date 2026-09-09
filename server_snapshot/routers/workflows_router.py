@@ -114,6 +114,19 @@ def delete_workflow(wf_id: int, current_user=Depends(get_current_user)):
 
 # === ТРИГГЕРЫ ===
 
+def _get_own_workflow_or_404(db, wf_id: int, current_user):
+    """Фикс аудита 10.09: создание триггера/шага с чужим или несуществующим
+    wf_id раньше доезжало до FK и возвращало глобальный 409 «Дубликат».
+    Проверяем принадлежность воркфлоу этой же базе (тот же фильтр, что в
+    update/delete выше) и отдаём честную 404."""
+    w = db.query(models.Workflow).filter(
+        models.Workflow.id == wf_id, models.Workflow.tenant_id == current_user.tenant_id
+    ).first()
+    if not w:
+        raise HTTPException(status_code=404, detail="Воркфлоу не найден")
+    return w
+
+
 @router.get("/{wf_id}/triggers")
 def list_triggers(wf_id: int, current_user=Depends(get_current_user)):
     db = _get_db(current_user)
@@ -131,6 +144,7 @@ def list_triggers(wf_id: int, current_user=Depends(get_current_user)):
 def create_trigger(wf_id: int, trig: TriggerCreate, current_user=Depends(get_current_user)):
     db = _get_db(current_user)
     try:
+        _get_own_workflow_or_404(db, wf_id, current_user)
         new_trig = models.WorkflowTrigger(
             workflow_id=wf_id, trigger_type=trig.trigger_type,
             config=json.dumps(trig.config), tenant_id=current_user.tenant_id
@@ -175,6 +189,7 @@ def list_steps(wf_id: int, current_user=Depends(get_current_user)):
 def create_step(wf_id: int, step: StepCreate, current_user=Depends(get_current_user)):
     db = _get_db(current_user)
     try:
+        _get_own_workflow_or_404(db, wf_id, current_user)
         new_step = models.WorkflowStep(
             workflow_id=wf_id, step_type=step.step_type,
             action_type=step.action_type, config=json.dumps(step.config),
