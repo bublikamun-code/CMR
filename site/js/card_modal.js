@@ -1888,9 +1888,14 @@ async function renderCardInvoices(card) {
     container.querySelectorAll('.inv-del').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.preventDefault();
+            // id снимаем с кнопки ДО await: после паузы на диалоге событие
+            // давно погашено и e.currentTarget обнулён — Safari падал с
+            // «null is not an object (evaluating 'e.currentTarget.dataset')»,
+            // а накладная не удалялась вовсе.
+            const txId = btn.dataset.id;
             if (!await confirmDialog('Удалить эту накладную? Сумма вернётся в остаток.')) return;
             try {
-                await apiFetch(`/payments/transactions/${e.currentTarget.dataset.id}`, { method: 'DELETE' });
+                await apiFetch(`/payments/transactions/${txId}`, { method: 'DELETE' });
                 // статус сделки пересчитывается по факту, а не назначается вслепую
                 try {
                     const r = await apiFetch(`/payments/cards/${card.id}/sync-writeoff-status`, { method: 'POST' });
