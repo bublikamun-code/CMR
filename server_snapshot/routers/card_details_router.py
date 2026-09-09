@@ -368,6 +368,13 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
                     company_name=card.title, amount=new_rest,
                     store_location=card.store_location, card_id=card.id,
                 ))
+            # Правка суммы создаёт/убирает остаток к выписке — статус
+            # выравнивается по тому же правилу, что и везде (иначе сделка с
+            # появившимся остатком застревала в «Закрыто» и пропадала с доски
+            # списания). «Сборку» не трогаем: там сделка по решению менеджера.
+            if card.status in ("На списание", "Закрыто"):
+                from routers.payments_router import _writeoff_status_for
+                card.status = _writeoff_status_for(card, ledger)
         if 'store_location' in card_update.model_fields_set:
             # Н4 (решение владельца, 06.09): правило «склад сделки единый» —
             # СОЗНАТЕЛЬНОЕ. Смена склада сделки синхронно обновляет склад у

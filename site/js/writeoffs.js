@@ -288,15 +288,18 @@ function renderWriteoffsBoard() {
         visibleItems++;
             const store = txs[0].store_location;
             const totalAmount = parseFloat(card.total_amount) || txs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-            const writtenTxs = txs.filter(t => t.is_warehouse_writeoff);
-            const writtenAmount = writtenTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-            const pendingTxs = txs.filter(t => !t.is_warehouse_writeoff);
-            const pendingAmount = Math.max(0, totalAmount - writtenAmount);
-            const isDone = pendingTxs.length === 0 || pendingAmount <= 0;
+            // Выписанное = накладные с номером + складские списания. Остаток
+            // к выписке = сумма сделки минус выписанное. Полностью выписанная
+            // сделка готова и рисуется в «Списано», даже если складские
+            // флажки ещё не проставлены (фидбек 09.09, «Свидеал»).
+            const invoicedTxs = txs.filter(t => (t.invoice_number || '').trim() || t.is_warehouse_writeoff);
+            const invoicedSum = invoicedTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+            const rest = Math.max(0, totalAmount - invoicedSum);
+            const isDone = rest <= 0.005;
 
             const invoices = txs.filter(t => (t.invoice_number || '').trim());
-            const pendingInvoiceTx = pendingTxs.find(t => (t.invoice_number || '').trim());
-            const repTx = pendingInvoiceTx || pendingTxs[0] || txs[0];
+            const pendingInvoiceTx = invoices.find(t => !t.is_warehouse_writeoff);
+            const repTx = pendingInvoiceTx || txs[0];
 
             const cardEl = document.createElement('div');
             cardEl.className = 'kanban-card writeoff-card reveal reveal-fast' + (isDone ? ' writeoff-done' : '');
@@ -312,7 +315,7 @@ function renderWriteoffsBoard() {
             let invoiceMissing = false;
             let pendingInvNum = '';
             if (isDone) {
-                const inv = writtenTxs.find(t => (t.invoice_number || '').trim()) || invoices[0];
+                const inv = invoices[0];
                 if (inv) {
                     const invDateStr = inv.invoice_date
                         ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
@@ -338,16 +341,16 @@ function renderWriteoffsBoard() {
             // Компактная карточка (фидбек 00:56: на 100% колонка из 5 плиток
             // не влезала в экран): сумма и «к списанию» — одна строка, дата
             // и номер ТН — одна строка. Частичная оплата показывает «из …».
-            // На списанной плитке показываем сумму САМИХ накладных, а не сумму
+            // На плитке «Списано» — сумма выписанных накладных, а не сумма
             // сделки: после правки суммы сделки они расходились, и «Списано»
             // приписывало лишнее (а месячный итог склада — тем более).
-            const doneAmount = writtenAmount > 0 ? writtenAmount : displayAmount;
-            const amountValue = isDone ? doneAmount : pendingAmount;
-            const partialNote = (!isDone && totalAmount - pendingAmount > 0.005)
+            const doneAmount = invoicedSum > 0 ? invoicedSum : displayAmount;
+            const amountValue = isDone ? doneAmount : rest;
+            const partialNote = (!isDone && invoicedSum > 0.005)
                 ? `<span class="wo-from">из ${formatMoneyBYN(totalAmount)}</span>` : '';
             const amountRow = `
                 <div class="card-amount-row">
-                    <span class="card-amount tabular-nums" data-amount="${pendingAmount}">${formatMoneyBYN(amountValue)}</span>
+                    <span class="card-amount tabular-nums" data-amount="${rest}">${formatMoneyBYN(amountValue)}</span>
                     ${isDone ? '' : '<span class="wo-amount-label">к списанию</span>'}
                     ${partialNote}
                 </div>`;
@@ -453,7 +456,7 @@ function renderWriteoffsBoard() {
             cardEl.addEventListener('dragend', () => cardEl.classList.remove('dragging'));
 
             const doneDate = isDone
-                ? ((writtenTxs.find(t => (t.invoice_number || '').trim()) || {}).invoice_date || repTx.date)
+                ? ((invoices.find(t => t.invoice_date) || {}).invoice_date || repTx.date)
                 : null;
             putTile(store, isDone, cardEl, monthKeyOf(doneDate));
         });
@@ -714,22 +717,15 @@ async function executeWriteoff(transactionId, isWrittenOff, targetStore = null, 
             await apiFetch(`/payments/transactions/${transactionId}/duplicate_as_document`, {
                 method: 'POST'
             });
-            // Карточку закрываем ТОЛЬКО когда списаны все её накладные.
-            // Раньше первая же накладная закрывала сделку целиком.
+            // Статус сделки считает сервер по факту выписки
+            // (sync-writeoff-status): складские флажки больше не держат
+            // сделку в «На списание» и не закрывают её раньше времени.
             if (cardId) {
                 let st = null;
                 try { st = await apiFetch(`/payments/cards/${cardId}/writeoff-status`); } catch (e) {}
-                if (!st || st.pending === 0) {
-                    await apiFetch(`/kanban/cards/${cardId}/status`, {
-                        method: 'PATCH',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ status: 'Закрыто' })
-                    });
-                    if (st && st.total_invoices > 1) {
-                        showToast(`Сделка закрыта: списаны все ${st.total_invoices} накладные`, 'success');
-                    }
-                } else {
-                    showToast(`Списано ${st.written_off} из ${st.total_invoices}. Осталось: ${st.pending}`, 'info');
+                try { await apiFetch(`/payments/cards/${cardId}/sync-writeoff-status`, { method: 'POST' }); } catch (e) {}
+                if (st && st.total_invoices > 1 && st.pending > 0) {
+                    showToast(`Списано ${st.written_off} из ${st.total_invoices} накладных`, 'info');
                 }
             }
         }

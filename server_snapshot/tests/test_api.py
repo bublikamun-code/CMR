@@ -343,6 +343,90 @@ def test_repair_reports_assembly_cards_without_registry(superadmin_client):
     assert len(rows) == 1 and abs(float(rows[0]["amount"]) - 333.0) < 0.01
 
 
+# --- Выписано полностью = сделка закрыта, складские флажки статус не
+# держат (фидбек 09.09: «Свидеал выписан полностью, но висит в "На
+# списание"») ---------------------------------------------------------------
+
+def _unset_warehouse_flags(card_id):
+    db = SessionLocal()
+    try:
+        db.query(models.Transaction).filter(models.Transaction.card_id == card_id).update(
+            {"is_warehouse_writeoff": False}, synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_fully_invoiced_deal_stays_closed_without_warehouse_flags(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест полного покрытия", 600.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-А", "amount": 250.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-Б", "amount": 350.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+    assert superadmin_client.get(f"/kanban/cards/{card_id}").json()["status"] == "Закрыто"
+
+    # складские флажки не проставлены — статус «Закрыто» это не меняет
+    _unset_warehouse_flags(card_id)
+    sync = superadmin_client.post(f"/payments/cards/{card_id}/sync-writeoff-status").json()
+    assert sync["status"] == "Закрыто", "полное покрытие выпиской = сделка закрыта"
+    assert sync["changed"] is False
+
+    report = superadmin_client.post("/payments/repair-writeoffs?dry_run=true").json()
+    assert not any(f["card_id"] == card_id for f in report["status_fixes"]), \
+        "починка не должна возвращать выписанные сделки в «На списание»"
+
+
+def test_repair_closes_issued_but_unwritten_deal(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест закрытия починкой", 500.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-В", "amount": 500.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+    # имитируем состояние до фикса: статус «На списание», флажков нет
+    db = SessionLocal()
+    try:
+        db.query(models.Card).filter(models.Card.id == card_id).update({"status": "На списание"})
+        db.query(models.Transaction).filter(models.Transaction.card_id == card_id).update(
+            {"is_warehouse_writeoff": False}, synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    report = superadmin_client.post("/payments/repair-writeoffs?dry_run=true").json()
+    fix = next(f for f in report["status_fixes"] if f["card_id"] == card_id)
+    assert fix["from"] == "На списание" and fix["to"] == "Закрыто"
+
+    superadmin_client.post("/payments/repair-writeoffs?dry_run=false")
+    assert superadmin_client.get(f"/kanban/cards/{card_id}").json()["status"] == "Закрыто"
+
+
+def test_total_increase_reopens_closed_deal(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест возврата при правке суммы", 500.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-Г", "amount": 500.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+    assert superadmin_client.get(f"/kanban/cards/{card_id}").json()["status"] == "Закрыто"
+
+    # сумму сделки увеличили — появился остаток к выписке, сделка должна
+    # вернуться в «На списание»
+    patch = superadmin_client.patch(f"/cards/{card_id}", json={"total_amount": 700.0})
+    assert patch.status_code == 200, patch.text
+    card = superadmin_client.get(f"/kanban/cards/{card_id}").json()
+    assert card["status"] == "На списание", "правка суммы с остатком возвращает сделку на доску"
+    info = superadmin_client.get(f"/payments/cards/{card_id}/invoices").json()
+    assert info["rest"] == 200.0
+
+
 # --- Правка даты выписки накладной из карточки (фидбек 07.09) -----------
 
 def test_invoice_date_edit_syncs_document_copy(superadmin_client):

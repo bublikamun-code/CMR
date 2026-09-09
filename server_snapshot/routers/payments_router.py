@@ -386,12 +386,9 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
                 if card.status == "Закрыто":
                     card.status = "На списание"
 
-        # Статус ВСЕГДА пересчитываем по факту, даже если остатка не осталось.
-        # Раньше при удалении последней записи карточка оставалась в «Закрыто»:
-        # она исчезала из «Списания» и из «Сборки», но висела в «Списке».
-        # В «Сборку» возвращаем только сделки из статусов списания: при
-        # переносе «Сборка → В работе/Ждет оплаты» фронт сначала меняет
-        # статус и лишь потом удаляет запись — безусловный откат возвращал
+        # Статус пересчитываем по факту (остаток к выписке), но только в
+        # зонах списания: при переносе «Сборка → В работе/Ждет оплаты» фронт
+        # меняет статус до удаления записи, и безусловный пересчёт возвращал
         # карточку обратно в «Сборку» поверх только что выставленного статуса.
         if card_id is not None:
             card = session.query(models.Card).filter(models.Card.id == card_id).first()
@@ -400,13 +397,8 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
                     models.Transaction.card_id == card_id,
                     models.Transaction.is_document == False,
                 ).all()
-                if not left:
-                    if card.status in ("На списание", "Закрыто"):
-                        card.status = "Сборка"      # списывать нечего
-                elif any(not t.is_warehouse_writeoff for t in left):
-                    card.status = "На списание"
-                else:
-                    card.status = "Закрыто"
+                if card.status in ("На списание", "Закрыто"):
+                    card.status = _writeoff_status_for(card, left)
                 # Сделка в «Сборке» без записи реестра пропадала бы из
                 # «Реестра оплат» до первой ручной «пинки» (В Сборку туда-обратно).
                 if card.status == "Сборка":
@@ -466,6 +458,27 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         return _tx_dict(tx)
     finally:
         tdb.close()
+
+
+def _writeoff_status_for(card, ledger):
+    """Статус списания по факту выписки.
+
+    Сделка закрыта, когда выписанными накладными покрыта вся сумма сделки
+    (остатка к выписке нет). Непомеченные «списанием со склада» накладные
+    статус не держат: выписка и складское списание — раздельные действия
+    (фидбек 04.09), а в колонке «На списание» сделке нечего делать, когда
+    выписано полностью (фидбек 09.09, «Свидеал»). Без суммы сделки эталона
+    нет — работает старое правило по складским флажкам. Нет записей —
+    «Сборка»: списывать нечего.
+    """
+    if not ledger:
+        return "Сборка"
+    if float(card.total_amount or 0) > 0:
+        issued = round(sum(float(t.amount or 0) for t in ledger
+                           if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+        rest = round(float(card.total_amount or 0) - issued, 2)
+        return "На списание" if rest > 0.01 else "Закрыто"
+    return "На списание" if any(not t.is_warehouse_writeoff for t in ledger) else "Закрыто"
 
 
 class WriteoffStatus(BaseModel):
@@ -841,14 +854,10 @@ def sync_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
 
         txs = session.query(models.Transaction).filter(
             models.Transaction.card_id == card_id,
-            models.Transaction.is_document == False,
+            models.Transaction.is_document == False
         ).all()
 
-        if not txs:
-            status = "Сборка"          # списывать нечего
-        else:
-            pending = [t for t in txs if not t.is_warehouse_writeoff]
-            status = "Закрыто" if not pending else "На списание"
+        status = _writeoff_status_for(card, txs)
 
         changed = card.status != status
         if changed:
@@ -865,10 +874,10 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
 
     1. Документы-сироты — копии накладных, у которых больше нет оригинала
        в списании (сделку удалили с доски, документ остался).
-    2. Сделки со списанием, у которых статус не «На списание»/«Закрыто» —
-       они не видны ни в одной колонке, хотя записи по ним есть.
-       «Сборка» не перекидывается: сделка с записью реестра в «Сборке» —
-       штатное состояние, статус туда ставят вручную.
+    2. Статусы сделок со списанием — по факту выписки: накладными покрыта
+       вся сумма сделки → «Закрыто» (складские флажки статус не держат),
+       остался остаток к выписке → «На списание». «Сборка» не перекидывается:
+       сделка с записью реестра в «Сборке» — штатное состояние.
     3. Группы списания без участников — плитки-призраки с устаревшей
        суммой на доске списания.
     4. Записи-остатки, разошедшиеся с суммой сделки (сумму правили уже
@@ -960,12 +969,11 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
 
             if card and live:
                 live_eff = [t for t in live if t.id not in will_delete_ids]
-                pending_eff = [t for t in live_eff if not t.is_warehouse_writeoff]
-                want = "Закрыто" if not pending_eff else "На списание"
+                want = _writeoff_status_for(card, live_eff)
                 # «Сборку» не трогаем: сделка с записью реестра в «Сборке» —
                 # штатное состояние (кнопка «В Сборку»), её туда поставили
                 # руками, и перекидывать в «На списание» нельзя.
-                if card.status != want and card.status != "Сборка" and card.status not in ("Отменено",):
+                if want != card.status and card.status in ("На списание", "Закрыто"):
                     fixed_status.append({"card_id": card_id, "title": card.title,
                                          "from": card.status, "to": want})
                     if not dry_run:
