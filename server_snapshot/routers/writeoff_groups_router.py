@@ -100,7 +100,10 @@ def list_groups(db: Session = Depends(get_db), current_user: models.User = Depen
     try:
         session = tdb
         groups = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).order_by(models.WriteoffGroup.id.desc()).all()
-        return groups
+        # Группа без участников не отдаётся: участники могли быть выведены
+        # в обход API, и пустая плитка с устаревшей total_amount рисовалась
+        # на доске списания, раздувая итог «к списанию» склада.
+        return [g for g in groups if g.cards]
     finally:
         if tdb is not db:
             tdb.close()

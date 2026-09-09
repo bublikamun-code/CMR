@@ -148,6 +148,126 @@ def test_issue_invoice_rejects_amount_over_remainder(superadmin_client):
     assert "больше остатка" in response.json()["detail"]
 
 
+# --- Остаток считается от суммы сделки, а не от разошедшейся записи
+# (фидбек 09.09: «остаток для выписки накладной некорректный», в записях
+# двух сделок остались старые опечатки ×100) ------------------------------
+
+def _drift_remainder(card_id, amount):
+    """Имитирует запись-остаток, разошедшуюся с суммой сделки (сумму сделки
+    правили до фикса Н1, либо при создании была опечатка)."""
+    db = SessionLocal()
+    try:
+        row = db.query(models.Transaction).filter(
+            models.Transaction.card_id == card_id,
+            models.Transaction.is_document == False,
+        ).first()
+        row.amount = amount
+        db.commit()
+    finally:
+        db.close()
+
+
+def _remainders(card_id):
+    return [t for t in _card_transactions(card_id)
+            if not t.is_document and not (t.invoice_number or "").strip()
+            and not t.is_warehouse_writeoff]
+
+
+def test_invoice_rest_ignores_drifted_remainder_row(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест битого остатка", 500.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    _drift_remainder(card_id, 50000.0)
+
+    info = superadmin_client.get(f"/payments/cards/{card_id}/invoices").json()
+    assert info["rest"] == 500.0, "в форме выписки остаток = сумме сделки, а не битой записи"
+
+    response = superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-3", "amount": 500.0, "store_location": "Тестовый магазин",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["rest"] == 0.0
+    assert _remainders(card_id) == [], "исчерпанная запись-остаток удалена"
+
+
+def test_issue_invoice_partial_rewrites_drifted_remainder(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест правки битого остатка", 1000.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    _drift_remainder(card_id, 9999.0)
+
+    response = superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-4", "amount": 400.0, "store_location": "Тестовый магазин",
+    })
+    assert response.status_code == 200, response.text
+    remainders = _remainders(card_id)
+    assert len(remainders) == 1 and float(remainders[0].amount) == 600.0, \
+        "запись-остаток перезаписана корректным значением (1000 − 400)"
+
+
+def test_issue_invoice_rejects_over_rest_despite_drifted_row(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест лимита по сделке", 100.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    _drift_remainder(card_id, 9999.0)
+
+    response = superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-5", "amount": 500.0, "store_location": "Тестовый магазин",
+    })
+    assert response.status_code == 400, "разбитая запись не должна позволять выписать больше сделки"
+    assert "больше остатка" in response.json()["detail"]
+
+
+def test_repair_writeoffs_reports_and_heals(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест починки остатка", 800.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    _drift_remainder(card_id, 12345.0)
+
+    report = superadmin_client.post("/payments/repair-writeoffs?dry_run=true").json()
+    assert report["dry_run"] is True
+    assert any(f["card_id"] == card_id and f["will_be"] == 800.0 for f in report["remainder_fixes"]), \
+        "dry-run показывает расходление, ничего не меняя"
+    assert float(_remainders(card_id)[0].amount) == 12345.0
+
+    applied = superadmin_client.post("/payments/repair-writeoffs?dry_run=false").json()
+    assert any(f["card_id"] == card_id for f in applied["remainder_fixes"])
+    assert float(_remainders(card_id)[0].amount) == 800.0, "остаток приведён к сумме сделки"
+
+
+# --- Группы списания без участников не отдаются (группа-призрак с пыла) --
+
+def test_list_groups_skips_empty_groups(superadmin_client):
+    c1 = _create_card(superadmin_client, "Тест группы 1", 300.0)
+    c2 = _create_card(superadmin_client, "Тест группы 2", 200.0)
+    for cid in (c1, c2):
+        assert superadmin_client.patch(
+            f"/kanban/cards/{cid}/status", json={"status": "Сборка"}
+        ).status_code == 200
+    created = superadmin_client.post("/writeoffs/groups/", json={"card_ids": [c1, c2]})
+    assert created.status_code == 200, created.text
+    group_id = created.json()["id"]
+
+    assert len(superadmin_client.get("/writeoffs/groups/").json()) >= 1
+
+    # Участники выведены в обход API — именно так на бою появилась группа
+    # без карточек, рисовавшая плитку с устаревшей суммой.
+    db = SessionLocal()
+    try:
+        for cid in (c1, c2):
+            db.query(models.Card).filter(models.Card.id == cid).update({"writeoff_group_id": None})
+        db.commit()
+    finally:
+        db.close()
+
+    ids = [g["id"] for g in superadmin_client.get("/writeoffs/groups/").json()]
+    assert group_id not in ids, "группа без участников не попадает в выдачу"
+
+
 # --- Правка даты выписки накладной из карточки (фидбек 07.09) -----------
 
 def test_invoice_date_edit_syncs_document_copy(superadmin_client):

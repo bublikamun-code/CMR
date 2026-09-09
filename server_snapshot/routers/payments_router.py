@@ -596,7 +596,12 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
         issued_total = sum(float(t.amount or 0) for t in txs
                            if t.is_warehouse_writeoff or (t.invoice_number or "").strip())
         card_amount = round(float(card.total_amount or 0), 2)
-        rest_before = round(float(remainder.amount or 0), 2) if remainder else round(card_amount - issued_total, 2)
+        # Остаток считаем ОТ СУММЫ СДЕЛКИ, а не от записи-остатка: запись —
+        # производное состояние и расходилась с сделкой (сумму правили уже
+        # после создания записи; в двух сделках в записях остались опечатки
+        # ×100 — и модалка предлагала выписать миллионы). Остаток на доске
+        # списания считается так же, теперь и модалка показывает то же число.
+        rest_before = max(0.0, round(card_amount - issued_total, 2))
 
         if amount > rest_before + 0.01:
             raise HTTPException(
@@ -695,7 +700,7 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
             models.Transaction.is_document == False,
         ).order_by(models.Transaction.id.asc()).all()
 
-        issued, rest = [], 0.0
+        issued = []
         for t in txs:
             if t.is_warehouse_writeoff or (t.invoice_number or "").strip():
                 issued.append({
@@ -706,13 +711,14 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
                     "store_location": t.store_location or "",
                     "written_off": bool(t.is_warehouse_writeoff),
                 })
-            else:
-                rest += float(t.amount or 0)
 
         card_amount = round(float(card.total_amount or 0), 2)
         issued_sum = round(sum(i["amount"] for i in issued), 2)
-        if not txs:
-            rest = card_amount
+        # Остаток — от суммы сделки, как на доске списания и в выписке
+        # накладной: сумма «хвостатых» записей со временем расходилась со
+        # сделкой, и форма выписки подставляла неверную (иногда сумашедшую)
+        # сумму. Если записей нет вообще — остаток равен всей сумме сделки.
+        rest = max(0.0, round(card_amount - issued_sum, 2)) if txs else card_amount
         return {
             "card_id": card_id,
             "card_amount": card_amount,
@@ -816,6 +822,12 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
        в списании (сделку удалили с доски, документ остался).
     2. Сделки со списанием, у которых статус не «На списание»/«Закрыто» —
        они не видны ни в одной колонке, хотя записи по ним есть.
+    3. Группы списания без участников — плитки-призраки с устаревшей
+       суммой на доске списания.
+    4. Записи-остатки, разошедшиеся с суммой сделки (сумму правили уже
+       после создания записи, встречаются и старые опечатки ×100):
+       остаток приводится к «сумма сделки − выписанные накладные»,
+       лишние записи-остатки удаляются.
     """
     if current_user.role not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -835,6 +847,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
             by_card.setdefault(t.card_id, []).append(t)
 
         orphan_docs, fixed_status = [], []
+        remainder_fixes, orphan_groups = [], []
 
         for card_id, rows in by_card.items():
             live = [t for t in rows if not t.is_document]
@@ -863,6 +876,40 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                     if not dry_run:
                         card.status = want
 
+            # Остаток = сумма сделки − выписанные накладные. Без суммы сделки
+            # эталона нет — такие записи не трогаем. Карточки в группах
+            # списания управляются групповыми сценариями — тоже пропускаем.
+            if card and live and (float(card.total_amount or 0) > 0) and card.writeoff_group_id is None:
+                issued_sum = round(sum(float(t.amount or 0) for t in live
+                                       if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+                expected_rest = max(0.0, round(float(card.total_amount or 0) - issued_sum, 2))
+                pending_rows = [t for t in live
+                                if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()]
+                current_rest = round(sum(float(t.amount or 0) for t in pending_rows), 2)
+                if abs(expected_rest - current_rest) > 0.01:
+                    remainder_fixes.append({
+                        "card_id": card_id, "title": card.title,
+                        "was": current_rest, "will_be": expected_rest,
+                        "extra_rows": len(pending_rows) - 1,
+                    })
+                    if not dry_run:
+                        if pending_rows:
+                            pending_rows[0].amount = expected_rest
+                            for extra in pending_rows[1:]:
+                                session.delete(extra)
+                        elif expected_rest > 0:
+                            session.add(models.Transaction(
+                                company_name=card.title, amount=expected_rest,
+                                store_location=card.store_location, card_id=card_id,
+                            ))
+
+        for g in session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).all():
+            if not g.cards:
+                orphan_groups.append({"id": g.id, "name": g.name,
+                                      "total_amount": float(g.total_amount or 0)})
+                if not dry_run:
+                    session.delete(g)
+
         if not dry_run:
             for o in orphan_docs:
                 row = session.query(models.Transaction).filter(models.Transaction.id == o["id"]).first()
@@ -876,6 +923,10 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
             "orphan_documents_count": len(orphan_docs),
             "status_fixes": fixed_status,
             "status_fixes_count": len(fixed_status),
+            "remainder_fixes": remainder_fixes,
+            "remainder_fixes_count": len(remainder_fixes),
+            "orphan_groups": orphan_groups,
+            "orphan_groups_count": len(orphan_groups),
         }
     finally:
         tdb.close()

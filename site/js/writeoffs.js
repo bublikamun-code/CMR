@@ -269,8 +269,12 @@ function renderWriteoffsBoard() {
     };
 
     // Сначала групповые плитки — они отображают несколько сделок одной накладной.
+    // Группа без участников (все карточки выведены в обход API) не должна
+    // рисоваться: плитка-призрак с устаревшей суммой раздувала итог
+    // «к списанию» в шапке склада (баг-отчёт 09.09: «остаток сумашедший»).
     (groups || []).forEach(g => {
         if (!g.store_location) return;
+        if (!g.cards || !g.cards.length) return;
         if (q && !groupMatchesSearch(g, q)) return;
         const el = renderGroupTile(g);
         if (!el) return;
@@ -334,7 +338,11 @@ function renderWriteoffsBoard() {
             // Компактная карточка (фидбек 00:56: на 100% колонка из 5 плиток
             // не влезала в экран): сумма и «к списанию» — одна строка, дата
             // и номер ТН — одна строка. Частичная оплата показывает «из …».
-            const amountValue = isDone ? displayAmount : pendingAmount;
+            // На списанной плитке показываем сумму САМИХ накладных, а не сумму
+            // сделки: после правки суммы сделки они расходились, и «Списано»
+            // приписывало лишнее (а месячный итог склада — тем более).
+            const doneAmount = writtenAmount > 0 ? writtenAmount : displayAmount;
+            const amountValue = isDone ? doneAmount : pendingAmount;
             const partialNote = (!isDone && totalAmount - pendingAmount > 0.005)
                 ? `<span class="wo-from">из ${formatMoneyBYN(totalAmount)}</span>` : '';
             const amountRow = `
@@ -500,7 +508,12 @@ function cardMatchesSearch(card, txs, q) {
 }
 
 function renderGroupTile(group) {
-    const total = parseFloat(group.total_amount) || 0;
+    // Сумма группы — по ТЕКУЩИМ суммам сделок-участников: group.total_amount
+    // фиксируется при создании и не следует за правками сделок, плитка
+    // начинала врать после первой же корректировки суммы в карточке.
+    const total = (group.cards && group.cards.length)
+        ? group.cards.reduce((s, c) => s + (parseFloat(c.total_amount) || 0), 0)
+        : (parseFloat(group.total_amount) || 0);
     const count = group.cards ? group.cards.length : 0;
     const dateStr = group.invoice_date
         ? new Date(group.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
