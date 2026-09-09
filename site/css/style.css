@@ -13264,19 +13264,12 @@ textarea {
 }
 .writeoff-card .btn-secondary svg { width: 11px; height: 11px; }
 
-/* «Списать» — абсолютная кнопка, остаётся только у карточек с выписанной
-   накладной (у остальных кнопка в потоке). Резерв под неё даём через :has(),
-   чтобы у карточек с «Выписать накладную» не было мёртвых 28px снизу. */
 .writeoff-card:not(.writeoff-done) { padding-bottom: 10px !important; }
-.writeoff-card:not(.writeoff-done):has(.btn-writeoff) { padding-bottom: 34px !important; }
-.writeoff-card .btn-writeoff {
-    padding: 3px 8px;
-    font-size: 11px;
-    bottom: 10px;
-    left: 10px;
-    right: 10px;
-    border-radius: var(--radius-md);
-}
+/* «Списать» живёт в панели действий плитки (.writeoff-tile-actions, ниже):
+   компактная зелёная плашка в ряду с «Прикрепить сделку», показывается
+   вместе со всей панелью — по образцу панели переноса на канбане.
+   Старые абсолютные оверрайды (bottom/left/right, резерв :has) сняты —
+   они выносили кнопку из панели и делали её постоянно видимой полосой. */
 
 /* Бейдж «Накладная не выписана» жмётся к содержимому: во флекс-колонке
    карточки он растягивался на всю ширину и читался как вторая кнопка. */
@@ -13619,6 +13612,25 @@ textarea {
 @media (hover: none) {
     .writeoff-tile-actions { opacity: 1; }
 }
+/* Кнопки внутри панели — компактный ряд, как панель переноса на канбане.
+   «Списать» нейтрализует базовое .btn-writeoff (absolute-полоса на дне
+   плитки от старого дизайна): в панели она обычный flex-ребёнок.
+   «Выписать накладную» (.btn-secondary) сбрасывает поточный margin-top,
+   иначе в ряду панели она съезжает вниз относительно соседей. */
+.writeoff-tile-actions .btn-writeoff {
+    position: static;
+    width: auto;
+    flex: 1 1 auto;
+    margin: 0;
+    padding: 3px 10px;
+    font-size: 11px;
+    border-radius: var(--radius-md);
+}
+.writeoff-tile-actions .btn-secondary {
+    margin-top: 0 !important; /* против margin-top: 6px !important блока выше */
+    align-self: auto !important;
+}
+.writeoff-tile-actions .wo-attach { margin-top: 0; align-self: center; }
 
 /* ==========================================================
    РАУНД 2026-09-04 (глубокая ночь): прикрепление сделок к одной
@@ -13647,9 +13659,6 @@ textarea {
     color: var(--primary-color);
     background: var(--primary-soft);
 }
-/* у плиток с абсолютной кнопкой «Списать» прикрепление не должно
-   наезжать на зарезервированную зону */
-.writeoff-card:not(.writeoff-done):has(.btn-writeoff) .wo-attach { margin-bottom: 26px; }
 
 /* Пикер прикрепления */
 .wo-picker-overlay {
