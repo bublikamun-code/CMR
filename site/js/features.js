@@ -719,6 +719,14 @@ function renderEmptyState({ icon, title, description, action }) {
  * Принимает «1 744,49», «1744.49», «1 744,49 BYN» — возвращает число
  * или null, если распознать не удалось.
  */
+// Фикс аудита 10.09: YYYY-MM-DD по ЛОКАЛЬНЫМ часам. toISOString() давал
+// вчерашнюю дату в первую полночь (UTC+3) — предзаполненная дата выписки
+// накладной оказывалась вчерашней.
+function localDateISO(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function parseMoney(value) {
     if (value === null || value === undefined) return null;
     const raw = String(value)
@@ -861,7 +869,9 @@ function parseMoney(value) {
         { id: 'page-kanban', label: 'Канбан-доска', icon: ICON_BOARD },
         { id: 'page-tasks', label: 'Задачи', icon: ICON_BOX },
         { id: 'page-finance', label: 'Финансы (оплаты, списание, документы)', icon: ICON_LIST },
-        { id: 'page-counterparties', label: 'Контрагенты', icon: ICON_CLIENT },
+        // Фикс аудита 10.09: было page-counterparties — такой страницы в
+        // разметке нет, пункт палитры и выбор клиента ничего не делали.
+        { id: 'page-clients', label: 'Контрагенты', icon: ICON_CLIENT },
         { id: 'page-dashboard', label: 'Дашборд', icon: '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>' },
     ];
 
@@ -949,7 +959,7 @@ function parseMoney(value) {
                 } else if (type === 'card') {
                     openCardModal(parseInt(id));
                 } else if (type === 'client') {
-                    const navBtn = document.querySelector('[data-target="page-counterparties"]');
+                    const navBtn = document.querySelector('[data-target="page-clients"]');
                     if (navBtn) navBtn.click();
                 }
             });

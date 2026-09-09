@@ -471,8 +471,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     renderCardInvoices(card);
     // Групповое списание: две карточки одного клиента под одной накладной
     renderCardGroupBlock(card);
-    // Прошлые сделки того же отправителя — предложить связать
-    renderRelatedCards(card);
+    // Прошлые сделки того же отправителя — предложить связать.
+    // (Фикс аудита 10.09: вызов перенесён НИЖЕ создания #related-cards-mount —
+    // раньше banner писался в узел, которого ещё нет/уже заменён, и баннер
+    // «От этого отправителя есть сделки» никогда не появлялся.)
 
     // RIGHT COLUMN: Timeline
     rightContainer.innerHTML = `
@@ -493,6 +495,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку (Enter)">${ICON_CHECK}</button>
         </div>
     `;
+
+    // Прошлые сделки того же отправителя — предлагаем связать (контейнер
+    // related-cards-mount уже в DOM, см. комментарий выше).
+    renderRelatedCards(card);
 
     // Поле заметки фиксированной высоты: длинный текст скроллится внутри,
     // а не растягивает панель комментариев на полкарточки.
@@ -699,9 +705,14 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         }
     });
 
-    container.addEventListener('input', (e) => {
+    // Фикс аудита 10.09: как с _modalClickHandler/_modalChangeHandler —
+    // контейнер постоянный, анонимный слушатель копился бы на каждой
+    // перерисовке модалки (загрузка вложений, пунктов чек-листа и т.д.).
+    container.removeEventListener('input', container._modalInputHandler);
+    container._modalInputHandler = (e) => {
         if (e.target && e.target.closest('.date-input-wrapper')) syncDateWrapper(e.target);
-    });
+    };
+    container.addEventListener('input', container._modalInputHandler);
 
     const STORE_OPTIONS = APP_STORES;
     const storeDropdown = createDropdown({
@@ -1205,9 +1216,16 @@ async function loadCardActivity(cardId) {
     }
     try {
         const activities = await apiFetch(`/activity?card_id=${cardId}&limit=50`);
+        // Фикс аудита 10.09: пока ответ был в пути, модалку могли закрыть и
+        // открыть для другой сделки — контейнер заменён или теперь хранит
+        // другой cardId. Чужую/устаревшую историю не отрисовываем.
+        const live = document.getElementById('activity-container');
+        if (live !== container || container.dataset.cardId !== String(cardId)) return;
         container._activities = activities;
         renderCardActivityList(cardId, activities);
     } catch (err) {
+        const live = document.getElementById('activity-container');
+        if (live !== container || container.dataset.cardId !== String(cardId)) return;
         container.innerHTML = '';
         container.appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки активности', message: err.message }));
     }
@@ -1660,14 +1678,16 @@ function renderModalPaymentHeader(card) {
         } else if (newStatus === 'Частично') {
             actions.innerHTML = `
                 <div class="payment-form-inline">
-                    <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 && paid < total ? paid.toFixed(2) : ''}" placeholder="0,00">
+                    <!-- Фикс аудита 10.09: text+inputmode вместо number — запятая в вводе больше не теряет значение -->
+                    <input type="text" inputmode="decimal" id="modal-pay-amount" max="${total}" value="${paid > 0 && paid < total ? paid.toFixed(2) : ''}" placeholder="0,00">
                     <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
                     <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
                 </div>
             `;
             const amountInput = actions.querySelector('#modal-pay-amount');
             actions.querySelector('#modal-pay-confirm').onclick = () => {
-                const amount = parseFloat(amountInput.value) || 0;
+                // Фикс аудита 10.09: parseMoney понимает запятую и пробелы
+                const amount = parseMoney(amountInput.value) ?? 0;
                 if (amount <= 0) return showToast('Укажите сумму оплаты', 'error');
                 if (amount > total + 0.01) return showToast('Сумма оплаты не может превышать сумму сделки', 'error');
                 const newStatus = amount >= total - 0.01 ? 'Оплачен' : 'Частично';
@@ -1678,7 +1698,7 @@ function renderModalPaymentHeader(card) {
         } else if (newStatus === 'Отсрочка') {
             actions.innerHTML = `
                 <div class="payment-form-inline">
-                    <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 ? paid.toFixed(2) : ''}" placeholder="0,00">
+                    <input type="text" inputmode="decimal" id="modal-pay-amount" max="${total}" value="${paid > 0 ? paid.toFixed(2) : ''}" placeholder="0,00">
                     ${dateInputHTML({ id: 'modal-pay-due', value: due })}
                     <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
                     <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
@@ -1690,7 +1710,7 @@ function renderModalPaymentHeader(card) {
                 dueInput.addEventListener('input', () => syncDateWrapper(dueInput));
             }
             actions.querySelector('#modal-pay-confirm').onclick = () => {
-                const amount = parseFloat(amountInput.value) || 0;
+                const amount = parseMoney(amountInput.value) ?? 0;
                 if (!dueInput.value) return showToast('Укажите дату отсрочки', 'error');
                 saveCardPayment(card, { paid_amount: amount, payment_status: 'Отсрочка', payment_due_date: dueInput.value });
             };
@@ -1756,9 +1776,13 @@ async function renderCardInvoices(card) {
         // YYYY-MM-DD — записи со старым форматом открываются с пустым полем
         const rawDate = (inv.invoice_date || '').trim();
         const dateIso = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : '';
-        const legacyDateStr = (!dateIso && rawDate)
-            ? new Date(rawDate + 'T00:00:00').toLocaleDateString('ru-RU')
-            : '';
+        // Фикс аудита 10.09: старая дата не ISO-формата давала literal
+        // «Invalid Date» в строке — теперь показываем сырую строку.
+        let legacyDateStr = '';
+        if (!dateIso && rawDate) {
+            const d = new Date(rawDate + 'T00:00:00');
+            legacyDateStr = isNaN(d) ? rawDate : d.toLocaleDateString('ru-RU');
+        }
         row.innerHTML = `
             <div class="checklist-item-header">
                 <label class="checklist-label">
@@ -1796,8 +1820,8 @@ async function renderCardInvoices(card) {
             </div>
             <div class="inv-draft-fields">
                 <input type="text" id="new-inv-num" class="inv-in inv-in-num" placeholder="№ накладной">
-                <input type="date" id="new-inv-date" class="inv-in inv-in-date" value="${new Date().toISOString().slice(0, 10)}">
-                <input type="number" step="0.01" id="new-inv-amount" class="inv-in inv-in-amount" value="${data.rest.toFixed(2)}" placeholder="0,00">
+                <input type="date" id="new-inv-date" class="inv-in inv-in-date" value="${localDateISO(new Date())}">
+                <input type="text" inputmode="decimal" id="new-inv-amount" class="inv-in inv-in-amount" value="${data.rest.toFixed(2)}" placeholder="0,00">
             </div>
             <div class="inv-draft-actions">
                 <button id="btn-cancel-invoice" class="btn-secondary btn-sm">Отменить</button>
@@ -1818,7 +1842,7 @@ async function renderCardInvoices(card) {
 
         draft.querySelector('#btn-save-invoice').onclick = async () => {
             const number = numEl.value.trim();
-            const amount = parseFloat(amtEl.value || 0);
+            const amount = parseMoney(amtEl.value) ?? 0;
             if (!number) { numEl.focus(); return showToast('Укажите номер накладной', 'error'); }
             if (!amount || amount <= 0) { amtEl.focus(); return showToast('Укажите сумму накладной', 'error'); }
             if (amount > data.rest + 0.01) {
@@ -2037,7 +2061,7 @@ function renderExistingGroup(card, group, container) {
         <div class="group-invoice-info">
             <span class="inv-badge badge-ok">закрыто общей накладной</span>
             <div class="gm-invoice">№ ${escapeHtml(group.invoice_number || '—')} · ${formatMoneyBYN(total)}</div>
-            ${group.invoice_date ? `<div class="gm-invoice-date">${new Date(group.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')}</div>` : ''}
+            ${group.invoice_date ? `<div class="gm-invoice-date">${(() => { const d = new Date(group.invoice_date + 'T00:00:00'); return isNaN(d) ? escapeHtml(group.invoice_date) : d.toLocaleDateString('ru-RU'); })()}</div>` : ''}
         </div>
     ` : '';
 
@@ -2053,8 +2077,8 @@ function renderExistingGroup(card, group, container) {
             ${!group.written_off ? `
                 <div class="group-invoice-form" id="group-invoice-form">
                     <input type="text" id="group-inv-num" class="inv-in inv-in-num" placeholder="№ накладной">
-                    <input type="date" id="group-inv-date" class="inv-in inv-in-date" value="${new Date().toISOString().slice(0, 10)}">
-                    <input type="number" step="0.01" id="group-inv-amount" class="inv-in inv-in-amount" value="${total.toFixed(2)}" readonly title="Сумма группы" placeholder="0,00">
+                    <input type="date" id="group-inv-date" class="inv-in inv-in-date" value="${localDateISO(new Date())}">
+                    <input type="text" inputmode="decimal" id="group-inv-amount" class="inv-in inv-in-amount" value="${total.toFixed(2)}" readonly title="Сумма группы" placeholder="0,00">
                 </div>
                 <div class="group-actions">
                     <button id="btn-issue-group-invoice" class="btn-primary btn-sm">Выписать общую накладную</button>
@@ -2287,6 +2311,10 @@ function updateChecklistItemState(input, item) {
    иначе одна и та же компания попадала в базу в трёх написаниях.
    ============================================================ */
 let _suppliersCache = null;
+
+// Фикс аудита 10.09: кэш не инвалидался — поставщик, созданный в разделе
+// «Поставщики», в чек-листе карточки не появлялся до перезагрузки страницы.
+window.invalidateSuppliersCache = function() { _suppliersCache = null; };
 
 async function loadSuppliersList(force = false) {
     if (_suppliersCache && !force) return _suppliersCache;

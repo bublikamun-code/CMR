@@ -84,9 +84,15 @@ function initKanbanDensityToggle() {
     setKanbanDensity(_kanbanDensity);
 }
 
+// Фикс аудита 10.09: монотонный номер загрузки. Ответы приходят не по
+// порядку (опрос, drag&drop, поиск) — устаревший ответ больше не
+// перерисовывает доску старым состоянием (карточка «отпрыгивала» назад).
+let _boardLoadSeq = 0;
+
 async function loadKanbanBoard() {
     const board = document.getElementById('kanban-board');
     if (!board) return;
+    const seq = ++_boardLoadSeq;
     board.classList.add('kanban-density-' + _kanbanDensity);
 
     if (!hasToken()) return;
@@ -110,6 +116,7 @@ async function loadKanbanBoard() {
 
     try {
         const cards = await apiFetch('/kanban/cards');
+        if (seq !== _boardLoadSeq) return; // устаревший ответ — есть более свежая загрузка
         _allCards = cards;
         if (window.CRM_STORE) {
             CRM_STORE.set('cards', cards);
@@ -212,8 +219,8 @@ async function loadKanbanBoard() {
                 // Расширенные фильтры
                 const f = _kanbanFilters;
                 if (f.store && c.store_location !== f.store) return false;
-                if (f.amountMin && (parseFloat(c.total_amount) || 0) < parseFloat(f.amountMin)) return false;
-                if (f.amountMax && (parseFloat(c.total_amount) || 0) > parseFloat(f.amountMax)) return false;
+                if (f.amountMin && (parseFloat(c.total_amount) || 0) < (parseMoney(f.amountMin) ?? 0)) return false;
+                if (f.amountMax && (parseFloat(c.total_amount) || 0) > (parseMoney(f.amountMax) ?? Infinity)) return false;
                 if (f.client && !(c.client?.name || '').toLowerCase().includes(f.client.toLowerCase())) return false;
                 if (f.priority && String(c.priority || 0) !== f.priority) return false;
 
@@ -514,7 +521,10 @@ window.refreshCardOnBoard = async function(cardId) {
         const card = cards.find(c => c.id === cardId);
         if (!card) return;
 
-        const cardEl = document.querySelector(`div[data-id="${cardId}"]`);
+        // Фикс аудита 10.09: селектор без скоупа цеплял плитки доски
+        // списаний (те тоже div[data-id], но с id транзакции) и затирал
+        // их разметку карточкой канбана.
+        const cardEl = document.querySelector(`#kanban-board div[data-id="${cardId}"]`);
         if (cardEl) {
             fillCardHTML(cardEl, card);
         }
@@ -623,9 +633,19 @@ async function handleDrop(e) {
             await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: newStatus }) });
         }
 
-        // Сохранение позиции внутри колонки
-        const allCardsInColumn = Array.from(targetContainer.querySelectorAll('.kanban-card'));
-        const cardIds = allCardsInColumn.map(c => parseInt(c.dataset.id));
+        // Сохранение позиции внутри колонки.
+        // Фикс аудита 10.09: в колонке видны не все карточки (поиск, фильтр,
+        // скрытые «старые»). Раньше в reorder уходили только видимые — сервер
+        // перенумеровывал их с нуля, и после сброса фильтра скрытые карточки
+        // застревали на старых позициях между новыми. Отправляем ПОЛНЫЙ
+        // состав колонки: видимые в порядке DOM, затем скрытые в их порядке.
+        const visibleIds = Array.from(targetContainer.querySelectorAll('.kanban-card'))
+            .map(c => parseInt(c.dataset.id));
+        const hiddenIds = (_allCards || [])
+            .filter(c => c.status === newStatus && !visibleIds.includes(c.id))
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+            .map(c => c.id);
+        const cardIds = [...visibleIds, ...hiddenIds];
         await apiFetch('/kanban/cards/reorder', {
             method: 'PATCH',
             headers: {'Content-Type': 'application/json'},
@@ -718,7 +738,10 @@ async function setupCreateCardButton() {
     try {
         const users = await apiFetch('/auth/users');
         managerOptions = users.map(u => ({ value: String(u.id), label: u.username }));
-        if (!managerVal && managerOptions.length > 0) managerVal = managerOptions[0].value;
+        // Фикс аудита 10.09: если /auth/me не ответил, currentUserId пуст и
+        // «Ответственный» раньше молча вставал на первого пользователя
+        // списка — сделки создавались от чужого имени. Теперь никого не
+        // выбираем: дропдаун покажет «— выбрать —», менеджер укажет сам.
     } catch (e) {
         console.error('Не удалось загрузить пользователей:', e);
         if (currentUserId) managerOptions = [{ value: currentUserId, label: 'Я' }];
@@ -795,7 +818,14 @@ async function setupCreateCardButton() {
             return;
         }
 
-        const amountVal = amountInput ? parseFloat(amountInput.value) : 0.0;
+        // Фикс аудита 10.09: сумма теперь приходит из текстового поля с
+        // запятой — парсим общим parseMoney (умеет «1 250,50» и «1250.50»).
+        const amountVal = amountInput ? parseMoney(amountInput.value) : 0.0;
+        if (amountInput && amountInput.value.trim() !== '' && amountVal === null) {
+            showToast('Сумма должна быть числом, например 1250,50', 'error');
+            amountInput.focus();
+            return;
+        }
 
         try {
             confirmBtn.innerText = "Создание...";
@@ -808,7 +838,7 @@ async function setupCreateCardButton() {
                     title: title,
                     status: "Новый запрос",
                     store_location: storeVal || null,
-                    total_amount: isNaN(amountVal) ? 0.0 : amountVal,
+                    total_amount: amountVal || 0.0,
                     priority: parseInt(priorityVal) || 0,
                     client_id: clientVal ? parseInt(clientVal) : null,
                     owner_id: managerVal ? parseInt(managerVal) : null
@@ -1039,8 +1069,8 @@ function renderListView() {
             if (!title.includes(q) && !tags.includes(q) && !manager.includes(q) && !client.includes(q)) return false;
         }
         if (f.store && c.store_location !== f.store) return false;
-        if (f.amountMin && (parseFloat(c.total_amount) || 0) < parseFloat(f.amountMin)) return false;
-        if (f.amountMax && (parseFloat(c.total_amount) || 0) > parseFloat(f.amountMax)) return false;
+        if (f.amountMin && (parseFloat(c.total_amount) || 0) < (parseMoney(f.amountMin) ?? 0)) return false;
+        if (f.amountMax && (parseFloat(c.total_amount) || 0) > (parseMoney(f.amountMax) ?? Infinity)) return false;
         if (f.client && !(c.client?.name || '').toLowerCase().includes(f.client.toLowerCase())) return false;
         if (f.priority && String(c.priority || 0) !== f.priority) return false;
         return true;
@@ -1183,8 +1213,10 @@ function renderListView() {
             }
             return frag;
         };
-        const controls = buildControls();
-        paginators.forEach(el => el.appendChild(controls.cloneNode(true)));
+        // Фикс аудита 10.09: controls.cloneNode(true) не копирует обработчики
+        // onclick — обе панели пагинации были мёртвыми (кнопки страниц не
+        // нажимались). Строим контролы отдельно для каждого контейнера.
+        paginators.forEach(el => el.appendChild(buildControls()));
     }
 }
 

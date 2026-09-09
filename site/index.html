@@ -35,7 +35,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <script src="js/boot.js?v=ab23ad71f2"></script>
+    <script src="js/boot.js?v=0d4398d27f"></script>
 </head>
 <body>
     <a href="#main-content" class="skip-link">К содержимому</a>
@@ -135,8 +135,8 @@
                     <select id="filter-store" aria-label="Магазин">
                         <option value="">Все магазины</option>
                     </select>
-                    <input type="number" id="filter-amount-min" aria-label="Сумма от" placeholder="Сумма от" class="filter-width-sm">
-                    <input type="number" id="filter-amount-max" aria-label="Сумма до" placeholder="Сумма до" class="filter-width-sm">
+                    <input type="text" inputmode="decimal" id="filter-amount-min" aria-label="Сумма от" placeholder="Сумма от" class="filter-width-sm">
+                    <input type="text" inputmode="decimal" id="filter-amount-max" aria-label="Сумма до" placeholder="Сумма до" class="filter-width-sm">
                     <input type="text" id="filter-client" aria-label="Клиент" placeholder="Клиент" class="filter-width-md">
                     <select id="filter-priority" aria-label="Приоритет">
                         <option value="">Все приоритеты</option>
@@ -744,7 +744,10 @@
                 </div>
                 <div class="modal-section">
                     <label class="modal-label" for="new-card-amount"><b>Сумма (BYN)</b></label>
-                    <input type="number" id="new-card-amount" placeholder="0,00" min="0" step="0.01">
+                    <!-- Фикс аудита 10.09: type="number" отбрасывал ввод с запятой
+                         (печатали «1250,50» — в сделку уходило «50»). Текстовое поле
+                         с цифровой клавиатурой + parseMoney при создании. -->
+                    <input type="text" inputmode="decimal" id="new-card-amount" placeholder="0,00">
                 </div>
                 <div class="modal-section">
                     <label class="modal-label"><b>Клиент</b></label>
@@ -893,28 +896,28 @@
     <script defer src="js/constants.js?v=7787449fb0"></script>
     <script defer src="js/crm_store.js?v=dd6baeb897"></script>
     <script defer src="js/api.js?v=0eea5fdde0"></script>
-    <script defer src="js/features.js?v=be89762c9b"></script>
-    <script defer src="js/auth.js?v=d41abdb335"></script>
-    <script defer src="js/kanban.js?v=e269363f5f"></script>
-    <script defer src="js/tasks.js?v=65f64bcaa6"></script>
+    <script defer src="js/features.js?v=ebf6d18d4e"></script>
+    <script defer src="js/auth.js?v=1aa65655b7"></script>
+    <script defer src="js/kanban.js?v=1ff27b04e3"></script>
+    <script defer src="js/tasks.js?v=8001922fdf"></script>
     <script defer src="js/notifications.js?v=8494223614"></script>
-    <script defer src="js/card_modal.js?v=0fcc6f417f"></script>
-    <script defer src="js/payments.js?v=f9da3829c5"></script>
-    <script defer src="js/writeoffs.js?v=c6f4da3f53"></script>
+    <script defer src="js/card_modal.js?v=5323b37242"></script>
+    <script defer src="js/payments.js?v=571b1639e3"></script>
+    <script defer src="js/writeoffs.js?v=d67157e6fe"></script>
     <script defer src="js/control.js?v=6e8c6fc91a"></script>
-    <script defer src="js/documents.js?v=689ca3b643"></script>
+    <script defer src="js/documents.js?v=4f9d889b88"></script>
     <script defer src="js/contacts.js?v=f3ff5b3c89"></script>
-    <script defer src="js/clients.js?v=cccc897731"></script>
-    <script defer src="js/suppliers.js?v=42396bfb46"></script>
-    <script defer src="js/dashboard.js?v=af3fed7f1d"></script>
+    <script defer src="js/clients.js?v=36fec8c5ad"></script>
+    <script defer src="js/suppliers.js?v=530b2be5cf"></script>
+    <script defer src="js/dashboard.js?v=b0a7d5fbb2"></script>
     <script defer src="js/email_parser.js?v=77dc60c7d5"></script>
     <script defer src="js/page-freshness.js?v=b4408b42ee"></script>
     <script defer src="js/realtime.js?v=e073f8333d"></script>
-    <script defer src="js/settings.js?v=fb01b77412"></script>
-    <script defer src="js/calendar.js?v=d5cab32e2d"></script>
+    <script defer src="js/settings.js?v=2614921f5f"></script>
+    <script defer src="js/calendar.js?v=02b21a6fef"></script>
     <script defer src="js/ui-polish.js?v=7b803c455b"></script>
     <script defer src="js/reveal.js?v=559fd1b3f1"></script>
-    <script defer src="js/handlers.js?v=094c93cb27"></script>
+    <script defer src="js/handlers.js?v=bb4f76474f"></script>
     <!-- Chart.js (вендор) НЕ грузится здесь: dashboard.js подключает его
          лениво при первом открытии Дашборда (Ф9, аудиторская оценка 06.09).
          Файл локальный: внешний CDN был единой точкой отказа для дашборда
