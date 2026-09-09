@@ -211,7 +211,7 @@ function renderPayments() {
                     <td class="clickable-company" data-card-id="${tr.card_id || ''}" title="${escapeHtml(tr.company_name)}">
                         ${escapeHtml(tr.company_name)}
                     </td>
-                    <td class="inline-edit-cell amount-cell" data-field="amount" data-id="${tr.id}">
+                    <td class="inline-edit-cell amount-cell" data-field="amount" data-id="${tr.id}" data-card-id="${tr.card_id || ''}" title="${tr.card_id ? 'Правка ведёт сумму сделки' : ''}">
                         <span class="inline-edit font-mono text-right tabular-nums">${escapeHtml(formatMoneyBYN(tr.amount || 0))}</span>
                     </td>
                     <td class="payment-cell">${renderPaymentCell(tr)}</td>
@@ -324,7 +324,12 @@ document.addEventListener('click', (e) => {
     const input = document.createElement('input');
     input.type = field === 'amount' ? 'number' : (field === 'date' ? 'date' : 'text');
     input.className = 'inline-edit-input';
-    input.value = field === 'amount' ? currentValue.replace(/[^0-9.]/g, '')
+    // ПРЕФИЛЛ СУММЫ: показанное «5 735,00» превращалось в «573500» —
+    // пробелы и запятая просто вырезались, и редактор открывался с суммой
+    // ×100. Именно так на бою появились записи-остатки с миллионами
+    // («ПроШоу Технологии», «Рацио Домус»). Теперь запятая становится
+    // точкой, пробелы (в т.ч. неразрывные) и «BYN» вычищаются.
+    input.value = field === 'amount' ? currentValue.replace(/[\s\u00a0]/g, '').replace('BYN', '').replace(',', '.').replace(/[^0-9.]/g, '')
         : (field === 'date' ? (cell.dataset.iso || '') : currentValue);
     if (field === 'amount') { input.step = '0.01'; input.min = '0'; }
     
@@ -346,13 +351,29 @@ document.addEventListener('click', (e) => {
             const numVal = parseFloat(newVal) || 0;
             spanNew.textContent = formatMoneyBYN(numVal);
             if (formatMoneyBYN(numVal) !== currentValue) {
+                // Строка реестра показывает СУММУ СДЕЛКИ, поэтому и правка
+                // ведёт в сумму сделки (карточка пересчитает остаток к
+                // выписке). Править сумму отдельной записи вручную нельзя —
+                // это ломало остатки. Записи без сделки (старые) правятся
+                // как раньше — напрямую.
+                const cardId = cell.dataset.cardId;
                 try {
-                    await apiFetch('/payments/transactions/' + id, {
-                        method: 'PATCH',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ amount: numVal })
-                    });
-                    showToast('Сумма сохранена', 'success');
+                    if (numVal <= 0) throw new Error('Сумма должна быть больше нуля');
+                    if (cardId) {
+                        await apiFetch('/cards/' + cardId, {
+                            method: 'PATCH',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ total_amount: numVal })
+                        });
+                        showToast('Сумма сделки сохранена', 'success');
+                    } else {
+                        await apiFetch('/payments/transactions/' + id, {
+                            method: 'PATCH',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ amount: numVal })
+                        });
+                        showToast('Сумма сохранена', 'success');
+                    }
                     if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
                 } catch (err) { showToast('Ошибка: ' + err.message, 'error'); failed = true; }
             }

@@ -2,6 +2,9 @@
 остатка при правке суммы сделки (фикс Н1), идемпотентность trigger_from_card,
 лимиты (С3), закрытая карта API (С6), заголовки безопасности, обобщённые
 ошибки почтового синка (С7)."""
+import glob
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -341,6 +344,82 @@ def test_repair_reports_assembly_cards_without_registry(superadmin_client):
     rows = [t for t in superadmin_client.get("/payments/transactions").json()
             if t["card_id"] == card_id and not t["is_document"]]
     assert len(rows) == 1 and abs(float(rows[0]["amount"]) - 333.0) < 0.01
+
+    # страховка отката: перед применением сохранена копия базы
+    import glob
+    import database
+    assert glob.glob(os.path.join(database.DATA_DIR, "backups", "before_repair_*.db")), \
+        "копия базы перед применением не создана"
+
+
+def test_repair_removes_zero_remainder_rows(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест нулевого остатка", 800.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-Д", "amount": 800.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+    # хвост после старых багов: нулевая запись-остаток
+    db = SessionLocal()
+    try:
+        db.add(models.Transaction(company_name="Тест нулевого остатка", amount=0.0,
+                                  card_id=card_id, store_location="Тестовый магазин"))
+        db.commit()
+    finally:
+        db.close()
+
+    report = superadmin_client.post("/payments/repair-writeoffs?dry_run=true").json()
+    assert any(z["card_id"] == card_id for z in report["zero_rows_removed"]), \
+        "нулевой остаток замечен в отчёте"
+
+    superadmin_client.post("/payments/repair-writeoffs?dry_run=false")
+    leftovers = [t for t in _card_transactions(card_id)
+                 if not t.is_document and float(t.amount or 0) <= 0.005]
+    assert leftovers == [], "нулевая запись-остаток удалена"
+
+
+def test_add_invoice_keeps_remainder_and_status_consistent(superadmin_client):
+    card_id = _create_card(superadmin_client, "Тест дописывания по API", 1000.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    # переводим в зону списания — только там статус следует за остатком
+    assert superadmin_client.patch(
+        f"/kanban/cards/{card_id}/status", json={"status": "На списание"}
+    ).status_code == 200
+    # дописали 400 по API — остаток должен пересчитаться до 600
+    added = superadmin_client.post(f"/payments/cards/{card_id}/invoices", json={
+        "amount": 400.0, "invoice_number": "ТН-API-1", "store_location": "Тестовый магазин",
+    })
+    assert added.status_code == 200, added.text
+    info = superadmin_client.get(f"/payments/cards/{card_id}/invoices").json()
+    assert info["rest"] == 600.0, "запись-остаток пересчитана после дописывания"
+    assert superadmin_client.get(f"/kanban/cards/{card_id}").json()["status"] == "На списание"
+
+    # дописали остальное — остаток закрыт, сделка закрыта
+    added2 = superadmin_client.post(f"/payments/cards/{card_id}/invoices", json={
+        "amount": 600.0, "invoice_number": "ТН-API-2", "store_location": "Тестовый магазин",
+    })
+    assert added2.status_code == 200, added2.text
+    info = superadmin_client.get(f"/payments/cards/{card_id}/invoices").json()
+    assert info["rest"] == 0.0
+    assert superadmin_client.get(f"/kanban/cards/{card_id}").json()["status"] == "Закрыто"
+
+    # без суммы дописывание предлагает непокрытый остаток, а не «всё покрыто»
+    card2 = _create_card(superadmin_client, "Тест дописывания без суммы", 300.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card2}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    partial = superadmin_client.post(f"/payments/cards/{card2}/invoices", json={
+        "invoice_number": "ТН-API-3", "amount": 100.0, "store_location": "Тестовый магазин",
+    })
+    assert partial.status_code == 200
+    auto = superadmin_client.post(f"/payments/cards/{card2}/invoices", json={
+        "invoice_number": "ТН-API-4", "store_location": "Тестовый магазин",
+    })
+    assert auto.status_code == 200 and abs(float(auto.json()["amount"]) - 200.0) < 0.01, \
+        "без суммы дописывается ровно непокрытый остаток"
 
 
 # --- Выписано полностью = сделка закрыта, складские флажки статус не

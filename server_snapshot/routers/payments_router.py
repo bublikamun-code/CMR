@@ -10,6 +10,35 @@ from database import get_db, get_tenant_db
 from auth import get_current_user
 from db_utils import resolve_tenant_db as _db
 
+import os
+import sqlite3
+
+
+def _backup_db_snapshot(session):
+    """Копия базы перед применением починки — страховка отката.
+
+    Пишется рядом с базой (CRM_DATA_DIR/backups/before_repair_*.db) штатным
+    backup-API SQLite, поэтому безопасна при живом приложении (WAL).
+    Ошибка копии не отменяет починку — в отчёте будет backup: null.
+    """
+    try:
+        rows = session.connection().exec_driver_sql("PRAGMA database_list").fetchall()
+        db_path = next((row[2] for row in rows if row[1] == "main" and row[2]), None)
+        if not db_path:
+            return None
+        backup_dir = os.path.join(os.path.dirname(db_path), "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        target = os.path.join(backup_dir, f"before_repair_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+        src = sqlite3.connect(db_path)
+        dst = sqlite3.connect(target)
+        with dst:
+            src.backup(dst)
+        src.close()
+        dst.close()
+        return target
+    except Exception:
+        return None
+
 # FIX 2026-08-30: предохранитель от неограниченной выборки (реестр и документы
 # раньше читали ВСЮ таблицу транзакций). Это не пагинация: сейчас в базе 188
 # транзакций, лимит в ~25 раз больше и в обычной работе недостижим; он нужен
@@ -545,10 +574,11 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
             # сумму задал пользователь в форме
             amount = round(float(payload.amount), 2)
         else:
-            # иначе — непокрытый остаток по сделке
-            covered = sum(float(t.amount or 0) for t in existing)
-            rest = round(float(card.total_amount or 0) - covered, 2)
-            amount = rest if rest > 0 else 0.0
+            # иначе — непокрытый остаток по сделке: сумма сделки минус
+            # уже выписанное (как в форме выписки и на доске)
+            issued = round(sum(float(t.amount or 0) for t in existing
+                               if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+            amount = round(float(card.total_amount or 0) - issued, 2)
 
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Сумма накладной должна быть больше нуля: остаток по сделке уже покрыт")
@@ -566,6 +596,32 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
             card_id=card_id,
         )
         session.add(new_tx)
+        session.flush()
+        # Инварианты как во всей системе: запись-остаток = сумма сделки −
+        # выписанное, статус — по остатку. Без этого дописанная извне
+        # накладная оставляла остаток разъехавшимся, а сделку — в старом
+        # статусе.
+        ledger = session.query(models.Transaction).filter(
+            models.Transaction.card_id == card_id,
+            models.Transaction.is_document == False,
+        ).all()
+        issued_total = round(sum(float(t.amount or 0) for t in ledger
+                                 if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+        new_rest = round(float(card.total_amount or 0) - issued_total, 2)
+        remainder = next((t for t in ledger
+                          if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
+        if remainder is not None:
+            if new_rest <= 0.01:
+                session.delete(remainder)
+            else:
+                remainder.amount = new_rest
+        elif new_rest > 0.01:
+            session.add(models.Transaction(
+                company_name=card.title, amount=new_rest,
+                store_location=new_tx.store_location, card_id=card_id,
+            ))
+        if card.status in ("На списание", "Закрыто"):
+            card.status = _writeoff_status_for(card, ledger)
         session.commit()
         session.refresh(new_tx)
         return _tx_dict(new_tx)
@@ -886,6 +942,10 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
        лишние записи-остатки удаляются.
     5. Сделки в «Сборке» без записи реестра оплат — создавалась заново
        на полную сумму сделки.
+    6. Нулевые записи-остатки (мусор в реестре) — удаляются.
+
+    Перед применением (dry_run=false) сохраняется копия базы в
+    backups/before_repair_*.db рядом с файлом базы — страховка отката.
     """
     if current_user.role not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -893,6 +953,9 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
     tdb = _db(current_user, db)
     try:
         session = tdb
+        # Страховка отката: перед применением сохраняем копию базы
+        backup_path = None if dry_run else _backup_db_snapshot(session)
+
         def _norm(v):
             return "".join(ch for ch in (v or "") if ch.isdigit())
 
@@ -906,6 +969,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
 
         orphan_docs, fixed_status = [], []
         remainder_fixes, orphan_groups = [], []
+        zero_rows_removed = []
 
         for card_id, rows in by_card.items():
             live = [t for t in rows if not t.is_document]
@@ -966,6 +1030,17 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                             will_delete_ids = {p.id for p in pending_rows}
                         else:
                             will_delete_ids = {p.id for p in pending_rows[1:]}
+                else:
+                    # Остаток сходится, но нулевые записи-остатки — мусор,
+                    # засоряющий реестр: выписанного покрытие не оставляет.
+                    zero_rows = [t for t in pending_rows if float(t.amount or 0) <= 0.005]
+                    if zero_rows:
+                        zero_rows_removed.append({"card_id": card_id, "title": card.title,
+                                                  "rows": len(zero_rows)})
+                        if not dry_run:
+                            for z in zero_rows:
+                                session.delete(z)
+                        will_delete_ids = {z.id for z in zero_rows}
 
             if card and live:
                 live_eff = [t for t in live if t.id not in will_delete_ids]
@@ -1025,6 +1100,9 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
             "orphan_groups_count": len(orphan_groups),
             "missing_registry": missing_registry,
             "missing_registry_count": len(missing_registry),
+            "zero_rows_removed": zero_rows_removed,
+            "zero_rows_removed_count": len(zero_rows_removed),
+            "backup": backup_path,
         }
     finally:
         tdb.close()
