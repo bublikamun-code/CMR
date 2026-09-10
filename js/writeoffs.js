@@ -127,16 +127,31 @@ async function loadWriteoffsBoard() {
 // выбор пользователя запоминается в localStorage.
 const WO_MONTH_PAGE = 20;
 
-function monthKeyOf(dateStr) {
+// Фикс аудита 10.09: локальная копия monthKeyOf перекрывала каноническую
+// из features.js (та возвращает 'none' для пустой/кривой даты, эта — null).
+// monthLabelOf/buildMonthFilter из features.js на null падают — страница
+// «Документы» умирала целиком, стоило выписать накладную без даты.
+// Свои ключи считаем под префиксом woMonthKeyOf.
+function woMonthKeyOf(dateStr) {
     if (!dateStr) return null;
     const d = new Date(dateStr.length === 10 ? dateStr + 'T00:00:00' : dateStr);
     if (isNaN(d)) return null;
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 
+// Текущий месяц по ЛОКАЛЬНЫМ часам: toISOString() в UTC давал прошлый
+// месяц в первую ночь месяца (Минск UTC+3, 00:00–02:59).
+function woCurrentMonthKey() {
+    const n = new Date();
+    return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0');
+}
+
 function monthLabel(key) {
     if (key === 'none') return 'Без даты';
-    const s = new Date(key + '-02T00:00:00').toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    let s = new Date(key + '-02T00:00:00').toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    // «сентябрь 2026 г.» → «Сентябрь 2026»: хвост « г.» в узких шапках
+    // месячных групп повисал отдельной строкой
+    s = s.replace(/\s*г\.?$/, '').trim();
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -167,7 +182,7 @@ function renderDoneColumn(container, items) {
     });
 
     const states = woMonthStates();
-    const nowKey = monthKeyOf(new Date().toISOString().slice(0, 10));
+    const nowKey = woCurrentMonthKey();
     const keys = Array.from(buckets.keys()).sort().reverse(); // новые месяцы сверху
 
     keys.forEach(key => {
@@ -181,11 +196,15 @@ function renderDoneColumn(container, items) {
 
         const header = document.createElement('div');
         header.className = 'wo-month-header';
+        // « BYN» в шапке месяца не показываем: валюта видна в заголовке
+        // склада и на каждой плитке, а ширины колонки не хватало — сумма
+        // резалась краем («…BY»). Полное значение — в title.
+        const sumStr = formatMoneyBYN(sum);
         header.innerHTML = `
             <span class="wo-month-arrow">${collapsed ? '&#9656;' : '&#9662;'}</span>
             <span class="wo-month-name">${monthLabel(key)}</span>
             <span class="wo-month-count">${els.length}</span>
-            <span class="wo-month-sum tabular-nums">${formatMoneyBYN(sum)}</span>`;
+            <span class="wo-month-sum tabular-nums" title="${sumStr}">${sumStr.replace(/\s*BYN$/, '')}</span>`;
         header.onclick = () => {
             const isCollapsed = groupEl.classList.toggle('collapsed');
             header.querySelector('.wo-month-arrow').innerHTML = isCollapsed ? '&#9656;' : '&#9662;';
@@ -262,13 +281,17 @@ function renderWriteoffsBoard() {
     };
 
     // Сначала групповые плитки — они отображают несколько сделок одной накладной.
+    // Группа без участников (все карточки выведены в обход API) не должна
+    // рисоваться: плитка-призрак с устаревшей суммой раздувала итог
+    // «к списанию» в шапке склада (баг-отчёт 09.09: «остаток сумашедший»).
     (groups || []).forEach(g => {
         if (!g.store_location) return;
+        if (!g.cards || !g.cards.length) return;
         if (q && !groupMatchesSearch(g, q)) return;
         const el = renderGroupTile(g);
         if (!el) return;
         visibleItems++;
-        putTile(g.store_location, !!g.written_off, el, monthKeyOf(g.invoice_date));
+        putTile(g.store_location, !!g.written_off, el, woMonthKeyOf(g.invoice_date));
     });
 
     // Карточки
@@ -277,20 +300,25 @@ function renderWriteoffsBoard() {
         visibleItems++;
             const store = txs[0].store_location;
             const totalAmount = parseFloat(card.total_amount) || txs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-            const writtenTxs = txs.filter(t => t.is_warehouse_writeoff);
-            const writtenAmount = writtenTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-            const pendingTxs = txs.filter(t => !t.is_warehouse_writeoff);
-            const pendingAmount = Math.max(0, totalAmount - writtenAmount);
-            const isDone = pendingTxs.length === 0 || pendingAmount <= 0;
+            // Выписанное = накладные с номером + складские списания. Остаток
+            // к выписке = сумма сделки минус выписанное. Полностью выписанная
+            // сделка готова и рисуется в «Списано», даже если складские
+            // флажки ещё не проставлены (фидбек 09.09, «Свидеал»).
+            const invoicedTxs = txs.filter(t => (t.invoice_number || '').trim() || t.is_warehouse_writeoff);
+            const invoicedSum = invoicedTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+            const rest = Math.max(0, totalAmount - invoicedSum);
+            const isDone = rest <= 0.005;
 
             const invoices = txs.filter(t => (t.invoice_number || '').trim());
-            const pendingInvoiceTx = pendingTxs.find(t => (t.invoice_number || '').trim());
-            const repTx = pendingInvoiceTx || pendingTxs[0] || txs[0];
+            const pendingInvoiceTx = invoices.find(t => !t.is_warehouse_writeoff);
+            const repTx = pendingInvoiceTx || txs[0];
 
             const cardEl = document.createElement('div');
             cardEl.className = 'kanban-card writeoff-card reveal reveal-fast' + (isDone ? ' writeoff-done' : '');
             cardEl.dataset.group = card.id;
-            cardEl.setAttribute('draggable', 'true');
+            // Фикс аудита 10.09: «Списано» не перетаскиваем — дроп по «На
+            // списание» молча снимал флажки и портил галочку в реестре.
+            cardEl.setAttribute('draggable', isDone ? 'false' : 'true');
             cardEl.setAttribute('data-id', repTx.id);
             cardEl.setAttribute('data-card-id', card.id);
 
@@ -298,8 +326,10 @@ function renderWriteoffsBoard() {
             const dateStr = repTx.date ? new Date(repTx.date).toLocaleDateString('ru-RU') : '—';
 
             let invoiceHtml = '';
+            let invoiceMissing = false;
+            let pendingInvNum = '';
             if (isDone) {
-                const inv = writtenTxs.find(t => (t.invoice_number || '').trim()) || invoices[0];
+                const inv = invoices[0];
                 if (inv) {
                     const invDateStr = inv.invoice_date
                         ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
@@ -307,28 +337,46 @@ function renderWriteoffsBoard() {
                     invoiceHtml = `<div class="wo-invoice"><span class="wo-inv-num">${escapeHtml(inv.invoice_number)}</span>${invDateStr ? `<span class="wo-inv-date">${invDateStr}</span>` : ''}</div>`;
                 }
             } else if (pendingInvoiceTx) {
-                const invDateStr = pendingInvoiceTx.invoice_date
-                    ? new Date(pendingInvoiceTx.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
-                    : '';
-                invoiceHtml = `<div class="wo-invoice"><span class="wo-inv-num">${escapeHtml(pendingInvoiceTx.invoice_number)}</span>${invDateStr ? `<span class="wo-inv-date">${invDateStr}</span>` : ''}</div>`;
+                // Номер ТН уходит в строку даты — отдельная строка не нужна
+                pendingInvNum = pendingInvoiceTx.invoice_number.trim();
+                if (invoices.length > 1) {
+                    invoiceHtml = `<div class="wo-note wo-note-empty">ещё ${invoices.length - 1} ${invoices.length - 1 === 1 ? 'накладная' : 'накладных'} · ждёт остаток</div>`;
+                }
             } else if (invoices.length) {
                 invoiceHtml = `<div class="wo-note wo-note-empty">выписано ${invoices.length} ${invoices.length === 1 ? 'накладная' : 'накладных'} · ждёт остаток</div>`;
             } else {
-                invoiceHtml = `<div class="badge-warning">${ICON_WARNING} Накладная не выписана</div>`;
+                // Бейдж «Накладная не выписана» и кнопка «Выписать накладную»
+                // дублировали друг друга и растягивали карточку вниз (фидбек
+                // 2026-09-04): сигнал перенесён на саму кнопку — она станет
+                // янтарной (.btn-invoice-missing), отдельная строка не нужна.
+                invoiceMissing = true;
             }
 
-            const remainderHtml = isDone
-                ? ''
-                : `<div class="wo-remainder">к списанию: ${formatMoneyBYN(pendingAmount)}</div>`;
+            // Компактная карточка (фидбек 00:56: на 100% колонка из 5 плиток
+            // не влезала в экран): сумма и «к списанию» — одна строка, дата
+            // и номер ТН — одна строка. Частичная оплата показывает «из …».
+            // На плитке «Списано» — сумма выписанных накладных, а не сумма
+            // сделки: после правки суммы сделки они расходились, и «Списано»
+            // приписывало лишнее (а месячный итог склада — тем более).
+            const doneAmount = invoicedSum > 0 ? invoicedSum : displayAmount;
+            const amountValue = isDone ? doneAmount : rest;
+            const partialNote = (!isDone && invoicedSum > 0.005)
+                ? `<span class="wo-from">из ${formatMoneyBYN(totalAmount)}</span>` : '';
+            const amountRow = `
+                <div class="card-amount-row">
+                    <span class="card-amount tabular-nums" data-amount="${rest}">${formatMoneyBYN(amountValue)}</span>
+                    ${isDone ? '' : '<span class="wo-amount-label">к списанию</span>'}
+                    ${partialNote}
+                </div>`;
+            const dateLine = `<div class="card-date">${pendingInvNum ? `<span class="wo-meta-inv">ТН ${escapeHtml(pendingInvNum)}</span>` : ''}<span>Оплата: ${dateStr}</span></div>`;
 
             cardEl.innerHTML = `
                 <div class="card-header">
                     <strong class="card-title">${escapeHtml(card.title || repTx.company_name)}</strong>
                     <button class="btn-delete-writeoff" data-tx-id="${repTx.id}" data-card-id="${card.id}" title="Убрать из списания" data-tooltip="Убрать из списания">${ICON_CROSS}</button>
                 </div>
-                <div class="card-amount tabular-nums" data-amount="${pendingAmount}">${formatMoneyBYN(displayAmount)}</div>
-                ${remainderHtml}
-                <div class="card-date">Оплата: ${dateStr}</div>
+                ${amountRow}
+                ${dateLine}
                 ${invoiceHtml}
             `;
 
@@ -373,6 +421,10 @@ function renderWriteoffsBoard() {
             });
 
             if (!isDone) {
+                // Фидбек 2026-09-06: кнопки действий плитки появляются при
+                // наведении/фокусе (как панель переноса на канбане)
+                const actions = document.createElement('div');
+                actions.className = 'writeoff-tile-actions';
                 const btn = document.createElement('button');
                 if (pendingInvoiceTx) {
                     btn.className = 'btn-writeoff';
@@ -381,19 +433,37 @@ function renderWriteoffsBoard() {
                         e.stopPropagation();
                         const invNum = (pendingInvoiceTx.invoice_number || '').trim();
                         if (await confirmDialog(`Подтвердить списание накладной ${invNum}?`, { okText: 'Списать', danger: false })) {
-                            await executeWriteoff(pendingInvoiceTx.id, true, null, card.id);
-                            showToast('Списано со склада', 'success');
+                            // Фикс аудита 10.09: executeWriteoff гасит ошибки
+                            // внутри и раньше всегда возвращала ok — тост
+                            // «Списано со склада» светился даже при сбое.
+                            const ok = await executeWriteoff(pendingInvoiceTx.id, true, null, card.id);
+                            if (ok) showToast('Списано со склада', 'success');
                         }
                     };
                 } else {
-                    btn.className = 'btn-secondary';
-                    btn.innerHTML = `${ICON_FILE} Выписать накладную`;
+                    btn.className = 'btn-secondary' + (invoiceMissing ? ' btn-invoice-missing' : '');
+                    btn.innerHTML = `${invoiceMissing ? ICON_WARNING : ICON_FILE} Выписать накладную`;
                     btn.onclick = (e) => {
                         e.stopPropagation();
                         openCardModal(card.id);
                     };
                 }
-                cardEl.appendChild(btn);
+                actions.appendChild(btn);
+
+                // P3-A: «Прикрепить сделку» — общая накладная на 2+ счета.
+                // Кандидаты: тот же клиент + тот же склад, статус Сборка/На
+                // списание, без своей группы (правила writeoff_groups API).
+                const attach = document.createElement('button');
+                attach.className = 'wo-attach';
+                attach.type = 'button';
+                attach.title = 'Прикрепить другую сделку: одна накладная на два счёта';
+                attach.textContent = '⧉ Прикрепить сделку';
+                attach.onclick = (e) => {
+                    e.stopPropagation();
+                    openAttachPicker(card);
+                };
+                actions.appendChild(attach);
+                cardEl.appendChild(actions);
             }
 
             cardEl.addEventListener('dragstart', (e) => {
@@ -403,9 +473,9 @@ function renderWriteoffsBoard() {
             cardEl.addEventListener('dragend', () => cardEl.classList.remove('dragging'));
 
             const doneDate = isDone
-                ? ((writtenTxs.find(t => (t.invoice_number || '').trim()) || {}).invoice_date || repTx.date)
+                ? ((invoices.find(t => t.invoice_date) || {}).invoice_date || repTx.date)
                 : null;
-            putTile(store, isDone, cardEl, monthKeyOf(doneDate));
+            putTile(store, isDone, cardEl, woMonthKeyOf(doneDate));
         });
 
     // Раскладка по колонкам: «На списание» — напрямую, «Списано» — по месяцам.
@@ -458,7 +528,12 @@ function cardMatchesSearch(card, txs, q) {
 }
 
 function renderGroupTile(group) {
-    const total = parseFloat(group.total_amount) || 0;
+    // Сумма группы — по ТЕКУЩИМ суммам сделок-участников: group.total_amount
+    // фиксируется при создании и не следует за правками сделок, плитка
+    // начинала врать после первой же корректировки суммы в карточке.
+    const total = (group.cards && group.cards.length)
+        ? group.cards.reduce((s, c) => s + (parseFloat(c.total_amount) || 0), 0)
+        : (parseFloat(group.total_amount) || 0);
     const count = group.cards ? group.cards.length : 0;
     const dateStr = group.invoice_date
         ? new Date(group.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
@@ -485,6 +560,9 @@ function renderGroupTile(group) {
     `;
 
     if (!group.written_off) {
+        // Фидбек 2026-09-06: кнопки группы — в той же всплывающей панели
+        const actions = document.createElement('div');
+        actions.className = 'writeoff-tile-actions';
         const btn = document.createElement('button');
         btn.className = 'btn-secondary';
         btn.innerHTML = `${ICON_FILE} Выписать накладную`;
@@ -507,7 +585,21 @@ function renderGroupTile(group) {
                 showToast('Ошибка: ' + err.message, 'error');
             }
         };
-        el.appendChild(btn);
+        actions.appendChild(btn);
+
+        // P3-A: прикрепить ещё одну сделку к группе (ещё один счёт под
+        // той же накладной). Работает, пока группа не закрыта.
+        const addBtn = document.createElement('button');
+        addBtn.className = 'wo-attach';
+        addBtn.type = 'button';
+        addBtn.title = 'Прикрепить другую сделку к этой накладной';
+        addBtn.textContent = '⧉ Прикрепить сделку';
+        addBtn.onclick = (e) => {
+            e.stopPropagation();
+            openAttachPicker(null, group);
+        };
+        actions.appendChild(addBtn);
+        el.appendChild(actions);
     }
 
     el.onclick = (e) => {
@@ -559,32 +651,59 @@ function updateWriteoffCounters() {
             .reduce((acc, el) => acc + (parseFloat(el.dataset.amount) || 0), 0);
         const h3 = block.querySelector('h3');
         if (!h3) return;
-        let total = h3.querySelector('.store-total');
+        // Итоги живут в своём столбике справа от названия склада: без обёртки
+        // span'ы наследовали 16px заголовка и ломали строку на три части.
+        let totals = h3.querySelector('.store-totals');
+        if (!totals) {
+            totals = document.createElement('span');
+            totals.className = 'store-totals';
+            h3.appendChild(totals);
+        }
+        let total = totals.querySelector('.store-total');
         if (!total) {
             total = document.createElement('span');
             total.className = 'store-total';
-            h3.appendChild(total);
+            totals.appendChild(total);
         }
         total.textContent = sum > 0 ? `к списанию ${formatMoneyBYN(sum)}` : '';
 
         // Списано за текущий месяц — по месячной группе колонки «Списано».
-        const nowKey = monthKeyOf(new Date().toISOString().slice(0, 10));
+        const nowKey = woCurrentMonthKey();
         const writtenSum = Array.from(block.querySelectorAll(`.writeoff-column[data-status="true"] .wo-month-group[data-month="${nowKey}"] .card-amount`))
             .reduce((acc, el) => acc + parseTileMoney(el), 0);
-        let written = h3.querySelector('.store-written-month');
+        let written = totals.querySelector('.store-written-month');
         if (!written) {
             written = document.createElement('span');
             written.className = 'store-written-month';
-            h3.appendChild(written);
+            totals.appendChild(written);
         }
-        written.textContent = writtenSum > 0 ? `списано за ${monthLabel(nowKey).toLowerCase()} ${formatMoneyBYN(writtenSum)}` : '';
+        written.textContent = writtenSum > 0 ? `списано за ${monthLabel(nowKey).toLowerCase()} · ${formatMoneyBYN(writtenSum)}` : '';
     });
+
+    updateScrollHints();
 
     if (typeof window.revealRefresh === 'function') window.revealRefresh();
 }
 
-async function updateTransactionData(transactionId, data) {
-    try {
+// --- Подсказка «ниже есть ещё» у скроллящихся колонок (2026-09-04):
+// полосы прокрутки убраны со всех досок (фидбек: «не нравится нигде,
+// листаю мышкой»), поэтому нижний край скроллящейся колонки канбана
+// или списания плавно затухает, у дна затухание снимается. ---
+function updateScrollHints() {
+    document.querySelectorAll('.writeoff-cards, .kanban-cards').forEach(w => {
+        const max = w.scrollHeight - w.clientHeight;
+        w.classList.toggle('is-scrollable', max > 2);
+        w.classList.toggle('wo-at-bottom', w.scrollTop >= max - 4);
+    });
+}
+window.updateScrollHints = updateScrollHints;
+document.addEventListener('scroll', (e) => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains('writeoff-cards')) updateScrollHints();
+}, true);
+window.addEventListener('resize', updateScrollHints);
+
+async function updateTransactionData(transactionId, data) {    try {
         await apiFetch(`/payments/transactions/${transactionId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -599,7 +718,10 @@ async function executeWriteoff(transactionId, isWrittenOff, targetStore = null, 
     try {
         // Поля накладной с доски больше не читаем — их там нет,
         // номер и дата задаются только внутри карточки сделки.
-        const patchData = { is_warehouse_writeoff: isWrittenOff };
+        // is_written_off — синхронно с is_warehouse_writeoff: галочка
+        // «Списание с магазина» в реестре оплат отражает списание с доски
+        // (фидбек 2026-09-04).
+        const patchData = { is_warehouse_writeoff: isWrittenOff, is_written_off: isWrittenOff };
         if (targetStore) patchData.store_location = targetStore;
 
         await apiFetch(`/payments/transactions/${transactionId}`, {
@@ -612,22 +734,15 @@ async function executeWriteoff(transactionId, isWrittenOff, targetStore = null, 
             await apiFetch(`/payments/transactions/${transactionId}/duplicate_as_document`, {
                 method: 'POST'
             });
-            // Карточку закрываем ТОЛЬКО когда списаны все её накладные.
-            // Раньше первая же накладная закрывала сделку целиком.
+            // Статус сделки считает сервер по факту выписки
+            // (sync-writeoff-status): складские флажки больше не держат
+            // сделку в «На списание» и не закрывают её раньше времени.
             if (cardId) {
                 let st = null;
                 try { st = await apiFetch(`/payments/cards/${cardId}/writeoff-status`); } catch (e) {}
-                if (!st || st.pending === 0) {
-                    await apiFetch(`/kanban/cards/${cardId}/status`, {
-                        method: 'PATCH',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ status: 'Закрыто' })
-                    });
-                    if (st && st.total_invoices > 1) {
-                        showToast(`Сделка закрыта: списаны все ${st.total_invoices} накладные`, 'success');
-                    }
-                } else {
-                    showToast(`Списано ${st.written_off} из ${st.total_invoices}. Осталось: ${st.pending}`, 'info');
+                try { await apiFetch(`/payments/cards/${cardId}/sync-writeoff-status`, { method: 'POST' }); } catch (e) {}
+                if (st && st.total_invoices > 1 && st.pending > 0) {
+                    showToast(`Списано ${st.written_off} из ${st.total_invoices} накладных`, 'info');
                 }
             }
         }
@@ -635,7 +750,11 @@ async function executeWriteoff(transactionId, isWrittenOff, targetStore = null, 
         loadWriteoffsBoard();
         if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
         if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
-    } catch (error) { showToast("Ошибка: " + error.message, 'error'); }
+        return true;
+    } catch (error) {
+        showToast("Ошибка: " + error.message, 'error');
+        return false;
+    }
 }
 
 function setupWriteoffDragAndDrop() {
@@ -668,4 +787,91 @@ function setupWriteoffDragAndDrop() {
     });
     // dragend с карточки не всегда попадает в контейнер — чистим глобально.
     document.addEventListener('dragend', clearHighlights);
+}
+
+// --- P3-A: прикрепление сделки к накладной (одна накладная на 2+ счёта).
+// Кандидаты — сделки того же клиента и склада в статусе «Сборка»/«На
+// списание», не состоящие ни в какой группе (правила writeoff_groups API).
+// Для группы-источника — добавление в неё; для карточки — создание группы
+// из двух, после чего на плитке группы выписывается одна общая накладная.
+function openAttachPicker(srcCard, group) {
+    const groupId = group ? group.id : null;
+    const baseClient = srcCard ? srcCard.client_id : group.client_id;
+    const baseStore = srcCard ? srcCard.store_location : group.store_location;
+    const memberIds = new Set(group ? (group.cards || []).map(c => c.id) : []);
+
+    const candidates = (_writeoffsData.cards || []).filter(c => {
+        if (srcCard && c.id === srcCard.id) return false;
+        if (memberIds.has(c.id)) return false;
+        if (c.writeoff_group_id) return false;
+        if (c.status !== 'Сборка' && c.status !== 'На списание') return false;
+        if ((c.client_id || null) !== (baseClient || null)) return false;
+        if ((c.store_location || '') !== (baseStore || '')) return false;
+        return true;
+    });
+
+    const title = srcCard
+        ? `Прикрепить сделку к «${srcCard.title || 'сделке'}»`
+        : `Прикрепить сделку к «${group.name}»`;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'wo-picker-overlay';
+    overlay.innerHTML = `
+        <div class="wo-picker" role="dialog" aria-label="${escapeHtml(title)}">
+            <div class="wo-picker-head">
+                <strong>${escapeHtml(title)}</strong>
+                <button type="button" class="wo-picker-close" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wo-picker-sub">Одна накладная закроет обе сделки. Клиент и склад должны совпадать${baseStore ? ' — склад: ' + escapeHtml(baseStore) : ''}.</div>
+            <input type="text" class="wo-picker-search" placeholder="Поиск по названию...">
+            <div class="wo-picker-list"></div>
+        </div>`;
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('.wo-picker-close').onclick = close;
+
+    const listEl = overlay.querySelector('.wo-picker-list');
+    const searchEl = overlay.querySelector('.wo-picker-search');
+
+    const renderList = (q) => {
+        const query = (q || '').trim().toLowerCase();
+        const rows = candidates.filter(c => !query || (c.title || '').toLowerCase().includes(query));
+        listEl.innerHTML = rows.length ? '' : '<div class="wo-picker-empty">Нет сделок этого клиента и склада для прикрепления</div>';
+        rows.forEach(c => {
+            const hasInv = (_writeoffsData.transactions || []).some(t =>
+                String(t.card_id) === String(c.id) && (t.invoice_number || '').trim() && !t.is_document && !t.is_warehouse_writeoff);
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'wo-picker-row';
+            row.innerHTML = `
+                <span class="wo-picker-title">${escapeHtml(c.title || 'Без названия')}${hasInv ? ' <em class="wo-picker-warn">· ТН уже выписана</em>' : ''}</span>
+                <span class="wo-picker-sum tabular-nums">${formatMoneyBYN(parseFloat(c.total_amount) || 0)}</span>`;
+            row.onclick = async () => {
+                row.disabled = true;
+                try {
+                    if (groupId) {
+                        await apiFetch(`/writeoffs/groups/${groupId}/cards/${c.id}`, { method: 'POST' });
+                    } else {
+                        await apiFetch('/writeoffs/groups/', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ card_ids: [srcCard.id, c.id] })
+                        });
+                    }
+                    close();
+                    showToast('Сделка прикреплена. Теперь выписывайте общую накладную с плитки группы.', 'success');
+                    loadWriteoffsBoard();
+                } catch (err) {
+                    row.disabled = false;
+                    showToast('Ошибка: ' + err.message, 'error');
+                }
+            };
+            listEl.appendChild(row);
+        });
+    };
+    renderList('');
+    searchEl.addEventListener('input', () => renderList(searchEl.value));
+    document.body.appendChild(overlay);
+    searchEl.focus();
 }

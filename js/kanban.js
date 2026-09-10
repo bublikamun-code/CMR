@@ -11,7 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (search) search.addEventListener('input', (e) => {
         _kanbanSearchQuery = e.target.value;
         clearTimeout(_searchDebounce);
-        _searchDebounce = setTimeout(() => loadKanbanBoard(), 200);
+        _searchDebounce = setTimeout(() => {
+            // В режиме «Список» доска скрыта: loadKanbanBoard() перерисовывал
+            // только её, и список на поиск не реагировал вовсе.
+            if (_kanbanView === 'list') renderListView();
+            else loadKanbanBoard();
+        }, 200);
     });
 });
 
@@ -20,7 +25,22 @@ let showOldCards = { "Новый запрос": false, "В работе": false,
 // на канбан-доске колонок для них нет. Такие сделки живут в своих разделах,
 // а при возврате из архива статус пересчитывается сервером.
 const KANBAN_COLUMNS = ["Новый запрос", "В работе", "Ждет оплаты", "Сборка"];
+// Фидбек 2026-09-06: сделка, ушедшая в «Списание» (и тем более «Закрыто»),
+// фактически выписана — её дата окончания больше не помечает просрочкой.
+// «Висят» только вопросы оплат, они отслеживаются отдельно (payment_due_date).
+const DEAL_DEADLINE_DONE = ['На списание', 'Закрыто'];
 const OLD_CARD_DAYS = 15;
+// Фидбек 2026-09-04: в «Сборке» и «Ждет оплаты» старые карточки не прячем
+// и не помечаем «старостью» — там каждая карточка важна (деньги и отгрузка).
+// «Новый запрос» и «В работе» работают по-старому.
+const NO_OLD_HIDING = new Set(["Сборка", "Ждет оплаты"]);
+
+function isOldCardIn(colName, card) {
+    if (NO_OLD_HIDING.has(colName)) return false;
+    const created = (card && (card.created_at || card.date)) || null;
+    if (!created) return false;
+    return Math.ceil((new Date() - new Date(created)) / (1000 * 60 * 60 * 24)) > OLD_CARD_DAYS;
+}
 
 function renderPaymentBadge(card) {
     const total = parseFloat(card.total_amount) || 0;
@@ -64,24 +84,30 @@ function initKanbanDensityToggle() {
     setKanbanDensity(_kanbanDensity);
 }
 
+// Фикс аудита 10.09: монотонный номер загрузки. Ответы приходят не по
+// порядку (опрос, drag&drop, поиск) — устаревший ответ больше не
+// перерисовывает доску старым состоянием (карточка «отпрыгивала» назад).
+let _boardLoadSeq = 0;
+
 async function loadKanbanBoard() {
     const board = document.getElementById('kanban-board');
     if (!board) return;
+    const seq = ++_boardLoadSeq;
     board.classList.add('kanban-density-' + _kanbanDensity);
 
     if (!hasToken()) return;
 
     if (!board.querySelector('.kanban-column')) {
-        board.innerHTML = `<div style="display:flex;gap:16px;">
-            ${KANBAN_COLUMNS.map(() => `<div style="flex:1;background:var(--bg-color);border-radius:var(--radius-lg);padding:12px;">
+        board.innerHTML = `<div class="kanban-skeleton-board">
+            ${KANBAN_COLUMNS.map(() => `<div class="kanban-skeleton-col">
                 <div class="skeleton-line" style="height:18px;width:60%;margin-bottom:16px;"></div>
-                ${Array(3).fill('').map(() => `<div style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:14px;margin-bottom:10px;">
+                ${Array(3).fill('').map(() => `<div class="kanban-skeleton-card">
                     <div class="skeleton-line" style="height:14px;width:70%;margin-bottom:8px;"></div>
                     <div class="skeleton-line short" style="height:12px;width:40%;margin-bottom:8px;"></div>
                     <div class="skeleton-line" style="height:10px;width:50%;margin-bottom:6px;"></div>
-                    <div style="display:flex;gap:4px;margin-top:8px;">
-                        <div class="skeleton-line" style="height:6px;flex:1;border-radius:99px;"></div>
-                        <div class="skeleton-line" style="height:6px;flex:1;border-radius:99px;"></div>
+                    <div class="kanban-skeleton-bars">
+                        <div class="skeleton-pill"></div>
+                        <div class="skeleton-pill"></div>
                     </div>
                 </div>`).join('')}
             </div>`).join('')}
@@ -90,6 +116,7 @@ async function loadKanbanBoard() {
 
     try {
         const cards = await apiFetch('/kanban/cards');
+        if (seq !== _boardLoadSeq) return; // устаревший ответ — есть более свежая загрузка
         _allCards = cards;
         if (window.CRM_STORE) {
             CRM_STORE.set('cards', cards);
@@ -127,6 +154,27 @@ async function loadKanbanBoard() {
             });
         }
 
+        // У6 (аудит 06.09): при полностью пустой доске — CTA «Создать первую
+        // сделку», как в клиентах. В колонках при этом остаётся подсказка
+        // про перетаскивание. Кнопка переиспользует модалку создания.
+        // ВАЖНО: после ветки создания колонок — та делает board.innerHTML=''
+        // и стёрла бы баннер, созданный раньше неё.
+        let emptyBanner = document.getElementById('kanban-empty-banner');
+        if (!emptyBanner) {
+            emptyBanner = document.createElement('div');
+            emptyBanner.id = 'kanban-empty-banner';
+            emptyBanner.className = 'empty-state kanban-empty-banner';
+            emptyBanner.innerHTML = `
+                <div class="empty-state-title">Сделок пока нет</div>
+                <div class="empty-state-desc">Создайте первую сделку — она появится в колонке «Новый запрос».</div>
+                <button type="button" id="kanban-empty-create" class="btn btn-primary">+ Создать первую сделку</button>`;
+            board.insertBefore(emptyBanner, board.firstChild);
+        }
+        emptyBanner.classList.toggle('hidden', cards.length > 0);
+        emptyBanner.querySelector('#kanban-empty-create').onclick = () => {
+            document.getElementById('btn-create-card')?.click();
+        };
+
         KANBAN_COLUMNS.forEach(colName => {
             const col = board.querySelector(`.kanban-column[data-status="${colName}"]`);
             if (!col) return;
@@ -141,10 +189,15 @@ async function loadKanbanBoard() {
             // перетаскивания: после перерисовки карточка возвращалась в
             // сортированную позицию, а не на место броска.
 
+            // «Старые» (старше 15 дней) прячем только когда поиск пуст и их
+            // не запросили кнопкой «Показать старые». Раньше флаг кнопки
+            // вообще не читался — клик менял подпись, карточки не появлялись,
+            // а активный поиск не находил старые сделки (кейс «СУ-3 Белстрой»:
+            // в «Списке» видна, поиском на доске не находится).
+            const showOld = !!showOldCards[colName];
+            const searchActive = !!(_kanbanSearchQuery || '').trim();
             const visibleCards = colCards.filter(c => {
-                const diffDays = Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24));
-                const isOld = diffDays > OLD_CARD_DAYS;
-                if (isOld && !showOldCards[colName]) return false;
+                if (isOldCardIn(colName, c) && !showOld && !searchActive) return false;
 
                 // Фильтрация по поиску
                 const q = (_kanbanSearchQuery || '').trim().toLowerCase();
@@ -166,8 +219,8 @@ async function loadKanbanBoard() {
                 // Расширенные фильтры
                 const f = _kanbanFilters;
                 if (f.store && c.store_location !== f.store) return false;
-                if (f.amountMin && (parseFloat(c.total_amount) || 0) < parseFloat(f.amountMin)) return false;
-                if (f.amountMax && (parseFloat(c.total_amount) || 0) > parseFloat(f.amountMax)) return false;
+                if (f.amountMin && (parseFloat(c.total_amount) || 0) < (parseMoney(f.amountMin) ?? 0)) return false;
+                if (f.amountMax && (parseFloat(c.total_amount) || 0) > (parseMoney(f.amountMax) ?? Infinity)) return false;
                 if (f.client && !(c.client?.name || '').toLowerCase().includes(f.client.toLowerCase())) return false;
                 if (f.priority && String(c.priority || 0) !== f.priority) return false;
 
@@ -212,8 +265,8 @@ async function loadKanbanBoard() {
 
             const ICON_CHEVRON = '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
             const oldBtn = col.querySelector('.btn-show-old');
-            const hasOld = colCards.some(c => Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24)) > OLD_CARD_DAYS);
-            const oldCount = colCards.filter(c => Math.ceil((new Date() - new Date(c.created_at)) / (1000 * 60 * 60 * 24)) > OLD_CARD_DAYS).length;
+            const hasOld = colCards.some(c => isOldCardIn(colName, c));
+            const oldCount = colCards.filter(c => isOldCardIn(colName, c)).length;
             if (hasOld) {
                 const label = showOldCards[colName] ? 'Скрыть старые' : `${oldCount} старых`;
                 if (!oldBtn) {
@@ -236,7 +289,7 @@ async function loadKanbanBoard() {
         // Сводка по просроченным карточкам
         const now = new Date();
         const overdueCards = cards.filter(c =>
-            c.due_date && new Date(c.due_date + 'T00:00:00') < now && c.status !== 'Закрыто'
+            c.due_date && new Date(c.due_date + 'T00:00:00') < now && !DEAL_DEADLINE_DONE.includes(c.status)
         );
         let overdueBar = board.querySelector('.overdue-summary-bar');
         if (overdueCards.length > 0) {
@@ -257,6 +310,21 @@ async function loadKanbanBoard() {
         // подхватывал, и доска оставалась невидимой/некликабельной
         // (проявлялось при пересоздании колонок: Доска/Список, смена раздела).
         if (typeof window.revealRefresh === 'function') window.revealRefresh();
+        // Подсветка «ниже есть ещё» для колонок без скроллбара (фидбек
+        // 2026-09-04: полосы прокрутки убраны везде, листаем колесом)
+        if (typeof window.updateScrollHints === 'function') window.updateScrollHints();
+        // Ширина карточки канбана — в CSS-переменную: доска списания
+        // подгоняет свои плитки под неё (фидбек: «единый размер карточек»).
+        // Канбан-колонки резиновые (flex 260–400px), поэтому пиксели
+        // меняются от окна — списание читает их отсюда, а не угадывает.
+        // Гвардия: если канбан-доска сейчас скрыта (сессия открылась в
+        // другом разделе), карточка имеет нулевую ширину — не трогаем
+        // переменную, работает предыдущее значение/фолбэк 255px.
+        const kbCard = document.querySelector('.kanban-column .kanban-card');
+        const kbW = kbCard ? kbCard.getBoundingClientRect().width : 0;
+        if (kbW >= 100) {
+            document.documentElement.style.setProperty('--kanban-card-w', Math.round(kbW) + 'px');
+        }
     } catch (error) {
         console.error("Ошибка загрузки карточек:", error);
         if (board) {
@@ -274,9 +342,10 @@ async function loadKanbanBoard() {
 function renderCard(card, columnContainer) {
     if (!columnContainer) return;
 
-    const diffDays = Math.ceil((new Date() - new Date(card.created_at)) / (1000 * 60 * 60 * 24));
-    const isOld = diffDays > OLD_CARD_DAYS;
-    if (isOld && !showOldCards[card.status]) return;
+    // Старую карточку здесь НЕ отбрасываем: состав видимых карточек уже
+    // отфильтрован в loadKanbanBoard (с учётом «Показать старые» и поиска),
+    // а ранний return делал кнопку «Показать старые» бесполезной.
+    const isOld = isOldCardIn(card.status, card);
 
     const cardEl = document.createElement('div');
     cardEl.className = 'kanban-card' + (isOld ? ' old-card' : '');
@@ -300,11 +369,13 @@ function fillCardHTML(cardEl, card) {
     const diffDays = Math.ceil((new Date() - new Date(card.created_at)) / (1000 * 60 * 60 * 24));
     const isOld = diffDays > OLD_CARD_DAYS;
 
-    // Deal Rotting: warning if >3 days in active columns
+    // Deal Rotting: warning if >3 days in active columns.
+    // Оплаченная сделка не «гниёт»: статус оплаты старше напоминания о простое.
+    const isPaidEarly = card.payment_status === 'Оплачен';
     const updatedDiff = card.updated_at ? Math.ceil((new Date() - new Date(card.updated_at)) / (1000 * 60 * 60 * 24)) : 0;
     const isActiveColumn = ['В работе', 'Сборка'].includes(card.status);
-    const isRotting = isActiveColumn && updatedDiff > 3;
-    const isRottingDanger = isActiveColumn && updatedDiff > 7;
+    const isRotting = isActiveColumn && !isPaidEarly && updatedDiff > 3;
+    const isRottingDanger = isActiveColumn && !isPaidEarly && updatedDiff > 7;
     cardEl.classList.remove('deal-rotting', 'deal-rotting-danger');
     if (isRottingDanger) cardEl.classList.add('deal-rotting-danger');
     else if (isRotting) cardEl.classList.add('deal-rotting');
@@ -323,12 +394,16 @@ function fillCardHTML(cardEl, card) {
 
     const now = new Date();
     const dueDate = card.due_date ? new Date(card.due_date + 'T00:00:00') : null;
-    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто';
-    const isDueSoon = dueDate && !isOverdue && (dueDate - now) < (3 * 24 * 60 * 60 * 1000);
+    // Фидбек 2026-09-05: оплаченная сделка — не просрочка. Красная полоса
+    // фасада сбрасывается сразу после «Оплачен», карточка получает зелёную.
+    const isPaid = card.payment_status === 'Оплачен';
+    const isOverdue = dueDate && dueDate < now && !DEAL_DEADLINE_DONE.includes(card.status) && !isPaid;
+    const isDueSoon = dueDate && !isOverdue && !isPaid && !DEAL_DEADLINE_DONE.includes(card.status) && (dueDate - now) < (3 * 24 * 60 * 60 * 1000);
 
-    cardEl.classList.remove('card-overdue', 'card-due-soon');
+    cardEl.classList.remove('card-overdue', 'card-due-soon', 'card-paid');
     if (isOverdue) cardEl.classList.add('card-overdue');
     else if (isDueSoon) cardEl.classList.add('card-due-soon');
+    if (isPaid) cardEl.classList.add('card-paid');
 
     const tagsHtml = (card.tags && card.tags.length > 0)
         ? `<div class="card-tags">${card.tags.map(t => {
@@ -358,6 +433,9 @@ function fillCardHTML(cardEl, card) {
             <button class="card-hover-btn btn-edit-card" title="Редактировать" data-card-id="${card.id}">${ICON_PENCIL}</button>
             <button class="card-hover-btn btn-delete-card" title="Удалить">${ICON_CROSS}</button>
         </div>
+        <div class="card-move-actions" data-card-menu>
+            ${KANBAN_COLUMNS.filter(s => s !== card.status).map(s => `<button type="button" class="card-move-btn" data-target-status="${s}" aria-label="Перенести в «${s}»" title="Перенести в «${s}»">${s}</button>`).join('')}
+        </div>
         <button class="card-menu-trigger" title="Действия с карточкой" aria-label="Действия с карточкой" aria-haspopup="menu">${ICON_ELLIPSIS}</button>
         <div class="card-main">
             <div class="card-title" title="${escapeHtml(card.title)}">${escapeHtml(card.title)}</div>
@@ -383,6 +461,8 @@ function fillCardHTML(cardEl, card) {
             const actions = cardEl.querySelector('.card-hover-actions');
             if (actions) {
                 const isOpen = actions.classList.toggle('popover-open');
+                // Панель переноса открывается тем же ⋯-меню на тачах
+                cardEl.querySelector('.card-move-actions')?.classList.toggle('popover-open', isOpen);
                 menuTrigger.setAttribute('aria-expanded', isOpen);
             }
         };
@@ -407,6 +487,15 @@ function fillCardHTML(cardEl, card) {
         e.stopPropagation();
         openCardModal(card.id);
     };
+
+    // У3 (аудит 06.09): перенос между колонками кнопкой панели внизу
+    // карточки — клавиатурная и тач-альтернатива drag&drop.
+    cardEl.querySelectorAll('.card-move-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            moveCardToStatus(card.id, btn.dataset.targetStatus);
+        };
+    });
 }
 
 // Закрытие popover при клике вне карточки (чтобы не оставался открытым)
@@ -432,7 +521,10 @@ window.refreshCardOnBoard = async function(cardId) {
         const card = cards.find(c => c.id === cardId);
         if (!card) return;
 
-        const cardEl = document.querySelector(`div[data-id="${cardId}"]`);
+        // Фикс аудита 10.09: селектор без скоупа цеплял плитки доски
+        // списаний (те тоже div[data-id], но с id транзакции) и затирал
+        // их разметку карточкой канбана.
+        const cardEl = document.querySelector(`#kanban-board div[data-id="${cardId}"]`);
         if (cardEl) {
             fillCardHTML(cardEl, card);
         }
@@ -440,6 +532,45 @@ window.refreshCardOnBoard = async function(cardId) {
         console.error("Ошибка обновления карточки на доске:", e);
     }
 };
+
+// У3 (аудит 06.09): перенос карточки без перетаскивания. Бизнес-правила те
+// же, что у drag&drop: без суммы сделки дальше «Нового запроса» нельзя;
+// уход из «Сборки» назад (не на списание/закрытие) убирает запись из реестра.
+async function moveCardToStatus(cardId, newStatus) {
+    if (_isDropping) return;
+    _isDropping = true;
+    try {
+        const moved = (_allCards || []).find(c => c.id === cardId);
+        if (!moved || moved.status === newStatus) return;
+        if (newStatus !== 'Новый запрос' && (parseFloat(moved.total_amount) || 0) <= 0) {
+            showToast('Укажите сумму сделки — откройте карточку и заполните', 'error');
+            return;
+        }
+        await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
+
+        const FORWARD = ['На списание', 'Закрыто'];
+        if (moved.status === 'Сборка' && !FORWARD.includes(newStatus)) {
+            try {
+                const transactions = await apiFetch('/payments/transactions?grouped=false');
+                const tx = transactions.find(t => t.card_id == cardId && !t.is_document);
+                if (tx) {
+                    await apiFetch(`/payments/transactions/${tx.id}`, { method: 'DELETE' });
+                    showToast('Транзакция удалена из реестра', 'info');
+                }
+            } catch (txErr) { console.error('Ошибка удаления транзакции:', txErr); }
+        }
+
+        showToast(`Карточка перенесена в «${newStatus}»`, 'success');
+        if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+        loadKanbanBoard();
+        if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+        if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+    } catch (err) {
+        showToast('Не удалось перенести карточку: ' + err.message, 'error');
+    } finally {
+        _isDropping = false;
+    }
+}
 
 async function handleDrop(e) {
     e.preventDefault();
@@ -502,9 +633,19 @@ async function handleDrop(e) {
             await apiFetch(`/kanban/cards/${cardId}/status`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ status: newStatus }) });
         }
 
-        // Сохранение позиции внутри колонки
-        const allCardsInColumn = Array.from(targetContainer.querySelectorAll('.kanban-card'));
-        const cardIds = allCardsInColumn.map(c => parseInt(c.dataset.id));
+        // Сохранение позиции внутри колонки.
+        // Фикс аудита 10.09: в колонке видны не все карточки (поиск, фильтр,
+        // скрытые «старые»). Раньше в reorder уходили только видимые — сервер
+        // перенумеровывал их с нуля, и после сброса фильтра скрытые карточки
+        // застревали на старых позициях между новыми. Отправляем ПОЛНЫЙ
+        // состав колонки: видимые в порядке DOM, затем скрытые в их порядке.
+        const visibleIds = Array.from(targetContainer.querySelectorAll('.kanban-card'))
+            .map(c => parseInt(c.dataset.id));
+        const hiddenIds = (_allCards || [])
+            .filter(c => c.status === newStatus && !visibleIds.includes(c.id))
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+            .map(c => c.id);
+        const cardIds = [...visibleIds, ...hiddenIds];
         await apiFetch('/kanban/cards/reorder', {
             method: 'PATCH',
             headers: {'Content-Type': 'application/json'},
@@ -597,7 +738,10 @@ async function setupCreateCardButton() {
     try {
         const users = await apiFetch('/auth/users');
         managerOptions = users.map(u => ({ value: String(u.id), label: u.username }));
-        if (!managerVal && managerOptions.length > 0) managerVal = managerOptions[0].value;
+        // Фикс аудита 10.09: если /auth/me не ответил, currentUserId пуст и
+        // «Ответственный» раньше молча вставал на первого пользователя
+        // списка — сделки создавались от чужого имени. Теперь никого не
+        // выбираем: дропдаун покажет «— выбрать —», менеджер укажет сам.
     } catch (e) {
         console.error('Не удалось загрузить пользователей:', e);
         if (currentUserId) managerOptions = [{ value: currentUserId, label: 'Я' }];
@@ -674,7 +818,14 @@ async function setupCreateCardButton() {
             return;
         }
 
-        const amountVal = amountInput ? parseFloat(amountInput.value) : 0.0;
+        // Фикс аудита 10.09: сумма теперь приходит из текстового поля с
+        // запятой — парсим общим parseMoney (умеет «1 250,50» и «1250.50»).
+        const amountVal = amountInput ? parseMoney(amountInput.value) : 0.0;
+        if (amountInput && amountInput.value.trim() !== '' && amountVal === null) {
+            showToast('Сумма должна быть числом, например 1250,50', 'error');
+            amountInput.focus();
+            return;
+        }
 
         try {
             confirmBtn.innerText = "Создание...";
@@ -687,7 +838,7 @@ async function setupCreateCardButton() {
                     title: title,
                     status: "Новый запрос",
                     store_location: storeVal || null,
-                    total_amount: isNaN(amountVal) ? 0.0 : amountVal,
+                    total_amount: amountVal || 0.0,
                     priority: parseInt(priorityVal) || 0,
                     client_id: clientVal ? parseInt(clientVal) : null,
                     owner_id: managerVal ? parseInt(managerVal) : null
@@ -840,13 +991,18 @@ async function loadTrash() {
 }
 
 // === ФИЛЬТРЫ ===
+function refreshKanbanView() {
+    if (_kanbanView === 'list') renderListView();
+    else loadKanbanBoard();
+}
+
 function applyKanbanFilters() {
     _kanbanFilters.store = document.getElementById('filter-store')?.value || '';
     _kanbanFilters.amountMin = document.getElementById('filter-amount-min')?.value || '';
     _kanbanFilters.amountMax = document.getElementById('filter-amount-max')?.value || '';
     _kanbanFilters.client = document.getElementById('filter-client')?.value || '';
     _kanbanFilters.priority = document.getElementById('filter-priority')?.value || '';
-    loadKanbanBoard();
+    refreshKanbanView();
 }
 
 function resetKanbanFilters() {
@@ -860,7 +1016,7 @@ function resetKanbanFilters() {
         syncEnhancedSelect('filter-store');
         syncEnhancedSelect('filter-priority');
     }
-    loadKanbanBoard();
+    refreshKanbanView();
 }
 
 // === LIST VIEW ===
@@ -913,8 +1069,8 @@ function renderListView() {
             if (!title.includes(q) && !tags.includes(q) && !manager.includes(q) && !client.includes(q)) return false;
         }
         if (f.store && c.store_location !== f.store) return false;
-        if (f.amountMin && (parseFloat(c.total_amount) || 0) < parseFloat(f.amountMin)) return false;
-        if (f.amountMax && (parseFloat(c.total_amount) || 0) > parseFloat(f.amountMax)) return false;
+        if (f.amountMin && (parseFloat(c.total_amount) || 0) < (parseMoney(f.amountMin) ?? 0)) return false;
+        if (f.amountMax && (parseFloat(c.total_amount) || 0) > (parseMoney(f.amountMax) ?? Infinity)) return false;
         if (f.client && !(c.client?.name || '').toLowerCase().includes(f.client.toLowerCase())) return false;
         if (f.priority && String(c.priority || 0) !== f.priority) return false;
         return true;
@@ -939,7 +1095,7 @@ function renderListView() {
 
     pageCards.forEach(c => {
         const dueDate = c.due_date ? new Date(c.due_date + 'T00:00:00').toLocaleDateString('ru-RU') : null;
-        const isOverdue = c.due_date && new Date(c.due_date + 'T00:00:00') < now && c.status !== 'Закрыто';
+        const isOverdue = c.due_date && new Date(c.due_date + 'T00:00:00') < now && !DEAL_DEADLINE_DONE.includes(c.status);
         const tr = document.createElement('tr');
         tr.className = 'kanban-list-row';
         tr.onclick = () => openCardModal(c.id);
@@ -1057,8 +1213,10 @@ function renderListView() {
             }
             return frag;
         };
-        const controls = buildControls();
-        paginators.forEach(el => el.appendChild(controls.cloneNode(true)));
+        // Фикс аудита 10.09: controls.cloneNode(true) не копирует обработчики
+        // onclick — обе панели пагинации были мёртвыми (кнопки страниц не
+        // нажимались). Строим контролы отдельно для каждого контейнера.
+        paginators.forEach(el => el.appendChild(buildControls()));
     }
 }
 

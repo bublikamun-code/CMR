@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
 from auth import get_current_user, require_role
@@ -7,7 +7,7 @@ import schemas
 import os
 from database import get_db, get_tenant_db
 from versioning import save_version
-from db_utils import resolve_tenant_db as _db
+from db_utils import resolve_tenant_db as _db, cap_list
 
 router = APIRouter(
     prefix="/kanban",
@@ -16,20 +16,23 @@ router = APIRouter(
 )
 
 @router.get("/cards", response_model=list[schemas.CardResponse])
-def get_cards(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_cards(response: Response, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         if tdb is db:
             query = db.query(models.Card).filter(models.Card.is_deleted == False)
         else:
             query = tdb.query(models.Card).filter(models.Card.is_deleted == False)
-        return query.options(
+        cards = query.options(
             selectinload(models.Card.attachments),
             selectinload(models.Card.checklists).selectinload(models.CardChecklist.supplier),
             selectinload(models.Card.owner),
             selectinload(models.Card.client),
             selectinload(models.Card.tags),
         ).order_by(models.Card.position, models.Card.id.desc()).all()
+        # Н11 (аудит 06.09): предохранитель от аномального роста таблицы —
+        # канбану нужны все карточки сразу, так что это пробка, не пагинация.
+        return cap_list(cards, response)
     finally:
         if tdb is not db:
             tdb.close()
@@ -62,7 +65,7 @@ def get_card(card_id: int, db: Session = Depends(get_db), current_user: models.U
             tdb.close()
 
 @router.get("/trash", response_model=list[schemas.CardResponse])
-def get_trash(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_trash(response: Response, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         if tdb is db:
@@ -81,7 +84,8 @@ def get_trash(db: Session = Depends(get_db), current_user: models.User = Depends
                 selectinload(models.Card.client),
                 selectinload(models.Card.tags),
             ).order_by(models.Card.position, models.Card.id.desc()).all()
-        return cards
+        # Н11: предохранитель, как в /cards
+        return cap_list(cards, response)
     finally:
         if tdb is not db:
             tdb.close()
@@ -103,7 +107,8 @@ def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current
             user_id=current_user.id,
             card_id=new_card.id,
             action="Создание карточки",
-            details=f"Создана карточка: {new_card.title}"
+            details=f"Создана карточка: {new_card.title}",
+            tenant_id=current_user.tenant_id,
         )
         tdb.add(log)
         tdb.commit()
@@ -160,6 +165,13 @@ def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db
                 tenant_id=current_user.tenant_id,
             ))
         card.status = status_update.status
+        # Сделка в «Сборке» обязана быть в реестре оплат. Запись раньше
+        # создавала только кнопка «В Сборку» в карточке; перетаскивание и
+        # кнопки переноса оставляли сделку без записи — она пропадала из
+        # «Реестра оплат» (кейс «ТрансЛИДИЯсервис», фидбек 09.09).
+        if status_update.status == "Сборка":
+            from routers.payments_router import ensure_registry_remainder
+            ensure_registry_remainder(tdb, card)
         tdb.commit()
         tdb.refresh(card)
         save_version(tdb, "cards", card.id,
@@ -167,7 +179,11 @@ def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db
             user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
         try:
             from routers.webhooks_router import notify_webhooks_async
-            notify_webhooks_async(current_user.tenant_id or 0, "card.updated",
+            # Фикс аудита 10.09: `or 0` подменял None (главная база) на 0,
+            # под который вебхуки не создаются никогда, — «card.updated» с
+            # доски не уходил ни одному подписчику. Остальные роутеры
+            # передают tenant_id как есть.
+            notify_webhooks_async(current_user.tenant_id, "card.updated",
                 {"id": card.id, "title": card.title, "status": card.status})
         except Exception: pass
         return card
@@ -210,7 +226,7 @@ def delete_card(card_id: int, db: Session = Depends(get_db), current_user: model
         if tdb is not db:
             tdb.close()
 
-@router.delete("/cards/{card_id}/permanent")
+@router.delete("/cards/{card_id}/permanent", dependencies=[Depends(require_role("admin", "superadmin"))])
 def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:

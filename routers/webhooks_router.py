@@ -230,39 +230,58 @@ def test_webhook(wh_id: int, current_user=Depends(get_current_user)):
 async def notify_webhooks(tenant_id, event, data):
     """Отправляет webhook всем активным подписчикам для данного tenant."""
     try:
+        # Фикс аудита 10.09: вебхуки тенанта живут в его tenant-базе, а поиск
+        # шёл только по основной — подписчики-тенанты молча не получали
+        # ничего. Теперь ищем в обеих базах (в основной — NULL-подписчики).
         db = SessionLocal()
+        hooks = []
         try:
-            hooks = db.query(models.Webhook).filter(
-                models.Webhook.tenant_id == tenant_id,
-                models.Webhook.is_active == True
-            ).all()
-
-            for h in hooks:
-                events = json.loads(h.events) if h.events else []
-                if event not in events:
-                    continue
-
-                payload = {
-                    "event": event,
-                    "data": data,
-                    "timestamp": datetime.now().isoformat()
-                }
-
-                headers = {"Content-Type": "application/json"}
-                if h.secret:
-                    sig = hmac.new(h.secret.encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
-                    headers["X-Webhook-Signature"] = sig
-
-                try:
-                    _assert_public_host(h.url)
-                    ctx = ssl.create_default_context()
-                    data = json.dumps(payload).encode()
-                    req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
-                    _open_webhook(req)
-                except Exception as e:
-                    logger.warning("Webhook %s delivery failed: %s", h.url, e)
+            q = db.query(models.Webhook).filter(models.Webhook.is_active == True)
+            if tenant_id is None:
+                q = q.filter(models.Webhook.tenant_id == None)
+            else:
+                q = q.filter(models.Webhook.tenant_id == tenant_id)
+            hooks.extend(q.all())
         finally:
             db.close()
+        if tenant_id is not None:
+            try:
+                from database import get_tenant_db
+                tdb = get_tenant_db(tenant_id)
+                try:
+                    hooks.extend(tdb.query(models.Webhook).filter(
+                        models.Webhook.tenant_id == tenant_id,
+                        models.Webhook.is_active == True
+                    ).all())
+                finally:
+                    tdb.close()
+            except Exception:
+                logger.warning("Tenant webhook lookup failed for tenant %s", tenant_id, exc_info=True)
+
+        for h in hooks:
+            events = json.loads(h.events) if h.events else []
+            if event not in events:
+                continue
+
+            payload = {
+                "event": event,
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            }
+
+            headers = {"Content-Type": "application/json"}
+            if h.secret:
+                sig = hmac.new(h.secret.encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
+                headers["X-Webhook-Signature"] = sig
+
+            try:
+                _assert_public_host(h.url)
+                ctx = ssl.create_default_context()
+                payload_bytes = json.dumps(payload).encode()
+                req = urllib.request.Request(h.url, data=payload_bytes, headers=headers, method='POST')
+                _open_webhook(req)
+            except Exception as e:
+                logger.warning("Webhook %s delivery failed: %s", h.url, e)
     except Exception:
         logger.warning("Webhook dispatch failed for event %s", event, exc_info=True)
 
