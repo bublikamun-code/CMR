@@ -1,0 +1,387 @@
+/* ============================================================
+   LIQUID GLASS — опциональный режим оформления (2026-09-05)
+   ============================================================
+   Включается атрибутом data-glass="on" на <html>. По умолчанию
+   ВЫКЛЮЧЕН — пользователь сам решает, включать ли (localStorage
+   crm_glass = 'on'). Тумблер в Настройках → Профиль.
+
+   Работает ПОВЕРХ обеих тем — не заменяет их.
+
+   Принципы:
+   - Стекло на «хроме»: сайдбар, модалки, тосты, дропдауны.
+     Карточки канбана — полупрозрачные, без backdrop-filter
+     (иначе скролл доски просядет).
+   - Mesh-фон на body — подложка для преломления.
+   - backdrop-filter на 2-3 крупных поверхностях максимум.
+   - Фолбэки для браузеров без backdrop-filter и
+     prefers-reduced-transparency.
+   ============================================================ */
+
+/* === 0. Статусные переменные (отсутствовали в style.css) === */
+:root {
+    --status-success: #059669;
+    --status-danger:  #dc2626;
+    --status-warning: #d97706;
+}
+[data-theme="dark"] {
+    --status-success: #34d399;
+    --status-danger:  #f87171;
+    --status-warning: #fbbf24;
+}
+
+/* === 1. Тумблер === */
+.glass-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    color: var(--text-color);
+}
+.glass-switch input {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 44px;
+    height: 24px;
+    margin: 0;
+    flex: 0 0 44px;
+    border-radius: 999px;
+    background: var(--switch-track, #ccd3de);
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    position: relative;
+    cursor: pointer;
+    transition: background 200ms ease;
+}
+[data-theme="dark"] .glass-switch input {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.24);
+}
+.glass-switch input::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 200ms ease;
+}
+.glass-switch input:checked {
+    background: var(--primary-color);
+    border-color: transparent;
+}
+.glass-switch input:checked::before {
+    transform: translateX(20px);
+}
+.glass-switch input:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* === 2. Mesh-фон === */
+html[data-glass="on"] body {
+    background:
+        radial-gradient(1100px 750px at 7% -8%,  rgba(99, 102, 241, 0.18), transparent 60%),
+        radial-gradient(950px 650px at 102% 2%,  rgba(14, 165, 233, 0.14), transparent 55%),
+        radial-gradient(900px 850px at 48% 118%, rgba(236, 72, 153, 0.09), transparent 60%),
+        radial-gradient(720px 520px at 88% 82%,  rgba(20, 184, 166, 0.11), transparent 55%),
+        linear-gradient(180deg, #f4f6fd, #ecf1f8);
+    /* Без background-attachment: fixed — ломает скролл на iOS */
+}
+html[data-theme="dark"][data-glass="on"] body {
+    background:
+        radial-gradient(1100px 750px at 7% -8%,  rgba(99, 102, 241, 0.08), transparent 60%),
+        radial-gradient(950px 650px at 102% 2%,  rgba(56, 189, 248, 0.04), transparent 55%),
+        radial-gradient(900px 850px at 48% 118%, rgba(168, 85, 247, 0.04), transparent 60%),
+        radial-gradient(720px 520px at 88% 82%,  rgba(45, 212, 191, 0.03), transparent 55%),
+        linear-gradient(180deg, #12151c, #0e1117);
+}
+
+/* === 3. Сайдбар === */
+html[data-glass="on"] .sidebar {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.82)) !important;
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border-right: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 4px 0 20px rgba(2, 6, 23, 0.22);
+}
+html[data-theme="dark"][data-glass="on"] .sidebar {
+    background: linear-gradient(180deg, rgba(11, 14, 20, 0.84), rgba(8, 10, 15, 0.78)) !important;
+    backdrop-filter: blur(16px) saturate(110%);
+    -webkit-backdrop-filter: blur(16px) saturate(110%);
+    border-right-color: rgba(129, 140, 248, 0.08);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.45);
+}
+
+/* Активный пункт */
+html[data-glass="on"] .nav-btn.active {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.80), rgba(139, 92, 246, 0.70)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.30), 0 2px 10px rgba(79, 70, 229, 0.30);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+html[data-theme="dark"][data-glass="on"] .nav-btn.active {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.50), rgba(109, 84, 218, 0.40)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 2px 8px rgba(0, 0, 0, 0.30);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Ховер — минималистичный, один слой */
+html[data-glass="on"] .nav-btn:not(.active):hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20);
+    color: #fff !important;
+}
+html[data-glass="on"] .nav-btn:not(.active):hover .nav-icon {
+    opacity: 1;
+}
+
+html[data-glass="on"] .sidebar-header {
+    border-bottom-color: rgba(255, 255, 255, 0.10);
+}
+
+/* === 4. Канбан === */
+html[data-glass="on"] .kanban-column {
+    background-color: rgba(255, 255, 255, 0.50) !important;
+    border-color: rgba(255, 255, 255, 0.50) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+html[data-theme="dark"][data-glass="on"] .kanban-column {
+    background-color: rgba(28, 33, 46, 0.55) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 16px rgba(0, 0, 0, 0.30);
+}
+
+/* Карточки — заметная прозрачность, чтобы стекло было видно */
+html[data-glass="on"] .kanban-card {
+    background-color: rgba(255, 255, 255, 0.78) !important;
+    border-color: rgba(255, 255, 255, 0.70) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 1px 6px rgba(15, 23, 42, 0.06) !important;
+}
+html[data-theme="dark"][data-glass="on"] .kanban-card {
+    background-color: rgba(43, 49, 66, 0.75) !important;
+    border-color: rgba(255, 255, 255, 0.10) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 6px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Статусы — цвет полосы, фон нейтральный */
+html[data-glass="on"] .kanban-card.card-assembly { border-left-color: var(--status-success) !important; }
+html[data-glass="on"] .kanban-card.card-paid     { border-left-color: var(--status-success) !important; }
+html[data-glass="on"] .kanban-card.card-overdue  { border-left-color: var(--status-danger) !important; }
+html[data-glass="on"] .kanban-card.card-due-soon { border-left-color: var(--status-warning) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-assembly { border-left-color: var(--status-success) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-paid     { border-left-color: var(--status-success) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-overdue  { border-left-color: var(--status-danger) !important; }
+html[data-theme="dark"][data-glass="on"] .kanban-card.card-due-soon { border-left-color: var(--status-warning) !important; }
+
+/* === 5. Модалки — один blur на .modal-content, overlay без blur === */
+html[data-glass="on"] .modal-overlay {
+    background-color: rgba(15, 23, 42, 0.30) !important;
+    /* Без backdrop-filter — достаточно blur на самой модалке */
+}
+html[data-theme="dark"][data-glass="on"] .modal-overlay {
+    background-color: rgba(2, 6, 23, 0.50) !important;
+}
+
+html[data-glass="on"] .modal-content,
+html[data-glass="on"] .modal-content-wide,
+html[data-glass="on"] .modal-content-split {
+    background-color: rgba(255, 255, 255, 0.90) !important;
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.60) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.80),
+                0 16px 48px rgba(2, 6, 23, 0.20);
+}
+html[data-theme="dark"][data-glass="on"] .modal-content,
+html[data-theme="dark"][data-glass="on"] .modal-content-wide,
+html[data-theme="dark"][data-glass="on"] .modal-content-split {
+    background-color: rgba(24, 28, 38, 0.90) !important;
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    border-color: rgba(255, 255, 255, 0.07) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05),
+                0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+/* Сплит-панели прозрачные */
+html[data-glass="on"] .modal-split-left,
+html[data-glass="on"] .modal-split-right {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+html[data-glass="on"] .modal-split-left {
+    border-right: 1px solid rgba(15, 23, 42, 0.08) !important;
+}
+html[data-glass="on"] .modal-split-header {
+    background: transparent !important;
+    border-bottom-color: rgba(15, 23, 42, 0.06) !important;
+}
+html[data-glass="on"] .modal-split-left .modal-actions {
+    background: transparent !important;
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-left,
+html[data-theme="dark"][data-glass="on"] .modal-split-right {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-left {
+    border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-header {
+    background: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+html[data-theme="dark"][data-glass="on"] .modal-split-left .modal-actions {
+    background: transparent !important;
+}
+
+/* === 6. Тосты, дропдауны, панель уведомлений === */
+html[data-glass="on"] .toast {
+    background-color: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    border-color: rgba(255, 255, 255, 0.60) !important;
+    box-shadow: 0 8px 24px rgba(2, 6, 23, 0.14);
+}
+html[data-theme="dark"][data-glass="on"] .toast {
+    background-color: rgba(30, 35, 48, 0.88) !important;
+    backdrop-filter: blur(14px) saturate(110%);
+    -webkit-backdrop-filter: blur(14px) saturate(110%);
+    border-color: rgba(255, 255, 255, 0.08) !important;
+}
+html[data-theme="dark"][data-glass="on"] .toast-success,
+html[data-theme="dark"][data-glass="on"] .toast-error,
+html[data-theme="dark"][data-glass="on"] .toast-info {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+html[data-glass="on"] .dropdown-menu,
+html[data-glass="on"] .notif-panel {
+    background-color: rgba(255, 255, 255, 0.88) !important;
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border-color: rgba(255, 255, 255, 0.60) !important;
+    box-shadow: 0 12px 36px rgba(2, 6, 23, 0.16);
+}
+html[data-theme="dark"][data-glass="on"] .dropdown-menu,
+html[data-theme="dark"][data-glass="on"] .notif-panel {
+    background-color: rgba(28, 33, 46, 0.90) !important;
+    backdrop-filter: blur(16px) saturate(110%);
+    -webkit-backdrop-filter: blur(16px) saturate(110%);
+    border-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* === 7. Поля ввода (без blur — их сотни) === */
+html[data-glass="on"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-glass="on"] select,
+html[data-glass="on"] textarea {
+    background-color: rgba(255, 255, 255, 0.55) !important;
+}
+html[data-theme="dark"][data-glass="on"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"][data-glass="on"] select,
+html[data-theme="dark"][data-glass="on"] textarea {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* === 8. Дашборд, секции, логин === */
+html[data-glass="on"] .dash-stat,
+html[data-glass="on"] .stat-card,
+html[data-glass="on"] .section-card,
+html[data-glass="on"] .login-card {
+    background-color: rgba(255, 255, 255, 0.72) !important;
+    border-color: rgba(255, 255, 255, 0.55) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.60), var(--shadow-sm);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+html[data-theme="dark"][data-glass="on"] .dash-stat,
+html[data-theme="dark"][data-glass="on"] .stat-card,
+html[data-theme="dark"][data-glass="on"] .section-card,
+html[data-theme="dark"][data-glass="on"] .login-card {
+    background-color: rgba(30, 35, 48, 0.72) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--shadow-sm);
+}
+
+/* === 9. Блик на кнопках (без blur) === */
+html[data-glass="on"] .btn,
+html[data-glass="on"] .settings-tab,
+html[data-glass="on"] .view-toggle-btn {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+html[data-glass="on"] .btn-primary {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 2px 8px rgba(79, 70, 229, 0.25);
+}
+
+/* ============================================================
+   ФОЛБЭКИ
+   ============================================================ */
+
+/* Браузер без backdrop-filter: плотные поверхности */
+@supports not ((backdrop-filter: blur(4px)) or (-webkit-backdrop-filter: blur(4px))) {
+    html[data-glass="on"] .sidebar {
+        background: linear-gradient(180deg, #0f172a, #020617) !important;
+    }
+    html[data-glass="on"] .modal-overlay { background-color: rgba(15, 23, 42, 0.60) !important; }
+    html[data-glass="on"] .modal-content,
+    html[data-glass="on"] .modal-content-wide,
+    html[data-glass="on"] .modal-content-split,
+    html[data-glass="on"] .toast,
+    html[data-glass="on"] .dropdown-menu,
+    html[data-glass="on"] .notif-panel,
+    html[data-glass="on"] .dash-stat,
+    html[data-glass="on"] .stat-card,
+    html[data-glass="on"] .section-card,
+    html[data-glass="on"] .login-card {
+        background-color: #ffffff !important;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    html[data-theme="dark"][data-glass="on"] .modal-content,
+    html[data-theme="dark"][data-glass="on"] .modal-content-wide,
+    html[data-theme="dark"][data-glass="on"] .modal-content-split,
+    html[data-theme="dark"][data-glass="on"] .toast,
+    html[data-theme="dark"][data-glass="on"] .dropdown-menu,
+    html[data-theme="dark"][data-glass="on"] .notif-panel,
+    html[data-theme="dark"][data-glass="on"] .dash-stat,
+    html[data-theme="dark"][data-glass="on"] .stat-card,
+    html[data-theme="dark"][data-glass="on"] .section-card,
+    html[data-theme="dark"][data-glass="on"] .login-card {
+        background-color: #22262e !important;
+    }
+}
+
+/* prefers-reduced-transparency */
+@media (prefers-reduced-transparency: reduce) {
+    html[data-glass="on"] .sidebar {
+        background: linear-gradient(180deg, #0f172a, #020617) !important;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    html[data-glass="on"] .modal-overlay,
+    html[data-glass="on"] .modal-content,
+    html[data-glass="on"] .modal-content-wide,
+    html[data-glass="on"] .modal-content-split,
+    html[data-glass="on"] .toast,
+    html[data-glass="on"] .dropdown-menu,
+    html[data-glass="on"] .notif-panel,
+    html[data-glass="on"] .dash-stat,
+    html[data-glass="on"] .stat-card,
+    html[data-glass="on"] .section-card,
+    html[data-glass="on"] .login-card {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    html[data-glass="on"] body { background: #f8fafc; }
+    html[data-theme="dark"][data-glass="on"] body { background: #1a1d24; }
+}
