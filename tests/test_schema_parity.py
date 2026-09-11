@@ -80,9 +80,15 @@ SERVER_MANAGED = {
         "excel_path",            # генерируется сервером
         "photo_paths",           # отдельный эндпоинт загрузки фото
         "products_json",         # клиент шлёт `products`, сервер сериализует в JSON
+        # производные ключи документа для уникального индекса (миграция 0005,
+        # дефект 7): считаются слушателем models._nakladnaya_sync_doc_key из
+        # doc_series/doc_number. Клиент их не присылает — иначе он мог бы
+        # обойти дедупликацию, прислав ключ, не совпадающий с сырыми полями.
+        "doc_series_norm", "doc_number_norm",
     },
     ("Nakladnaya", "NakladnayaUpdate"): {
         "created_by_bot", "excel_path", "photo_paths", "products_json",
+        "doc_series_norm", "doc_number_norm",
     },
     ("User", "UserCreate"): {
         "hashed_password",       # создаётся из `password` через get_password_hash

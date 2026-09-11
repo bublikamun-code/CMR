@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import models
@@ -75,6 +76,49 @@ def _effective_amounts(nak: models.Nakladnaya, update_data: dict):
     amount = update_data["amount"] if "amount" in update_data else nak.amount
     vat = update_data["vat_amount"] if "vat_amount" in update_data else nak.vat_amount
     return amount, vat
+
+
+def _find_nakladnaya_by_doc_key(session, doc_series, doc_number):
+    """Существующая накладная с тем же нормализованным ключом документа."""
+    series, number = models.nakladnaya_doc_key(doc_series, doc_number)
+    if not number:
+        return None
+    return session.query(models.Nakladnaya).filter(
+        models.Nakladnaya.doc_series_norm == series,
+        models.Nakladnaya.doc_number_norm == number,
+    ).first()
+
+
+def _commit_with_doc_key_guard(session, doc_series, doc_number):
+    """FIX 2026-09-12 (Фаза 2, дефект 7): commit с переводом дубля в 400.
+
+    Уникальность обеспечивает частичный индекс uq_nakladnye_doc_key
+    (миграция 0005), поэтому проверка АТОМАРНА: гонка check-then-insert,
+    из-за которой параллельная отправка одного документа плодила две записи,
+    закрыта на уровне базы, а не ещё одним SELECT перед INSERT.
+
+    Здесь IntegrityError превращается в понятный ответ вместо 500. Значения
+    ключа передаются аргументами, а не читаются с объекта: после rollback
+    объект разобран, и обращение к его атрибутам подняло бы новую ошибку.
+
+    Если нарушение НЕ про уникальный ключ документа (например, битый FK),
+    ошибка пробрасывается дальше: объявить её дублем значило бы соврать
+    пользователю и увести разбор в сторону.
+    """
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = _find_nakladnaya_by_doc_key(session, doc_series, doc_number)
+        if existing is None:
+            raise
+        series, number = models.nakladnaya_doc_key(doc_series, doc_number)
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Накладная с серией «{series}» и номером {number} уже принята "
+                    f"(id={existing.id}). Повторно тот же документ не создаётся — "
+                    f"если это повторная отгрузка, откройте существующую запись."),
+        )
 
 
 def _nak_dict(n: models.Nakladnaya) -> dict:
@@ -195,7 +239,10 @@ def create_nakladnaya(
 
         nak = models.Nakladnaya(**data, tenant_id=current_user.tenant_id)
         session.add(nak)
-        session.commit()
+        # дефект 7: уникальность гарантирует индекс uq_nakladnye_doc_key, а не
+        # проверка перед вставкой. Значения ключа читаются ДО commit — после
+        # rollback объект разобран и его атрибуты недоступны.
+        _commit_with_doc_key_guard(session, nak.doc_series, nak.doc_number)
         session.refresh(nak)
         return _nak_dict(nak)
     finally:
@@ -239,7 +286,9 @@ def update_nakladnaya(
             setattr(nak, key, value)
         nak.updated_at = datetime.now(timezone.utc)
 
-        session.commit()
+        # дефект 7: правка серии/номера может увести запись на занятый ключ —
+        # индекс это поймает, а guard переведёт в 400 вместо 500
+        _commit_with_doc_key_guard(session, nak.doc_series, nak.doc_number)
         session.refresh(nak)
         return _nak_dict(nak)
     finally:
@@ -523,7 +572,23 @@ def bot_create_nakladnaya(payload: schemas.NakladnayaCreate, db: Session = Depen
 
     nak = models.Nakladnaya(**data, created_by_bot=True)
     db.add(nak)
-    db.commit()
+    # FIX 2026-09-12 (Фаза 2, дефект 7): приём стал атомарным.
+    #
+    # Раньше бот делал два отдельных запроса — GET /bot/check-duplicate и
+    # POST /bot/create, — а этот эндпоинт не проверял дубли вовсе. Между
+    # проверкой и вставкой повторная отправка того же документа (сеть
+    # не ответила, оператор нажал ещё раз, магазин прислал фото дважды)
+    # плодила вторую запись: обе потом висели в сверке с поставщиком.
+    # Проверкой перед INSERT гонка не закрывается в принципе, поэтому
+    # уникальность обеспечивает индекс uq_nakladnye_doc_key (миграция 0005),
+    # а guard переводит нарушение в 400 с id существующей записи.
+    #
+    # GET /bot/check-duplicate оставлен как есть: бот по-прежнему спрашивает
+    # его, чтобы дописать фото и товары к существующей накладной вместо
+    # создания новой. Он намеренно сравнивает сырые значения в Python, а не
+    # читает *_norm — тогда его ответ не зависит от того, заполнены ли
+    # производные колонки у старых строк.
+    _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
     db.refresh(nak)
     return _nak_dict(nak)
 
@@ -545,7 +610,9 @@ def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Se
         setattr(nak, key, value)
     nak.updated_at = datetime.now(timezone.utc)
 
-    db.commit()
+    # дефект 7: то же, что в CRM PATCH — правка серии/номера не должна
+    # уводить запись на уже занятый ключ
+    _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
     db.refresh(nak)
     return _nak_dict(nak)
 

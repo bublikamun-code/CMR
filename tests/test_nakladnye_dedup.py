@@ -10,12 +10,27 @@
   равна итогу своей карточки — это доли одной физической накладной.
 - несколько накладных на одной карточке: 493, 525, 751 — номера разные.
 - дублей (card_id, invoice_number) — ноль.
+- в nakladnye (14 записей) дублей по нормализованному номеру — ноль.
 
-Отсюда: уникальный индекс допустим ТОЛЬКО по (card_id, invoice_number).
-Индекс по одному invoice_number сломал бы пять рабочих накладных.
+Отсюда две РАЗНЫЕ схемы ограничений, и их нельзя путать:
+
+- transactions (записи реестра по сделке): дубль — это тот же номер на той же
+  сделке. Защищается проверкой в issue_invoice/add_invoice по цифрам
+  (_norm_invoice_number), а НЕ индексом: правило «только цифры» в выражение
+  индекса SQLite не оформляется, а индекс по сырой строке пропустил бы
+  «ТТН 4881030» против «ТТН4881030». Индекс по одному invoice_number
+  недопустим — он сломал бы пять рабочих накладных.
+- nakladnye (приём документов от магазинов): уникальность на уровне БД,
+  частичный индекс uq_nakladnye_doc_key по нормализованным
+  doc_series_norm/doc_number_norm (миграция 0005). Здесь гонка реальна
+  (check-then-insert двумя запросами из telegram-бота), поэтому кода мало.
+  Индекс частичный: записи без номера не ограничены, иначе fallback-ветка бота
+  «Не распознано» сработала бы ровно один раз.
 """
 import pytest
+from sqlalchemy import text
 
+import database
 import models
 
 STORE = "Матусевича 72"
@@ -318,13 +333,15 @@ def test_bot_check_duplicate_without_number(client, bot_headers):
     assert r.json()["duplicate"] is False
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ (TOCTOU): bot/create и POST /nakladnye не проверяют "
-                          "дубли вообще, а бот делает check-duplicate и create двумя "
-                          "отдельными запросами. Уникальности на уровне БД нет, поэтому "
-                          "параллельная отправка одного документа плодит две записи.")
 def test_bot_create_rejects_duplicate(client, bot_headers, db):
+    """Починено в Фазе 2 (2026-09-12, дефект 7).
+
+    Приём был check-then-insert двумя запросами: бот спрашивал
+    GET /bot/check-duplicate, затем делал POST /bot/create, а сам create дубли
+    не проверял вовсе. Гонка закрыта на уровне базы — частичным уникальным
+    индексом uq_nakladnye_doc_key (миграция 0005) по нормализованным
+    doc_series_norm/doc_number_norm, — а IntegrityError переводится в 400.
+    """
     payload = {"doc_type": "ТТН", "doc_series": "АБ", "doc_number": "4881030",
                "amount": 100.0, "vat_amount": 16.67, "supplier_name": "П", "store": STORE}
     assert client.post("/nakladnye/bot/create", json=payload, headers=bot_headers).status_code == 200
@@ -334,6 +351,163 @@ def test_bot_create_rejects_duplicate(client, bot_headers, db):
 
     _reload(db)
     assert db.query(models.Nakladnaya).count() == 1
+
+
+def test_unique_doc_key_index_exists(db):
+    """Индекс из миграции 0005 реально создан — иначе вся защита только в коде.
+
+    Проверка нужна отдельным тестом: без неё тесты дедупликации зелёнели бы и
+    на схеме, где миграцию не накатили (conftest применяет migrations/ поверх
+    DDL, но если 0005 сломается, это должно быть видно сразу, а не через
+    внезапно прошедший дубль).
+    """
+    with database.engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='uq_nakladnye_doc_key'")).fetchall()
+    assert rows, "уникальный индекс uq_nakladnye_doc_key не создан"
+    ddl = rows[0][0].upper()
+    assert "UNIQUE" in ddl
+    # частичный: строки без номера под индекс не попадают
+    assert "DOC_NUMBER_NORM IS NOT NULL" in ddl
+
+
+@pytest.mark.parametrize("series,number", [
+    ("АБ", "ТТН 4881030"),     # префикс и пробел в номере
+    ("АБ", "4881030"),         # только цифры
+    ("аб", "ТТН4881030"),      # другой регистр серии
+    ("  АБ  ", "ТТН-4881030"), # пробелы в серии и разделитель в номере
+])
+def test_bot_create_rejects_duplicate_in_other_spelling(client, bot_headers, db,
+                                                        series, number):
+    """Дубль ловится и при другом написании — индекс по НОРМАЛИЗОВАННОМУ ключу.
+
+    Ровно тот случай, который пропустил бы индекс по сырым (doc_series,
+    doc_number): в боевых данных соседствуют «ТТН 4881030» и «ТТН4881030».
+    """
+    first = {"doc_series": "АБ", "doc_number": "4881030", "amount": 100.0,
+             "supplier_name": "П"}
+    assert client.post("/nakladnye/bot/create", json=first,
+                       headers=bot_headers).status_code == 200
+
+    second = dict(first, doc_series=series, doc_number=number)
+    r = client.post("/nakladnye/bot/create", json=second, headers=bot_headers)
+    assert r.status_code == 400, f"{series!r}/{number!r} принят как новая накладная"
+
+    _reload(db)
+    assert db.query(models.Nakladnaya).count() == 1
+
+
+def test_crm_create_rejects_duplicate_too(client, manager, db):
+    """Бот не единственный источник: CRM-создание защищено тем же индексом."""
+    _, h = manager
+    payload = {"doc_series": "АБ", "doc_number": "4881031", "amount": 100.0,
+               "supplier_name": "П"}
+    assert client.post("/nakladnye", headers=h, json=payload).status_code == 200
+
+    r = client.post("/nakladnye", headers=h, json=payload)
+    assert r.status_code == 400, f"дубль принят со статусом {r.status_code}"
+
+    _reload(db)
+    assert db.query(models.Nakladnaya).count() == 1
+
+
+def test_different_series_same_number_is_not_a_duplicate(client, bot_headers, db):
+    """Та же цифровая часть при другой серии — другой документ.
+
+    Симметрично bot_check_duplicate: серия входит в ключ, поэтому без этого
+    теста индекс мог бы оказаться шире правила и блокировать законные документы.
+    """
+    assert client.post("/nakladnye/bot/create", headers=bot_headers, json={
+        "doc_series": "АБ", "doc_number": "4881032", "supplier_name": "П",
+    }).status_code == 200
+
+    r = client.post("/nakladnye/bot/create", headers=bot_headers, json={
+        "doc_series": "ВГ", "doc_number": "4881032", "supplier_name": "П",
+    })
+    assert r.status_code == 200, r.text
+
+    _reload(db)
+    assert db.query(models.Nakladnaya).count() == 2
+
+
+def test_nakladnye_without_number_are_unlimited(client, bot_headers, db):
+    """Записи без номера не ограничены: индекс частичный.
+
+    Это штатный сценарий, а не дыра — fallback-ветка telegram-бота при
+    нераспознанном документе создаёт запись {"supplier_name": "Не распознано"}
+    без серии и номера, и таких записей может быть несколько. Полная
+    уникальность оставила бы магазин без приёма документа.
+    """
+    payload = {"supplier_name": "Не распознано", "store": STORE, "status": "new"}
+    for _ in range(3):
+        r = client.post("/nakladnye/bot/create", headers=bot_headers, json=payload)
+        assert r.status_code == 200, r.text
+
+    _reload(db)
+    assert db.query(models.Nakladnaya).count() == 3
+    for nak in db.query(models.Nakladnaya).all():
+        assert nak.doc_number_norm is None
+
+
+def test_update_onto_existing_number_is_rejected(client, manager, db):
+    """Правка номера на уже занятый — тоже 400, а не IntegrityError/500.
+
+    Заодно это проверка слушателя before_update: производные ключи обязаны
+    пересчитываться при правке, иначе индекс сравнивал бы устаревшие значения.
+    """
+    _, h = manager
+    for i, number in enumerate(["4881040", "4881041"]):
+        r = client.post("/nakladnye", headers=h, json={
+            "doc_series": "АБ", "doc_number": number, "supplier_name": "П"})
+        assert r.status_code == 200, r.text
+
+    _reload(db)
+    rows = db.query(models.Nakladnaya).order_by(models.Nakladnaya.id).all()
+    victim, target = rows[0], rows[1]
+
+    r = client.patch(f"/nakladnye/{victim.id}", headers=h,
+                     json={"doc_number": "ТТН 4881041"})
+    assert r.status_code == 400, r.text
+
+    _reload(db)
+    fresh = db.query(models.Nakladnaya).filter(
+        models.Nakladnaya.id == victim.id).first()
+    assert fresh.doc_number == "4881040", "отклонённая правка всё равно записалась"
+
+
+def test_update_renumbers_and_keeps_key_in_sync(client, manager, db):
+    """Законная перенумеровка проходит, и производные ключи идут за сырыми полями."""
+    _, h = manager
+    r = client.post("/nakladnye", headers=h, json={
+        "doc_series": "АБ", "doc_number": "4881050", "supplier_name": "П"})
+    assert r.status_code == 200, r.text
+    nak_id = r.json()["id"]
+
+    r2 = client.patch(f"/nakladnye/{nak_id}", headers=h,
+                      json={"doc_series": "вг", "doc_number": "ТТН 999"})
+    assert r2.status_code == 200, r2.text
+
+    _reload(db)
+    fresh = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id).first()
+    assert fresh.doc_series_norm == "ВГ"
+    assert fresh.doc_number_norm == "999"
+
+
+def test_doc_key_columns_are_filled_on_direct_insert(db):
+    """Ключи заполняются и при прямой вставке через ORM, не только через API.
+
+    Это делает слушатель в models.py: иначе запись, созданная скриптом или
+    миграцией данных, осталась бы вне индекса и её можно было бы продублировать.
+    """
+    db.add(models.Nakladnaya(doc_series=" аб ", doc_number="ТТН-4881060",
+                             supplier_name="П"))
+    db.commit()
+
+    _reload(db)
+    nak = db.query(models.Nakladnaya).first()
+    assert nak.doc_series_norm == "АБ"
+    assert nak.doc_number_norm == "4881060"
 
 
 def test_bot_create_stores_products(client, bot_headers, db):

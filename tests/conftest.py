@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import tempfile
+import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,6 +88,48 @@ def _existing_tables():
     return [r[0] for r in rows]
 
 
+# Каталог раннера migrate.py: миграции — источник правды о том, какие изменения
+# схемы доехали до боевой БД поверх DDL-дампа.
+MIGRATIONS_DIR = ROOT / "migrations"
+_MIGRATION_RE = re.compile(r"^\d{4}_[a-z0-9_]+\.py$")
+
+
+def _apply_migrations():
+    """Накатывает migrations/NNNN_*.py поверх уже созданной схемы.
+
+    Зачем это нужно тестам:
+      - снимок tests/fixtures/prod_schema.sql отражает прод НА МОМЕНТ СЪЁМКИ.
+        Миграция, которую ещё не применяли на сервере (0005 и далее), в нём
+        отсутствует, и без этого шага тесты проверяли бы схему, которой на
+        проде не будет после Фазы 3;
+      - это прогон каждой миграции на каждом запуске тестов, причём на обоих
+        профилях. Миграции идемпотентны по контракту, поэтому применение поверх
+        create_all (профиль models, где колонки и индексы уже есть) обязано
+        проходить — если не проходит, нарушен контракт идемпотентности;
+      - конкретно 0005 создаёт уникальный индекс nakladnye: без него тест
+        дедупликации проверял бы только код, а не гарантию базы, и гонка
+        check-then-insert осталась бы незакрытой.
+
+    Порядок файлов — по возрастанию номера, как в migrate.py.
+    """
+    files = sorted(p for p in MIGRATIONS_DIR.iterdir()
+                   if _MIGRATION_RE.match(p.name)) if MIGRATIONS_DIR.exists() else []
+    raw = database.engine.raw_connection()
+    try:
+        cur = raw.cursor()
+        for path in files:
+            spec = importlib.util.spec_from_file_location(
+                "crm_migration_" + path.stem, str(path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            if not callable(getattr(mod, "up", None)):
+                raise RuntimeError(f"{path}: нет функции up(cur)")
+            mod.up(cur)
+        raw.commit()
+    finally:
+        raw.close()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _init_schema():
     """Схема создаётся один раз на сессию; данные чистятся между тестами."""
@@ -97,6 +140,9 @@ def _init_schema():
     # checkfirst=True (по умолчанию): существующие таблицы не пересоздаются,
     # поэтому продовый DDL остаётся нетронутым, а недостающее досоздаётся.
     models.Base.metadata.create_all(bind=database.engine)
+    # Миграции — после create_all: они добавляют то, чего нет ни в дампе,
+    # ни в моделях, и обязаны быть идемпотентными там, где всё уже есть.
+    _apply_migrations()
     yield
     database.engine.dispose()
     shutil.rmtree(_TMP, ignore_errors=True)
