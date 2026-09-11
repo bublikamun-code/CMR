@@ -342,17 +342,32 @@ OCR_PROMPT = (
 )
 
 
+def compress_image(image_bytes: bytes, max_size=1024, quality=70) -> bytes:
+    """Сжимает изображение для OCR."""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(image_bytes))
+        img.thumbnail((max_size, max_size), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        return buf.getvalue()
+    except Exception:
+        return image_bytes
+
+
 async def ocr_photos_batch(images_bytes: list):
     """OCR всех фото одним запросом — модель видит всё сразу."""
     if not OPENAI_API_KEY or OpenAI is None:
         return None
 
     import base64
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL, timeout=120)
 
     content = [{"type": "text", "text": f"Распознай все накладные на этих {len(images_bytes)} фото."}]
     for i, img_bytes in enumerate(images_bytes):
-        b64 = base64.b64encode(img_bytes).decode()
+        compressed = compress_image(img_bytes)
+        b64 = base64.b64encode(compressed).decode()
         content.append({"type": "text", "text": f"--- Фото {i} ---"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
 
@@ -365,6 +380,7 @@ async def ocr_photos_batch(images_bytes: list):
             ],
             max_tokens=1500,
             temperature=0,
+            timeout=90,
         )
         text = response.choices[0].message.content.strip()
         if text.startswith("```"):
