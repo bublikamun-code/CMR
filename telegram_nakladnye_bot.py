@@ -130,11 +130,6 @@ async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "filename": f"photo_{len(context.user_data['photos']) + 1}.jpg",
     })
 
-    count = len(context.user_data["photos"])
-    await update.message.reply_text(
-        f"📷 Фото #{count} получено. Ещё или «Готово».",
-        reply_markup=get_done_keyboard(),
-    )
     return RECEIVING_PHOTOS
 
 
