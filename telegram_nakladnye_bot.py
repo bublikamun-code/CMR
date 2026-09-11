@@ -53,7 +53,6 @@ CRM_API_URL = os.environ.get("CRM_API_URL", "http://localhost:20008")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
 OCR_MODEL = os.environ.get("OCR_MODEL", "google/gemini-2.0-flash-001")
-OCR_MODEL_2 = os.environ.get("OCR_MODEL_2", "openai/gpt-4o-mini")
 
 STORES = {
     "matushevicha": {"label": "Матусевича, 72", "value": "Матусевича"},
@@ -212,7 +211,6 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "vat_amount": last.get("vat_amount"),
                 "unload_address": first.get("unload_address", ""),
                 "has_second_page": any(p.get("has_second_page") for p in pages),
-                "_models_disagree": any(p.get("_models_disagree") for p in pages),
                 "photos": inv_photos,
             })
 
@@ -307,11 +305,6 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     warnings.append(
                         f"⚠️ {inv.get('doc_type','')} {ser} №{num}: "
                         f"документ имеет 2-ю страницу, но она не отправлена"
-                    )
-                if inv.get("_models_disagree"):
-                    num = inv.get("doc_number", "?")
-                    warnings.append(
-                        f"⚠️ №{num}: модели дали разные результаты — проверьте данные вручную"
                     )
 
         if not summary_lines and not dup_lines:
@@ -460,36 +453,6 @@ def _ocr_call(model: str, content: list):
         return None
 
 
-def _compare_results(r1, r2):
-    """Сравнивает результаты двух моделей. Возвращает (совпали, лучшая версия)."""
-    if not r1 and not r2:
-        return True, []
-    if not r1:
-        return True, r2
-    if not r2:
-        return True, r1
-
-    # Нормализуем номера для сравнения
-    def norm_num(items):
-        return sorted(["".join(ch for ch in (it.get("doc_number") or "") if ch.isdigit()) for it in items])
-
-    nums1 = norm_num(r1)
-    nums2 = norm_num(r2)
-
-    if nums1 == nums2:
-        # Номера совпадают — сравниваем суммы
-        for it1 in r1:
-            n1 = "".join(ch for ch in (it1.get("doc_number") or "") if ch.isdigit())
-            for it2 in r2:
-                n2 = "".join(ch for ch in (it2.get("doc_number") or "") if ch.isdigit())
-                if n1 == n2:
-                    # Если суммы разные — помечаем
-                    if it1.get("amount") != it2.get("amount"):
-                        return False, r1  # Разные суммы — нужен выбор
-        return True, r1  # Всё совпало
-
-    return False, r1  # Разные номера — нужен выбор
-
 
 async def ocr_photos_batch(images_bytes: list):
     """OCR всех фото — две модели параллельно, голосование."""
@@ -506,22 +469,11 @@ async def ocr_photos_batch(images_bytes: list):
         content.append({"type": "text", "text": f"--- Фото {i} ---"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
 
+    import asyncio
     loop = asyncio.get_event_loop()
-    r1, r2 = await asyncio.gather(
-        loop.run_in_executor(None, _ocr_call, OCR_MODEL, content),
-        loop.run_in_executor(None, _ocr_call, OCR_MODEL_2, content),
-    )
+    result = await loop.run_in_executor(None, _ocr_call, OCR_MODEL, content)
 
-    logger.info(f"Model 1 ({OCR_MODEL}): {json.dumps(r1 or [], ensure_ascii=False)}")
-    logger.info(f"Model 2 ({OCR_MODEL_2}): {json.dumps(r2 or [], ensure_ascii=False)}")
-
-    matched, result = _compare_results(r1, r2)
-    if not matched:
-        # Помечаем что результаты разные — бот покажет предупреждение
-        for item in result:
-            item["_models_disagree"] = True
-        logger.warning("Models disagree — using model 1 result with warning")
-
+    logger.info(f"OCR ({OCR_MODEL}): {json.dumps(result or [], ensure_ascii=False)}")
     return result
 
 
