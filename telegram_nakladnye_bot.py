@@ -52,7 +52,7 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CRM_API_URL = os.environ.get("CRM_API_URL", "http://localhost:20008")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-OCR_MODEL = os.environ.get("OCR_MODEL", "google/gemini-2.0-flash-001")
+OCR_MODEL = os.environ.get("OCR_MODEL", "z-ai/glm-5.3-flash")
 
 STORES = {
     "matushevicha": {"label": "Матусевича, 72", "value": "Матусевича"},
