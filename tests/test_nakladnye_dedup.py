@@ -306,17 +306,74 @@ def test_vat_greater_than_amount_rejected(client, bot_headers):
     assert r.status_code == 422
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: NAKLADNYE_STATUSES и NAKLADNYE_DOC_TYPES объявлены "
-                          "в schemas.py, но ни одним валидатором не используются — "
-                          "в накладную можно записать произвольный status и doc_type.")
 def test_garbage_status_and_doc_type_rejected(client, bot_headers):
+    """Починено в Фазе 2 (2026-09-12, дефект 12).
+
+    NAKLADNYE_STATUSES и NAKLADNYE_DOC_TYPES наконец применяются валидаторами
+    NakladnayaBase и NakladnayaUpdate. Мусор отклоняется на входе (422), а не
+    оседает в базе записью, которую не берёт ни один фильтр таблицы накладных.
+    """
     r = client.post("/nakladnye/bot/create", headers=bot_headers, json={
         "doc_series": "АБ", "doc_number": "2", "status": "какая-то ерунда",
         "doc_type": "НЕВЕСТЬЧТО",
     })
     assert r.status_code == 422
+
+
+def test_garbage_status_rejected_on_crm_patch_too(client, manager, db):
+    """Правило одинаково для создания и для правки.
+
+    NakladnayaUpdate не наследует NakladnayaBase, поэтому валидаторы в нём
+    отдельные. PATCH — рабочий путь переключателей «Проверена/Приехала/
+    Оплачена» (js/nakladnye.js), и дыра там означала бы, что мусор проходит
+    одним кликом по таблице.
+    """
+    _, h = manager
+    nak = models.Nakladnaya(doc_series="АБ", doc_number="9", supplier_name="П")
+    db.add(nak)
+    db.commit()
+
+    assert client.patch(f"/nakladnye/{nak.id}", headers=h,
+                        json={"status": "оплачено-наверное"}).status_code == 422
+    assert client.patch(f"/nakladnye/{nak.id}", headers=h,
+                        json={"doc_type": "СЧФ"}).status_code == 422
+    assert client.patch(f"/nakladnye/{nak.id}", headers=h,
+                        json={"status": "paid", "doc_type": "УПД"}).status_code == 200
+
+
+@pytest.mark.parametrize("doc_type", ["", None])
+def test_bot_doc_type_blank_is_accepted(client, bot_headers, db, doc_type):
+    """Отказ по doc_type обязан быть мягким для пустого значения.
+
+    Telegram-бот собирает payload как first.get("doc_type", "") и присылает
+    пустую строку, когда OCR тип не распознал; в модалке CRM селект типа
+    содержит пункт «—» с пустым значением. Строгая проверка означала бы, что
+    накладная с нераспознанным типом не сохраняется вовсе, — потеря документа
+    вместо защиты справочника. Пустое значение нормализуется в None.
+    """
+    r = client.post("/nakladnye/bot/create", headers=bot_headers, json={
+        "doc_type": doc_type, "doc_series": "АБ", "doc_number": "5",
+        "amount": 100.0, "supplier_name": "П", "status": "new",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["doc_type"] is None
+
+    _reload(db)
+    assert db.query(models.Nakladnaya).count() == 1
+
+
+def test_doc_type_case_and_spaces_are_normalized(client, bot_headers, db):
+    """Значение приходит из OCR, а фронт сравнивает строки посимвольно.
+
+    «ттн » и «ТТН» — один тип: без нормализации запись не совпадала бы ни с
+    фильтром таблицы, ни с пунктом селекта в модалке и выглядела бы пустой.
+    """
+    r = client.post("/nakladnye/bot/create", headers=bot_headers, json={
+        "doc_type": " ттн ", "doc_series": "АБ", "doc_number": "6",
+        "supplier_name": "П",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["doc_type"] == "ТТН"
 
 
 @pytest.mark.known_bug

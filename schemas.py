@@ -514,6 +514,61 @@ class NotificationsListResponse(BaseModel):
 NAKLADNYE_STATUSES = ("new", "verified", "arrived", "paid")
 NAKLADNYE_DOC_TYPES = ("ТН", "ТТН", "УПД")
 
+
+# Общие проверки накладной. Вынесены в функции, потому что NakladnayaUpdate
+# НЕ наследует NakladnayaBase (у Update все поля Optional=None, у Base есть
+# значения по умолчанию), а правила должны быть одинаковыми в обоих: иначе
+# мусор, который не проходит при создании, проходил бы при правке.
+
+def _check_nakladnaya_status(v):
+    """FIX 2026-09-12 (Фаза 2, дефект 12): NAKLADNYE_STATUSES была объявлена,
+    но ни одним валидатором не использовалась — в status сохранялась любая строка.
+
+    Статус здесь не украшение: по нему работает фильтр таблицы накладных
+    (js/nakladnye.js сравнивает r.status === значение селекта) и переключатели
+    «Проверена / Приехала / Оплачена» пишут строго 'verified'/'arrived'/'paid'.
+    Запись с левым статусом не находится ни одним фильтром.
+
+    None пропускаем: в NakladnayaUpdate все поля опциональны, а эндпоинты пишут
+    только model_dump(exclude_unset=True), то есть None означает «не прислали».
+    """
+    if v is None:
+        return v
+    v = v.strip()
+    if v not in NAKLADNYE_STATUSES:
+        raise ValueError(
+            f"Недопустимый статус накладной: {v!r}. "
+            f"Допустимые: {', '.join(NAKLADNYE_STATUSES)}"
+        )
+    return v
+
+
+def _check_nakladnaya_doc_type(v):
+    """FIX 2026-09-12 (Фаза 2, дефект 12): то же для типа документа.
+
+    Пустая строка приводится к None, а не отклоняется. Telegram-бот шлёт
+    doc_type="" в тех случаях, когда OCR не распознал тип (payload собирается
+    как first.get("doc_type", "")), а в селекте модалки CRM есть пункт «—»
+    с пустым значением. Отказ означал бы, что накладная с нераспознанным типом
+    не сохраняется вообще — потеря документа ради чистоты справочника.
+
+    Регистр и пробелы нормализуются: значение приходит из OCR, а фронт
+    сравнивает строки посимвольно (фильтр таблицы и подстановка в селект),
+    поэтому "ттн" не совпало бы с "ТТН" и запись выглядела бы без типа.
+    """
+    if v is None:
+        return v
+    v = v.strip().upper()
+    if not v:
+        return None
+    if v not in NAKLADNYE_DOC_TYPES:
+        raise ValueError(
+            f"Недопустимый тип документа: {v!r}. "
+            f"Допустимые: {', '.join(NAKLADNYE_DOC_TYPES)}"
+        )
+    return v
+
+
 class NakladnayaBase(BaseModel):
     supplier_id: Optional[int] = None
     supplier_name: Optional[str] = None
@@ -530,6 +585,16 @@ class NakladnayaBase(BaseModel):
     is_paid: bool = False
     status: str = "new"
     products: Optional[List[dict]] = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        return _check_nakladnaya_status(v)
+
+    @field_validator("doc_type")
+    @classmethod
+    def validate_doc_type(cls, v):
+        return _check_nakladnaya_doc_type(v)
 
 class NakladnayaCreate(NakladnayaBase):
     pass
@@ -551,12 +616,30 @@ class NakladnayaUpdate(BaseModel):
     status: Optional[str] = None
     products: Optional[List[dict]] = None
 
+    # Те же правила, что и при создании (дефект 12). Без них мусор, который
+    # не прошёл в POST /nakladnye, свободно записывался бы через PATCH —
+    # а именно PATCH используют переключатели «Проверена/Приехала/Оплачена».
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        return _check_nakladnaya_status(v)
+
+    @field_validator("doc_type")
+    @classmethod
+    def validate_doc_type(cls, v):
+        return _check_nakladnaya_doc_type(v)
+
 class SupplierBrief(BaseModel):
     id: int
     name: str
     model_config = ConfigDict(from_attributes=True)
 
 class NakladnayaResponse(NakladnayaBase):
+    # Наследует валидаторы NakladnayaBase. Схема мертва (KNOWN_DEAD_SCHEMAS в
+    # tests/test_schema_parity.py): nakladnye_router отдаёт dict из _nak_dict,
+    # поэтому легас-строки с мусорным status/doc_type не ломают чтение.
+    # Если схему когда-нибудь подключат как response_model — это станет
+    # проверкой и на выход, и старые грязные записи придётся сначала почистить.
     id: int
     photo_paths: Optional[List[str]] = None
     created_by_bot: bool = False
