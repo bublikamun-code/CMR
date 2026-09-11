@@ -79,14 +79,14 @@ def test_status_change_without_amount_creates_no_remainder(client, manager, db, 
     assert _ledger(db, card_id) == []
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: CardUpdateStatus (schemas.py:256) — голое "
-                          "status: str без валидатора. Валидатор множества статусов есть "
-                          "в CardBase и CardReorder, но рабочий эндпоинт "
-                          "PATCH /kanban/cards/{id}/status использует CardUpdateStatus. "
-                          "Любая строка сохраняется, и карточка исчезает со всех досок.")
 def test_garbage_status_rejected(client, manager, db, make_card):
+    """Починено в Фазе 2 (2026-09-12, дефект 10).
+
+    CardUpdateStatus получила валидатор по CARD_STATUSES — тому же множеству,
+    что проверяют CardBase и CardReorder. Мусорный статус теперь отклоняется
+    на входе (422), а не сохраняется в cards.status: раньше карточка с таким
+    статусом не попадала ни в одну колонку канбана и исчезала из интерфейса.
+    """
     _, h = manager
     card = make_card(total_amount=100.0)
     card_id = card.id

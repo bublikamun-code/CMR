@@ -185,6 +185,14 @@ class ClientResponse(ClientBase):
 
 # --- СХЕМЫ КАРТОЧКИ ---
 
+# Единственный источник правды по статусам сделки. Колонки канбана
+# (js/kanban.js KANBAN_COLUMNS), доска списаний и фильтры «Реестра оплат»
+# работают от этого же набора: статус вне списка означает, что карточка
+# не попадёт ни на одну доску.
+CARD_STATUSES = ("Новый запрос", "В работе", "Ждет оплаты", "Сборка",
+                 "На списание", "Закрыто")
+
+
 class CardBase(BaseModel):
     title: str
     description: Optional[str] = None
@@ -208,8 +216,7 @@ class CardBase(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, v):
-        VALID = {"Новый запрос", "В работе", "Ждет оплаты", "Сборка", "На списание", "Закрыто"}
-        if v not in VALID:
+        if v not in CARD_STATUSES:
             raise ValueError(f"Недопустимый статус: {v}")
         return v
 
@@ -233,8 +240,7 @@ class CardReorder(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, v):
-        VALID = {"Новый запрос", "В работе", "Ждет оплаты", "Сборка", "На списание", "Закрыто"}
-        if v not in VALID:
+        if v not in CARD_STATUSES:
             raise ValueError(f"Недопустимый статус: {v}")
         return v
 
@@ -254,7 +260,23 @@ class CardStatusUpdate(BaseModel):
 
 
 class CardUpdateStatus(BaseModel):
+    """Рабочая схема PATCH /kanban/cards/{id}/status.
+
+    FIX 2026-09-12 (Фаза 2, дефект 10): раньше здесь было голое `status: str`,
+    поэтому перенос карточки с доски с опечаткой или левым значением сохранял
+    мусор в cards.status. Карточка с неизвестным статусом не попадает ни в одну
+    колонку канбана (js/kanban.js KANBAN_COLUMNS) и исчезает из интерфейса,
+    а вернуть её можно было только правкой базы. Множество статусов берётся из
+    CARD_STATUSES — того же, что проверяют CardBase и CardReorder.
+    """
     status: str
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v):
+        if v not in CARD_STATUSES:
+            raise ValueError(f"Недопустимый статус: {v}")
+        return v
 
 class CardResponse(CardBase):
     id: int
