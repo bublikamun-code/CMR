@@ -233,8 +233,8 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{CRM_API_URL}/nakladnye/bot/check-duplicate",
                     headers={"X-Bot-Token": BOT_TOKEN},
                     params={
-                        "doc_type": inv["doc_type"],
-                        "doc_number": inv["doc_number"],
+                        "doc_series": inv.get("doc_series", ""),
+                        "doc_number": inv.get("doc_number", ""),
                     },
                 )
                 if dup_check.status_code == 200 and dup_check.json().get("duplicate"):

@@ -348,18 +348,20 @@ async def bot_upload_photo(
 
 @router.get("/bot/check-duplicate", dependencies=[Depends(_bot_auth)])
 def bot_check_duplicate(
+    doc_series: Optional[str] = None,
     doc_number: Optional[str] = None,
-    doc_type: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     if not doc_number:
         return {"duplicate": False}
-    norm = "".join(ch for ch in doc_number if ch.isdigit())
-    if not norm:
+    norm_num = "".join(ch for ch in doc_number if ch.isdigit())
+    norm_ser = (doc_series or "").strip().upper()
+    if not norm_num:
         return {"duplicate": False}
     rows = db.query(models.Nakladnaya).all()
     for r in rows:
-        r_norm = "".join(ch for ch in (r.doc_number or "") if ch.isdigit())
-        if r_norm == norm:
+        r_num = "".join(ch for ch in (r.doc_number or "") if ch.isdigit())
+        r_ser = (r.doc_series or "").strip().upper()
+        if r_num == norm_num and r_ser == norm_ser:
             return {"duplicate": True, "id": r.id}
     return {"duplicate": False}
