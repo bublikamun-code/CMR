@@ -139,15 +139,15 @@ def test_invoice_number_matching_ignores_spaces_and_prefixes(client, manager, db
     assert docs_after == 0, "копия-документ должна удаляться вместе с накладной"
 
 
-def test_twin_found_by_digits_when_spelling_differs(client, manager, db, make_card):
+@pytest.mark.parametrize("status", ["В работе", "Сборка", "На списание"])
+def test_twin_found_by_digits_when_spelling_differs(client, manager, db, make_card, status):
     """Прямая проверка _norm: номер с пробелом находит близнеца без пробела.
 
-    Статус сделки — «В работе», а не «Сборка»/«На списание»: в зонах списания
-    после удаления срабатывает вторая вставка остатка (см. known_bug ниже),
-    и она закрыла бы проверяемое здесь поведение ошибкой уникальности.
+    Проверяется во всех трёх статусах: раньше в «Сборке» тест был невозможен,
+    потому что удаление падало в 500 на второй вставке остатка (починено в Фазе 2).
     """
     _, h = manager
-    card = make_card(title="Сделка", total_amount=1000.0, status="В работе")
+    card = make_card(title="Сделка", total_amount=1000.0, status=status)
     card_id = card.id
 
     ledger_tx = models.Transaction(card_id=card_id, company_name="Сделка", amount=400.0,
@@ -166,16 +166,16 @@ def test_twin_found_by_digits_when_spelling_differs(client, manager, db, make_ca
         "документ с тем же номером в другом написании должен определиться как близнец"
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: SessionLocal создан с autoflush=False. При удалении "
-                          "накладной со сделки в статусе «Сборка» срабатывают две вставки "
-                          "остатка подряд: ветка «сумма возвращается в остаток» делает "
-                          "session.add(...), затем ensure_registry_remainder выполняет SELECT, "
-                          "который НЕ ВИДИТ незафиксированную строку, и добавляет вторую. "
-                          "Частичный unique-индекс uq_remainder_per_card (миграция 0004) "
-                          "ловит это как IntegrityError → необработанный 500.")
 def test_delete_invoice_from_card_in_assembly_does_not_crash(client, manager, db, make_card):
+    """Починено в Фазе 2 (2026-09-11).
+
+    SessionLocal работает с autoflush=False, поэтому при удалении накладной
+    со сделки в «Сборке» срабатывали две вставки остатка подряд: ветка возврата
+    суммы делала session.add(...), затем SELECT в ensure_registry_remainder
+    не видел незафиксированную строку и добавлял вторую. Частичный unique-индекс
+    uq_remainder_per_card (миграция 0004) отвечал IntegrityError → 500.
+    Теперь ensure_registry_remainder делает flush() перед SELECT.
+    """
     _, h = manager
     card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
     card_id = card.id

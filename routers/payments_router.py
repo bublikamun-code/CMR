@@ -82,6 +82,14 @@ def ensure_registry_remainder(session, card):
         return None
     if float(card.total_amount or 0) <= 0:
         return None
+    # FIX 2026-09-11 (Фаза 2): SessionLocal работает с autoflush=False, поэтому
+    # SELECT ниже не видит строки, добавленные в этой же транзакции, но ещё не
+    # отправленные в базу. При удалении накладной ветка возврата суммы уже
+    # добавляла запись-остаток, этот SELECT её не находил и создавал вторую,
+    # а частичный unique-индекс uq_remainder_per_card (миграция 0004) отвечал
+    # IntegrityError → необработанный 500. flush() делает заявленную в докстринге
+    # идемпотентность настоящей.
+    session.flush()
     existing = session.query(models.Transaction).filter(
         models.Transaction.card_id == card.id,
         models.Transaction.is_document == False,
