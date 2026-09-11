@@ -74,6 +74,7 @@ def _nak_dict(n: models.Nakladnaya) -> dict:
         "status": n.status or "new",
         "photo_paths": photos,
         "products": _parse_products(n),
+        "excel_path": n.excel_path,
         "created_by_bot": bool(n.created_by_bot),
         "created_at": n.created_at,
         "supplier": {"id": n.supplier.id, "name": n.supplier.name} if n.supplier else None,
@@ -305,6 +306,90 @@ def serve_nakladnaya_photo(filename: str):
     if not os.path.isfile(full):
         raise HTTPException(status_code=404, detail="Файл не найден")
     return FileResponse(full)
+
+
+@router.get("/{nak_id}/excel", dependencies=[Depends(get_current_user)])
+def get_nakladnaya_excel(
+    nak_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Генерирует и скачивает Excel для одной накладной."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl не установлен")
+
+    tdb = _db(current_user, db)
+    try:
+        session = tdb
+        query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        if current_user.role == "superadmin" and current_user.tenant_id is None:
+            session = db
+            query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        nak = query.first()
+        if not nak:
+            raise HTTPException(status_code=404, detail="Накладная не найдена")
+
+        products = _parse_products(nak)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Товары"
+
+        # Шапка накладной
+        info = [
+            ("Поставщик", nak.supplier_name or ""),
+            ("Тип", nak.doc_type or ""),
+            ("Серия", nak.doc_series or ""),
+            ("Номер", nak.doc_number or ""),
+            ("Дата", nak.doc_date or ""),
+            ("Сумма с НДС", float(nak.amount) if nak.amount else ""),
+            ("НДС", float(nak.vat_amount) if nak.vat_amount else ""),
+            ("Магазин", nak.store or ""),
+        ]
+        bold = Font(bold=True)
+        for i, (label, val) in enumerate(info, 1):
+            ws.cell(row=i, column=1, value=label).font = bold
+            ws.cell(row=i, column=2, value=val)
+
+        # Таблица товаров
+        row_start = len(info) + 2
+        headers = ["Товар", "Кол-во", "Ед.", "Цена без НДС", "Сумма без НДС"]
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=row_start, column=col, value=h)
+            cell.font = bold
+            cell.alignment = Alignment(horizontal="center")
+
+        for i, p in enumerate(products, row_start + 1):
+            qty = p.get("qty") or 0
+            price = p.get("price_no_vat") or 0
+            total = round(qty * price, 2)
+            ws.cell(row=i, column=1, value=p.get("name", ""))
+            ws.cell(row=i, column=2, value=qty)
+            ws.cell(row=i, column=3, value=p.get("unit", ""))
+            ws.cell(row=i, column=4, value=price)
+            ws.cell(row=i, column=5, value=total)
+
+        for col in ws.columns:
+            max_len = max(len(str(c.value or "")) for c in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
+
+        import io
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        fname = f"nak_{nak.doc_type or 'doc'}_{nak.doc_series or ''}{nak.doc_number or nak.id}.xlsx"
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    finally:
+        tdb.close()
 
 
 @router.get("/export/products-excel", dependencies=[Depends(get_current_user)])

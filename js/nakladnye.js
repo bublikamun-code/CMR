@@ -292,7 +292,7 @@ async function loadNakladnyeTable() {
 
     try {
         const isFirstLoad = !tbody.querySelector('tr[data-id]');
-        if (isFirstLoad) tbody.innerHTML = getSkeletonHTML(10, 13);
+        if (isFirstLoad) tbody.innerHTML = getSkeletonHTML(10, 15);
 
         const [data, suppliers] = await Promise.all([
             apiFetch('/nakladnye'),
@@ -312,7 +312,7 @@ async function loadNakladnyeTable() {
         renderNakladnye();
     } catch (error) {
         if (!tbody.querySelector('tr[data-id]')) {
-            tbody.innerHTML = '<tr><td colspan="13"></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="15"></td></tr>';
             tbody.querySelector('td').appendChild(renderAlert({
                 type: 'error', title: 'Ошибка загрузки',
                 message: error.message, onRetry: () => loadNakladnyeTable()
@@ -343,7 +343,7 @@ function renderNakladnye() {
     updateNakladnyeTotals(rows);
 
     if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="13">
+        tbody.innerHTML = `<tr><td colspan="15">
             <div class="empty-state-wrapper">
                 <div class="empty-state-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
                 <div class="empty-state-title">Накладные не найдены</div>
@@ -367,6 +367,11 @@ function renderNakladnye() {
             ? `<span class="badge-neutral nak-photo-badge" title="${photos.length} фото" style="cursor:pointer" onclick="NakladnyeUI.showPhotos(${n.id})">📷 ${photos.length}</span>`
             : '<span class="text-muted">—</span>';
 
+        const hasProducts = Array.isArray(n.products) && n.products.length > 0;
+        const excelHtml = hasProducts
+            ? `<a href="/nakladnye/${n.id}/excel" class="btn-secondary btn-sm" style="padding:2px 8px;font-size:11px" title="Скачать Excel">📊</a>`
+            : '<span class="text-muted">—</span>';
+
         tr.innerHTML = `
             <td>${dateStr}</td>
             <td title="${escapeHtml(n.supplier_name || '')}">${escapeHtml(n.supplier_name) || '<span class="text-muted">—</span>'}</td>
@@ -380,6 +385,7 @@ function renderNakladnye() {
             <td class="td-center cb-col"><input type="checkbox" class="cb-arrived cb-custom" data-id="${n.id}" ${n.is_arrived ? 'checked' : ''} aria-label="Пришла"></td>
             <td class="td-center cb-col"><input type="checkbox" class="cb-paid cb-custom" data-id="${n.id}" ${n.is_paid ? 'checked' : ''} aria-label="Оплачена"></td>
             <td>${photosHtml}</td>
+            <td class="td-center">${excelHtml}</td>
             <td class="td-center">
                 <button class="btn-edit-row" data-nak-id="${n.id}" title="Редактировать" style="margin-right:4px">
                     <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>

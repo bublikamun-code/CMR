@@ -427,6 +427,7 @@ class Nakladnaya(Base):
     status = Column(String(20), default="new", index=True)  # new, verified, arrived, paid
     photo_paths = Column(Text, nullable=True)  # JSON array of file paths
     products_json = Column(Text, nullable=True)  # JSON array of product line items
+    excel_path = Column(String(255), nullable=True)  # generated Excel filename
     created_by_bot = Column(Boolean, default=False)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
