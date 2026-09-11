@@ -308,30 +308,31 @@ async def ocr_photo(image_bytes: bytes):
                 {
                     "role": "system",
                     "content": (
-                        "Ты OCR-ассистент для распознавания белорусских товарных накладных.\n"
-                        "Типы: ТН (товарная накладная), ТТН (товарно-транспортная), УПД.\n\n"
+                        "Ты OCR-ассистент для белорусских товарных накладных (ТН, ТТН, УПД).\n\n"
                         "ПРАВИЛА:\n"
-                        "• supplier_name — ГРУЗООТПРАВИТЕЛЬ. «Свет в доме» = грузополучатель (мы), НЕ указывай.\n"
-                        "• Серия — обычно 2 буквы СЛЕВА на документе (ЯЖ, АВ, МК и т.д.)\n"
-                        "• Номер — под штрихкодом или внизу документа, только цифры.\n"
-                        "• amount/vat_amount — бери из строки «ВСЕГО» / «ИТОГО» (последняя строка таблицы).\n\n"
+                        "• supplier_name — ГРУЗООТПРАВИТЕЛЬ. «Свет в доме» = грузополучатель, НЕ указывай.\n"
+                        "• Серия — 2 буквы СЛЕВА (ЯЖ, АВ, МК). Номер — под штрихкодом/внизу, только цифры.\n\n"
+                        "СУММЫ — КРИТИЧНО:\n"
+                        "• amount = «Стоимость с НДС» / «Всего с НДС» — это ОБЩАЯ СУММА (она ВСЕГДА больше, чем НДС).\n"
+                        "• vat_amount = «Сумма НДС» / «в т.ч. НДС» — это только налог (он ВСЕГДА меньше, чем amount).\n"
+                        "• Числа с десятичной точкой: 653.09, 108.84, 2170.80.\n"
+                        "• НЕ ПРОПУСКАЙ точку! «108,84» → 108.84 (не 10884). Запятая = точка.\n"
+                        "• amount > vat_amount — это всегда так. Если наоборот — ты перепутал поля.\n\n"
                         "Верни ТОЛЬКО JSON:\n"
                         "{\n"
-                        '  "supplier_name": "грузоотправитель (ИП, ООО, ОДО, ЧТУП...)",\n'
+                        '  "supplier_name": "грузоотправитель",\n'
                         '  "doc_type": "ТН" | "ТТН" | "УПД",\n'
                         '  "doc_series": "буквы серии",\n'
                         '  "doc_number": "цифры номера",\n'
                         '  "doc_date": "YYYY-MM-DD",\n'
-                        '  "amount": число_итого_с_НДС,\n'
-                        '  "vat_amount": число_НДС,\n'
+                        '  "amount": общая_сумма_с_НДС,\n'
+                        '  "vat_amount": сумма_НДС_отдельно,\n'
                         '  "unload_address": "адрес разгрузки (ТТН)",\n'
-                        '  "page_number": номер_этой_страницы,\n'
-                        '  "total_pages": всего_страниц_в_документе\n'
+                        '  "page_number": номер_страницы,\n'
+                        '  "total_pages": всего_страниц\n'
                         "}\n"
-                        "Если поле не видно — null. "
-                        "page_number: если не указано явно — 1. "
-                        "total_pages: если документ явно не закончен (обрезан, «продолжение на обороте») — 2, иначе 1.\n"
-                        "ТОЛЬКО JSON, без markdown."
+                        "Не видно — null. page_number по умолчанию 1.\n"
+                        "ТОЛЬКО JSON."
                     ),
                 },
                 {
@@ -348,7 +349,32 @@ async def ocr_photo(image_bytes: bytes):
         text = response.choices[0].message.content.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-        return json.loads(text)
+        data = json.loads(text)
+
+        # Валидация сумм
+        amt = data.get("amount")
+        vat = data.get("vat_amount")
+
+        def fix_decimal(v):
+            """Если число целое и подозрительно большое (>9999), вероятно пропущена точка."""
+            if v is None:
+                return v
+            v = float(v)
+            if v == int(v) and v >= 10000:
+                v = v / 100
+            return round(v, 2)
+
+        if amt is not None:
+            data["amount"] = fix_decimal(amt)
+        if vat is not None:
+            data["vat_amount"] = fix_decimal(vat)
+
+        # amount всегда >= vat_amount, иначе меняем местами
+        if (data.get("amount") and data.get("vat_amount")
+                and data["amount"] < data["vat_amount"]):
+            data["amount"], data["vat_amount"] = data["vat_amount"], data["amount"]
+
+        return data
     except Exception as e:
         logger.error(f"OCR error: {e}")
         return None
