@@ -439,7 +439,11 @@ def _validate_ocr_item(item):
         item["amount"] = _normalize_number(item["amount"])
     if item.get("vat_amount") is not None:
         item["vat_amount"] = _normalize_number(item["vat_amount"])
-    if (item.get("amount") and item.get("vat_amount")
+    # FIX 2026-09-12 (Фаза 2, дефект 11): условие на `is not None`, а не на
+    # «значение истинно». Раньше amount=0 не считался заданным, пара не
+    # менялась местами, и сервер (теперь проверяющий amount >= vat_amount)
+    # отклонял документ, который бот потерял бы вместо того, чтобы починить.
+    if (item.get("amount") is not None and item.get("vat_amount") is not None
             and item["amount"] < item["vat_amount"]):
         item["amount"], item["vat_amount"] = item["vat_amount"], item["amount"]
     if item.get("doc_type") != "ТТН":
@@ -605,7 +609,9 @@ async def ocr_photo(image_bytes: bytes):
             data["vat_amount"] = fix_decimal(data["vat_amount"])
 
         # amount всегда >= vat_amount
-        if (data.get("amount") and data.get("vat_amount")
+        # FIX 2026-09-12 (дефект 11): `is not None` вместо проверки на истинность —
+        # иначе amount=0 не менялся местами с vat_amount и сервер отклонял документ.
+        if (data.get("amount") is not None and data.get("vat_amount") is not None
                 and data["amount"] < data["vat_amount"]):
             data["amount"], data["vat_amount"] = data["vat_amount"], data["amount"]
 

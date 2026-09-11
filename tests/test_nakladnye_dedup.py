@@ -291,19 +291,84 @@ def test_bot_create_stores_products(client, bot_headers, db):
 
 
 # ---------------------------------------------------------------------------
-# Валидация сумм и справочников — на сервере отсутствует
+# Валидация сумм и справочников на сервере (дефекты 11 и 12 — починены)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: проверки amount >= vat_amount на сервере нет — "
-                          "она живёт только в telegram-боте и там лишь меняет значения местами. "
-                          "CRM-эндпоинты принимают НДС больше суммы документа.")
 def test_vat_greater_than_amount_rejected(client, bot_headers):
+    """Починено в Фазе 2 (2026-09-12, дефект 11).
+
+    amount — «Стоимость с НДС», vat_amount — «Сумма НДС» внутри неё, поэтому
+    НДС больше итога документа быть не может. Проверка переехала с бота
+    (где она лишь молча меняла значения местами) на сервер: теперь её не
+    обходит ни CRM-модалка, ни прямой запрос к API.
+    """
     r = client.post("/nakladnye/bot/create", headers=bot_headers, json={
         "doc_series": "АБ", "doc_number": "1", "amount": 100.0, "vat_amount": 500.0,
     })
     assert r.status_code == 422
+
+
+def test_vat_greater_than_amount_rejected_on_crm_create(client, manager):
+    """То же правило на CRM-пути создания: бот не единственный источник."""
+    _, h = manager
+    r = client.post("/nakladnye", headers=h, json={
+        "doc_series": "АБ", "doc_number": "11", "amount": 100.0, "vat_amount": 500.0,
+    })
+    assert r.status_code == 422
+
+
+def test_partial_update_cannot_break_amount_vs_vat(client, manager, db):
+    """Частичная правка одного поля из пары проверяется по строке базы.
+
+    NakladnayaUpdate видит только присланные поля: vat_amount=500 при
+    сохранённом amount=100 схема сравнить не может в принципе, второе
+    значение лежит в БД. Поэтому правило дублирует nakladnye_router,
+    сравнивая эффективные значения. Отказ 400 (бизнес-правило), не 422.
+    """
+    _, h = manager
+    nak = models.Nakladnaya(doc_series="АБ", doc_number="12", amount=100.0,
+                            vat_amount=16.67, supplier_name="П")
+    db.add(nak)
+    db.commit()
+
+    r = client.patch(f"/nakladnye/{nak.id}", headers=h, json={"vat_amount": 500.0})
+    assert r.status_code == 400, r.text
+
+    r2 = client.patch(f"/nakladnye/{nak.id}", headers=h, json={"amount": 5.0})
+    assert r2.status_code == 400, r2.text
+
+    _reload(db)
+    fresh = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak.id).first()
+    assert round(float(fresh.amount), 2) == 100.0
+    assert round(float(fresh.vat_amount), 2) == 16.67
+
+
+@pytest.mark.parametrize("payload", [
+    {"doc_series": "АБ", "doc_number": "20", "amount": 100.0},
+    {"doc_series": "АБ", "doc_number": "30", "vat_amount": 16.67},
+    {"supplier_name": "Не распознано", "store": STORE, "status": "new"},
+])
+def test_bot_payload_with_one_amount_is_accepted(client, bot_headers, db, payload):
+    """Отказ мягкий, когда задано только одно из двух полей (или ни одного).
+
+    OCR распознаёт не всё: бот регулярно присылает amount без vat_amount
+    и наоборот, а fallback-ветка при нераспознанном документе не шлёт ни того,
+    ни другого (telegram_nakladnye_bot.py, «Не распознано»). Жёсткая проверка
+    потеряла бы эти накладные.
+    """
+    r = client.post("/nakladnye/bot/create", headers=bot_headers, json=payload)
+    assert r.status_code == 200, r.text
+
+    _reload(db)
+    assert db.query(models.Nakladnaya).count() == 1
+
+
+def test_equal_amount_and_vat_is_accepted(client, bot_headers):
+    """Граница правила: amount == vat_amount — не нарушение (строгое «меньше»)."""
+    r = client.post("/nakladnye/bot/create", headers=bot_headers, json={
+        "doc_series": "АБ", "doc_number": "40", "amount": 100.0, "vat_amount": 100.0,
+    })
+    assert r.status_code == 200, r.text
 
 
 def test_garbage_status_and_doc_type_rejected(client, bot_headers):

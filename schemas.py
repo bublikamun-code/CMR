@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from typing import List, Optional
 from datetime import datetime, date
 
@@ -569,6 +569,34 @@ def _check_nakladnaya_doc_type(v):
     return v
 
 
+def _check_nakladnaya_amounts(amount, vat_amount):
+    """FIX 2026-09-12 (Фаза 2, дефект 11): amount >= vat_amount.
+
+    amount — «Стоимость с НДС», vat_amount — «Сумма НДС» ВНУТРИ этой стоимости,
+    поэтому НДС больше итога документа быть не может физически. Проверка жила
+    только в telegram-боте и там не отклоняла, а молча меняла значения местами;
+    CRM-эндпоинты принимали что угодно, и в базе оказывалась накладная,
+    у которой НДС превышает сумму.
+
+    Отказ мягкий, когда хотя бы одно из полей не задано: оба поля опциональны
+    (OCR распознаёт не всё, а в модалке CRM их можно оставить пустыми), и
+    сравнивать нечего. Бот к тому же меняет amount и vat_amount местами ДО
+    отправки — но только когда оба значения непустые, поэтому согласованность
+    присланной пары он уже гарантирует.
+
+    Сравнение по round(x, 2): колонки REAL/Numeric, а сумма и НДС часто
+    вычислены независимо, и расхождение в третий знак после запятой
+    содержательной ошибкой не является.
+    """
+    if amount is None or vat_amount is None:
+        return
+    if round(float(amount), 2) < round(float(vat_amount), 2):
+        raise ValueError(
+            f"НДС ({round(float(vat_amount), 2):.2f}) не может превышать сумму "
+            f"документа с НДС ({round(float(amount), 2):.2f})"
+        )
+
+
 class NakladnayaBase(BaseModel):
     supplier_id: Optional[int] = None
     supplier_name: Optional[str] = None
@@ -595,6 +623,11 @@ class NakladnayaBase(BaseModel):
     @classmethod
     def validate_doc_type(cls, v):
         return _check_nakladnaya_doc_type(v)
+
+    @model_validator(mode="after")
+    def validate_amounts(self):
+        _check_nakladnaya_amounts(self.amount, self.vat_amount)
+        return self
 
 class NakladnayaCreate(NakladnayaBase):
     pass
@@ -628,6 +661,16 @@ class NakladnayaUpdate(BaseModel):
     @classmethod
     def validate_doc_type(cls, v):
         return _check_nakladnaya_doc_type(v)
+
+    @model_validator(mode="after")
+    def validate_amounts(self):
+        # ОГРАНИЧЕНИЕ (дефект 11): схема видит только присланные поля, поэтому
+        # частичная правка одного из пары (например только vat_amount=500 при
+        # сохранённом amount=100) здесь непроверяема в принципе — значения
+        # живут в разных местах. Такую правку отсекает nakladnye_router
+        # (_ensure_amounts_consistent), сравнивая присланное со строкой базы.
+        _check_nakladnaya_amounts(self.amount, self.vat_amount)
+        return self
 
 class SupplierBrief(BaseModel):
     id: int

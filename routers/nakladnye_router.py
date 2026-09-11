@@ -49,6 +49,34 @@ def _parse_products(n) -> list:
         return []
 
 
+def _ensure_amounts_consistent(amount, vat_amount):
+    """FIX 2026-09-12 (Фаза 2, дефект 11): НДС не может превышать сумму с НДС.
+
+    Схема NakladnayaUpdate проверяет пару только когда оба значения присланы
+    вместе. Частичная правка одного поля (vat_amount=500 при сохранённом
+    amount=100) схеме неподвластна: второе значение лежит в базе. Поэтому
+    здесь сравниваются ЭФФЕКТИВНЫЕ значения — присланное поверх сохранённого.
+
+    Отказ 400, а не 422: это проверка бизнес-правила по данным из базы,
+    а не ошибка формата запроса.
+    """
+    if amount is None or vat_amount is None:
+        return
+    if round(float(amount), 2) < round(float(vat_amount), 2):
+        raise HTTPException(
+            status_code=400,
+            detail=(f"НДС ({round(float(vat_amount), 2):.2f}) не может превышать "
+                    f"сумму документа с НДС ({round(float(amount), 2):.2f})"),
+        )
+
+
+def _effective_amounts(nak: models.Nakladnaya, update_data: dict):
+    """Сумма и НДС, которые получатся после применения update_data к nak."""
+    amount = update_data["amount"] if "amount" in update_data else nak.amount
+    vat = update_data["vat_amount"] if "vat_amount" in update_data else nak.vat_amount
+    return amount, vat
+
+
 def _nak_dict(n: models.Nakladnaya) -> dict:
     photos = []
     if n.photo_paths:
@@ -192,6 +220,9 @@ def update_nakladnaya(
             raise HTTPException(status_code=404, detail="Накладная не найдена")
 
         update_data = updates.model_dump(exclude_unset=True)
+        # дефект 11: НДС не больше суммы документа — по эффективным значениям,
+        # потому что схема видит только присланные поля (см. _ensure_amounts_consistent)
+        _ensure_amounts_consistent(*_effective_amounts(nak, update_data))
         if "supplier_id" in update_data and update_data["supplier_id"]:
             sup = session.query(models.Supplier).filter(models.Supplier.id == update_data["supplier_id"]).first()
             if sup and "supplier_name" not in update_data:
@@ -502,6 +533,8 @@ def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Se
         raise HTTPException(status_code=404, detail="Накладная не найдена")
 
     update_data = updates.model_dump(exclude_unset=True)
+    # дефект 11: то же правило, что и в CRM PATCH /nakladnye/{id}
+    _ensure_amounts_consistent(*_effective_amounts(nak, update_data))
     products = update_data.pop("products", None)
     if products is not None:
         nak.products_json = json.dumps(products, ensure_ascii=False) if products else None
