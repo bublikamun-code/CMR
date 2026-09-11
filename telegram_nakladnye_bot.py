@@ -158,26 +158,60 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Нет фото. Отправьте хотя бы одно. /start")
             return ConversationHandler.END
 
-        await query.edit_message_text("⏳ Обрабатываю накладные...")
+        await query.edit_message_text(f"⏳ Обрабатываю {len(photos)} фото...")
 
-        results = []
+        ocr_results = []
         for photo in photos:
             ocr = await ocr_photo(photo["data"])
             if ocr:
-                results.append(ocr)
+                ocr["_photo"] = photo
+                ocr_results.append(ocr)
+
+        # Группируем по номеру накладной: несколько фото = одна накладная
+        invoices = {}
+        warnings = []
+        for ocr in ocr_results:
+            num = ocr.get("doc_number") or "unknown"
+            if num not in invoices:
+                invoices[num] = []
+            invoices[num].append(ocr)
+
+        # Для каждой группы: данные с первой страницы, суммы с последней
+        merged = []
+        for num, pages in invoices.items():
+            first = pages[0]
+            last = pages[-1]  # итоговые суммы на последней странице
+            page_num = first.get("page_number")
+            total_pages = first.get("total_pages")
+            if page_num and total_pages and len(pages) < total_pages:
+                warnings.append(
+                    f"⚠️ {first.get('doc_type','')} №{num}: "
+                    f"ожидалось {total_pages} стр., получено {len(pages)}"
+                )
+            merged.append({
+                "supplier_name": first.get("supplier_name", ""),
+                "doc_type": first.get("doc_type", ""),
+                "doc_series": first.get("doc_series", ""),
+                "doc_number": first.get("doc_number", ""),
+                "doc_date": first.get("doc_date", ""),
+                "amount": last.get("amount"),
+                "vat_amount": last.get("vat_amount"),
+                "unload_address": first.get("unload_address", ""),
+                "photos": [p["_photo"] for p in pages],
+            })
 
         import httpx
         async with httpx.AsyncClient() as client:
-            for i, ocr in enumerate(results):
+            for inv in merged:
                 payload = {
-                    "supplier_name": ocr.get("supplier_name", ""),
-                    "doc_type": ocr.get("doc_type", ""),
-                    "doc_series": ocr.get("doc_series", ""),
-                    "doc_number": ocr.get("doc_number", ""),
-                    "doc_date": ocr.get("doc_date", ""),
-                    "amount": ocr.get("amount"),
-                    "vat_amount": ocr.get("vat_amount"),
-                    "unload_address": ocr.get("unload_address", ""),
+                    "supplier_name": inv["supplier_name"],
+                    "doc_type": inv["doc_type"],
+                    "doc_series": inv["doc_series"],
+                    "doc_number": inv["doc_number"],
+                    "doc_date": inv["doc_date"],
+                    "amount": inv["amount"],
+                    "vat_amount": inv["vat_amount"],
+                    "unload_address": inv["unload_address"],
                     "store": store,
                     "status": "new",
                 }
@@ -186,17 +220,18 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{CRM_API_URL}/nakladnye/bot/check-duplicate",
                     headers={"X-Bot-Token": BOT_TOKEN},
                     params={
-                        "doc_type": ocr.get("doc_type", ""),
-                        "doc_number": ocr.get("doc_number", ""),
+                        "doc_type": inv["doc_type"],
+                        "doc_number": inv["doc_number"],
                     },
                 )
                 if dup_check.status_code == 200 and dup_check.json().get("duplicate"):
                     nak_id = dup_check.json().get("id")
-                    await client.post(
-                        f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
-                        headers={"X-Bot-Token": BOT_TOKEN},
-                        files={"file": (photo["filename"], photo["data"], "image/jpeg")},
-                    )
+                    for photo in inv["photos"]:
+                        await client.post(
+                            f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
+                            headers={"X-Bot-Token": BOT_TOKEN},
+                            files={"file": (photo["filename"], photo["data"], "image/jpeg")},
+                        )
                     continue
 
                 resp = await client.post(
@@ -207,23 +242,20 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if resp.status_code == 200:
                     nak = resp.json()
                     nak_id = nak["id"]
-                    await client.post(
-                        f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
-                        headers={"X-Bot-Token": BOT_TOKEN},
-                        files={"file": (photo["filename"], photo["data"], "image/jpeg")},
-                    )
+                    for photo in inv["photos"]:
+                        await client.post(
+                            f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
+                            headers={"X-Bot-Token": BOT_TOKEN},
+                            files={"file": (photo["filename"], photo["data"], "image/jpeg")},
+                        )
                 else:
                     logger.error(f"CRM error: {resp.status_code} {resp.text}")
 
-            if not results:
+            if not merged:
                 resp = await client.post(
                     f"{CRM_API_URL}/nakladnye/bot/create",
                     headers={"X-Bot-Token": BOT_TOKEN},
-                    json={
-                        "supplier_name": "Не распознано",
-                        "store": store,
-                        "status": "new",
-                    },
+                    json={"supplier_name": "Не распознано", "store": store, "status": "new"},
                 )
                 if resp.status_code == 200:
                     nak = resp.json()
@@ -235,21 +267,26 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         )
 
         summary_lines = []
-        for r in results:
-            name = r.get("supplier_name", "?")
-            num = r.get("doc_number", "?")
-            amt = r.get("amount", "—")
-            dtype = r.get("doc_type", "")
-            summary_lines.append(f"• {dtype} {name} №{num} — {amt} BYN")
+        for inv in merged:
+            name = inv["supplier_name"] or "?"
+            num = inv["doc_number"] or "?"
+            amt = inv["amount"] or "—"
+            dtype = inv["doc_type"] or ""
+            pages_count = len(inv["photos"])
+            pages_str = f" ({pages_count} стр.)" if pages_count > 1 else ""
+            summary_lines.append(f"• {dtype} {name} №{num} — {amt} BYN{pages_str}")
 
-        if not results:
+        if not merged:
             summary_lines = ["• Фото сохранены, данные не распознаны — проверьте вручную"]
+
+        warn_text = ("\n\n" + "\n".join(warnings)) if warnings else ""
 
         await query.edit_message_text(
             f"✅ *Сохранено в CRM*\n\n"
             f"Склад: {store}\n"
-            f"Накладных: {max(len(results), 1)}\n\n"
+            f"Накладных: {max(len(merged), 1)}\n\n"
             + "\n".join(summary_lines)
+            + warn_text
             + "\n\n/start — принять ещё",
             parse_mode="Markdown",
         )
@@ -273,23 +310,27 @@ async def ocr_photo(image_bytes: bytes):
                     "content": (
                         "Ты OCR-ассистент для распознавания белорусских товарных накладных.\n"
                         "Типы: ТН (товарная накладная), ТТН (товарно-транспортная), УПД.\n\n"
-                        "ПРАВИЛО: supplier_name — это ГРУЗООТПРАВИТЕЛЬ (тот, кто отгружает товар). "
-                        "«Свет в доме» / «ООО Свет в доме» — это всегда грузополучатель (мы), "
-                        "его НЕ указывай как поставщика.\n\n"
-                        "Извлеки поля и верни ТОЛЬКО валидный JSON:\n"
+                        "ПРАВИЛА:\n"
+                        "• supplier_name — ГРУЗООТПРАВИТЕЛЬ. «Свет в доме» = грузополучатель (мы), НЕ указывай.\n"
+                        "• Серия — обычно 2 буквы СЛЕВА на документе (ЯЖ, АВ, МК и т.д.)\n"
+                        "• Номер — под штрихкодом или внизу документа, только цифры.\n"
+                        "• amount/vat_amount — бери из строки «ВСЕГО» / «ИТОГО» (последняя строка таблицы).\n\n"
+                        "Верни ТОЛЬКО JSON:\n"
                         "{\n"
-                        '  "supplier_name": "грузоотправитель — полное название (ИП, ООО, ОДО, ЧТУП и т.д.)",\n'
-                        '  "doc_type": "ТН" или "ТТН" или "УПД",\n'
-                        '  "doc_series": "серия бланка (буквы: ЯЖ, АВ, МК и т.д.)",\n'
-                        '  "doc_number": "номер — только цифры",\n'
-                        '  "doc_date": "дата YYYY-MM-DD",\n'
-                        '  "amount": число — ИТОГО С НДС (итоговая строка таблицы, "Всего стоимость с НДС")\n'
-                        '  "vat_amount": число — СУММА НДС ("Всего сумма НДС")\n'
-                        '  "unload_address": "адрес разгрузки (для ТТН)"\n'
+                        '  "supplier_name": "грузоотправитель (ИП, ООО, ОДО, ЧТУП...)",\n'
+                        '  "doc_type": "ТН" | "ТТН" | "УПД",\n'
+                        '  "doc_series": "буквы серии",\n'
+                        '  "doc_number": "цифры номера",\n'
+                        '  "doc_date": "YYYY-MM-DD",\n'
+                        '  "amount": число_итого_с_НДС,\n'
+                        '  "vat_amount": число_НДС,\n'
+                        '  "unload_address": "адрес разгрузки (ТТН)",\n'
+                        '  "page_number": номер_этой_страницы,\n'
+                        '  "total_pages": всего_страниц_в_документе\n'
                         "}\n"
-                        "Если не распознано — null.\n"
-                        "amount и vat_amount — числа (2170.80), не текст. "
-                        "Бери из ИТОГОВОЙ строки.\n"
+                        "Если поле не видно — null. "
+                        "page_number: если не указано явно — 1. "
+                        "total_pages: если документ явно не закончен (обрезан, «продолжение на обороте») — 2, иначе 1.\n"
                         "ТОЛЬКО JSON, без markdown."
                     ),
                 },
