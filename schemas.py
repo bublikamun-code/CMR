@@ -500,10 +500,11 @@ class NakladnayaBase(BaseModel):
     doc_number: Optional[str] = None
     doc_date: Optional[str] = None
     amount: Optional[float] = None
-    amount_no_vat: Optional[float] = None
+    vat_amount: Optional[float] = None
     unload_address: Optional[str] = None
     store: Optional[str] = None
     is_verified: bool = False
+    is_arrived: bool = False
     is_paid: bool = False
     status: str = "new"
 
@@ -518,10 +519,11 @@ class NakladnayaUpdate(BaseModel):
     doc_number: Optional[str] = None
     doc_date: Optional[str] = None
     amount: Optional[float] = None
-    amount_no_vat: Optional[float] = None
+    vat_amount: Optional[float] = None
     unload_address: Optional[str] = None
     store: Optional[str] = None
     is_verified: Optional[bool] = None
+    is_arrived: Optional[bool] = None
     is_paid: Optional[bool] = None
     status: Optional[str] = None
 

@@ -12004,7 +12004,8 @@ h2, h3 {
 
 /* --- 9. Итоговая строка — sticky footer --------------------- */
 #payments-table .table-totals td,
-#documents-table .table-totals td {
+#documents-table .table-totals td,
+#nakladnye-table .table-totals td {
     position: sticky;
     bottom: 0;
     z-index: 11;

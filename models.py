@@ -418,10 +418,11 @@ class Nakladnaya(Base):
     doc_number = Column(String(50), nullable=True, index=True)
     doc_date = Column(String(20), nullable=True)
     amount = Column(Numeric(12, 2), nullable=True)  # с НДС
-    amount_no_vat = Column(Numeric(12, 2), nullable=True)  # без НДС
+    vat_amount = Column(Numeric(12, 2), nullable=True)  # сумма НДС
     unload_address = Column(String(255), nullable=True)
     store = Column(String(100), nullable=True, index=True)
     is_verified = Column(Boolean, default=False)
+    is_arrived = Column(Boolean, default=False)
     is_paid = Column(Boolean, default=False)
     status = Column(String(20), default="new", index=True)  # new, verified, arrived, paid
     photo_paths = Column(Text, nullable=True)  # JSON array of file paths

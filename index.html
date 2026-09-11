@@ -308,10 +308,11 @@
                                 <th class="sortable" data-sort="doc_type">Тип</th>
                                 <th class="sortable" data-sort="doc_number">№ накладной</th>
                                 <th class="sortable" data-sort="amount">Сумма с НДС</th>
-                                <th class="sortable" data-sort="amount_no_vat">Сумма без НДС</th>
+                                <th class="sortable" data-sort="vat_amount">НДС</th>
                                 <th class="sortable" data-sort="store">Магазин</th>
                                 <th>Адрес разгрузки</th>
                                 <th class="cb-col" title="Проверена">✓</th>
+                                <th class="cb-col" title="Пришла">⬇</th>
                                 <th class="cb-col" title="Оплачена">₽</th>
                                 <th>Фото</th>
                                 <th></th>
@@ -323,7 +324,7 @@
                             <tr class="table-totals">
                                 <td>Итого</td>
                                 <td id="nakladnye-count"></td>
-                                <td id="nakladnye-total" colspan="9"></td>
+                                <td id="nakladnye-total" colspan="11"></td>
                             </tr>
                         </tfoot>
                     </table>
@@ -880,24 +881,16 @@
                     <label>Сумма с НДС
                         <input type="number" id="nak-amount" step="0.01" min="0" placeholder="0.00">
                     </label>
-                    <label>Сумма без НДС
-                        <input type="number" id="nak-amount-no-vat" step="0.01" min="0" placeholder="0.00">
+                    <label>Сумма НДС
+                        <input type="number" id="nak-vat-amount" step="0.01" min="0" placeholder="0.00">
                     </label>
                     <label>Магазин
                         <select id="nak-store">
                             <option value="">—</option>
                         </select>
                     </label>
-                    <label>Адрес разгрузки
+                    <label style="grid-column:1/-1">Адрес разгрузки
                         <input type="text" id="nak-unload-address" placeholder="Для ТТН">
-                    </label>
-                    <label>Статус
-                        <select id="nak-status">
-                            <option value="new">Новая</option>
-                            <option value="verified">Проверена</option>
-                            <option value="arrived">Пришла</option>
-                            <option value="paid">Оплачена</option>
-                        </select>
                     </label>
                     <label style="grid-column:1/-1">Фото
                         <input type="file" id="nak-photos" accept="image/*" multiple>
@@ -970,7 +963,7 @@
     <script defer src="js/payments.js?v=272a0b37bc"></script>
     <script defer src="js/writeoffs.js?v=4959f2499b"></script>
     <script defer src="js/documents.js?v=9b0851f209"></script>
-    <script defer src="js/nakladnye.js?v=3"></script>
+    <script defer src="js/nakladnye.js?v=4"></script>
     <script defer src="js/contacts.js?v=f3ff5b3c89"></script>
     <script defer src="js/clients.js?v=2f13b2b536"></script>
     <script defer src="js/suppliers.js?v=dc70ccbaeb"></script>

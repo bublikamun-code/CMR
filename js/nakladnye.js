@@ -22,21 +22,20 @@ const NakladnyeUI = {
         this._populateSuppliers();
         this._populateStores();
 
-        // Reset form fields
+        // Reset all fields
         document.getElementById('nak-supplier-select').value = '';
         document.getElementById('nak-doc-type').value = '';
         document.getElementById('nak-doc-series').value = '';
         document.getElementById('nak-doc-number').value = '';
         document.getElementById('nak-doc-date').value = '';
         document.getElementById('nak-amount').value = '';
-        document.getElementById('nak-amount-no-vat').value = '';
+        document.getElementById('nak-vat-amount').value = '';
         document.getElementById('nak-store').value = '';
         document.getElementById('nak-unload-address').value = '';
-        document.getElementById('nak-status').value = 'new';
 
         // Rebuild enhanced dropdowns
         if (typeof enhanceSelectToDropdown === 'function') {
-            ['nak-supplier-select', 'nak-doc-type', 'nak-store', 'nak-status'].forEach(sid => {
+            ['nak-supplier-select', 'nak-doc-type', 'nak-store'].forEach(sid => {
                 const sel = document.getElementById(sid);
                 if (sel) {
                     sel.dataset.enhanced = '';
@@ -57,15 +56,11 @@ const NakladnyeUI = {
                 document.getElementById('nak-doc-number').value = nak.doc_number || '';
                 document.getElementById('nak-doc-date').value = nak.doc_date || '';
                 document.getElementById('nak-amount').value = nak.amount || '';
-                document.getElementById('nak-amount-no-vat').value = nak.amount_no_vat || '';
+                document.getElementById('nak-vat-amount').value = nak.vat_amount || '';
                 document.getElementById('nak-store').value = nak.store || '';
                 document.getElementById('nak-unload-address').value = nak.unload_address || '';
-                document.getElementById('nak-status').value = nak.status || 'new';
-                // Sync enhanced dropdowns
                 if (typeof syncEnhancedSelect === 'function') {
-                    ['nak-supplier-select', 'nak-doc-type', 'nak-store', 'nak-status'].forEach(sid => {
-                        syncEnhancedSelect(sid);
-                    });
+                    ['nak-supplier-select', 'nak-doc-type', 'nak-store'].forEach(sid => syncEnhancedSelect(sid));
                 }
             }
         } else {
@@ -112,10 +107,10 @@ const NakladnyeUI = {
             doc_number: document.getElementById('nak-doc-number').value || null,
             doc_date: document.getElementById('nak-doc-date').value || null,
             amount: parseFloat(document.getElementById('nak-amount').value) || null,
-            amount_no_vat: parseFloat(document.getElementById('nak-amount-no-vat').value) || null,
+            vat_amount: parseFloat(document.getElementById('nak-vat-amount').value) || null,
             store: document.getElementById('nak-store').value || null,
             unload_address: document.getElementById('nak-unload-address').value || null,
-            status: document.getElementById('nak-status').value || 'new',
+            status: 'new',
         };
 
         try {
@@ -124,37 +119,27 @@ const NakladnyeUI = {
                     method: 'PATCH',
                     body: JSON.stringify(data),
                 });
-            } else {
-                const created = await apiFetch('/nakladnye', {
-                    method: 'POST',
-                    body: JSON.stringify(data),
-                });
-
-                // Upload photos for new record
-                const photosInput = document.getElementById('nak-photos');
-                if (photosInput && photosInput.files.length > 0 && created && created.id) {
-                    for (const file of photosInput.files) {
-                        const fd = new FormData();
-                        fd.append('file', file);
-                        await apiFetch(`/nakladnye/${created.id}/photos`, {
-                            method: 'POST',
-                            body: fd,
-                        });
-                    }
-                }
-            }
-
-            // Upload photos for existing record
-            if (this.editingId) {
+                // Photos for existing
                 const photosInput = document.getElementById('nak-photos');
                 if (photosInput && photosInput.files.length > 0) {
                     for (const file of photosInput.files) {
                         const fd = new FormData();
                         fd.append('file', file);
-                        await apiFetch(`/nakladnye/${this.editingId}/photos`, {
-                            method: 'POST',
-                            body: fd,
-                        });
+                        await apiFetch(`/nakladnye/${this.editingId}/photos`, { method: 'POST', body: fd });
+                    }
+                }
+            } else {
+                const created = await apiFetch('/nakladnye', {
+                    method: 'POST',
+                    body: JSON.stringify(data),
+                });
+                // Photos for new
+                const photosInput = document.getElementById('nak-photos');
+                if (photosInput && photosInput.files.length > 0 && created && created.id) {
+                    for (const file of photosInput.files) {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        await apiFetch(`/nakladnye/${created.id}/photos`, { method: 'POST', body: fd });
                     }
                 }
             }
@@ -164,7 +149,7 @@ const NakladnyeUI = {
             showToast(this.editingId ? 'Накладная обновлена' : 'Накладная создана', 'success');
         } catch (err) {
             showToast('Ошибка: ' + err.message, 'error');
-            console.error('Save nakladnaya error:', err);
+            console.error('Save nakladnaya:', err);
         }
     },
 
@@ -186,8 +171,7 @@ const NakladnyeUI = {
                         <button class="btn-secondary" onclick="document.getElementById('nak-photos-overlay').classList.add('hidden')">Закрыть</button>
                     </div>
                     <div id="nak-photos-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px"></div>
-                </div>
-            `;
+                </div>`;
             document.body.appendChild(overlay);
         }
         const grid = document.getElementById('nak-photos-grid');
@@ -204,7 +188,6 @@ const NakladnyeUI = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Load data if tab is active
     if (document.getElementById('page-finance')?.classList.contains('active')
         && document.getElementById('page-nakladnye')?.classList.contains('active')) loadNakladnyeTable();
 
@@ -215,16 +198,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bindTableSearch('nakladnye-search', 'nakladnye-table');
 
-    // Save button — direct click by ID
-    document.getElementById('nak-save-btn')?.addEventListener('click', () => {
-        NakladnyeUI.save();
-    });
+    document.getElementById('nak-save-btn')?.addEventListener('click', () => NakladnyeUI.save());
 
-    const addBtn = document.getElementById('nakladnye-add-btn');
-    if (addBtn) addBtn.addEventListener('click', () => NakladnyeUI.openModal());
+    document.getElementById('nakladnye-add-btn')?.addEventListener('click', () => NakladnyeUI.openModal());
 
-    const exportBtn = document.getElementById('nakladnye-export');
-    if (exportBtn) exportBtn.addEventListener('click', () => exportNakladnyeCsv());
+    document.getElementById('nakladnye-export')?.addEventListener('click', () => exportNakladnyeCsv());
 
     // Filter: store
     const storeFilter = document.getElementById('nakladnye-filter-store');
@@ -263,7 +241,7 @@ async function loadNakladnyeTable() {
 
     try {
         const isFirstLoad = !tbody.querySelector('tr[data-id]');
-        if (isFirstLoad) tbody.innerHTML = getSkeletonHTML(10, 12);
+        if (isFirstLoad) tbody.innerHTML = getSkeletonHTML(10, 13);
 
         const [data, suppliers] = await Promise.all([
             apiFetch('/nakladnye'),
@@ -283,7 +261,7 @@ async function loadNakladnyeTable() {
         renderNakladnye();
     } catch (error) {
         if (!tbody.querySelector('tr[data-id]')) {
-            tbody.innerHTML = '<tr><td colspan="12"></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="13"></td></tr>';
             tbody.querySelector('td').appendChild(renderAlert({
                 type: 'error', title: 'Ошибка загрузки',
                 message: error.message, onRetry: () => loadNakladnyeTable()
@@ -314,14 +292,12 @@ function renderNakladnye() {
     updateNakladnyeTotals(rows);
 
     if (rows.length === 0) {
-        tbody.innerHTML = `
-            <tr><td colspan="12">
-                <div class="empty-state-wrapper">
-                    <div class="empty-state-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
-                    <div class="empty-state-title">Накладные не найдены</div>
-                    <div class="empty-state-desc">Нажмите «Добавить» или дождитесь данных от бота.</div>
-                </div>
-            </td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="13">
+            <div class="empty-state-wrapper">
+                <div class="empty-state-icon"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                <div class="empty-state-title">Накладные не найдены</div>
+                <div class="empty-state-desc">Нажмите «Добавить» или дождитесь данных от бота.</div>
+            </div></td></tr>`;
         return;
     }
 
@@ -346,10 +322,11 @@ function renderNakladnye() {
             <td><span class="badge-neutral">${escapeHtml(n.doc_type) || '—'}</span></td>
             <td>${escapeHtml((n.doc_series ? n.doc_series + '-' : '') + (n.doc_number || '')) || '—'}</td>
             <td class="amount-cell"><b class="tabular-nums">${n.amount != null ? formatMoneyBYN(n.amount) : '—'}</b></td>
-            <td class="amount-cell"><b class="tabular-nums">${n.amount_no_vat != null ? formatMoneyBYN(n.amount_no_vat) : '—'}</b></td>
-            <td>${n.store ? `<span class="badge-neutral" data-kind="store" title="${escapeHtml(n.store)}">${escapeHtml(n.store)}</span>` : '—'}</td>
+            <td class="amount-cell"><b class="tabular-nums">${n.vat_amount != null ? formatMoneyBYN(n.vat_amount) : '—'}</b></td>
+            <td>${n.store ? `<span class="badge-neutral" data-kind="store">${escapeHtml(n.store)}</span>` : '—'}</td>
             <td>${escapeHtml(n.unload_address) || '—'}</td>
             <td class="td-center cb-col"><input type="checkbox" class="cb-verified cb-custom" data-id="${n.id}" ${n.is_verified ? 'checked' : ''} aria-label="Проверена"></td>
+            <td class="td-center cb-col"><input type="checkbox" class="cb-arrived cb-custom" data-id="${n.id}" ${n.is_arrived ? 'checked' : ''} aria-label="Пришла"></td>
             <td class="td-center cb-col"><input type="checkbox" class="cb-paid cb-custom" data-id="${n.id}" ${n.is_paid ? 'checked' : ''} aria-label="Оплачена"></td>
             <td>${photosHtml}</td>
             <td class="td-center">
@@ -359,27 +336,22 @@ function renderNakladnye() {
                 <button class="btn-delete-row" data-nak-id="${n.id}" title="Удалить">
                     <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
-            </td>
-        `;
+            </td>`;
         tbody.appendChild(tr);
     });
 
-    // Bind events
-    tbody.querySelectorAll('.cb-verified').forEach(cb => {
-        cb.onchange = () => _updateCheckbox(cb);
-    });
-    tbody.querySelectorAll('.cb-paid').forEach(cb => {
-        cb.onchange = () => _updateCheckbox(cb);
-    });
+    tbody.querySelectorAll('.cb-verified').forEach(cb => { cb.onchange = () => _updateCb(cb); });
+    tbody.querySelectorAll('.cb-arrived').forEach(cb => { cb.onchange = () => _updateCb(cb); });
+    tbody.querySelectorAll('.cb-paid').forEach(cb => { cb.onchange = () => _updateCb(cb); });
     tbody.querySelectorAll('.btn-edit-row').forEach(btn => {
         btn.onclick = () => NakladnyeUI.openModal(parseInt(btn.dataset.nakId));
     });
     tbody.querySelectorAll('.btn-delete-row').forEach(btn => {
         btn.onclick = async () => {
-            if (!await confirmDialog('Удалить эту накладную?', { okText: 'Удалить', danger: true })) return;
+            if (!await confirmDialog('Удалить накладную?', { okText: 'Удалить', danger: true })) return;
             try {
                 await apiFetch(`/nakladnye/${btn.dataset.nakId}`, { method: 'DELETE' });
-                showToast('Накладная удалена', 'success');
+                showToast('Удалена', 'success');
                 loadNakladnyeTable();
             } catch (err) {
                 showToast('Ошибка: ' + err.message, 'error');
@@ -391,17 +363,35 @@ function renderNakladnye() {
     if (search && search.value) filterTableRows('nakladnye-table', search.value);
 }
 
-async function _updateCheckbox(cb) {
+async function _updateCb(cb) {
     const id = cb.dataset.id;
-    const field = cb.classList.contains('cb-verified') ? 'is_verified' : 'is_paid';
-    const value = cb.checked;
+    let field, value = cb.checked;
+    if (cb.classList.contains('cb-verified')) field = 'is_verified';
+    else if (cb.classList.contains('cb-arrived')) field = 'is_arrived';
+    else field = 'is_paid';
+
     const updateData = { [field]: value };
-    if (field === 'is_verified' && value) updateData.status = 'verified';
-    if (field === 'is_paid' && value) updateData.status = 'paid';
+
+    // Cascade: оплачена → пришла → проверена
+    if (field === 'is_paid' && value) { updateData.is_arrived = true; updateData.is_verified = true; updateData.status = 'paid'; }
+    else if (field === 'is_arrived' && value) { updateData.is_verified = true; updateData.status = value ? 'arrived' : 'verified'; }
+    else if (field === 'is_verified' && value) { updateData.status = 'verified'; }
+
+    // Uncheck cascade: сняли проверена → снять пришла и оплачена
+    if (field === 'is_verified' && !value) { updateData.is_arrived = false; updateData.is_paid = false; updateData.status = 'new'; }
+    if (field === 'is_arrived' && !value) { updateData.is_paid = false; updateData.status = updateData.is_verified ? 'verified' : 'new'; }
+
     try {
         await apiFetch(`/nakladnye/${id}`, { method: 'PATCH', body: JSON.stringify(updateData) });
+        // Sync visual cascade
+        const row = cb.closest('tr');
+        if (row) {
+            if (updateData.is_verified !== undefined) row.querySelector('.cb-verified').checked = updateData.is_verified;
+            if (updateData.is_arrived !== undefined) row.querySelector('.cb-arrived').checked = updateData.is_arrived;
+            if (updateData.is_paid !== undefined) row.querySelector('.cb-paid').checked = updateData.is_paid;
+        }
     } catch (err) {
-        showToast('Не удалось сохранить: ' + err.message, 'error');
+        showToast('Ошибка: ' + err.message, 'error');
         cb.checked = !cb.checked;
     }
 }
@@ -415,14 +405,15 @@ function updateNakladnyeTotals(rows) {
 }
 
 function exportNakladnyeCsv() {
-    const headers = ['Дата', 'Поставщик', 'Тип', 'Серия', 'Номер', 'Сумма с НДС', 'Сумма без НДС', 'Магазин', 'Адрес разгрузки', 'Статус', 'Проверена', 'Оплачена'];
+    const headers = ['Дата', 'Поставщик', 'Тип', 'Серия', 'Номер', 'Сумма с НДС', 'НДС', 'Магазин', 'Адрес разгрузки', 'Проверена', 'Пришла', 'Оплачена'];
     const rows = currentNakladnye.map(n => [
         n.doc_date || '', n.supplier_name || '', n.doc_type || '',
         n.doc_series || '', n.doc_number || '',
-        n.amount || '', n.amount_no_vat || '',
+        n.amount || '', n.vat_amount || '',
         n.store || '', n.unload_address || '',
-        NAK_STATUS_LABELS[n.status] || n.status || '',
-        n.is_verified ? 'Да' : 'Нет', n.is_paid ? 'Да' : 'Нет',
+        n.is_verified ? 'Да' : 'Нет',
+        n.is_arrived ? 'Да' : 'Нет',
+        n.is_paid ? 'Да' : 'Нет',
     ]);
     const bom = '\uFEFF';
     const csv = bom + [headers, ...rows]
