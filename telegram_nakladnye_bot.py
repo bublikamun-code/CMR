@@ -242,6 +242,20 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     },
                 )
                 if dup_check.status_code == 200 and dup_check.json().get("duplicate"):
+                    nak_id = dup_check.json().get("id")
+                    # Обновляем товары и фото у существующей записи
+                    if inv.get("products"):
+                        await client.patch(
+                            f"{CRM_API_URL}/nakladnye/bot/{nak_id}",
+                            headers={"X-Bot-Token": BOT_TOKEN},
+                            json={"products": inv["products"]},
+                        )
+                    for photo in inv["photos"]:
+                        await client.post(
+                            f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
+                            headers={"X-Bot-Token": BOT_TOKEN},
+                            files={"file": (photo["filename"], photo["data"], "image/jpeg")},
+                        )
                     inv["_duplicate"] = True
                     continue
 

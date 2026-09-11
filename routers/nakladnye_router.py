@@ -495,6 +495,26 @@ def bot_create_nakladnaya(payload: schemas.NakladnayaCreate, db: Session = Depen
     return _nak_dict(nak)
 
 
+@router.patch("/bot/{nak_id}", dependencies=[Depends(_bot_auth)])
+def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Session = Depends(get_db)):
+    nak = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id).first()
+    if not nak:
+        raise HTTPException(status_code=404, detail="Накладная не найдена")
+
+    update_data = updates.model_dump(exclude_unset=True)
+    products = update_data.pop("products", None)
+    if products is not None:
+        nak.products_json = json.dumps(products, ensure_ascii=False) if products else None
+
+    for key, value in update_data.items():
+        setattr(nak, key, value)
+    nak.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(nak)
+    return _nak_dict(nak)
+
+
 @router.post("/bot/{nak_id}/photos", dependencies=[Depends(_bot_auth)])
 async def bot_upload_photo(
     nak_id: int,
