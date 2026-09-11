@@ -52,7 +52,8 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CRM_API_URL = os.environ.get("CRM_API_URL", "http://localhost:20008")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-OCR_MODEL = os.environ.get("OCR_MODEL", "qwen/qwen2.5-vl-72b-instruct")
+OCR_MODEL = os.environ.get("OCR_MODEL", "google/gemini-2.0-flash-001")
+OCR_MODEL_2 = os.environ.get("OCR_MODEL_2", "openai/gpt-4o-mini")
 
 STORES = {
     "matushevicha": {"label": "Матусевича, 72", "value": "Матусевича"},
@@ -211,6 +212,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "vat_amount": last.get("vat_amount"),
                 "unload_address": first.get("unload_address", ""),
                 "has_second_page": any(p.get("has_second_page") for p in pages),
+                "_models_disagree": any(p.get("_models_disagree") for p in pages),
                 "photos": inv_photos,
             })
 
@@ -296,17 +298,21 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 summary_lines.append(f"• {dtype} {name} №{num} — {amt} BYN{pages_str}")
 
-        # Предупреждения о пропущенных страницах
+        # Предупреждения о пропущенных страницах и расхождениях моделей
         for inv in merged:
             if not inv.get("_duplicate"):
-                for ocr in [inv]:
-                    if ocr.get("has_second_page") and len(ocr.get("photos", [])) < 2:
-                        num = ocr.get("doc_number", "?")
-                        ser = ocr.get("doc_series", "")
-                        warnings.append(
-                            f"⚠️ {ocr.get('doc_type','')} {ser} №{num}: "
-                            f"документ имеет 2-ю страницу, но она не отправлена"
-                        )
+                if inv.get("has_second_page") and len(inv.get("photos", [])) < 2:
+                    num = inv.get("doc_number", "?")
+                    ser = inv.get("doc_series", "")
+                    warnings.append(
+                        f"⚠️ {inv.get('doc_type','')} {ser} №{num}: "
+                        f"документ имеет 2-ю страницу, но она не отправлена"
+                    )
+                if inv.get("_models_disagree"):
+                    num = inv.get("doc_number", "?")
+                    warnings.append(
+                        f"⚠️ №{num}: модели дали разные результаты — проверьте данные вручную"
+                    )
 
         if not summary_lines and not dup_lines:
             summary_lines = ["• Фото сохранены, данные не распознаны — проверьте вручную"]
@@ -355,9 +361,9 @@ OCR_PROMPT = (
     "• has_second_page — true если документ явно обрезан, есть «продолжение на обороте», "
     "таблица не закончена, или видно что это страница 1 из 2.\n\n"
     "СУММЫ — КРИТИЧНО:\n"
-    "• amount = ИТОГОВАЯ строка «Всего стоимость с НДС» или «Итого с НДС» — внизу таблицы.\n"
-    "• vat_amount = ИТОГОВАЯ строка «Всего сумма НДС» или «Итого НДС» — внизу таблицы.\n"
-    "• НЕ бери числа из колонок «Масса», «Количество», «Цена» — только из строки ИТОГО!\n"
+    "• amount = колонка «Стоимость с НДС, руб. коп.» — бери ИТОГОВУЮ строку (внизу таблицы).\n"
+    "• vat_amount = колонка «Сумма НДС, руб. коп.» — бери ИТОГОВУЮ строку (внизу таблицы).\n"
+    "• НЕ бери числа из колонок «Масса», «Количество», «Цена» — только ИТОГО!\n"
     "• amount > vat_amount — ВСЕГДА. Если наоборот — ты перепутал.\n"
     "• Типичный ratio: amount/vat ≈ 6 (для НДС 20%).\n"
     "• Числа с десятичной точкой: 653.09, 108.84. Запятая = точка!\n\n"
@@ -393,24 +399,41 @@ def compress_image(image_bytes: bytes, max_size=1024, quality=70) -> bytes:
         return image_bytes
 
 
-async def ocr_photos_batch(images_bytes: list):
-    """OCR всех фото одним запросом — модель видит всё сразу."""
+def _normalize_number(v):
+    """Нормализует число: 10884 → 108.84, запятая → точка."""
+    if v is None:
+        return None
+    v = float(v)
+    if v == int(v) and v >= 10000:
+        v = v / 100
+    return round(v, 2)
+
+
+def _validate_ocr_item(item):
+    """Валидация одного OCR результата."""
+    if item.get("amount") is not None:
+        item["amount"] = _normalize_number(item["amount"])
+    if item.get("vat_amount") is not None:
+        item["vat_amount"] = _normalize_number(item["vat_amount"])
+    if (item.get("amount") and item.get("vat_amount")
+            and item["amount"] < item["vat_amount"]):
+        item["amount"], item["vat_amount"] = item["vat_amount"], item["amount"]
+    if item.get("doc_type") != "ТТН":
+        item["unload_address"] = None
+    sup = (item.get("supplier_name") or "").lower()
+    if "свет в доме" in sup:
+        item["supplier_name"] = ""
+    return item
+
+
+def _ocr_call(model: str, content: list):
+    """Синхронный OCR вызов (для запуска в executor)."""
     if not OPENAI_API_KEY or OpenAI is None:
         return None
-
-    import base64
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL, timeout=120)
-
-    content = [{"type": "text", "text": f"Распознай все накладные на этих {len(images_bytes)} фото."}]
-    for i, img_bytes in enumerate(images_bytes):
-        compressed = compress_image(img_bytes)
-        b64 = base64.b64encode(compressed).decode()
-        content.append({"type": "text", "text": f"--- Фото {i} ---"})
-        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
-
     try:
         response = client.chat.completions.create(
-            model=OCR_MODEL,
+            model=model,
             messages=[
                 {"role": "system", "content": OCR_PROMPT},
                 {"role": "user", "content": content},
@@ -423,46 +446,79 @@ async def ocr_photos_batch(images_bytes: list):
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0]
         data = json.loads(text)
-
         if not isinstance(data, list):
             data = [data]
-
-        # Валидация каждой записи
         for item in data:
-            amt = item.get("amount")
-            vat = item.get("vat_amount")
-
-            def fix_decimal(v):
-                if v is None:
-                    return v
-                v = float(v)
-                if v == int(v) and v >= 10000:
-                    v = v / 100
-                return round(v, 2)
-
-            if amt is not None:
-                item["amount"] = fix_decimal(amt)
-            if vat is not None:
-                item["vat_amount"] = fix_decimal(vat)
-
-            if (item.get("amount") and item.get("vat_amount")
-                    and item["amount"] < item["vat_amount"]):
-                item["amount"], item["vat_amount"] = item["vat_amount"], item["amount"]
-
-            # unload_address только для ТТН
-            if item.get("doc_type") != "ТТН":
-                item["unload_address"] = None
-
-            # Фильтр «Свет в доме»
-            sup = (item.get("supplier_name") or "").lower()
-            if "свет в доме" in sup:
-                item["supplier_name"] = ""
-
-        logger.info(f"Batch OCR result: {json.dumps(data, ensure_ascii=False)}")
+            _validate_ocr_item(item)
         return data
     except Exception as e:
-        logger.error(f"Batch OCR error: {e}")
+        logger.error(f"OCR error ({model}): {e}")
         return None
+
+
+def _compare_results(r1, r2):
+    """Сравнивает результаты двух моделей. Возвращает (совпали, лучшая версия)."""
+    if not r1 and not r2:
+        return True, []
+    if not r1:
+        return True, r2
+    if not r2:
+        return True, r1
+
+    # Нормализуем номера для сравнения
+    def norm_num(items):
+        return sorted(["".join(ch for ch in (it.get("doc_number") or "") if ch.isdigit()) for it in items])
+
+    nums1 = norm_num(r1)
+    nums2 = norm_num(r2)
+
+    if nums1 == nums2:
+        # Номера совпадают — сравниваем суммы
+        for it1 in r1:
+            n1 = "".join(ch for ch in (it1.get("doc_number") or "") if ch.isdigit())
+            for it2 in r2:
+                n2 = "".join(ch for ch in (it2.get("doc_number") or "") if ch.isdigit())
+                if n1 == n2:
+                    # Если суммы разные — помечаем
+                    if it1.get("amount") != it2.get("amount"):
+                        return False, r1  # Разные суммы — нужен выбор
+        return True, r1  # Всё совпало
+
+    return False, r1  # Разные номера — нужен выбор
+
+
+async def ocr_photos_batch(images_bytes: list):
+    """OCR всех фото — две модели параллельно, голосование."""
+    if not OPENAI_API_KEY or OpenAI is None:
+        return None
+
+    import base64
+    import asyncio
+
+    content = [{"type": "text", "text": f"Распознай все накладные на этих {len(images_bytes)} фото."}]
+    for i, img_bytes in enumerate(images_bytes):
+        compressed = compress_image(img_bytes)
+        b64 = base64.b64encode(compressed).decode()
+        content.append({"type": "text", "text": f"--- Фото {i} ---"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+
+    loop = asyncio.get_event_loop()
+    r1, r2 = await asyncio.gather(
+        loop.run_in_executor(None, _ocr_call, OCR_MODEL, content),
+        loop.run_in_executor(None, _ocr_call, OCR_MODEL_2, content),
+    )
+
+    logger.info(f"Model 1 ({OCR_MODEL}): {json.dumps(r1 or [], ensure_ascii=False)}")
+    logger.info(f"Model 2 ({OCR_MODEL_2}): {json.dumps(r2 or [], ensure_ascii=False)}")
+
+    matched, result = _compare_results(r1, r2)
+    if not matched:
+        # Помечаем что результаты разные — бот покажет предупреждение
+        for item in result:
+            item["_models_disagree"] = True
+        logger.warning("Models disagree — using model 1 result with warning")
+
+    return result
 
 
 async def ocr_photo(image_bytes: bytes):
