@@ -215,12 +215,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bindTableSearch('nakladnye-search', 'nakladnye-table');
 
-    // Save button — direct click handler (not form submit)
-    const saveBtn = document.querySelector('#nakladnaya-form .btn-primary[type="submit"]');
-    if (saveBtn) {
-        saveBtn.type = 'button';
-        saveBtn.addEventListener('click', () => NakladnyeUI.save());
-    }
+    // Save button — direct click by ID
+    document.getElementById('nak-save-btn')?.addEventListener('click', () => {
+        NakladnyeUI.save();
+    });
 
     const addBtn = document.getElementById('nakladnye-add-btn');
     if (addBtn) addBtn.addEventListener('click', () => NakladnyeUI.openModal());

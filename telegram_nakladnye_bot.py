@@ -51,6 +51,8 @@ logger = logging.getLogger("nakladnye_bot")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CRM_API_URL = os.environ.get("CRM_API_URL", "http://localhost:20008")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+OCR_MODEL = os.environ.get("OCR_MODEL", "qwen/qwen2.5-vl-72b-instruct")
 
 STORES = {
     "matushevicha": {"label": "Матусевича, 72", "value": "Матусевича"},
