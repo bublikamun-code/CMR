@@ -66,8 +66,45 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
+        old_name = s.name
         for key, value in update.model_dump(exclude_unset=True).items():
             setattr(s, key, value)
+
+        # FIX 2026-09-12 (Фаза 2, дефект 8): переименование поставщика
+        # синхронизирует денормализованные снимки его имени.
+        #
+        # Оба поля — копии названия из справочника, и обе рассинхронизировались:
+        # после переименования таблица накладных и чек-листы закупок продолжали
+        # показывать старое имя. Это не только косметика: поиск накладных
+        # (list_nakladnye, фильтр q) и группировка идут по supplier_name
+        # строкой, поэтому один поставщик начинал искаться под двумя именами.
+        #
+        # Правила для двух таблиц РАЗНЫЕ, и это не случайность:
+        new_name = s.name or ""
+        if new_name and new_name != (old_name or ""):
+            # nakladnye.supplier_name — снимок, который всегда берётся из
+            # справочника: create_nakladnaya подставляет sup.name, а модалка CRM
+            # шлёт supplier.name того поставщика, что выбран в селекте. Записи
+            # из telegram-бота сюда не попадают вовсе — бот supplier_id не шлёт,
+            # его supplier_name распознан из фото и со справочником не связан.
+            # Поэтому обновляем все строки этого поставщика.
+            session.query(models.Nakladnaya).filter(
+                models.Nakladnaya.supplier_id == supplier_id,
+            ).update({"supplier_name": new_name}, synchronize_session=False)
+
+            # card_checklists.company_name — снимок названия КОМПАНИИ ЗАКУПКИ,
+            # и он не обязан совпадать с именем поставщика:
+            # update_checklist_item принимает company_name отдельным полем,
+            # поэтому пользователь может вписать своё название, оставив
+            # supplier_id. Поголовная перезапись уничтожила бы эти значения.
+            # Обновляем только те строки, где снимок всё ещё равен СТАРОМУ имени
+            # поставщика, — то есть ровно те, что устарели из-за переименования.
+            if old_name:
+                session.query(models.CardChecklist).filter(
+                    models.CardChecklist.supplier_id == supplier_id,
+                    models.CardChecklist.company_name == old_name,
+                ).update({"company_name": new_name}, synchronize_session=False)
+
         session.commit()
         session.refresh(s)
         return s

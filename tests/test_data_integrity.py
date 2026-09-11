@@ -413,15 +413,18 @@ def test_delete_workflow_cascades_parts(client, admin, db):
 
 
 # ---------------------------------------------------------------------------
-# Денормализованные снимки и агрегаты — живые дефекты
+# Денормализованные снимки и агрегаты (дефекты 8 и 9 — починены в Фазе 2)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: suppliers_router.update_supplier меняет только "
-                          "Supplier. Снимки nakladnye.supplier_name и "
-                          "card_checklists.company_name остаются со старым именем.")
 def test_rename_supplier_updates_snapshots(client, manager, db):
+    """Починено в Фазе 2 (2026-09-12, дефект 8).
+
+    nakladnye.supplier_name и card_checklists.company_name — денормализованные
+    снимки имени поставщика. update_supplier менял только строку справочника,
+    и после переименования накладные и чек-листы закупок показывали старое имя.
+    Это не косметика: поиск накладных (фильтр q) идёт по supplier_name строкой,
+    поэтому один поставщик начинал искаться под двумя именами.
+    """
     _, h = manager
     sup = models.Supplier(name="Старое имя")
     db.add(sup)
@@ -441,6 +444,92 @@ def test_rename_supplier_updates_snapshots(client, manager, db):
     nakl = db.query(models.Nakladnaya).filter(models.Nakladnaya.supplier_id.is_(None)).first() \
         or db.query(models.Nakladnaya).first()
     assert nakl.supplier_name == "Новое имя"
+    item = db.query(models.CardChecklist).first()
+    assert item.company_name == "Новое имя"
+
+
+def test_rename_supplier_keeps_deliberately_different_snapshot(client, manager, db):
+    """Снимок, который НЕ равен имени поставщика, переименование не трогает.
+
+    card_checklists.company_name — это название компании закупки, и оно может
+    отличаться от имени поставщика намеренно: update_checklist_item принимает
+    company_name отдельным полем, поэтому пользователь вправе вписать своё
+    название, оставив supplier_id. Поголовная перезапись уничтожила бы эти
+    значения, поэтому обновляются только строки, где снимок всё ещё равен
+    СТАРОМУ имени поставщика.
+    """
+    _, h = manager
+    sup = models.Supplier(name="Старое имя")
+    db.add(sup)
+    db.commit()
+    sup_id = sup.id
+    card = models.Card(title="Сделка", total_amount=100.0)
+    db.add(card)
+    db.commit()
+    # пункт с собственным названием компании закупки
+    db.add(models.CardChecklist(card_id=card.id, company_name="ТТ Матусевича",
+                                supplier_id=sup_id))
+    # пункт без привязки к справочнику — старая запись с ручным вводом
+    db.add(models.CardChecklist(card_id=card.id, company_name="Старое имя"))
+    db.commit()
+
+    assert client.patch(f"/suppliers/{sup_id}", headers=h,
+                        json={"name": "Новое имя"}).status_code == 200
+
+    _reload(db)
+    rows = {c.id: c.company_name for c in db.query(models.CardChecklist).all()}
+    assert "ТТ Матусевича" in rows.values(), "своё название закупки перезаписано"
+    assert "Старое имя" in rows.values(), \
+        "запись без supplier_id не связана с поставщиком и не должна меняться"
+    assert "Новое имя" not in rows.values()
+
+
+def test_rename_supplier_does_not_touch_other_suppliers_nakladnye(client, manager, db):
+    """Обновляются только накладные ЭТОГО поставщика.
+
+    Отдельная проверка нужна потому, что nakladnye.supplier_name заполняет
+    и telegram-бот — из распознанного текста фото, без supplier_id. Чужие
+    и ботские записи переименование справочника касаться не должно.
+    """
+    _, h = manager
+    sup = models.Supplier(name="Старое имя")
+    other = models.Supplier(name="Другой поставщик")
+    db.add_all([sup, other])
+    db.commit()
+    db.add(models.Nakladnaya(supplier_id=sup.id, supplier_name="Старое имя", doc_number="1"))
+    db.add(models.Nakladnaya(supplier_id=other.id, supplier_name="Другой поставщик",
+                             doc_number="2"))
+    # запись бота: имя из OCR, привязки к справочнику нет
+    db.add(models.Nakladnaya(supplier_name="Старое имя", doc_number="3"))
+    db.commit()
+
+    assert client.patch(f"/suppliers/{sup.id}", headers=h,
+                        json={"name": "Новое имя"}).status_code == 200
+
+    _reload(db)
+    by_number = {n.doc_number: n.supplier_name
+                 for n in db.query(models.Nakladnaya).all()}
+    assert by_number["1"] == "Новое имя"
+    assert by_number["2"] == "Другой поставщик"
+    assert by_number["3"] == "Старое имя"
+
+
+def test_supplier_update_without_rename_touches_nothing(client, manager, db):
+    """Правка телефона не переписывает снимки: синхронизация только при смене имени."""
+    _, h = manager
+    sup = models.Supplier(name="Имя", phone="111")
+    db.add(sup)
+    db.commit()
+    db.add(models.Nakladnaya(supplier_id=sup.id, supplier_name="Своё имя в накладной",
+                             doc_number="1"))
+    db.commit()
+
+    assert client.patch(f"/suppliers/{sup.id}", headers=h,
+                        json={"phone": "222"}).status_code == 200
+
+    _reload(db)
+    assert db.query(models.Nakladnaya).first().supplier_name == "Своё имя в накладной"
+    assert db.query(models.Supplier).first().phone == "222"
 
 
 def test_card_total_change_recomputes_group_total(client, manager, db, make_card):
