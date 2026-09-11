@@ -302,6 +302,7 @@ class TransactionBase(BaseModel):
     is_calculated: Optional[bool] = False
     is_invoice_issued: Optional[bool] = False
     is_written_off: Optional[bool] = False
+    is_secondary_check: Optional[bool] = False
     print_status: Optional[str] = "Печать"
     note: Optional[str] = None
     invoice_number: Optional[str] = None
@@ -328,6 +329,29 @@ class TransactionUpdate(BaseModel):
     is_invoice_doc: Optional[bool] = None
     is_bill_doc: Optional[bool] = None
     is_warehouse_writeoff: Optional[bool] = None
+    # FIX 2026-09-12 (Фаза 2, дефект 13): три поля были в модели, но не в схеме,
+    # поэтому PATCH /payments/transactions/{id} отвечал 200 и НИЧЕГО не менял.
+    #
+    # date — самое заметное: js/payments.js правит дату оплаты инлайн-редактором
+    # и шлёт {"date": "YYYY-MM-DD"}, а в update_transaction_checkboxes уже лежал
+    # разбор этой строки, недостижимый из-за отсутствия поля в схеме. Формат
+    # строковый (как у invoice_date) именно потому, что роутер соединяет
+    # присланный день с сохранённым временем записи.
+    #
+    # company_name — ОГРАНИЧЕНИЕ: card_details_router.update_card при смене
+    # названия сделки перезаписывает company_name ВО ВСЕХ её транзакциях
+    # (денормализация так задумана, см. PLAN_MODERNIZATION.md Фаза 2 п.1).
+    # То есть ручная правка подписи одной записи держится только до следующего
+    # переименования сделки. Поле добавлено, потому что записи без сделки
+    # (card_id is None) и исправление опечаток в подписи иначе невозможны;
+    # менять саму синхронизацию — продуктовое решение, а не починка пробела.
+    #
+    # is_secondary_check — добавлено и в TransactionBase, чтобы поле
+    # читалось обратно: записываемое, но невидимое значение фронт не смог бы
+    # ни показать, ни корректно переключить.
+    date: Optional[str] = None
+    company_name: Optional[str] = None
+    is_secondary_check: Optional[bool] = None
 
 class TransactionResponse(TransactionBase):
     id: int
@@ -376,6 +400,13 @@ class CardUpdate(BaseModel):
     priority: Optional[int] = None
     sender_email: Optional[str] = None
     tag_ids: Optional[List[int]] = None
+    # FIX 2026-09-12 (Фаза 2, дефект 13): владелец сделки назначался только при
+    # создании (kanban_router.create_card), переназначить его было нельзя —
+    # поле отсутствовало в схеме, и PATCH отвечал 200, ничего не меняя.
+    # Отпускание сделки (owner_id=null) тоже проходит через это поле: у FK
+    # ondelete="SET NULL", а auth_router.remove_user уже обнуляет owner_id
+    # у карточек удаляемого пользователя, так что NULL — штатное значение.
+    owner_id: Optional[int] = None
 
     @field_validator("payment_status")
     @classmethod
@@ -441,6 +472,10 @@ class TaskCreate(BaseModel):
     description: Optional[str] = None
     status: str = "todo"
     due_date: Optional[datetime] = None
+    # FIX 2026-09-12 (Фаза 2, дефект 13): priority есть в модели и ОТДАЁТСЯ
+    # клиенту в TaskResponse, но задать его было нельзя — ни при создании,
+    # ни правкой. Дефолт модели (0) совпадает с дефолтом здесь.
+    priority: Optional[int] = 0
     assignee_id: Optional[int] = None
     card_id: Optional[int] = None
     client_id: Optional[int] = None
@@ -450,6 +485,7 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     due_date: Optional[datetime] = None
+    priority: Optional[int] = None
     assignee_id: Optional[int] = None
     card_id: Optional[int] = None
     client_id: Optional[int] = None

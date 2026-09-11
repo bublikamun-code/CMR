@@ -88,6 +88,16 @@ def _card_field_changes(session, card, old: dict) -> list:
             return _short_log(rec.name, 30) if rec else "—"
 
         changes.append(f'Клиент: {_client_name(old.get("client_id"))} → {_client_name(card.client_id)}')
+    if (card.owner_id or None) != (old.get("owner_id") or None):
+        # дефект 13: переназначение владельца — событие, которое должно быть
+        # видно в ленте так же, как смена клиента или магазина.
+        def _user_name(uid):
+            if uid is None:
+                return "—"
+            rec = session.query(models.User).filter(models.User.id == uid).first()
+            return _short_log(rec.username, 30) if rec else "—"
+
+        changes.append(f'Ответственный: {_user_name(old.get("owner_id"))} → {_user_name(card.owner_id)}')
     return changes
 
 
@@ -333,6 +343,20 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
+        # FIX 2026-09-12 (Фаза 2, дефект 13): owner_id вернулся в CardUpdate —
+        # переназначить владельца сделки было нельзя, PATCH отвечал 200 и ничего
+        # не менял. Проверка существования вынесена ДО мутаций: FK enforcement
+        # включён (PRAGMA foreign_keys=ON в database.py), поэтому чужой id дал
+        # бы IntegrityError и 500 в середине применения остальных полей.
+        # None разрешён: у FK ondelete="SET NULL", а auth_router.remove_user
+        # уже обнуляет owner_id у карточек удаляемого пользователя.
+        if 'owner_id' in card_update.model_fields_set and card_update.owner_id is not None:
+            owner = session.query(models.User).filter(
+                models.User.id == card_update.owner_id).first()
+            if not owner:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Пользователь #{card_update.owner_id} не найден")
         # Снимок значений до мутаций — по нему строим запись «Изменение» в ленту
         _old = {
             "title": card.title,
@@ -340,6 +364,7 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             "due_date": card.due_date,
             "store_location": card.store_location,
             "client_id": card.client_id,
+            "owner_id": card.owner_id,
         }
         if card_update.title is not None:
             card.title = card_update.title
@@ -405,6 +430,8 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             card.description = card_update.description
         if 'client_id' in card_update.model_fields_set:
             card.client_id = card_update.client_id
+        if 'owner_id' in card_update.model_fields_set:
+            card.owner_id = card_update.owner_id   # проверен выше, до мутаций
         if 'due_date' in card_update.model_fields_set:
             card.due_date = card_update.due_date
         if 'priority' in card_update.model_fields_set:

@@ -165,6 +165,9 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         description=data.description,
         status=data.status or "todo",
         due_date=data.due_date,
+        # дефект 13: priority пришёл в схему; None (явный null в запросе)
+        # не должен попадать в колонку — TaskResponse объявляет priority: int
+        priority=data.priority if data.priority is not None else 0,
         assignee_id=data.assignee_id,
         creator_id=current_user.id,
         card_id=data.card_id,
@@ -207,6 +210,10 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
         task.description = data.description
     if data.due_date is not None:
         task.due_date = data.due_date
+    # дефект 13: приоритет задачи можно было только прочитать (TaskResponse),
+    # но не сохранить. None означает «поле не прислали» — не трогаем.
+    if data.priority is not None:
+        task.priority = data.priority
     if data.assignee_id is not None:
         task.assignee_id = data.assignee_id or None
     if data.card_id is not None:

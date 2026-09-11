@@ -110,12 +110,17 @@ SERVER_MANAGED = {
 }
 
 # Пробелы, которые являются ДЕФЕКТОМ: клиент должен иметь возможность менять поле.
-KNOWN_DEFECTS = {
-    ("Card", "CardUpdate"): {"owner_id"},
-    ("Task", "TaskCreate"): {"priority"},
-    ("Task", "TaskUpdate"): {"priority"},
-    ("Transaction", "TransactionUpdate"): {"date", "company_name", "is_secondary_check"},
-}
+#
+# 2026-09-12 (Фаза 2, дефект 13) — список закрыт полностью. В схемы вернулись:
+#   Card.owner_id                              → CardUpdate
+#   Task.priority                              → TaskCreate, TaskUpdate
+#   Transaction.date / company_name /
+#   Transaction.is_secondary_check             → TransactionUpdate
+# Каждый пробел означал, что PATCH отвечает 200 и молча ничего не меняет.
+# Список оставлен пустым, а не удалён: test_schema_gaps_match_the_documented_list
+# сверяет множество SERVER_MANAGED | KNOWN_DEFECTS с фактическим, и новый
+# незамеченный пробел обязан уронить прогон.
+KNOWN_DEFECTS = {}
 
 
 def _model_columns(model_name):
@@ -168,27 +173,34 @@ def test_schema_gaps_match_the_documented_list():
     )
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ (класс бага 3d109d6): поля есть в моделях, но "
-                          "отсутствуют в Create/Update-схемах, поэтому клиент не может их "
-                          "изменить, а запрос молча проходит со статусом 200. "
-                          "Card.owner_id — нельзя переназначить владельца сделки. "
-                          "Task.priority — приоритет нельзя ни задать, ни поменять. "
-                          "Transaction.date — дату оплаты нельзя исправить, хотя реестр "
-                          "сортируется по date. Transaction.company_name и "
-                          "is_secondary_check — то же.")
 def test_no_client_editable_field_is_missing_from_schemas():
+    """Починено в Фазе 2 (2026-09-12, дефект 13).
+
+    Все пять пробелов закрыты: Card.owner_id, Task.priority (Create и Update),
+    Transaction.date / company_name / is_secondary_check. До починки каждый из
+    них означал запрос, который проходит со статусом 200 и ничего не меняет —
+    самый тихий класс дефектов: его не видно ни в логах, ни в UI.
+
+    Проверка оставлена как гейт: KNOWN_DEFECTS пуст, и любой новый пробел
+    (добавили колонку в модель и забыли схему) уронит и этот тест, и
+    test_schema_gaps_match_the_documented_list.
+    """
     assert not KNOWN_DEFECTS, \
         f"незакрытые пробелы схем: {sorted(KNOWN_DEFECTS.items())}"
 
 
-def test_priority_is_visible_in_response_but_not_editable():
-    """Приоритет задачи ОТДАЁТСЯ клиенту, но не принимается обратно —
-    то есть UI может его показать, но не может сохранить."""
+def test_priority_is_editable_and_visible_in_response():
+    """Приоритет задачи ОТДАЁТСЯ клиенту и принимается обратно.
+
+    До Фазы 2 (дефект 13) этот тест утверждал обратное — что priority есть
+    в TaskResponse, но отсутствует в TaskCreate/TaskUpdate, то есть UI может
+    приоритет показать, но не может сохранить. Теперь обе стороны на месте.
+    """
     assert "priority" in schemas.TaskResponse.model_fields
-    assert "priority" not in schemas.TaskCreate.model_fields
-    assert "priority" not in schemas.TaskUpdate.model_fields
+    assert "priority" in schemas.TaskCreate.model_fields
+    assert "priority" in schemas.TaskUpdate.model_fields
+    # дефолт создания совпадает с дефолтом колонки в models.py (0)
+    assert schemas.TaskCreate.model_fields["priority"].default == 0
 
 
 # ---------------------------------------------------------------------------
@@ -387,3 +399,168 @@ def test_cron_routers_are_registered():
                          ("notifications_router", "cron_router")]:
         assert f"{module}.{attr}" in main_src or f".{attr}" in main_src, \
             f"{module}.{attr} не подключён — cron-задачи молча не работают"
+
+
+# ---------------------------------------------------------------------------
+# 4. Закрытые пробелы работают насквозь (дефект 13, починен 2026-09-12)
+# ---------------------------------------------------------------------------
+#
+# Метатесты выше доказывают только наличие поля в схеме. Этого мало: роутеры
+# пишут поля по-разному — где-то общим setattr по model_dump(exclude_unset=True),
+# а где-то явными ветками `if 'field' in model_fields_set`. Поле в схеме без
+# ветки в роутере дало бы ровно тот же тихий дефект: 200 и никаких изменений.
+# Поэтому каждое возвращённое поле проверено запросом к API и чтением из базы.
+
+
+def _reload(db):
+    db.expire_all()
+
+
+def test_card_owner_id_is_reassignable(client, manager, db, make_card, make_user):
+    new_owner, _ = make_user("manager", username="new_owner")
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=100.0)
+    assert card.owner_id is None
+
+    r = client.patch(f"/cards/{card.id}", headers=h, json={"owner_id": new_owner.id})
+    assert r.status_code == 200, r.text
+    _reload(db)
+    assert db.get(models.Card, card.id).owner_id == new_owner.id
+
+    # чужой id — 400, а не IntegrityError/500: PRAGMA foreign_keys=ON
+    r2 = client.patch(f"/cards/{card.id}", headers=h, json={"owner_id": 999999})
+    assert r2.status_code == 400, r2.text
+
+    # null — штатное значение: у FK ondelete="SET NULL", auth_router.remove_user
+    # обнуляет owner_id карточек удаляемого пользователя
+    r3 = client.patch(f"/cards/{card.id}", headers=h, json={"owner_id": None})
+    assert r3.status_code == 200, r3.text
+    _reload(db)
+    assert db.get(models.Card, card.id).owner_id is None
+
+
+def test_card_owner_change_is_logged(client, manager, db, make_card, make_user):
+    """Переназначение владельца видно в ленте — как смена клиента или магазина."""
+    new_owner, _ = make_user("manager", username="owner2")
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=100.0)
+
+    assert client.patch(f"/cards/{card.id}", headers=h,
+                        json={"owner_id": new_owner.id}).status_code == 200
+    _reload(db)
+    logs = db.query(models.ActivityLog).filter(
+        models.ActivityLog.card_id == card.id).all()
+    assert any("Ответственный" in (l.details or "") for l in logs), \
+        f"смена владельца не попала в ленту: {[l.details for l in logs]}"
+
+
+def test_task_priority_is_settable_on_create_and_update(client, manager, db):
+    _, h = manager
+    r = client.post("/tasks", headers=h, json={"title": "Задача", "priority": 3})
+    assert r.status_code == 200, r.text
+    assert r.json()["priority"] == 3
+    task_id = r.json()["id"]
+
+    r2 = client.patch(f"/tasks/{task_id}", headers=h, json={"priority": 1})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["priority"] == 1
+
+    _reload(db)
+    assert db.get(models.Task, task_id).priority == 1
+
+
+def test_task_priority_defaults_to_zero(client, manager, db):
+    """Без priority в запросе задача создаётся с нулём — дефолт колонки.
+
+    TaskResponse объявляет priority: int (не Optional), поэтому None в колонке
+    уронил бы сериализацию ответа.
+    """
+    _, h = manager
+    r = client.post("/tasks", headers=h, json={"title": "Задача"})
+    assert r.status_code == 200, r.text
+    assert r.json()["priority"] == 0
+    _reload(db)
+    assert db.get(models.Task, r.json()["id"]).priority == 0
+
+
+def test_transaction_date_is_editable(client, manager, db, make_card, make_transaction):
+    """Дата оплаты правится; день меняется, время суток и формат — нет.
+
+    js/payments.js правит дату инлайн-редактором и шлёт {"date": "YYYY-MM-DD"}.
+    Время исходной записи сохраняется нарочно: реестр сортируется по date,
+    и скачок времени внутри дня переставлял бы строки.
+    """
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=100.0)
+    tx = make_transaction(card, amount=100.0)
+    before = tx.date
+
+    r = client.patch(f"/payments/transactions/{tx.id}", headers=h,
+                     json={"date": "2026-01-05"})
+    assert r.status_code == 200, r.text
+
+    _reload(db)
+    fresh = db.get(models.Transaction, tx.id)
+    assert fresh.date.date().isoformat() == "2026-01-05"
+    assert (fresh.date.hour, fresh.date.minute) == (before.hour, before.minute)
+    # смешение naive/aware в одной колонке ломает сортировку строковым
+    # сравнением — ровно это чинила миграция 0003
+    assert (fresh.date.tzinfo is None) == (before.tzinfo is None)
+
+
+def test_transaction_date_rejects_garbage_with_400(client, manager, db,
+                                                    make_card, make_transaction):
+    """Поле date стало достижимым, поэтому разбор защищён: 400, а не 500."""
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=100.0)
+    tx = make_transaction(card, amount=100.0)
+
+    r = client.patch(f"/payments/transactions/{tx.id}", headers=h,
+                     json={"date": "пятого января"})
+    assert r.status_code == 400, r.text
+
+
+def test_transaction_company_name_and_secondary_check_are_editable(
+        client, manager, db, make_card, make_transaction):
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=100.0)
+    tx = make_transaction(card, amount=100.0)
+
+    r = client.patch(f"/payments/transactions/{tx.id}", headers=h,
+                     json={"company_name": "Другая подпись",
+                           "is_secondary_check": True})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # is_secondary_check добавлен и в ответ: записываемое, но невидимое
+    # значение фронт не смог бы ни показать, ни корректно переключить
+    assert body["company_name"] == "Другая подпись"
+    assert body["is_secondary_check"] is True
+
+    _reload(db)
+    fresh = db.get(models.Transaction, tx.id)
+    assert fresh.company_name == "Другая подпись"
+    assert bool(fresh.is_secondary_check) is True
+
+
+def test_transaction_company_name_is_still_overwritten_by_card_title(
+        client, manager, db, make_card, make_transaction):
+    """ОГРАНИЧЕНИЕ ручной подписи — зафиксировано, а не починено.
+
+    card_details_router.update_card при смене названия сделки перезаписывает
+    company_name ВО ВСЕХ её транзакциях: денормализация так задумана
+    (PLAN_MODERNIZATION.md, Фаза 2 п.1 — синхронизация company_name сохраняется,
+    в отличие от сумм). Поэтому ручная правка подписи держится только до
+    следующего переименования сделки. Менять это — продуктовое решение.
+    """
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=100.0)
+    tx = make_transaction(card, amount=100.0)
+
+    assert client.patch(f"/payments/transactions/{tx.id}", headers=h,
+                        json={"company_name": "Ручная подпись"}).status_code == 200
+    assert client.patch(f"/cards/{card.id}", headers=h,
+                        json={"title": "Сделка (уточнено)"}).status_code == 200
+
+    _reload(db)
+    assert db.get(models.Transaction, tx.id).company_name == "Сделка (уточнено)"
+

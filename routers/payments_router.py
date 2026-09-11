@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 import models
 import schemas
@@ -266,6 +266,9 @@ def _tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None,
         "is_calculated": bool(t.is_calculated),
         "is_invoice_issued": bool(t.is_invoice_issued),
         "is_written_off": bool(t.is_written_off),
+        # дефект 13: поле можно править через TransactionUpdate, поэтому оно
+        # обязано и читаться обратно — иначе фронт не знает текущего значения
+        "is_secondary_check": bool(t.is_secondary_check),
         "print_status": t.print_status, "note": t.note,
         "invoice_number": t.invoice_number, "invoice_date": t.invoice_date,
         "is_document": bool(t.is_document),
@@ -489,10 +492,32 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         # Дата оплаты: присланную дату соединяем со временем исходной записи —
         # меняется только день, порядок записей внутри дня не скачет.
         # Копии в «Документах» дата не касается: там своя, документная.
+        #
+        # FIX 2026-09-12 (Фаза 2, дефект 13): поле date вернулось в
+        # TransactionUpdate, и этот разбор стал достижим. Поэтому он защищён:
+        # js/payments.js шлёт "YYYY-MM-DD", но прямой запрос к API может
+        # прислать полный ISO — раньше strptime упал бы в 500.
+        # Таймзона исходной записи сохраняется: модели пишут aware UTC, а
+        # datetime.combine даёт naive, и смешение форматов в одной колонке
+        # ломает сортировку строковым сравнением (это же чинила миграция 0003).
         if update_data.get("date"):
-            new_day = datetime.strptime(update_data["date"], "%Y-%m-%d").date()
-            old_ts = tx.date or datetime.now()
-            update_data["date"] = datetime.combine(new_day, old_ts.time())
+            raw = str(update_data["date"]).strip()
+            new_day = None
+            for parser in (lambda s: datetime.strptime(s, "%Y-%m-%d"),
+                           datetime.fromisoformat):
+                try:
+                    new_day = parser(raw)
+                    break
+                except ValueError:
+                    continue
+            if new_day is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Непонятный формат даты: {raw!r}. Ожидается ГГГГ-ММ-ДД")
+            old_ts = tx.date or datetime.now(timezone.utc)
+            merged = datetime.combine(new_day.date(), old_ts.time())
+            update_data["date"] = (merged.replace(tzinfo=old_ts.tzinfo)
+                                   if old_ts.tzinfo else merged)
         for key, value in update_data.items():
             setattr(tx, key, value)
         # Дата/номер — часть пары «накладная + копия»: правим с любой
