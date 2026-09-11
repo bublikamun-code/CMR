@@ -53,6 +53,7 @@ CRM_API_URL = os.environ.get("CRM_API_URL", "http://localhost:20008")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
 OCR_MODEL = os.environ.get("OCR_MODEL", "~google/gemini-flash-latest")
+OCR_SINGLE = "qwen/qwen3.8-flash"
 OCR_FALLBACK = "google/gemini-3.5-flash"
 
 STORES = {
@@ -514,18 +515,24 @@ async def ocr_photos_batch(images_bytes: list):
         result = await loop.run_in_executor(None, _ocr_call, OCR_FALLBACK, content)
 
     if not result:
-        logger.warning("Both batch models failed, falling back to per-photo OCR")
+        logger.warning("Both batch models failed, falling back to per-photo OCR (Qwen3.8 Flash)")
         result = []
         for i, img_bytes in enumerate(images_bytes):
+            b64 = base64.b64encode(compress_image(img_bytes)).decode()
             single_content = [
                 {"type": "text", "text": "Распознай накладную на этом фото. Верни массив из одного элемента."},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{__import__('base64').b64encode(compress_image(img_bytes)).decode()}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
             ]
-            single_result = await loop.run_in_executor(None, _ocr_call, OCR_FALLBACK, single_content)
+            # Qwen для одиночных фото (лучшее качество), fallback Gemini
+            single_result = await loop.run_in_executor(None, _ocr_call, OCR_SINGLE, single_content)
+            if not single_result:
+                single_result = await loop.run_in_executor(None, _ocr_call, OCR_FALLBACK, single_content)
             if single_result:
                 for item in single_result:
                     item["photo_indices"] = [i]
                     result.append(item)
+            else:
+                logger.error(f"Per-photo OCR failed for photo {i}")
 
     logger.info(f"OCR result ({len(result or [])} invoices): {json.dumps(result or [], ensure_ascii=False)}")
     return result
