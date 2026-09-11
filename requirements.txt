@@ -1,13 +1,36 @@
+# Версии зафиксированы по фактическому окружению прода (pip freeze, 2026-09-11),
+# чтобы локальная сборка и сервер не разъезжались.
+
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 sqlalchemy==2.0.31
-pyjwt==2.9.0
-passlib[bcrypt]==1.7.4
-slowapi==0.1.9
 pydantic==2.8.0
-alembic==1.13.0
-python-telegram-bot>=21.0
-openai>=1.0
-httpx>=0.27
-Pillow>=10.0
-openpyxl>=3.1
+slowapi==0.1.9
+pyjwt==2.9.0
+
+# passlib 1.7.4 НЕ совместим с bcrypt >= 4.1: падает на
+# `module 'bcrypt' has no attribute '__about__'` и на хэшировании
+# «password cannot be longer than 72 bytes». auth.py:49 хэширует через
+# CryptContext(schemes=["bcrypt"]) ВСЕ пароли, поэтому без этой фиксации
+# свежая установка окружения ломает вход в систему целиком.
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# Form/File в эндпоинтах загрузки: без python-multipart приложение не стартует
+# (FastAPI бросает RuntimeError при сборке зависимостей). Раньше в requirements
+# его не было, хотя на проде пакет установлен.
+python-multipart==0.0.32
+
+# Шифрование пароля почтового ящика (Fernet) в email_parser_router.py:19.
+# Импортируется в try/except, поэтому без пакета приложение стартует,
+# но синхронизация почты молча деградирует.
+cryptography==50.0.1
+
+python-telegram-bot==22.8
+openai==3.13.0
+httpx==0.28.1
+pillow==12.3.0
+openpyxl==3.1.5
+
+# alembic убран: не используется. Миграции схемы идут через собственный раннер
+# migrate.py + migrations/NNNN_*.py с таблицей schema_migrations.
