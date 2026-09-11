@@ -52,8 +52,8 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CRM_API_URL = os.environ.get("CRM_API_URL", "http://localhost:20008")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-OCR_MODEL = os.environ.get("OCR_MODEL", "google/gemini-3.5-flash")
-OCR_FALLBACK = "qwen/qwen3.8-flash"
+OCR_MODEL = os.environ.get("OCR_MODEL", "~google/gemini-flash-latest")
+OCR_FALLBACK = "google/gemini-3.5-flash"
 
 STORES = {
     "matushevicha": {"label": "Матусевича, 72", "value": "Матусевича"},
@@ -450,8 +450,34 @@ def _ocr_call(model: str, content: list):
             logger.warning(f"OCR ({model}): empty response content")
             return None
         text = raw.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        # Убираем markdown code blocks
+        if "```" in text:
+            # Берём содержимое между ``` ... ```
+            parts = text.split("```")
+            for p in parts:
+                p = p.strip()
+                if p.startswith("json"):
+                    p = p[4:].strip()
+                if p.startswith("[") or p.startswith("{"):
+                    text = p
+                    break
+        # Ищем JSON массив или объект
+        bracket_start = text.find("[")
+        brace_start = text.find("{")
+        if bracket_start >= 0 and (brace_start < 0 or bracket_start < brace_start):
+            text = text[bracket_start:]
+            # Найти конец массива
+            depth = 0
+            for i, ch in enumerate(text):
+                if ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        text = text[:i+1]
+                        break
+        elif brace_start >= 0:
+            text = text[brace_start:]
         data = json.loads(text)
         if not isinstance(data, list):
             data = [data]
