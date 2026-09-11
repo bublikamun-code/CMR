@@ -52,7 +52,8 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CRM_API_URL = os.environ.get("CRM_API_URL", "http://localhost:20008")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
-OCR_MODEL = os.environ.get("OCR_MODEL", "z-ai/glm-5.3-flash")
+OCR_MODEL = os.environ.get("OCR_MODEL", "google/gemini-2.0-flash-001")
+OCR_FALLBACK = "google/gemini-2.0-flash-001"
 
 STORES = {
     "matushevicha": {"label": "Матусевича, 72", "value": "Матусевича"},
@@ -439,7 +440,11 @@ def _ocr_call(model: str, content: list):
             temperature=0,
             timeout=90,
         )
-        text = response.choices[0].message.content.strip()
+        raw = response.choices[0].message.content
+        if not raw:
+            logger.warning(f"OCR ({model}): empty response content")
+            return None
+        text = raw.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0]
         data = json.loads(text)
@@ -473,7 +478,11 @@ async def ocr_photos_batch(images_bytes: list):
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, _ocr_call, OCR_MODEL, content)
 
-    logger.info(f"OCR ({OCR_MODEL}): {json.dumps(result or [], ensure_ascii=False)}")
+    if not result:
+        logger.warning(f"OCR primary model ({OCR_MODEL}) failed, trying fallback ({OCR_FALLBACK})")
+        result = await loop.run_in_executor(None, _ocr_call, OCR_FALLBACK, content)
+
+    logger.info(f"OCR result: {json.dumps(result or [], ensure_ascii=False)}")
     return result
 
 
