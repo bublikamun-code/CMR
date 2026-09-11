@@ -271,6 +271,13 @@ def delete_record(record_id: int, current_user=Depends(get_current_user)):
         ).first()
         if not rec:
             raise HTTPException(status_code=404, detail="Запись не найдена")
+        # FIX 2026-09-11 (Фаза 2): на эту запись могут ссылаться ДРУГИЕ записи
+        # через value_relation, а у FK нет ON DELETE — удаление падало в
+        # IntegrityError (500). Отвязываем ссылки, а не сносим чужие записи:
+        # поле-ссылка опустеет, но сама запись и её остальные поля уцелеют.
+        db.query(models.CustomFieldValue).filter(
+            models.CustomFieldValue.value_relation == record_id
+        ).update({"value_relation": None}, synchronize_session=False)
         db.query(models.CustomFieldValue).filter(models.CustomFieldValue.record_id == record_id).delete()
         db.delete(rec)
         db.commit()

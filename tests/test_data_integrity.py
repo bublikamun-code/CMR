@@ -251,17 +251,13 @@ def test_delete_tag_removes_card_links(client, manager, db, make_card):
     assert _exists(db, models.Card, card_id)
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: TaskChecklistItem.task = relationship('Task', "
-                          "backref='checklist_items') создаёт backref без cascade='delete' "
-                          "и без passive_deletes=True. При удалении задачи ORM сначала "
-                          "обнуляет task_id у подзадач (UPDATE ... SET task_id=NULL), "
-                          "и только потом удаляет саму задачу — а task_id NOT NULL, "
-                          "поэтому IntegrityError. DB-каскад ondelete='CASCADE' не успевает "
-                          "сработать. Пользователь не может удалить задачу с подзадачами: 500.")
 def test_delete_task_cascades_checklist_items(client, manager, db):
-    """Задача должна быть видна пользователю (assignee/creator), иначе 404."""
+    """Задача должна быть видна пользователю (assignee/creator), иначе 404.
+
+    Починено в Фазе 2 (2026-09-11): backref checklist_items получил
+    passive_deletes=True, поэтому подзадачи удаляет база по ON DELETE CASCADE,
+    а ORM больше не пытается обнулить NOT NULL-колонку task_id.
+    """
     user, h = manager
     task = models.Task(title="Задача с подзадачами", creator_id=user.id,
                        assignee_id=user.id)
@@ -306,13 +302,9 @@ def test_task_not_visible_to_stranger(client, manager, make_user, db):
 # Кастомные объекты и воркфлоу: ссылки без ondelete
 # ---------------------------------------------------------------------------
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: custom_objects_router.delete_record:264 удаляет "
-                          "значения полей своей записи, но не обрабатывает value_relation, "
-                          "указывающие на неё ИЗ ДРУГИХ записей. FK без ondelete → "
-                          "IntegrityError → необработанный 500.")
 def test_delete_custom_record_referenced_by_value_relation(client, admin, db):
+    """Починено в Фазе 2 (2026-09-11): ссылки value_relation отвязываются,
+    а не удаляются вместе с чужими записями."""
     _, h = admin
     otype = models.CustomObjectType(name="obj", label="Объект")
     db.add(otype)
@@ -379,12 +371,9 @@ def test_delete_custom_object_type_cascades_defs(client, admin, db):
     assert _count(db, models.CustomFieldDef, object_type_id=otype_id) == 0
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: workflows_router.delete_step не обрабатывает "
-                          "parent_step_id дочерних шагов. Self-FK без ondelete → "
-                          "IntegrityError → 500 вместо корректного удаления или 400.")
 def test_delete_workflow_step_with_children(client, admin, db):
+    """Починено в Фазе 2 (2026-09-11): дочерние шаги поднимаются на верхний
+    уровень вместо удаления — их настройки дороже потери вложенности."""
     _, h = admin
     wf = models.Workflow(name="wf")
     db.add(wf)

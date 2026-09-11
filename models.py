@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey, DateTime, Date, Text, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timezone
 from database import Base
 
@@ -397,7 +397,11 @@ class TaskChecklistItem(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    task = relationship("Task", backref="checklist_items")
+    # FIX 2026-09-11 (Фаза 2): passive_deletes=True — удаление подзадач отдаём
+    # базе, в DDL есть FOREIGN KEY(task_id) ... ON DELETE CASCADE. Без этого ORM
+    # сначала выполнял UPDATE task_checklist_items SET task_id=NULL, а колонка
+    # NOT NULL, поэтому удаление задачи с подзадачами падало в IntegrityError (500).
+    task = relationship("Task", backref=backref("checklist_items", passive_deletes=True))
 
 
 # ============================================================

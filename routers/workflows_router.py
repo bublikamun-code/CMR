@@ -209,6 +209,13 @@ def delete_step(step_id: int, current_user=Depends(get_current_user)):
     try:
         s = db.query(models.WorkflowStep).filter(models.WorkflowStep.id == step_id).first()
         if not s: raise HTTPException(status_code=404, detail="Шаг не найден")
+        # FIX 2026-09-11 (Фаза 2): у parent_step_id нет ON DELETE, поэтому
+        # удаление шага с дочерними падало в IntegrityError (500). Дочерние шаги
+        # поднимаем на верхний уровень вместо удаления — их настройки дороже,
+        # чем потеря вложенности.
+        db.query(models.WorkflowStep).filter(
+            models.WorkflowStep.parent_step_id == step_id
+        ).update({"parent_step_id": None}, synchronize_session=False)
         db.delete(s)
         db.commit()
         return {"message": "Удалено"}
