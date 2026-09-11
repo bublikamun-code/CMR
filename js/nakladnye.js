@@ -30,6 +30,18 @@ const NakladnyeUI = {
         this._populateSuppliers();
         this._populateStores();
 
+        if (typeof enhanceSelectToDropdown === 'function') {
+            ['nak-supplier-select', 'nak-doc-type', 'nak-store', 'nak-status'].forEach(sid => {
+                const sel = document.getElementById(sid);
+                if (sel) {
+                    sel.dataset.enhanced = '';
+                    const wrap = sel.nextElementSibling;
+                    if (wrap && wrap.classList.contains('select-dd-wrap')) wrap.remove();
+                    enhanceSelectToDropdown(sel);
+                }
+            });
+        }
+
         if (id) {
             title.textContent = 'Редактировать накладную';
             const nak = allNakladnye.find(n => n.id === id);
@@ -164,13 +176,20 @@ document.addEventListener('DOMContentLoaded', () => {
             storeFilter.appendChild(opt);
         });
         storeFilter.addEventListener('change', () => renderNakladnye());
+        if (typeof enhanceSelectToDropdown === 'function') enhanceSelectToDropdown(storeFilter);
     }
 
     const typeFilter = document.getElementById('nakladnye-filter-type');
-    if (typeFilter) typeFilter.addEventListener('change', () => renderNakladnye());
+    if (typeFilter) {
+        typeFilter.addEventListener('change', () => renderNakladnye());
+        if (typeof enhanceSelectToDropdown === 'function') enhanceSelectToDropdown(typeFilter);
+    }
 
     const statusFilter = document.getElementById('nakladnye-filter-status');
-    if (statusFilter) statusFilter.addEventListener('change', () => renderNakladnye());
+    if (statusFilter) {
+        statusFilter.addEventListener('change', () => renderNakladnye());
+        if (typeof enhanceSelectToDropdown === 'function') enhanceSelectToDropdown(statusFilter);
+    }
 
     setupTableScrollShadow('page-nakladnye');
 });
