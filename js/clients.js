@@ -5,8 +5,9 @@ let clientsCurrentPage = 1;
 const CLIENTS_PAGE_SIZE = 50;
 
 document.addEventListener('DOMContentLoaded', () => {
-    const clientsBtn = document.querySelector('[data-target="page-clients"]');
-    if (clientsBtn) clientsBtn.addEventListener('click', loadClientsTable);
+    // Фикс аудита 10.09: отдельная подписка на кнопку навигации дублировала
+    // загрузку — activatePage уже зовёт лоадер через CRM_FRESHNESS.
+
     if (document.getElementById('page-clients')?.classList.contains('active')) loadClientsTable();
 
     bindTableSearch('clients-search', 'clients-table', 200, (value) => {
@@ -107,7 +108,7 @@ function renderClients() {
                         </div>
                         <div class="empty-state-title">${isSearch ? 'Клиенты не найдены' : 'Клиенты не найдены'}</div>
                         <div class="empty-state-desc">${isSearch ? 'Попробуйте изменить запрос поиска.' : 'В базе данных пока нет ни одного клиента. Добавьте первого клиента, чтобы начать работу.'}</div>
-                        ${isSearch ? '' : `<button class="empty-state-btn" onclick="openClientModal()">
+                        ${isSearch ? '' : `<button class="empty-state-btn" data-handler="openClientModal">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             Новый клиент
                         </button>`}

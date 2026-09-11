@@ -1,8 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // P2-1: токен теперь в httpOnly-cookie (JS его не видит). Логин-экран
+    // решаем по несекретному маркеру; если маркер есть, а сессия истекла —
+    // первый же 401 в api.js вернёт на логин.
     const token = (typeof getToken === 'function') ? getToken() : null;
+    let marker = null;
+    try { marker = localStorage.getItem('crm_logged_in'); } catch (e) {}
+    if (!marker) { try { marker = sessionStorage.getItem('crm_logged_in'); } catch (e) {} }
     const appContainer = document.querySelector('.app-container');
 
-    if (!token) {
+    if (!token && !marker) {
         appContainer.style.display = 'none';
         renderLoginScreen();
     } else {
@@ -19,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('click', () => {
-            // чистим все три хранилища, иначе токен из sessionStorage/cookie
+            // чистим все три хранилища, иначе маркер/роль из sessionStorage
             // остался бы и пользователь не смог бы выйти
             if (typeof clearToken === 'function') {
                 clearToken();
@@ -29,6 +35,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     localStorage.removeItem('crm_role');
                 } catch(e) {}
             }
+            try { localStorage.removeItem('crm_logged_in'); } catch (e) {}
+            try { sessionStorage.removeItem('crm_logged_in'); } catch (e) {}
+            // сервер гасит httpOnly-куку (P2-1); fire-and-forget — выход
+            // не должен зависеть от ответа
+            try {
+                fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'same-origin' });
+            } catch (e) {}
             window.location.reload();
         });
     }
@@ -70,6 +83,10 @@ function renderLoginScreen() {
                         </button>
                     </div>
                 </div>
+                <label class="login-remember" for="login-remember">
+                    <input type="checkbox" id="login-remember" checked>
+                    <span>Запомнить меня на этом устройстве (30 дней)</span>
+                </label>
                 <button type="button" id="login-submit" class="btn-primary btn-login">
                     <span class="btn-text">Войти</span>
                 </button>
@@ -137,6 +154,11 @@ function renderLoginScreen() {
         const params = new URLSearchParams();
         params.append('username', username);
         params.append('password', password);
+        // «Запомнить меня» (фидбек 07.09): сервер выпустит токен и куку
+        // на 30 дней вместо 24 часов + включит скользящее продление.
+        if (document.getElementById('login-remember')?.checked) {
+            params.append('remember', '1');
+        }
 
         const controller = new AbortController();
         const loginTimeout = setTimeout(() => controller.abort(), 15000);
@@ -155,25 +177,21 @@ function renderLoginScreen() {
                 throw new Error(data.detail || 'Неверный логин или пароль');
             }
 
+            // P2-1 (аудит 04.09): токен живёт в httpOnly-cookie, которую
+            // ставит сервер. Здесь храним только несекретный маркер входа
+            // (для выбора «логин-экран или приложение») и роль для UI.
             let stored = false;
             try {
-                localStorage.setItem('crm_token', data.access_token);
+                localStorage.setItem('crm_logged_in', '1');
                 if (data.role) localStorage.setItem('crm_role', data.role);
-                stored = localStorage.getItem('crm_token') === data.access_token;
+                stored = localStorage.getItem('crm_logged_in') === '1';
             } catch (e) { stored = false; }
 
             if (!stored) {
                 try {
-                    sessionStorage.setItem('crm_token', data.access_token);
+                    sessionStorage.setItem('crm_logged_in', '1');
                     if (data.role) sessionStorage.setItem('crm_role', data.role);
-                    stored = sessionStorage.getItem('crm_token') === data.access_token;
-                } catch (e) { stored = false; }
-            }
-            if (!stored) {
-                try {
-                    document.cookie = 'crm_token=' + encodeURIComponent(data.access_token) + '; path=/; SameSite=Lax';
-                    if (data.role) document.cookie = 'crm_role=' + encodeURIComponent(data.role) + '; path=/; SameSite=Lax';
-                    stored = document.cookie.indexOf('crm_token=') >= 0;
+                    stored = sessionStorage.getItem('crm_logged_in') === '1';
                 } catch (e) { stored = false; }
             }
 
@@ -224,7 +242,10 @@ function applyRoleToSettingsTabs(role) {
     if (objectsPane && objectsTab && objectsPane.classList.contains('active')) {
         objectsTab.classList.remove('active');
         objectsPane.classList.remove('active');
-        const emailTab = document.querySelector('.settings-tab[onclick*="email"]');
+        // Фикс аудита 10.09: селектор с onclick мёртв ещё с ухода от
+        // инлайн-обработчиков (CSP) — вкладка «Почта» не активировалась и
+        // менеджер видел пустую страницу настроек.
+        const emailTab = document.querySelector('.settings-tab[data-tab="email"]');
         const emailPane = document.getElementById('stab-email');
         if (emailTab && emailPane) {
             emailTab.classList.add('active');

@@ -2,9 +2,10 @@ import os
 import secrets
 import logging
 import jwt
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import models
@@ -25,8 +26,7 @@ def _load_or_create_key(path: str, env_var: str) -> str:
         if existing:
             return existing
     key = secrets.token_hex(32)
-    with open(path, "w") as f:
-        f.write(key)
+    Path(path).write_text(key)
     os.chmod(path, 0o600)
     return key
 
@@ -42,6 +42,9 @@ SECRET_KEY = _load_or_create_secret()
 CRON_TOKEN = _load_or_create_key(_CRON_TOKEN_FILE, "CRM_CRON_TOKEN")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+# «Запомнить меня»: срок токена/куки при включённой опции (фидбек 07.09 —
+# пользователи вылетали каждые 24 часа).
+REMEMBER_MINUTES = 30 * 24 * 60
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -51,22 +54,29 @@ def get_password_hash(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-def create_access_token(data: dict):
+def create_access_token(data: dict, expires_minutes: int = None):
     import uuid
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = now + timedelta(minutes=expires_minutes or ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire, "iat": now, "jti": str(uuid.uuid4())})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(request: Request, response: Response, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # P2-1 (аудит 04.09): основной носитель токена — httpOnly-cookie
+    # (нечитаема из JS), Authorization-заголовок оставлен как переходный
+    # путь (admin.html, старые сессии). Приоритет: заголовок, затем cookie.
+    if not token:
+        token = request.cookies.get("crm_token")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось проверить токен",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token:
+        raise credentials_exception
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
@@ -88,6 +98,30 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     token_pv = payload.get("pv")
     if token_pv is not None and token_pv != user.hashed_password[:8]:
         raise credentials_exception
+
+    # Скользящее продление (фидбек 07.09 «вылетает из аккаунта»): когда
+    # токен прожил больше половины своего срока, активному пользователю
+    # выпускается свежая кука с полным сроком (24ч, у «Запомнить меня» —
+    # 30 дней). Смена пароля инвалидирует и новые токены (claim pv).
+    exp = payload.get("exp")
+    if exp and response is not None:
+        lifetime = REMEMBER_MINUTES * 60 if payload.get("rm") else ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        remaining = exp - datetime.now(timezone.utc).timestamp()
+        if remaining < lifetime / 2:
+            fresh_data = {"sub": username, "tenant_id": tenant_id, "pv": user.hashed_password[:8]}
+            if payload.get("rm"):
+                fresh_data["rm"] = 1
+            minutes = REMEMBER_MINUTES if payload.get("rm") else ACCESS_TOKEN_EXPIRE_MINUTES
+            fresh = create_access_token(fresh_data, expires_minutes=minutes)
+            response.set_cookie(
+                key="crm_token",
+                value=fresh,
+                httponly=True,
+                samesite="lax",
+                secure=(request.url.scheme == "https"),
+                max_age=minutes * 60,
+                path="/",
+            )
     return user
 
 def require_role(*allowed_roles):

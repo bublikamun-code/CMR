@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
@@ -6,7 +6,7 @@ import logging
 import schemas
 import models
 import auth
-from database import get_db
+from database import get_db, get_tenant_db
 from limiter_config import limiter
 
 logger = logging.getLogger(__name__)
@@ -15,8 +15,8 @@ router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
 
 @router.post("/login")
-@limiter.limit("30/minute")
-def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), remember: str = Form(""), db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.username == form_data.username).first()
 
     if not user or not auth.verify_password(form_data.password, user.hashed_password):
@@ -26,8 +26,36 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     logger.info(f"Login: {user.username} (role={user.role})")
     # pv (password version) — первые 8 символов хэша: смена пароля
     # инвалидирует все ранее выданные токены (проверка в get_current_user).
-    access_token = auth.create_access_token(data={"sub": user.username, "tenant_id": user.tenant_id, "pv": user.hashed_password[:8]})
+    # «Запомнить меня» (фидбек 07.09): срок токена и куки — 30 дней вместо
+    # 24 часов; claim rm включает скользящее продление в get_current_user.
+    remember_on = remember.lower() in ("1", "true", "on", "yes")
+    minutes = auth.REMEMBER_MINUTES if remember_on else auth.ACCESS_TOKEN_EXPIRE_MINUTES
+    token_data = {"sub": user.username, "tenant_id": user.tenant_id, "pv": user.hashed_password[:8]}
+    if remember_on:
+        token_data["rm"] = 1
+    access_token = auth.create_access_token(token_data, expires_minutes=minutes)
+    # P2-1 (аудит 04.09): дублируем токен httpOnly-cookie — JS не может её
+    # прочитать, поэтому кража токена через XSS невозможна. SameSite=Lax
+    # закрывает CSRF для кросс-сайтовых POST. Secure — только по https,
+    # пока прод живёт на HTTP (иначе кука не отправится вовсе).
+    response.set_cookie(
+        key="crm_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        secure=(request.url.scheme == "https"),
+        max_age=minutes * 60,
+        path="/",
+    )
     return {"access_token": access_token, "token_type": "bearer", "role": user.role}
+
+
+@router.post("/logout")
+def logout(response: Response):
+    # P2-1: выход — сервер гасит httpOnly-куку. Фронт дополнительно чистит
+    # свой localStorage (переходный период, пока заголовок ещё используется).
+    response.delete_cookie(key="crm_token", path="/")
+    return {"detail": "Вы вышли из системы"}
 
 
 @router.get("/users", response_model=List[schemas.UserResponse])
@@ -41,7 +69,12 @@ def list_users(db: Session = Depends(get_db), current_user: models.User = Depend
 
 
 @router.put("/me/password")
-def change_own_password(data: schemas.PasswordChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+# FIX 2026-09-06 (аудит С3): здесь проверяется СТАРЫЙ пароль — без лимита
+# эндпоинт годится для брутфорса чужого аккаунта при оставшейся открытой
+# сессии/украденной куке. Ключ — IP; за nginx должен быть включён
+# proxy-headers, иначе лимит станет общим на всех (см. P0-HTTPS).
+@limiter.limit("5/minute")
+def change_own_password(request: Request, data: schemas.PasswordChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     """Самостоятельная смена пароля: старый проверяется, после смены
     все прежние токены пользователя умирают (claim pv)."""
     if not auth.verify_password(data.old_password, current_user.hashed_password):
@@ -61,8 +94,10 @@ def get_me(current_user: models.User = Depends(auth.get_current_user)):
 
 @router.post("/users", response_model=schemas.UserResponse)
 def create_user(data: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_admin())):
-    if current_user.role != "superadmin" and data.role == "admin":
-        raise HTTPException(status_code=403, detail="Только суперадмин может назначать роль администратора")
+    # Фикс аудита 10.09: проверка ловила только role == "admin", и админ мог
+    # создать себе superadmin (как в update_user ниже). Ловим обе роли.
+    if current_user.role != "superadmin" and data.role in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Только суперадмин может назначать роли admin/superadmin")
     existing = db.query(models.User).filter(models.User.username == data.username).first()
     if existing:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
@@ -123,3 +158,39 @@ def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(ge
         target.hashed_password = auth.get_password_hash(data.password)
     db.commit()
     return {"detail": "Пользователь обновлён"}
+
+
+@router.post("/create-tenant", response_model=schemas.UserResponse)
+def create_tenant_admin(data: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_superadmin())):
+    existing = db.query(models.User).filter(models.User.username == data.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Пользователь уже существует")
+
+    from models_tenant import Tenant
+    import os, re
+    slug = re.sub(r'[^a-zA-Z0-9_]', '', data.username.lower().replace(" ", "_"))
+    if not slug or len(slug) < 3:
+        raise HTTPException(status_code=400, detail="Некорректное имя пользователя")
+    db_path = f"tenants/crm_{slug}.db"
+    os.makedirs("tenants", exist_ok=True)
+
+    tenant = Tenant(name=data.username, db_path=db_path)
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+
+    new_user = models.User(
+        username=data.username,
+        hashed_password=auth.get_password_hash(data.password),
+        role="admin",
+        tenant_id=tenant.id
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    from database import Base, get_tenant_db
+    tdb = get_tenant_db(tenant.id)
+    tdb.close()
+
+    return {"id": new_user.id, "username": new_user.username, "role": new_user.role}

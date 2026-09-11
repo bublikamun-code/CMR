@@ -22,8 +22,11 @@
         switchTab(tab) {
             document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
-            const tabs = {objects:1,workflows:2,email:3,webhooks:4,profile:5};
-            document.querySelector(`.settings-tab:nth-child(${tabs[tab]||1})`).classList.add('active');
+            // Активный класс — строго по data-tab: голый .settings-tab:nth-child(N)
+            // цеплял чипы статусов задач, у которых тот же класс (они стоят
+            // в DOM раньше настроек), и вкладка не подсвечивалась.
+            const btn = document.querySelector(`.settings-tab[data-tab="${tab}"]`);
+            if (btn) btn.classList.add('active');
             document.getElementById('stab-' + tab).classList.add('active');
             if (tab === 'objects') this.loadObjs();
             if (tab === 'workflows') this.loadWfs();
@@ -95,7 +98,11 @@
                 objs.forEach(o => {
                     const d = document.createElement('div'); d.className = 'list-item';
                     d.innerHTML = `<div class="list-item-info"><strong>${escapeHtml(o.label)}</strong><span class="text-muted-sm">${escapeHtml(o.name)}</span></div>
-                    <div class="list-item-actions"><button class="btn btn-secondary btn-sm" onclick="SettingsUI.openObj(${o.id})">Открыть</button><button class="btn btn-danger btn-sm" onclick="SettingsUI.delObj(${o.id},'${escapeHtml(o.name).replace(/'/g,"\\'")}')">Удалить</button></div>`;
+                    <div class="list-item-actions"><button class="btn btn-secondary btn-sm obj-open-btn">Открыть</button><button class="btn btn-danger btn-sm obj-del-btn">Удалить</button></div>`;
+                    // Два аргумента (id + имя) — замыканием вместо inline-onclick
+                    // (CSP) и хрупкого экранирования кавычек в имени.
+                    d.querySelector('.obj-open-btn').addEventListener('click', () => SettingsUI.openObj(o.id));
+                    d.querySelector('.obj-del-btn').addEventListener('click', () => SettingsUI.delObj(o.id, o.name));
                     c.appendChild(d);
                 });
             } catch(e) { console.error(e); }
@@ -104,11 +111,19 @@
             const label = document.getElementById('sobj-label').value.trim();
             const name = document.getElementById('sobj-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'_');
             if (!label || !name) { showToast('Заполните все поля','error'); return; }
-            await apiFetch('/custom/objects', { method:'POST', body:JSON.stringify({name,label}) });
-            document.getElementById('sobj-label').value=''; document.getElementById('sobj-name').value='';
-            showToast('Создано','success'); await this.loadObjs();
+            try {
+                await apiFetch('/custom/objects', { method:'POST', body:JSON.stringify({name,label}) });
+                document.getElementById('sobj-label').value=''; document.getElementById('sobj-name').value='';
+                showToast('Создано','success'); await this.loadObjs();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
-        async delObj(id, name) { if (!confirm(`Удалить "${name}"?`)) return; await apiFetch(`/custom/objects/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.loadObjs(); },
+        async delObj(id, name) {
+            if (!confirm(`Удалить "${name}"?`)) return;
+            try {
+                await apiFetch(`/custom/objects/${id}`,{method:'DELETE'});
+                showToast('Удалено','success'); await this.loadObjs();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+        },
         async openObj(id) {
             const objs = await apiFetch('/custom/objects'); curObj = objs.find(o=>o.id===id);
             document.getElementById('sobj-list').classList.add('hidden');
@@ -122,7 +137,7 @@
             const c = document.getElementById('sfields-container'); c.innerHTML = '';
             curFields.forEach(f => {
                 const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<span><b>${escapeHtml(f.label)}</b> <span class="text-muted-sm">(${escapeHtml(f.name)}, ${f.field_type})</span></span><button class="btn btn-danger btn-sm" onclick="SettingsUI.delField(${f.id})">Удалить</button>`;
+                d.innerHTML = `<span><b>${escapeHtml(f.label)}</b> <span class="text-muted-sm">(${escapeHtml(f.name)}, ${f.field_type})</span></span><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delField" data-arg="${f.id}">Удалить</button>`;
                 c.appendChild(d);
             });
         },
@@ -131,11 +146,19 @@
             const name = document.getElementById('sfield-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'_');
             const type = document.getElementById('sfield-type').value;
             if (!label || !name) { showToast('Заполните все поля','error'); return; }
-            await apiFetch(`/custom/objects/${curObj.id}/fields`, { method:'POST', body:JSON.stringify({name,label,field_type:type,position:curFields.length}) });
-            document.getElementById('sfield-label').value=''; document.getElementById('sfield-name').value='';
-            showToast('Поле добавлено','success'); await this.loadFields();
+            try {
+                await apiFetch(`/custom/objects/${curObj.id}/fields`, { method:'POST', body:JSON.stringify({name,label,field_type:type,position:curFields.length}) });
+                document.getElementById('sfield-label').value=''; document.getElementById('sfield-name').value='';
+                showToast('Поле добавлено','success'); await this.loadFields();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
-        async delField(id) { if(!confirm('Удалить поле?'))return; await apiFetch(`/custom/fields/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.loadFields(); },
+        async delField(id) {
+            if(!confirm('Удалить поле?'))return;
+            try {
+                await apiFetch(`/custom/fields/${id}`,{method:'DELETE'});
+                showToast('Удалено','success'); await this.loadFields();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+        },
         async loadRecords() {
             curRecords = await apiFetch(`/custom/objects/${curObj.id}/records`);
             const c = document.getElementById('srecords-container');
@@ -172,7 +195,7 @@
                     }
                     h += `<td>${d}</td>`;
                 });
-                h += `<td><button class="btn btn-danger btn-sm" onclick="SettingsUI.delRec(${r.id})" title="Удалить">${ICON_CROSS}</button></td></tr>`;
+                h += `<td><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delRec" data-arg="${r.id}" title="Удалить">${ICON_CROSS}</button></td></tr>`;
             });
             h += '</tbody></table>';
             c.innerHTML = h;
@@ -186,11 +209,12 @@
                     let i = '';
                     if (inp.field_type === 'boolean') i = `<input type="checkbox" id="srf-${inp.id}">`;
                     else if (inp.field_type === 'date') i = `<input type="date" id="srf-${inp.id}">`;
-                    else if (inp.field_type === 'number' || inp.field_type === 'currency') i = `<input type="number" step="0.01" id="srf-${inp.id}">`;
+                    // Фикс аудита 10.09: text+inputmode — запятая в числе больше не отбрасывает значение
+                    else if (inp.field_type === 'number' || inp.field_type === 'currency') i = `<input type="text" inputmode="decimal" id="srf-${inp.id}">`;
                     else i = `<input type="text" id="srf-${inp.id}">`;
                     f.innerHTML += `<div class="form-group-sm"><label class="form-label-sm">${escapeHtml(inp.label)}</label>${i}</div>`;
                 });
-                f.innerHTML += '<button class="btn btn-primary" onclick="SettingsUI.createRec()" style="margin-top:8px;">Создать</button>';
+                f.innerHTML += '<button class="btn btn-primary" data-handler="SettingsUI.createRec" style="margin-top:8px;">Создать</button>';
             }
         },
         async createRec() {
@@ -199,15 +223,23 @@
                 const el = document.getElementById(`srf-${f.id}`);
                 if (!el) return;
                 if (f.field_type === 'boolean') data[f.name] = el.checked;
-                else if (f.field_type === 'number' || f.field_type === 'currency') data[f.name] = el.value ? parseFloat(el.value) : null;
+                else if (f.field_type === 'number' || f.field_type === 'currency') data[f.name] = (el.value && parseMoney(el.value) !== null) ? parseMoney(el.value) : null;
                 else data[f.name] = el.value || null;
             });
-            await apiFetch(`/custom/objects/${curObj.id}/records`, { method:'POST', body:JSON.stringify({data}) });
-            showToast('Создано','success');
-            document.getElementById('snew-rec-form').classList.add('hidden');
-            await this.loadRecords();
+            try {
+                await apiFetch(`/custom/objects/${curObj.id}/records`, { method:'POST', body:JSON.stringify({data}) });
+                showToast('Создано','success');
+                document.getElementById('snew-rec-form').classList.add('hidden');
+                await this.loadRecords();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
-        async delRec(id) { if(!confirm('Удалить?'))return; await apiFetch(`/custom/records/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.loadRecords(); },
+        async delRec(id) {
+            if(!confirm('Удалить?'))return;
+            try {
+                await apiFetch(`/custom/records/${id}`,{method:'DELETE'});
+                showToast('Удалено','success'); await this.loadRecords();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+        },
 
         // === ВОРКФЛОУ ===
         async loadWfs() {
@@ -227,7 +259,7 @@
                 wfs.forEach(w => {
                     const d = document.createElement('div'); d.className = 'list-item';
                     d.innerHTML = `<div class="list-item-info"><strong>${escapeHtml(w.name)}</strong><span class="text-muted-sm">${escapeHtml(w.description||'')}</span></div>
-                    <div class="list-item-actions"><span class="wf-badge ${w.is_active?'wf-active':'wf-inactive'}">${w.is_active?'Активен':'Выкл'}</span><button class="btn btn-secondary btn-sm" onclick="SettingsUI.openWf(${w.id})">Открыть</button></div>`;
+                    <div class="list-item-actions"><span class="wf-badge ${w.is_active?'wf-active':'wf-inactive'}">${w.is_active?'Активен':'Выкл'}</span><button class="btn btn-secondary btn-sm" data-handler="SettingsUI.openWf" data-arg="${w.id}">Открыть</button></div>`;
                     c.appendChild(d);
                 });
             } catch(e) { console.error(e); }
@@ -235,9 +267,11 @@
         async createWf() {
             const name = document.getElementById('swf-name').value.trim();
             if (!name) { showToast('Введите название','error'); return; }
-            await apiFetch('/workflows', { method:'POST', body:JSON.stringify({name}) });
-            document.getElementById('swf-name').value = '';
-            showToast('Создано','success'); await this.loadWfs();
+            try {
+                await apiFetch('/workflows', { method:'POST', body:JSON.stringify({name}) });
+                document.getElementById('swf-name').value = '';
+                showToast('Создано','success'); await this.loadWfs();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
         async openWf(id) {
             const wfs = await apiFetch('/workflows'); curWf = wfs.find(w=>w.id===id);
@@ -249,12 +283,20 @@
         },
         backWf() { curWf=null; document.getElementById('swf-list').classList.remove('hidden'); document.getElementById('swf-detail').classList.add('hidden'); },
         async toggleWf() {
-            await apiFetch(`/workflows/${curWf.id}`, { method:'PATCH', body:JSON.stringify({is_active:!curWf.is_active}) });
-            curWf.is_active = !curWf.is_active;
-            document.getElementById('swf-toggle-btn').textContent = curWf.is_active ? 'Выключить' : 'Включить';
-            showToast(curWf.is_active ? 'Включён' : 'Выключен', 'success');
+            try {
+                await apiFetch(`/workflows/${curWf.id}`, { method:'PATCH', body:JSON.stringify({is_active:!curWf.is_active}) });
+                curWf.is_active = !curWf.is_active;
+                document.getElementById('swf-toggle-btn').textContent = curWf.is_active ? 'Выключить' : 'Включить';
+                showToast(curWf.is_active ? 'Включён' : 'Выключен', 'success');
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
-        async delWf() { if(!confirm('Удалить?'))return; await apiFetch(`/workflows/${curWf.id}`,{method:'DELETE'}); showToast('Удалено','success'); this.backWf(); await this.loadWfs(); },
+        async delWf() {
+            if(!confirm('Удалить?'))return;
+            try {
+                await apiFetch(`/workflows/${curWf.id}`,{method:'DELETE'});
+                showToast('Удалено','success'); this.backWf(); await this.loadWfs();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+        },
         async loadTriggers() {
             const ts = await apiFetch(`/workflows/${curWf.id}/triggers`);
             const c = document.getElementById('str-container'); c.innerHTML = '';
@@ -265,7 +307,7 @@
             ts.forEach(t => {
                 const cfg = t.config || {};
                 const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<div class="flex-center-gap"><span style="font-size:18px;">${icons[t.trigger_type]||'?'}</span><strong>${lbl[t.trigger_type]||t.trigger_type}</strong>${cfg.object?` <span class="text-muted-sm"> — ${obj[cfg.object]||cfg.object} ${evt[cfg.event]||''}</span>`:''}</div><button class="btn btn-danger btn-sm" onclick="SettingsUI.delTrigger(${t.id})">Удалить</button>`;
+                d.innerHTML = `<div class="flex-center-gap"><span style="font-size:18px;">${icons[t.trigger_type]||'?'}</span><strong>${lbl[t.trigger_type]||t.trigger_type}</strong>${cfg.object?` <span class="text-muted-sm"> — ${obj[cfg.object]||cfg.object} ${evt[cfg.event]||''}</span>`:''}</div><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delTrigger" data-arg="${t.id}">Удалить</button>`;
                 c.appendChild(d);
             });
         },
@@ -273,10 +315,18 @@
             const type = document.getElementById('str-type').value;
             const cfg = {};
             if (type === 'record_event') { cfg.object = document.getElementById('str-object').value; cfg.event = document.getElementById('str-event').value; }
-            await apiFetch(`/workflows/${curWf.id}/triggers`, { method:'POST', body:JSON.stringify({trigger_type:type,config:cfg}) });
-            showToast('Добавлено','success'); await this.loadTriggers();
+            try {
+                await apiFetch(`/workflows/${curWf.id}/triggers`, { method:'POST', body:JSON.stringify({trigger_type:type,config:cfg}) });
+                showToast('Добавлено','success'); await this.loadTriggers();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
-        async delTrigger(id) { if(!confirm('Удалить?'))return; await apiFetch(`/workflows/triggers/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.loadTriggers(); },
+        async delTrigger(id) {
+            if(!confirm('Удалить?'))return;
+            try {
+                await apiFetch(`/workflows/triggers/${id}`,{method:'DELETE'});
+                showToast('Удалено','success'); await this.loadTriggers();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+        },
         async loadSteps() {
             const ss = await apiFetch(`/workflows/${curWf.id}/steps`);
             const c = document.getElementById('sst-container'); c.innerHTML = '';
@@ -285,7 +335,7 @@
             ss.forEach((s, i) => {
                 if (i > 0) { const conn = document.createElement('div'); conn.className='wf-connector'; conn.innerHTML=ICON_ARROW_DOWN; c.appendChild(conn); }
                 const d = document.createElement('div'); d.className = 'list-item';
-                d.innerHTML = `<div class="flex-center-gap"><span class="text-muted-sm">#${i+1}</span><span>${icons[s.action_type]||ICON_LIGHTNING} <strong>${s.step_type}</strong> — ${al[s.action_type]||s.action_type}</span></div><button class="btn btn-danger btn-sm" onclick="SettingsUI.delStep(${s.id})">Удалить</button>`;
+                d.innerHTML = `<div class="flex-center-gap"><span class="text-muted-sm">#${i+1}</span><span>${icons[s.action_type]||ICON_LIGHTNING} <strong>${s.step_type}</strong> — ${al[s.action_type]||s.action_type}</span></div><button class="btn btn-danger btn-sm" data-handler="SettingsUI.delStep" data-arg="${s.id}">Удалить</button>`;
                 c.appendChild(d);
             });
         },
@@ -295,12 +345,20 @@
             let cfg = {};
             const cs = document.getElementById('sst-config').value.trim();
             if (cs) { try { cfg = JSON.parse(cs); } catch(e) { showToast('Неверный JSON','error'); return; } }
-            const steps = await apiFetch(`/workflows/${curWf.id}/steps`);
-            await apiFetch(`/workflows/${curWf.id}/steps`, { method:'POST', body:JSON.stringify({step_type:st,action_type:sa,config:cfg,position:steps.length}) });
-            document.getElementById('sst-config').value = '';
-            showToast('Добавлено','success'); await this.loadSteps();
+            try {
+                const steps = await apiFetch(`/workflows/${curWf.id}/steps`);
+                await apiFetch(`/workflows/${curWf.id}/steps`, { method:'POST', body:JSON.stringify({step_type:st,action_type:sa,config:cfg,position:steps.length}) });
+                document.getElementById('sst-config').value = '';
+                showToast('Добавлено','success'); await this.loadSteps();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
-        async delStep(id) { if(!confirm('Удалить?'))return; await apiFetch(`/workflows/steps/${id}`,{method:'DELETE'}); showToast('Удалено','success'); await this.loadSteps(); },
+        async delStep(id) {
+            if(!confirm('Удалить?'))return;
+            try {
+                await apiFetch(`/workflows/steps/${id}`,{method:'DELETE'});
+                showToast('Удалено','success'); await this.loadSteps();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+        },
         async loadRuns() {
             const rs = await apiFetch(`/workflows/${curWf.id}/runs`);
             const c = document.getElementById('sruns-container');
@@ -408,8 +466,8 @@
                     d.innerHTML = `<div class="list-item-info"><strong class="word-break-all">${escapeHtml(h.url)}</strong><span class="text-muted-sm">События: ${h.events.join(', ')}</span></div>
                     <div class="list-item-actions">
                         <span class="wf-badge ${h.is_active?'wf-active':'wf-inactive'}">${h.is_active?'Активен':'Выкл'}</span>
-                        <button class="btn btn-secondary btn-sm" onclick="SettingsUI.testWebhook(${h.id})">Тест</button>
-                        <button class="btn btn-danger btn-sm" onclick="SettingsUI.delWebhook(${h.id})">Удалить</button>
+                        <button class="btn btn-secondary btn-sm" data-handler="SettingsUI.testWebhook" data-arg="${h.id}">Тест</button>
+                        <button class="btn btn-danger btn-sm" data-handler="SettingsUI.delWebhook" data-arg="${h.id}">Удалить</button>
                     </div>`;
                     c.appendChild(d);
                 });
@@ -421,23 +479,29 @@
             const events = [];
             document.querySelectorAll('#wh-events input:checked').forEach(cb => events.push(cb.value));
             if (events.length === 0) { showToast('Выберите хотя бы одно событие','error'); return; }
-            await apiFetch('/webhooks/', { method:'POST', body:JSON.stringify({url, events}) });
-            document.getElementById('wh-url').value = '';
-            document.querySelectorAll('#wh-events input').forEach(cb => cb.checked = false);
-            showToast('Webhook создан','success');
-            await this.loadWebhooks();
+            try {
+                await apiFetch('/webhooks/', { method:'POST', body:JSON.stringify({url, events}) });
+                document.getElementById('wh-url').value = '';
+                document.querySelectorAll('#wh-events input').forEach(cb => cb.checked = false);
+                showToast('Webhook создан','success');
+                await this.loadWebhooks();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
         async delWebhook(id) {
             if (!confirm('Удалить webhook?')) return;
-            await apiFetch(`/webhooks/${id}`, { method:'DELETE' });
-            showToast('Удалено','success');
-            await this.loadWebhooks();
+            try {
+                await apiFetch(`/webhooks/${id}`, { method:'DELETE' });
+                showToast('Удалено','success');
+                await this.loadWebhooks();
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         },
         async testWebhook(id) {
             showToast('Отправка теста...','info');
-            const r = await apiFetch(`/webhooks/${id}/test`, { method:'POST' });
-            if (r.success) showToast('Тест отправлен успешно!','success');
-            else showToast('Ошибка: ' + (r.error || 'Статус ' + r.status),'error');
+            try {
+                const r = await apiFetch(`/webhooks/${id}/test`, { method:'POST' });
+                if (r.success) showToast('Тест отправлен успешно!','success');
+                else showToast('Ошибка: ' + (r.error || 'Статус ' + r.status),'error');
+            } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
         }
     };
 

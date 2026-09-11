@@ -15,7 +15,17 @@ document.addEventListener('DOMContentLoaded', () => {
     bindTableSearch('documents-search', 'documents-table');
 
     const exportBtn = document.getElementById('documents-export');
-    if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentDocuments, 'dokumenty.csv'));
+    // Фикс аудита 10.09: экспорт уважает поле поиска — как в реестре оплат.
+    if (exportBtn) exportBtn.addEventListener('click', () => {
+        const q = (document.getElementById('documents-search')?.value || '').trim().toLowerCase();
+        const visible = q
+            ? currentDocuments.filter(t => {
+                const tr = document.querySelector(`#documents-table tbody tr[data-id="${t.id}"]`);
+                return tr && tr.style.display !== 'none';
+            })
+            : currentDocuments;
+        exportTransactionsToCsv(visible, 'dokumenty.csv');
+    });
 
     setupTableScrollShadow('page-documents');
 });
@@ -76,9 +86,11 @@ function renderDocuments() {
     updateDocumentsTotals(rows);
 
     // Сколько накладных выписано с одной карточки — чтобы связь была видна.
-    // Логику не меняем, только помечаем строки.
+    // Фикс аудита 10.09: считаем по всемDocuments, а не по строкам после
+    // фильтра месяца — иначе у сделки с накладными за разные месяцы каждый
+    // месяц показывал «выписано 1 из 1».
     const groupCount = {};
-    rows.forEach(t => {
+    allDocuments.forEach(t => {
         if (t.card_id) groupCount[t.card_id] = (groupCount[t.card_id] || 0) + 1;
     });
     const groupIndex = {};
@@ -216,6 +228,10 @@ function renderDocuments() {
                 'Удалить эту накладную?\n\nОна будет удалена и из складского списания. Сумма вернётся в остаток по сделке.',
                 { okText: 'Удалить', danger: true }
             )) return;
+            // Фикс аудита 10.09: повторный клик во время запроса давал 404
+            // и «ошибку» сразу после успешного удаления.
+            if (btn.disabled) return;
+            btn.disabled = true;
             try {
                 // Удаление сносит и накладную, и её копию — сервер держит их парой.
                 if (txId) await apiFetch(`/payments/transactions/${txId}`, { method: 'DELETE' });
@@ -237,6 +253,7 @@ function renderDocuments() {
                     ? `Накладная удалена. Сделка: «${status}»`
                     : 'Накладная удалена', 'success');
             } catch (err) {
+                btn.disabled = false;
                 showToast('Ошибка удаления: ' + err.message, 'error');
             }
         };

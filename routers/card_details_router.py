@@ -2,7 +2,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 import models
@@ -10,6 +10,7 @@ import schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
 from db_utils import resolve_tenant_db as _db
+from limiter_config import limiter
 
 router = APIRouter(
     tags=["Детали карточки (Чек-листы и Файлы)"],
@@ -95,8 +96,6 @@ def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session 
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -129,8 +128,6 @@ def update_checklist_item(checklist_id: int, item_update: schemas.ChecklistUpdat
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -159,8 +156,6 @@ def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), curr
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -173,13 +168,15 @@ def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), curr
         if tdb is not db:
             tdb.close()
 
+# FIX 2026-09-06 (аудит С3): загрузки — тяжёлые операции (стриминг до 25 МБ)
+# и вектор записи мусора в uploads; лимит на оба upload-эндпоинта.
+# За nginx должен быть включён proxy-headers, иначе лимит общий на всех.
 @router.post("/checklists/{checklist_id}/invoice", response_model=schemas.ChecklistResponse)
-def upload_checklist_invoice(checklist_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+@limiter.limit("30/minute")
+def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -221,8 +218,6 @@ def delete_checklist_invoice(checklist_id: int, db: Session = Depends(get_db), c
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
@@ -278,12 +273,11 @@ def _validate_upload_content(file, ext: str):
 
 
 @router.post("/cards/{card_id}/attachments", response_model=schemas.AttachmentResponse)
-def upload_file(card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+@limiter.limit("30/minute")
+def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -319,8 +313,6 @@ def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         attachment = session.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
         if not attachment:
             raise HTTPException(status_code=404, detail="Файл не найден")
@@ -338,8 +330,6 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -357,9 +347,44 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
                 tx.company_name = card_update.title
         if card_update.total_amount is not None:
             card.total_amount = card_update.total_amount
-            for tx in card.transactions:
-                tx.amount = card_update.total_amount
+            # FIX 2026-09-06 (аудит): раньше новая сумма сделки копировалась в
+            # ВСЕ транзакции — правка суммы после выписки накладных затирала и
+            # их суммы (реестр оплат расходился с напечатанными ТН).
+            # Пересчитываем только запись-остаток: сумма сделки минус уже
+            # выписанное (накладные/списания). Сами накладные не трогаем.
+            ledger = [t for t in card.transactions if not t.is_document]
+            issued_total = round(sum(float(t.amount or 0) for t in ledger
+                                     if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+            new_rest = round(float(card_update.total_amount) - issued_total, 2)
+            remainder = next((t for t in ledger
+                              if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
+            if remainder is not None:
+                if new_rest <= 0.01:
+                    session.delete(remainder)
+                else:
+                    remainder.amount = new_rest
+            elif new_rest > 0.01 and card.status in ("Сборка", "На списание", "Закрыто"):
+                # Фикс аудита 10.09: остаток = «сделка в реестре оплат»
+                # (инвариант: запись появляется при входе в «Сборку»).
+                # Правка суммы в «Новом запросе»/«В работе» раньше сразу
+                # протаскивала сделку в реестр. Пересчитать существующий
+                # остаток можно в любом статусе, создавать — только с «Сборки».
+                session.add(models.Transaction(
+                    company_name=card.title, amount=new_rest,
+                    store_location=card.store_location, card_id=card.id,
+                ))
+            # Правка суммы создаёт/убирает остаток к выписке — статус
+            # выравнивается по тому же правилу, что и везде (иначе сделка с
+            # появившимся остатком застревала в «Закрыто» и пропадала с доски
+            # списания). «Сборку» не трогаем: там сделка по решению менеджера.
+            if card.status in ("На списание", "Закрыто"):
+                from routers.payments_router import _writeoff_status_for
+                card.status = _writeoff_status_for(card, ledger)
         if 'store_location' in card_update.model_fields_set:
+            # Н4 (решение владельца, 06.09): правило «склад сделки единый» —
+            # СОЗНАТЕЛЬНОЕ. Смена склада сделки синхронно обновляет склад у
+            # всех её транзакций, включая выписанные накладные: сделка
+            # ведётся с одного склада. Вопросы оплат от склада не зависят.
             card.store_location = card_update.store_location
             for tx in card.transactions:
                 tx.store_location = card_update.store_location
@@ -417,8 +442,6 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -463,45 +486,11 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         if tdb is not db:
             tdb.close()
 
-@router.get("/files/{filename}")
-def download_file(filename: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    safe_name = os.path.basename(filename)
-    file_path = os.path.realpath(os.path.join(UPLOAD_DIR, safe_name))
-    if not file_path.startswith(os.path.realpath(UPLOAD_DIR)):
-        raise HTTPException(status_code=403, detail="Доступ запрещён")
-    if not os.path.isfile(file_path):
-        # Диагностика: логируем запрошенное имя и папку, чтобы понять расхождение
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            "File not found: requested=%r resolved=%r upload_dir=%r cwd=%r",
-            filename, file_path, os.path.realpath(UPLOAD_DIR), os.getcwd()
-        )
-        raise HTTPException(status_code=404, detail="Файл не найден")
-    # SECURITY 2026-09-03: файл отдаётся только если он прикреплён к
-    # сущностям в БД вызывающего тенанта — раньше любой аутентифицированный
-    # пользователь скачивал чужие счета и вложения по имени файла.
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-        att_rows = session.query(models.CardAttachment.file_path).all()
-        inv_rows = (
-            session.query(models.CardChecklist.invoice_file_path)
-            .filter(models.CardChecklist.invoice_file_path.isnot(None))
-            .all()
-        )
-        owned = any(
-            os.path.basename((r[0] or "")) == safe_name
-            for r in list(att_rows) + list(inv_rows)
-        )
-        if not owned:
-            raise HTTPException(status_code=404, detail="Файл не найден")
-    finally:
-        if tdb is not db:
-            tdb.close()
-    return FileResponse(file_path, filename=safe_name)
+# FIX 2026-09-06 (аудит): эндпоинт GET /files/{filename} удалён.
+# Он отдавал любой файл из uploads любому авторизованному пользователю без
+# проверки владельца/тенанта (IDOR), а фронтенд им уже не пользуется —
+# скачивание идёт по id: /attachments/{id}/download и
+# /checklists/{id}/invoice/download.
 
 
 def _sanitize_download_name(name: str) -> str:
@@ -557,8 +546,6 @@ def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db),
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         attachment = session.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
         if not attachment:
             raise HTTPException(status_code=404, detail="Вложение не найдено")
@@ -582,8 +569,6 @@ def download_checklist_invoice_by_id(checklist_id: int, db: Session = Depends(ge
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")

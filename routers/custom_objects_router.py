@@ -177,13 +177,21 @@ def list_records(obj_id: int, current_user=Depends(get_current_user)):
         ).all()
         field_map = {f.id: f for f in fields}
 
+        # Н12 (аудит 06.09): значения всех записей одним запросом IN —
+        # раньше был SELECT на каждую запись (запрос в цикле).
+        record_ids = [r.id for r in records]
+        values_by_record = {}
+        if record_ids:
+            all_values = db.query(models.CustomFieldValue).filter(
+                models.CustomFieldValue.record_id.in_(record_ids)
+            ).all()
+            for v in all_values:
+                values_by_record.setdefault(v.record_id, []).append(v)
+
         result = []
         for r in records:
-            values = db.query(models.CustomFieldValue).filter(
-                models.CustomFieldValue.record_id == r.id
-            ).all()
             data = {}
-            for v in values:
+            for v in values_by_record.get(r.id, []):
                 field = field_map.get(v.field_def_id)
                 if field:
                     if v.value_text is not None:
@@ -237,7 +245,12 @@ def create_record(obj_id: int, record: RecordData, current_user=Depends(get_curr
             elif field.field_type == 'boolean':
                 fv.value_boolean = bool(value)
             elif field.field_type == 'date':
-                fv.value_date = datetime.fromisoformat(value) if value else None
+                # Фикс аудита 10.09: произвольная строка из формы падала
+                # ValueError'ом и уходила в глобальный 500. Отдаём 400.
+                try:
+                    fv.value_date = datetime.fromisoformat(value) if value else None
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail=f"Некорректная дата в поле «{field.name}»: {value!r}")
             else:
                 fv.value_text = str(value) if value is not None else None
             db.add(fv)

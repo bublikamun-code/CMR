@@ -6,7 +6,7 @@ set -e
 
 APP_DIR="/var/www/h212005/data/www/cmr-svetvdome.online"
 DATA_DIR="/var/www/h212005/data/crm_data"
-BACKUP_DIR="$APP_DIR/backups"
+BACKUP_DIR="/var/www/h212005/data/crm_backups_predeploy"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="backup_$TIMESTAMP"
 

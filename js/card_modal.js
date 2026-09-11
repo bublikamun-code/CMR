@@ -389,7 +389,11 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     const container = leftContainer; // backward compat
     const now = new Date();
     const dueDate = card.due_date ? new Date(card.due_date + 'T00:00:00') : null;
-    const isOverdue = dueDate && dueDate < now && card.status !== 'Закрыто';
+    // Синхронно с kanban.js: оплаченная сделка не помечается просрочкой;
+    // сделка в «Списании»/«Закрыто» фактически выписана — тоже (фидбек 06.09)
+    const isPaid = card.payment_status === 'Оплачен';
+    const dealDone = card.status === 'На списание' || card.status === 'Закрыто';
+    const isOverdue = dueDate && dueDate < now && !dealDone && !isPaid;
     const dueDateStr = card.due_date || '';
 
     // LEFT COLUMN: Static fields
@@ -467,8 +471,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     renderCardInvoices(card);
     // Групповое списание: две карточки одного клиента под одной накладной
     renderCardGroupBlock(card);
-    // Прошлые сделки того же отправителя — предложить связать
-    renderRelatedCards(card);
+    // Прошлые сделки того же отправителя — предложить связать.
+    // (Фикс аудита 10.09: вызов перенесён НИЖЕ создания #related-cards-mount —
+    // раньше banner писался в узел, которого ещё нет/уже заменён, и баннер
+    // «От этого отправителя есть сделки» никогда не появлялся.)
 
     // RIGHT COLUMN: Timeline
     rightContainer.innerHTML = `
@@ -489,6 +495,10 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку (Enter)">${ICON_CHECK}</button>
         </div>
     `;
+
+    // Прошлые сделки того же отправителя — предлагаем связать (контейнер
+    // related-cards-mount уже в DOM, см. комментарий выше).
+    renderRelatedCards(card);
 
     // Поле заметки фиксированной высоты: длинный текст скроллится внутри,
     // а не растягивает панель комментариев на полкарточки.
@@ -695,9 +705,14 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         }
     });
 
-    container.addEventListener('input', (e) => {
+    // Фикс аудита 10.09: как с _modalClickHandler/_modalChangeHandler —
+    // контейнер постоянный, анонимный слушатель копился бы на каждой
+    // перерисовке модалки (загрузка вложений, пунктов чек-листа и т.д.).
+    container.removeEventListener('input', container._modalInputHandler);
+    container._modalInputHandler = (e) => {
         if (e.target && e.target.closest('.date-input-wrapper')) syncDateWrapper(e.target);
-    });
+    };
+    container.addEventListener('input', container._modalInputHandler);
 
     const STORE_OPTIONS = APP_STORES;
     const storeDropdown = createDropdown({
@@ -1201,9 +1216,16 @@ async function loadCardActivity(cardId) {
     }
     try {
         const activities = await apiFetch(`/activity?card_id=${cardId}&limit=50`);
+        // Фикс аудита 10.09: пока ответ был в пути, модалку могли закрыть и
+        // открыть для другой сделки — контейнер заменён или теперь хранит
+        // другой cardId. Чужую/устаревшую историю не отрисовываем.
+        const live = document.getElementById('activity-container');
+        if (live !== container || container.dataset.cardId !== String(cardId)) return;
         container._activities = activities;
         renderCardActivityList(cardId, activities);
     } catch (err) {
+        const live = document.getElementById('activity-container');
+        if (live !== container || container.dataset.cardId !== String(cardId)) return;
         container.innerHTML = '';
         container.appendChild(renderAlert({ type: 'error', title: 'Ошибка загрузки активности', message: err.message }));
     }
@@ -1335,10 +1357,22 @@ function renderCardActivityList(cardId, activities) {
             `;
             container.appendChild(item);
         });
-}
+
+        // Кнопка «показать полностью» имеет смысл только там, где текст
+        // реально обрезан клампом: короткое многострочное письмо и так видно
+        // целиком, и клик по кнопке ничего не меняет — выглядит как «не
+        // разворачивается». У нормально обрезанного scrollHeight больше
+        // видимой высоты (max-height + overflow:hidden), у помещающегося — равен.
+        container.querySelectorAll('.activity-details-long.is-clamped').forEach(el => {
+            if (el.scrollHeight <= el.clientHeight + 2) {
+                const btn = el.parentElement.querySelector('.activity-details-toggle');
+                if (btn) btn.style.display = 'none';
+            }
+        });
+    }
 
 const TAG_COLORS = [
-    '#4f7cf5', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6',
+    '#4f46e5', '#dc2626', '#f59e0b', '#10b981', '#8b5cf6',
     '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6',
     '#e11d48', '#84cc16', '#0ea5e9', '#a855f7', '#64748b'
 ];
@@ -1462,47 +1496,10 @@ async function sniffExt(blob) {
     return '';
 }
 
-async function downloadFile(filename, niceName) {
-    const token = getToken();
-    try {
-        const resp = await fetch(API_BASE_URL + '/files/' + encodeURIComponent(filename), {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
-        if (!resp.ok) {
-            // UI FIX 2026-08-29: показываем detail от сервера — раньше любое 404
-            // маскировалось общим «файл утерян при переносе», и причину было не понять.
-            let detail = '';
-            try { const j = await resp.json(); if (j && j.detail) detail = String(j.detail); } catch (e) {}
-            if (resp.status === 404) {
-                throw new Error('Файл не найден на сервере' + (detail ? ': ' + detail : ''));
-            }
-            throw new Error(detail || ('Ошибка ' + resp.status));
-        }
-        const blob = await resp.blob();
-
-        // выбираем имя для сохранения
-        let outName = (niceName || '').trim() || filename;
-        if (window.CRM_DECODE_MIME) outName = window.CRM_DECODE_MIME(outName) || outName;
-        outName = outName.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim();
-
-        const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(outName);
-        if (!hasExt) {
-            const fromDisk = (filename.match(/\.[A-Za-z0-9]{2,5}$/) || [''])[0];
-            outName += fromDisk || (await sniffExt(blob));
-        }
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = outName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    } catch (err) {
-        showToast('Не удалось скачать файл: ' + err.message, 'error');
-    }
-}
+// FIX 2026-09-06 (аудит): downloadFile(filename) удалена — она ходила в
+// GET /files/{filename}, который закрыт как IDOR (отдача любого файла из
+// uploads без проверки владельца) и с 31.08 не использовалась: скачивание
+// идёт через downloadById по id вложения/счёта.
 
 async function downloadById(endpoint, id, niceName) {
     // UI FIX 2026-08-31: id = null → endpoint уже полный путь до /download.
@@ -1511,10 +1508,16 @@ async function downloadById(endpoint, id, niceName) {
     const downloadUrl = (id === null || id === undefined)
         ? `${API_BASE_URL}${endpoint}`
         : `${API_BASE_URL}${endpoint}/${id}/download`;
+    // P2-1: токен в httpOnly-куке, getToken() возвращает null. Безусловный
+    // заголовок давал «Bearer null»: бэкенд видел непустой Authorization,
+    // не переключался на куку и отвечал 401 «Не удалось проверить токен».
+    // Кука уходит с запросом сама (same-origin), заголовок — только если
+    // токен реально есть.
     const token = getToken();
     try {
         const resp = await fetch(downloadUrl, {
-            headers: { 'Authorization': 'Bearer ' + token }
+            credentials: 'same-origin',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         });
         if (!resp.ok) {
             let detail = '';
@@ -1675,14 +1678,16 @@ function renderModalPaymentHeader(card) {
         } else if (newStatus === 'Частично') {
             actions.innerHTML = `
                 <div class="payment-form-inline">
-                    <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 && paid < total ? paid.toFixed(2) : ''}" placeholder="0,00">
+                    <!-- Фикс аудита 10.09: text+inputmode вместо number — запятая в вводе больше не теряет значение -->
+                    <input type="text" inputmode="decimal" id="modal-pay-amount" max="${total}" value="${paid > 0 && paid < total ? paid.toFixed(2) : ''}" placeholder="0,00">
                     <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
                     <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
                 </div>
             `;
             const amountInput = actions.querySelector('#modal-pay-amount');
             actions.querySelector('#modal-pay-confirm').onclick = () => {
-                const amount = parseFloat(amountInput.value) || 0;
+                // Фикс аудита 10.09: parseMoney понимает запятую и пробелы
+                const amount = parseMoney(amountInput.value) ?? 0;
                 if (amount <= 0) return showToast('Укажите сумму оплаты', 'error');
                 if (amount > total + 0.01) return showToast('Сумма оплаты не может превышать сумму сделки', 'error');
                 const newStatus = amount >= total - 0.01 ? 'Оплачен' : 'Частично';
@@ -1693,7 +1698,7 @@ function renderModalPaymentHeader(card) {
         } else if (newStatus === 'Отсрочка') {
             actions.innerHTML = `
                 <div class="payment-form-inline">
-                    <input type="number" id="modal-pay-amount" step="0.01" min="0" max="${total}" value="${paid > 0 ? paid.toFixed(2) : ''}" placeholder="0,00">
+                    <input type="text" inputmode="decimal" id="modal-pay-amount" max="${total}" value="${paid > 0 ? paid.toFixed(2) : ''}" placeholder="0,00">
                     ${dateInputHTML({ id: 'modal-pay-due', value: due })}
                     <button id="modal-pay-confirm" class="btn-primary btn-sm">OK</button>
                     <button id="modal-pay-cancel" class="btn-secondary btn-sm">Отмена</button>
@@ -1705,7 +1710,7 @@ function renderModalPaymentHeader(card) {
                 dueInput.addEventListener('input', () => syncDateWrapper(dueInput));
             }
             actions.querySelector('#modal-pay-confirm').onclick = () => {
-                const amount = parseFloat(amountInput.value) || 0;
+                const amount = parseMoney(amountInput.value) ?? 0;
                 if (!dueInput.value) return showToast('Укажите дату отсрочки', 'error');
                 saveCardPayment(card, { paid_amount: amount, payment_status: 'Отсрочка', payment_due_date: dueInput.value });
             };
@@ -1767,9 +1772,17 @@ async function renderCardInvoices(card) {
     data.issued.forEach((inv, i) => {
         const row = document.createElement('div');
         row.className = 'checklist-item inv-item is-done';
-        const dateStr = inv.invoice_date
-            ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')
-            : '';
+        // дата хранится строкой; в <input type="date"> подставляется только
+        // YYYY-MM-DD — записи со старым форматом открываются с пустым полем
+        const rawDate = (inv.invoice_date || '').trim();
+        const dateIso = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : '';
+        // Фикс аудита 10.09: старая дата не ISO-формата давала literal
+        // «Invalid Date» в строке — теперь показываем сырую строку.
+        let legacyDateStr = '';
+        if (!dateIso && rawDate) {
+            const d = new Date(rawDate + 'T00:00:00');
+            legacyDateStr = isNaN(d) ? rawDate : d.toLocaleDateString('ru-RU');
+        }
         row.innerHTML = `
             <div class="checklist-item-header">
                 <label class="checklist-label">
@@ -1783,7 +1796,12 @@ async function renderCardInvoices(card) {
                     <button class="delete-checklist inv-del" data-id="${inv.id}" title="Удалить накладную">${ICON_TRASH}</button>
                 </span>
             </div>
-            <div class="inv-sub">${dateStr ? escapeHtml(dateStr) + ' · ' : ''}${escapeHtml(inv.store_location || '')}${inv.store_location ? ' · ' : ''}${inv.written_off ? 'списана' : 'ждёт списания'}</div>
+            <div class="inv-sub">
+                <input type="date" class="inv-date-edit" data-id="${inv.id}" value="${dateIso}"
+                       title="Дата выписки — нажмите, чтобы изменить" aria-label="Дата выписки накладной">
+                ${legacyDateStr ? `<span title="Дата из старой записи">${escapeHtml(legacyDateStr)}</span>` : ''}
+                <span>${escapeHtml(inv.store_location || '')}${inv.store_location ? ' · ' : ''}${inv.written_off ? 'списана' : 'ждёт списания'}</span>
+            </div>
         `;
         container.appendChild(row);
     });
@@ -1802,8 +1820,8 @@ async function renderCardInvoices(card) {
             </div>
             <div class="inv-draft-fields">
                 <input type="text" id="new-inv-num" class="inv-in inv-in-num" placeholder="№ накладной">
-                <input type="date" id="new-inv-date" class="inv-in inv-in-date" value="${new Date().toISOString().slice(0, 10)}">
-                <input type="number" step="0.01" id="new-inv-amount" class="inv-in inv-in-amount" value="${data.rest.toFixed(2)}" placeholder="0,00">
+                <input type="date" id="new-inv-date" class="inv-in inv-in-date" value="${localDateISO(new Date())}">
+                <input type="text" inputmode="decimal" id="new-inv-amount" class="inv-in inv-in-amount" value="${data.rest.toFixed(2)}" placeholder="0,00">
             </div>
             <div class="inv-draft-actions">
                 <button id="btn-cancel-invoice" class="btn-secondary btn-sm">Отменить</button>
@@ -1824,7 +1842,7 @@ async function renderCardInvoices(card) {
 
         draft.querySelector('#btn-save-invoice').onclick = async () => {
             const number = numEl.value.trim();
-            const amount = parseFloat(amtEl.value || 0);
+            const amount = parseMoney(amtEl.value) ?? 0;
             if (!number) { numEl.focus(); return showToast('Укажите номер накладной', 'error'); }
             if (!amount || amount <= 0) { amtEl.focus(); return showToast('Укажите сумму накладной', 'error'); }
             if (amount > data.rest + 0.01) {
@@ -1869,13 +1887,39 @@ async function renderCardInvoices(card) {
         }));
     }
 
+    // --- правка даты выписки накладной ---
+    container.querySelectorAll('.inv-date-edit').forEach(inp => {
+        inp.addEventListener('change', async () => {
+            try {
+                await apiFetch(`/payments/transactions/${inp.dataset.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoice_date: inp.value || null })
+                });
+                showToast('Дата накладной сохранена', 'success');
+                // сервер синхронизирует дату и на копии в «Документах» —
+                // перезагрузим блок и таблицу, чтобы нигде не осталась старая
+                await renderCardInvoices(card);
+                if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
+            } catch (err) {
+                showToast('Не удалось сохранить дату: ' + err.message, 'error');
+                renderCardInvoices(card); // вернуть в поле серверное значение
+            }
+        });
+    });
+
     // --- удаление выписанной накладной ---
     container.querySelectorAll('.inv-del').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.preventDefault();
+            // id снимаем с кнопки ДО await: после паузы на диалоге событие
+            // давно погашено и e.currentTarget обнулён — Safari падал с
+            // «null is not an object (evaluating 'e.currentTarget.dataset')»,
+            // а накладная не удалялась вовсе.
+            const txId = btn.dataset.id;
             if (!await confirmDialog('Удалить эту накладную? Сумма вернётся в остаток.')) return;
             try {
-                await apiFetch(`/payments/transactions/${e.currentTarget.dataset.id}`, { method: 'DELETE' });
+                await apiFetch(`/payments/transactions/${txId}`, { method: 'DELETE' });
                 // статус сделки пересчитывается по факту, а не назначается вслепую
                 try {
                     const r = await apiFetch(`/payments/cards/${card.id}/sync-writeoff-status`, { method: 'POST' });
@@ -2017,7 +2061,7 @@ function renderExistingGroup(card, group, container) {
         <div class="group-invoice-info">
             <span class="inv-badge badge-ok">закрыто общей накладной</span>
             <div class="gm-invoice">№ ${escapeHtml(group.invoice_number || '—')} · ${formatMoneyBYN(total)}</div>
-            ${group.invoice_date ? `<div class="gm-invoice-date">${new Date(group.invoice_date + 'T00:00:00').toLocaleDateString('ru-RU')}</div>` : ''}
+            ${group.invoice_date ? `<div class="gm-invoice-date">${(() => { const d = new Date(group.invoice_date + 'T00:00:00'); return isNaN(d) ? escapeHtml(group.invoice_date) : d.toLocaleDateString('ru-RU'); })()}</div>` : ''}
         </div>
     ` : '';
 
@@ -2033,8 +2077,8 @@ function renderExistingGroup(card, group, container) {
             ${!group.written_off ? `
                 <div class="group-invoice-form" id="group-invoice-form">
                     <input type="text" id="group-inv-num" class="inv-in inv-in-num" placeholder="№ накладной">
-                    <input type="date" id="group-inv-date" class="inv-in inv-in-date" value="${new Date().toISOString().slice(0, 10)}">
-                    <input type="number" step="0.01" id="group-inv-amount" class="inv-in inv-in-amount" value="${total.toFixed(2)}" readonly title="Сумма группы" placeholder="0,00">
+                    <input type="date" id="group-inv-date" class="inv-in inv-in-date" value="${localDateISO(new Date())}">
+                    <input type="text" inputmode="decimal" id="group-inv-amount" class="inv-in inv-in-amount" value="${total.toFixed(2)}" readonly title="Сумма группы" placeholder="0,00">
                 </div>
                 <div class="group-actions">
                     <button id="btn-issue-group-invoice" class="btn-primary btn-sm">Выписать общую накладную</button>
@@ -2267,6 +2311,10 @@ function updateChecklistItemState(input, item) {
    иначе одна и та же компания попадала в базу в трёх написаниях.
    ============================================================ */
 let _suppliersCache = null;
+
+// Фикс аудита 10.09: кэш не инвалидался — поставщик, созданный в разделе
+// «Поставщики», в чек-листе карточки не появлялся до перезагрузки страницы.
+window.invalidateSuppliersCache = function() { _suppliersCache = null; };
 
 async function loadSuppliersList(force = false) {
     if (_suppliersCache && !force) return _suppliersCache;

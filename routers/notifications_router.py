@@ -11,7 +11,7 @@ sync-overdue вызывается внешним cron'ом (заголовок X
 уведомление того же типа — новое не создаётся. Повторная просрочка после
 прочтения старого снова уведомит.
 """
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -34,7 +34,10 @@ LIST_LIMIT = 30
 # (см. payments_router / writeoffs_router). Прежний дефолт («Выполнено»,
 # «Закрыта») не совпадал ни с одним реальным статусом, и закрытые сделки
 # продолжали получать уведомления о просрочке.
-DEFAULT_OPEN_STATUSES = ("Закрыто",)
+# FIX 2026-09-06 (фидбек): «На списание» — сделка фактически выписана,
+# её дата окончания больше не генерирует «Просрочена сделка». Вопросы
+# оплат отслеживаются отдельно по payment_due_date (блок 3 в sync_overdue).
+DEFAULT_OPEN_STATUSES = ("На списание", "Закрыто")
 
 
 @router.get("", response_model=schemas.NotificationsListResponse)
@@ -74,7 +77,7 @@ def mark_read(data: schemas.NotificationReadRequest, db: Session = Depends(get_d
         if data.ids:
             query = query.filter(models.Notification.id.in_(data.ids))
         rows = query.all()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for n in rows:
             n.is_read = True
             n.read_at = now
@@ -107,12 +110,14 @@ cron_router = APIRouter(prefix="/notifications", tags=["Уведомления"]
 
 
 def _done_status_names(session):
-    """Статусы сделок, считающиеся закрытыми.
+    """Статусы сделок, считающиеся закрытыми (без «Просрочена сделка»).
 
     FIX 2026-08-29: поле DealStatus.is_done не существует в модели — прежняя
     проверка getattr() всегда возвращала пустое множество и подставляла
     неверный дефолт. Справочник статусов не хранит признак «закрыта», поэтому
     закрытым считается только явный статус «Закрыто» (DEFAULT_OPEN_STATUSES).
+    FIX 2026-09-06: добавлен «На списание» — сделка фактически выписана;
+    по ней могут оставаться только вопросы оплат (отдельный блок ниже).
     """
     return set(DEFAULT_OPEN_STATUSES)
 
@@ -125,8 +130,10 @@ def sync_overdue(db: Session = Depends(get_db)):
     поэтому каждый scope обрабатывается своей сессией.
     """
     created_total = 0
+    notif_purged = 0
+    versions_purged = 0
     day_key = date.today().isoformat()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # 0. Просроченные задачи — задачи живут в ОСНОВНОЙ базе, один проход.
     overdue_tasks = (db.query(models.Task)
@@ -194,32 +201,32 @@ def sync_overdue(db: Session = Depends(get_db)):
                 pass
             continue
         finally:
+            # FIX аудита 10.09: ретенция раньше шла только по главной базе,
+            # tenant-базы росли безлимитно. Чистим в каждом scope, пока
+            # сессия ещё открыта (закрытие — в finally ниже).
+            cutoff_read = datetime.now(timezone.utc) - timedelta(days=30)
+            notif_purged += (session.query(models.Notification)
+                             .filter(models.Notification.is_read == True,
+                                     models.Notification.read_at < cutoff_read)
+                             .delete(synchronize_session=False))
+            cutoff_versions = datetime.now(timezone.utc) - timedelta(days=180)
+            old_versions = (session.query(models.RecordVersion)
+                            .filter(models.RecordVersion.changed_at < cutoff_versions)
+                            .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,
+                                      models.RecordVersion.version.desc())
+                            .all())
+            per_record = {}
+            ids_to_delete = []
+            for v in old_versions:
+                key = (v.table_name, v.record_id)
+                per_record[key] = per_record.get(key, 0) + 1
+                if per_record[key] > 20:
+                    ids_to_delete.append(v.id)
+            if ids_to_delete:
+                session.query(models.RecordVersion).filter(models.RecordVersion.id.in_(ids_to_delete)).delete(synchronize_session=False)
+            versions_purged += len(ids_to_delete)
+            session.commit()
             if scope != "main":
                 session.close()
-
-    # FIX 2026-08-29: ретенция данных (раньше росли безлимитно).
-    # Уведомления: прочитанные старше 30 дней.
-    cutoff_read = datetime.utcnow() - timedelta(days=30)
-    notif_purged = (db.query(models.Notification)
-                    .filter(models.Notification.is_read == True,
-                            models.Notification.read_at < cutoff_read)
-                    .delete(synchronize_session=False))
-    # Версии: старше 180 дней, но всегда оставляем последние 20 на запись.
-    cutoff_versions = datetime.utcnow() - timedelta(days=180)
-    old_versions = (db.query(models.RecordVersion)
-                    .filter(models.RecordVersion.changed_at < cutoff_versions)
-                    .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,
-                              models.RecordVersion.version.desc())
-                    .all())
-    per_record = {}
-    ids_to_delete = []
-    for v in old_versions:
-        key = (v.table_name, v.record_id)
-        per_record[key] = per_record.get(key, 0) + 1
-        if per_record[key] > 20:
-            ids_to_delete.append(v.id)
-    if ids_to_delete:
-        db.query(models.RecordVersion).filter(models.RecordVersion.id.in_(ids_to_delete)).delete(synchronize_session=False)
-    versions_purged = len(ids_to_delete)
 
     return {"created": created_total, "notifications_purged": notif_purged, "versions_purged": versions_purged}

@@ -46,9 +46,6 @@ def create_group(payload: GroupCreateRequest, db: Session = Depends(get_db), cur
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         if len(payload.card_ids) < 2:
             raise HTTPException(status_code=400, detail="Группа объединяет минимум две карточки")
 
@@ -102,10 +99,11 @@ def list_groups(db: Session = Depends(get_db), current_user: models.User = Depen
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         groups = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).order_by(models.WriteoffGroup.id.desc()).all()
-        return groups
+        # Группа без участников не отдаётся: участники могли быть выведены
+        # в обход API, и пустая плитка с устаревшей total_amount рисовалась
+        # на доске списания, раздувая итог «к списанию» склада.
+        return [g for g in groups if g.cards]
     finally:
         if tdb is not db:
             tdb.close()
@@ -116,8 +114,6 @@ def get_group(group_id: int, db: Session = Depends(get_db), current_user: models
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -132,9 +128,6 @@ def add_card_to_group(group_id: int, card_id: int, db: Session = Depends(get_db)
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -166,9 +159,6 @@ def remove_card_from_group(group_id: int, card_id: int, db: Session = Depends(ge
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -179,7 +169,12 @@ def remove_card_from_group(group_id: int, card_id: int, db: Session = Depends(ge
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена в группе")
 
-        card.writeoff_group_id = None
+        # Фикс аудита 10.09: раньше ставили card.writeoff_group_id = NULL
+        # напрямую, но загруженная коллекция group.cards об этом не узнавала —
+        # _recompute_group_total считала сумму вместе с удалённой карточкой,
+        # а «последняя карточка» не распускала группу. remove() обновляет
+        # обе стороны back_populates (FK уйдёт в NULL сам).
+        group.cards.remove(card)
         _recompute_group_total(group)
 
         if not group.cards:
@@ -200,9 +195,6 @@ def issue_group_invoice(group_id: int, payload: IssueGroupInvoiceRequest, db: Se
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -279,9 +271,6 @@ def disband_group(group_id: int, db: Session = Depends(get_db), current_user: mo
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         group = session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")

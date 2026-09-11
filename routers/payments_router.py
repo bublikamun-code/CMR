@@ -1,12 +1,43 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from typing import List
+from datetime import datetime
 from pydantic import BaseModel
 import models
 import schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
 from db_utils import resolve_tenant_db as _db
+
+import os
+import sqlite3
+
+
+def _backup_db_snapshot(session):
+    """Копия базы перед применением починки — страховка отката.
+
+    Пишется рядом с базой (CRM_DATA_DIR/backups/before_repair_*.db) штатным
+    backup-API SQLite, поэтому безопасна при живом приложении (WAL).
+    Ошибка копии не отменяет починку — в отчёте будет backup: null.
+    """
+    try:
+        rows = session.connection().exec_driver_sql("PRAGMA database_list").fetchall()
+        db_path = next((row[2] for row in rows if row[1] == "main" and row[2]), None)
+        if not db_path:
+            return None
+        backup_dir = os.path.join(os.path.dirname(db_path), "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        target = os.path.join(backup_dir, f"before_repair_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+        src = sqlite3.connect(db_path)
+        dst = sqlite3.connect(target)
+        with dst:
+            src.backup(dst)
+        src.close()
+        dst.close()
+        return target
+    except Exception:
+        return None
 
 # FIX 2026-08-30: предохранитель от неограниченной выборки (реестр и документы
 # раньше читали ВСЮ таблицу транзакций). Это не пагинация: сейчас в базе 188
@@ -35,15 +66,44 @@ class InvoiceCreateRequest(BaseModel):
     invoice_number: str | None = None
     invoice_date: str | None = None
 
+
+def ensure_registry_remainder(session, card):
+    """Сделка в «Сборке» обязана иметь запись-остаток в реестре оплат.
+
+    Запись создавали только кнопки карточки («В Сборку» / «В Списание» →
+    trigger_from_card), а перетаскивание в «Сборку» и кнопки переноса
+    запись не создавали — сделка пропадала из «Реестра оплат», хотя висела
+    в «Сборке» (кейс «ТрансЛИДИЯсервис», фидбек 09.09). Функция идемпотентна:
+    при существующих записях ничего не делает. Групповые сделки и сделки
+    без суммы пропускаются — первыми управляет группа, вторые по правилам
+    фронта дальше «Нового запроса» не двигаются.
+    """
+    if card is None or card.is_deleted or card.writeoff_group_id is not None:
+        return None
+    if float(card.total_amount or 0) <= 0:
+        return None
+    existing = session.query(models.Transaction).filter(
+        models.Transaction.card_id == card.id,
+        models.Transaction.is_document == False,
+    ).first()
+    if existing:
+        return None
+    tx = models.Transaction(
+        company_name=card.title,
+        amount=float(card.total_amount),
+        store_location=card.store_location,
+        card_id=card.id,
+    )
+    session.add(tx)
+    session.flush()
+    return tx
+
 @router.post("/trigger_from_card/{card_id}", response_model=schemas.TransactionResponse)
 def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         session = tdb
         query = tdb.query(models.Card).filter(models.Card.id == card_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Card).filter(models.Card.id == card_id)
         card = query.first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -61,7 +121,21 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             return _tx_dict(existing)
         new_tx = models.Transaction(company_name=card.title, amount=card.total_amount, store_location=payload.store_location, card_id=card.id)
         session.add(new_tx)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            # Н9 (аудит 06.09): гонка двух конкурентных вызовов. Частичный
+            # unique-индекс uq_remainder_per_card (миграция 0004) не даёт
+            # создать второй остаток — проигравшая гонка возвращает запись
+            # победителя вместо 500.
+            session.rollback()
+            winner = session.query(models.Transaction).filter(
+                models.Transaction.card_id == card.id,
+                models.Transaction.is_document == False
+            ).first()
+            if winner:
+                return _tx_dict(winner)
+            raise
         session.refresh(new_tx)
         # Версионирование
         from versioning import save_version as _save_version
@@ -104,10 +178,6 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.is_document == False)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.is_document == False)
-
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
         ).limit(REGISTRY_HARD_LIMIT).all()
@@ -208,9 +278,6 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.is_document == True)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.is_document == True)
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.date.desc()
         ).limit(REGISTRY_HARD_LIMIT).all()
@@ -229,9 +296,6 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
         original = query.first()
         if not original:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
@@ -259,15 +323,52 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
     finally:
         tdb.close()
 
+def _find_invoice_twins(session, tx):
+    """Пара накладной: её копия в «Документах» (или исходник, если правят копию).
+
+    «Накладная + копия» — ОДНА сущность: правки и удаление должны касаться
+    обеих сторон. Поиск — по тем же правилам, что и при удалении: по номеру
+    без нецифровых символов, затем по сумме, затем единственный кандидат.
+    Вызывать ДО изменения полей tx: пара ищется по текущим (старым) значениям.
+    """
+    if tx.card_id is None:
+        return []
+    number = (tx.invoice_number or "").strip()
+    amount = float(tx.amount or 0)
+    was_doc = bool(tx.is_document)
+
+    def _norm(v):
+        """Номера накладных пишут по-разному: «ТТН4881006» и «4881006» —
+        это одна накладная. Сравниваем только цифры."""
+        return "".join(ch for ch in (v or "") if ch.isdigit())
+
+    candidates = session.query(models.Transaction).filter(
+        models.Transaction.card_id == tx.card_id,
+        models.Transaction.id != tx.id,
+        models.Transaction.is_document == (not was_doc),
+    ).all()
+
+    key = _norm(number)
+    twins = []
+    if key:
+        twins = [c for c in candidates if _norm(c.invoice_number) == key]
+    # запасной путь: номер не совпал (или его нет) — ищем по сумме
+    if not twins:
+        twins = [c for c in candidates
+                 if abs(float(c.amount or 0) - amount) < 0.01
+                 and (not key or not _norm(c.invoice_number))]
+    # у сделки ровно одна накладная — пара однозначна
+    if not twins and len(candidates) == 1:
+        twins = candidates
+    return twins
+
+
 @router.delete("/transactions/{transaction_id}")
 def delete_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
         tx = query.first()
         if not tx:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
@@ -280,36 +381,12 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
         number = (tx.invoice_number or "").strip()
         amount = float(tx.amount or 0)
         store = tx.store_location
-        was_doc = bool(tx.is_document)
         was_invoice = bool(tx.is_warehouse_writeoff or number)
 
         # Накладная и её копия в «Документах» — ОДНА сущность.
         # Удаление с любой стороны должно снести обе, иначе разъезжается:
         # из «Документов» удаляли копию, а накладная оставалась в карточке.
-        def _norm(v):
-            """Номера накладных пишут по-разному: «ТТН4881006» и «4881006» —
-            это одна накладная. Сравниваем только цифры."""
-            return "".join(ch for ch in (v or "") if ch.isdigit())
-
-        twins = []
-        if card_id is not None:
-            candidates = session.query(models.Transaction).filter(
-                models.Transaction.card_id == card_id,
-                models.Transaction.id != tx.id,
-                models.Transaction.is_document == (not was_doc),
-            ).all()
-
-            key = _norm(number)
-            if key:
-                twins = [c for c in candidates if _norm(c.invoice_number) == key]
-            # запасной путь: номер не совпал (или его нет) — ищем по сумме
-            if not twins:
-                twins = [c for c in candidates
-                         if abs(float(c.amount or 0) - amount) < 0.01
-                         and (not key or not _norm(c.invoice_number))]
-            # у сделки ровно одна накладная — пара однозначна
-            if not twins and len(candidates) == 1:
-                twins = candidates
+        twins = _find_invoice_twins(session, tx)
 
         for t in twins:
             session.delete(t)
@@ -338,9 +415,10 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
                 if card.status == "Закрыто":
                     card.status = "На списание"
 
-        # Статус ВСЕГДА пересчитываем по факту, даже если остатка не осталось.
-        # Раньше при удалении последней записи карточка оставалась в «Закрыто»:
-        # она исчезала из «Списания» и из «Сборки», но висела в «Списке».
+        # Статус пересчитываем по факту (остаток к выписке), но только в
+        # зонах списания: при переносе «Сборка → В работе/Ждет оплаты» фронт
+        # меняет статус до удаления записи, и безусловный пересчёт возвращал
+        # карточку обратно в «Сборку» поверх только что выставленного статуса.
         if card_id is not None:
             card = session.query(models.Card).filter(models.Card.id == card_id).first()
             if card:
@@ -348,12 +426,12 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
                     models.Transaction.card_id == card_id,
                     models.Transaction.is_document == False,
                 ).all()
-                if not left:
-                    card.status = "Сборка"          # списывать нечего
-                elif any(not t.is_warehouse_writeoff for t in left):
-                    card.status = "На списание"
-                else:
-                    card.status = "Закрыто"
+                if card.status in ("На списание", "Закрыто"):
+                    card.status = _writeoff_status_for(card, left)
+                # Сделка в «Сборке» без записи реестра пропадала бы из
+                # «Реестра оплат» до первой ручной «пинки» (В Сборку туда-обратно).
+                if card.status == "Сборка":
+                    ensure_registry_remainder(session, card)
 
         # Журнал: помечаем, что накладная отменена. Прошлая запись
         # «Выписана накладная» остаётся, но в карточке будет зачёркнута —
@@ -361,6 +439,7 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
         if card_id is not None and was_invoice:
             session.add(models.ActivityLog(
                 user_id=current_user.id, card_id=card_id,
+                tenant_id=current_user.tenant_id,
                 action="Накладная отменена",
                 details=(f"{number} на {amount:.2f} BYN" if number else f"запись на {amount:.2f} BYN")
                         + " — удалена, сумма возвращена в остаток",
@@ -377,15 +456,30 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
     try:
         session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
         tx = query.first()
         if not tx:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
         update_data = updates.model_dump(exclude_unset=True) if hasattr(updates, 'model_dump') else updates.dict(exclude_unset=True)
+        # Пара «накладная + копия в Документах» ищется по СТАРЫМ значениям
+        # (как при удалении) — поэтому до применения правок.
+        invoice_fields = {"invoice_date", "invoice_number"} & update_data.keys()
+        invoice_twins = _find_invoice_twins(session, tx) if invoice_fields else []
+        # Дата оплаты: присланную дату соединяем со временем исходной записи —
+        # меняется только день, порядок записей внутри дня не скачет.
+        # Копии в «Документах» дата не касается: там своя, документная.
+        if update_data.get("date"):
+            new_day = datetime.strptime(update_data["date"], "%Y-%m-%d").date()
+            old_ts = tx.date or datetime.now()
+            update_data["date"] = datetime.combine(new_day, old_ts.time())
         for key, value in update_data.items():
             setattr(tx, key, value)
+        # Дата/номер — часть пары «накладная + копия»: правим с любой
+        # стороны, копия подтягивается, иначе в разделах разъезжается.
+        for twin in invoice_twins:
+            if "invoice_date" in invoice_fields:
+                twin.invoice_date = tx.invoice_date
+            if "invoice_number" in invoice_fields:
+                twin.invoice_number = tx.invoice_number
         if "print_status" in update_data and tx.card_id is not None:
             for twin in session.query(models.Transaction).filter(models.Transaction.card_id == tx.card_id, models.Transaction.id != tx.id).all():
                 twin.print_status = update_data["print_status"]
@@ -394,6 +488,27 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         return _tx_dict(tx)
     finally:
         tdb.close()
+
+
+def _writeoff_status_for(card, ledger):
+    """Статус списания по факту выписки.
+
+    Сделка закрыта, когда выписанными накладными покрыта вся сумма сделки
+    (остатка к выписке нет). Непомеченные «списанием со склада» накладные
+    статус не держат: выписка и складское списание — раздельные действия
+    (фидбек 04.09), а в колонке «На списание» сделке нечего делать, когда
+    выписано полностью (фидбек 09.09, «Свидеал»). Без суммы сделки эталона
+    нет — работает старое правило по складским флажкам. Нет записей —
+    «Сборка»: списывать нечего.
+    """
+    if not ledger:
+        return "Сборка"
+    if float(card.total_amount or 0) > 0:
+        issued = round(sum(float(t.amount or 0) for t in ledger
+                           if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+        rest = round(float(card.total_amount or 0) - issued, 2)
+        return "На списание" if rest > 0.01 else "Закрыто"
+    return "На списание" if any(not t.is_warehouse_writeoff for t in ledger) else "Закрыто"
 
 
 class WriteoffStatus(BaseModel):
@@ -412,8 +527,6 @@ def card_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -422,13 +535,19 @@ def card_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
             models.Transaction.is_document == False
         ).all()
         written = sum(1 for t in txs if t.is_warehouse_writeoff)
-        inv_sum = sum(float(t.amount or 0) for t in txs)
+        # Фикс аудита 10.09: в счёт выписанного идут только накладные
+        # (номер или складская запись). Запись-остаток — это ещё НЕ
+        # выписанная часть сделки; раньше она попадала в inv_sum, и
+        # fully_covered был почти всегда True, а total_invoices считал
+        # остаток как накладную.
+        issued_rows = [t for t in txs if t.is_warehouse_writeoff or (t.invoice_number or "").strip()]
+        inv_sum = sum(float(t.amount or 0) for t in issued_rows)
         card_sum = float(card.total_amount or 0)
         return WriteoffStatus(
             card_id=card_id,
-            total_invoices=len(txs),
+            total_invoices=len(issued_rows),
             written_off=written,
-            pending=len(txs) - written,
+            pending=len(issued_rows) - written,
             invoices_amount=round(inv_sum, 2),
             card_amount=round(card_sum, 2),
             fully_covered=(card_sum > 0 and inv_sum >= card_sum - 0.01),
@@ -447,8 +566,6 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -461,13 +578,25 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
         ).all()
 
         if payload.amount is not None:
-            # сумму задал пользователь в форме
+            # сумму задал пользователь в форме — проверяем её против остатка
+            # (фикс аудита 10.09): раньше можно было выписать накладную
+            # больше непокрытого остатка, остаток уходил в минус и молча
+            # удалялся, сделка закрывалась. Паритет с issue_invoice ниже.
             amount = round(float(payload.amount), 2)
+            issued_before = round(sum(float(t.amount or 0) for t in existing
+                                      if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+            rest_before = round(float(card.total_amount or 0) - issued_before, 2)
+            if amount > rest_before + 0.01:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Сумма накладной ({amount}) больше остатка по сделке ({rest_before})",
+                )
         else:
-            # иначе — непокрытый остаток по сделке
-            covered = sum(float(t.amount or 0) for t in existing)
-            rest = round(float(card.total_amount or 0) - covered, 2)
-            amount = rest if rest > 0 else 0.0
+            # иначе — непокрытый остаток по сделке: сумма сделки минус
+            # уже выписанное (как в форме выписки и на доске)
+            issued = round(sum(float(t.amount or 0) for t in existing
+                               if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+            amount = round(float(card.total_amount or 0) - issued, 2)
 
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Сумма накладной должна быть больше нуля: остаток по сделке уже покрыт")
@@ -485,6 +614,32 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
             card_id=card_id,
         )
         session.add(new_tx)
+        session.flush()
+        # Инварианты как во всей системе: запись-остаток = сумма сделки −
+        # выписанное, статус — по остатку. Без этого дописанная извне
+        # накладная оставляла остаток разъехавшимся, а сделку — в старом
+        # статусе.
+        ledger = session.query(models.Transaction).filter(
+            models.Transaction.card_id == card_id,
+            models.Transaction.is_document == False,
+        ).all()
+        issued_total = round(sum(float(t.amount or 0) for t in ledger
+                                 if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+        new_rest = round(float(card.total_amount or 0) - issued_total, 2)
+        remainder = next((t for t in ledger
+                          if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
+        if remainder is not None:
+            if new_rest <= 0.01:
+                session.delete(remainder)
+            else:
+                remainder.amount = new_rest
+        elif new_rest > 0.01:
+            session.add(models.Transaction(
+                company_name=card.title, amount=new_rest,
+                store_location=new_tx.store_location, card_id=card_id,
+            ))
+        if card.status in ("На списание", "Закрыто"):
+            card.status = _writeoff_status_for(card, ledger)
         session.commit()
         session.refresh(new_tx)
         return _tx_dict(new_tx)
@@ -527,7 +682,10 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
     Логика (по согласованному сценарию):
       1. По сделке всегда существует максимум ОДНА «пустая» запись-остаток,
          которая висит в колонке «На списание».
-      2. Выписанная накладная сразу уходит в «Списано» и в «Документы».
+      2. Выписка ставит только «Выписку» (is_invoice_issued); сделка с
+         накладной остаётся в «На списание» до явного «Списать» с доски
+         (фидбек 2026-09-04: «Списание» не должно ставиться вместе
+         с выпиской). Копия накладной при этом уходит в «Документы».
       3. Если накладная закрыла остаток не полностью — остаток уменьшается
          на её сумму и остаётся ждать следующую накладную.
       4. Остаток закрыт полностью — запись-остаток исчезает, сделка закрывается.
@@ -535,9 +693,6 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -569,7 +724,12 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
         issued_total = sum(float(t.amount or 0) for t in txs
                            if t.is_warehouse_writeoff or (t.invoice_number or "").strip())
         card_amount = round(float(card.total_amount or 0), 2)
-        rest_before = round(float(remainder.amount or 0), 2) if remainder else round(card_amount - issued_total, 2)
+        # Остаток считаем ОТ СУММЫ СДЕЛКИ, а не от записи-остатка: запись —
+        # производное состояние и расходилась с сделкой (сумму правили уже
+        # после создания записи; в двух сделках в записях остались опечатки
+        # ×100 — и модалка предлагала выписать миллионы). Остаток на доске
+        # списания считается так же, теперь и модалка показывает то же число.
+        rest_before = max(0.0, round(card_amount - issued_total, 2))
 
         if amount > rest_before + 0.01:
             raise HTTPException(
@@ -586,8 +746,9 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             invoice.invoice_date = payload.invoice_date or None
             invoice.amount = amount
             invoice.store_location = store
-            invoice.is_warehouse_writeoff = True
-            invoice.is_written_off = True
+            # Фидбек 2026-09-04: выписка накладной ставит ТОЛЬКО «Выписку».
+            # «Списание» — отдельное действие с доски списания (кнопка
+            # «Списать» → is_warehouse_writeoff/is_written_off).
             invoice.is_invoice_issued = True
             new_remainder = None
         else:
@@ -595,7 +756,7 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             invoice = models.Transaction(
                 company_name=card.title, amount=amount, store_location=store,
                 invoice_number=number, invoice_date=(payload.invoice_date or None),
-                is_warehouse_writeoff=True, is_written_off=True, is_invoice_issued=True,
+                is_invoice_issued=True,
                 card_id=card_id,
             )
             session.add(invoice)
@@ -631,11 +792,17 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             card.status = "На списание"
 
         session.add(models.ActivityLog(
-            user_id=current_user.id, card_id=card_id, action="Выписана накладная",
+            user_id=current_user.id, card_id=card_id,
+            tenant_id=current_user.tenant_id, action="Выписана накладная",
             details=f"{number} на {amount:.2f} BYN ({store}). Остаток: {max(rest_after, 0):.2f}",
         ))
         session.commit()
         session.refresh(invoice)
+
+        # Фикс аудита 10.09: суммы в сообщении для пользователя в русском
+        # формате («2 500,75»), а не «2500.75» из :.2f.
+        def _fmt_byn(v):
+            return f"{v:,.2f}".replace(",", " ").replace(".", ",")
 
         return {
             "success": True,
@@ -645,8 +812,8 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             "rest": max(rest_after, 0.0),
             "card_amount": card_amount,
             "card_closed": card_closed,
-            "message": (f"Накладная {number} на {amount:.2f} BYN списана. "
-                        + ("Сделка закрыта." if card_closed else f"Остаток {rest_after:.2f} BYN.")),
+            "message": (f"Накладная {number} на {_fmt_byn(amount)} BYN списана. "
+                        + ("Сделка закрыта." if card_closed else f"Остаток {_fmt_byn(max(rest_after, 0.0))} BYN.")),
         }
     finally:
         tdb.close()
@@ -658,8 +825,6 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -669,7 +834,7 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
             models.Transaction.is_document == False,
         ).order_by(models.Transaction.id.asc()).all()
 
-        issued, rest = [], 0.0
+        issued = []
         for t in txs:
             if t.is_warehouse_writeoff or (t.invoice_number or "").strip():
                 issued.append({
@@ -680,13 +845,14 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
                     "store_location": t.store_location or "",
                     "written_off": bool(t.is_warehouse_writeoff),
                 })
-            else:
-                rest += float(t.amount or 0)
 
         card_amount = round(float(card.total_amount or 0), 2)
         issued_sum = round(sum(i["amount"] for i in issued), 2)
-        if not txs:
-            rest = card_amount
+        # Остаток — от суммы сделки, как на доске списания и в выписке
+        # накладной: сумма «хвостатых» записей со временем расходилась со
+        # сделкой, и форма выписки подставляла неверную (иногда сумашедшую)
+        # сумму. Если записей нет вообще — остаток равен всей сумме сделки.
+        rest = max(0.0, round(card_amount - issued_sum, 2)) if txs else card_amount
         return {
             "card_id": card_id,
             "card_amount": card_amount,
@@ -712,9 +878,6 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         rows = session.query(models.Transaction).filter(
             models.Transaction.card_id == card_id
         ).all()
@@ -735,12 +898,25 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
         session.flush()
 
         if card:
-            card.status = "Сборка"
-            card.is_deleted = False
+            # Фикс аудита 10.09: карточку, которую владелец отправил в корзину,
+            # эта ручка раньше насильно возвращала на доску («Сборка» + снятие
+            # is_deleted). В корзине — значит в корзине: записи чистим, статус
+            # и реестр не трогаем.
+            restored = not card.is_deleted
+            if restored:
+                card.status = "Сборка"
+                # Запись-остаток создаём заново: «Сборка» = сделка в реестре
+                # оплат, а раньше после удаления записей сделка исчезала и
+                # из реестра, пока её не «пинали» вручную (В Сборку туда-обратно).
+                ensure_registry_remainder(session, card)
             session.add(models.ActivityLog(
                 user_id=current_user.id, card_id=card_id,
+                tenant_id=current_user.tenant_id,
                 action="Накладные отменены",
-                details=f"Удалено записей: {len(rows)} (из них документов: {docs}). Возврат в «Сборку».",
+                details=(
+                    f"Удалено записей: {len(rows)} (из них документов: {docs})."
+                    + (" Возврат в «Сборку»." if restored else " Карточка осталась в корзине.")
+                ),
             ))
 
         session.commit()
@@ -761,23 +937,16 @@ def sync_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         card = session.query(models.Card).filter(models.Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Карточка не найдена")
 
         txs = session.query(models.Transaction).filter(
             models.Transaction.card_id == card_id,
-            models.Transaction.is_document == False,
+            models.Transaction.is_document == False
         ).all()
 
-        if not txs:
-            status = "Сборка"          # списывать нечего
-        else:
-            pending = [t for t in txs if not t.is_warehouse_writeoff]
-            status = "Закрыто" if not pending else "На списание"
+        status = _writeoff_status_for(card, txs)
 
         changed = card.status != status
         if changed:
@@ -794,8 +963,22 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
 
     1. Документы-сироты — копии накладных, у которых больше нет оригинала
        в списании (сделку удалили с доски, документ остался).
-    2. Сделки со списанием, у которых статус не «На списание»/«Закрыто» —
-       они не видны ни в одной колонке, хотя записи по ним есть.
+    2. Статусы сделок со списанием — по факту выписки: накладными покрыта
+       вся сумма сделки → «Закрыто» (складские флажки статус не держат),
+       остался остаток к выписке → «На списание». «Сборка» не перекидывается:
+       сделка с записью реестра в «Сборке» — штатное состояние.
+    3. Группы списания без участников — плитки-призраки с устаревшей
+       суммой на доске списания.
+    4. Записи-остатки, разошедшиеся с суммой сделки (сумму правили уже
+       после создания записи, встречаются и старые опечатки ×100):
+       остаток приводится к «сумма сделки − выписанные накладные»,
+       лишние записи-остатки удаляются.
+    5. Сделки в «Сборке» без записи реестра оплат — создавалась заново
+       на полную сумму сделки.
+    6. Нулевые записи-остатки (мусор в реестре) — удаляются.
+
+    Перед применением (dry_run=false) сохраняется копия базы в
+    backups/before_repair_*.db рядом с файлом базы — страховка отката.
     """
     if current_user.role not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -803,8 +986,8 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
+        # Страховка отката: перед применением сохраняем копию базы
+        backup_path = None if dry_run else _backup_db_snapshot(session)
 
         def _norm(v):
             return "".join(ch for ch in (v or "") if ch.isdigit())
@@ -818,6 +1001,8 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
             by_card.setdefault(t.card_id, []).append(t)
 
         orphan_docs, fixed_status = [], []
+        remainder_fixes, orphan_groups = [], []
+        zero_rows_removed = []
 
         for card_id, rows in by_card.items():
             live = [t for t in rows if not t.is_document]
@@ -837,14 +1022,97 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                                             "amount": float(d.amount or 0)})
 
             card = session.query(models.Card).filter(models.Card.id == card_id).first()
+
+            # Сначала остатки, потом статус: после удаления лишних записей
+            # сделка может оказаться полностью списанной, и статус должен
+            # считаться уже по факту починки.
+            will_delete_ids = set()
+            # Остаток = сумма сделки − выписанные накладные. Без суммы сделки
+            # эталона нет — такие записи не трогаем. Карточки в группах
+            # списания управляются групповыми сценариями — тоже пропускаем.
+            if card and live and (float(card.total_amount or 0) > 0) and card.writeoff_group_id is None:
+                issued_sum = round(sum(float(t.amount or 0) for t in live
+                                       if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+                expected_rest = max(0.0, round(float(card.total_amount or 0) - issued_sum, 2))
+                pending_rows = [t for t in live
+                                if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()]
+                current_rest = round(sum(float(t.amount or 0) for t in pending_rows), 2)
+                if abs(expected_rest - current_rest) > 0.01:
+                    remainder_fixes.append({
+                        "card_id": card_id, "title": card.title,
+                        "was": current_rest, "will_be": expected_rest,
+                        "extra_rows": len(pending_rows) - 1,
+                    })
+                    if not dry_run:
+                        if expected_rest <= 0.01:
+                            # остаток исчерпан — записи-остатки удаляются,
+                            # а не остаются нулевыми
+                            for p in pending_rows:
+                                session.delete(p)
+                        elif pending_rows:
+                            pending_rows[0].amount = expected_rest
+                            for extra in pending_rows[1:]:
+                                session.delete(extra)
+                        else:
+                            session.add(models.Transaction(
+                                company_name=card.title, amount=expected_rest,
+                                store_location=card.store_location, card_id=card_id,
+                            ))
+                    if pending_rows:
+                        if expected_rest <= 0.01:
+                            will_delete_ids = {p.id for p in pending_rows}
+                        else:
+                            will_delete_ids = {p.id for p in pending_rows[1:]}
+                else:
+                    # Остаток сходится, но нулевые записи-остатки — мусор,
+                    # засоряющий реестр: выписанного покрытие не оставляет.
+                    zero_rows = [t for t in pending_rows if float(t.amount or 0) <= 0.005]
+                    if zero_rows:
+                        zero_rows_removed.append({"card_id": card_id, "title": card.title,
+                                                  "rows": len(zero_rows)})
+                        if not dry_run:
+                            for z in zero_rows:
+                                session.delete(z)
+                        will_delete_ids = {z.id for z in zero_rows}
+
             if card and live:
-                pending = [t for t in live if not t.is_warehouse_writeoff]
-                want = "Закрыто" if not pending else "На списание"
-                if card.status != want and card.status not in ("Отменено",):
+                live_eff = [t for t in live if t.id not in will_delete_ids]
+                want = _writeoff_status_for(card, live_eff)
+                # «Сборку» не трогаем: сделка с записью реестра в «Сборке» —
+                # штатное состояние (кнопка «В Сборку»), её туда поставили
+                # руками, и перекидывать в «На списание» нельзя.
+                if want != card.status and card.status in ("На списание", "Закрыто"):
                     fixed_status.append({"card_id": card_id, "title": card.title,
                                          "from": card.status, "to": want})
                     if not dry_run:
                         card.status = want
+
+        for g in session.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).all():
+            if not g.cards:
+                orphan_groups.append({"id": g.id, "name": g.name,
+                                      "total_amount": float(g.total_amount or 0)})
+                if not dry_run:
+                    session.delete(g)
+
+        # 5. Сделки в «Сборке» без записи реестра оплат — в «Реестре оплат»
+        # их не было видно, пока статус не «пинали» туда-обратно
+        # (кейс «ТрансЛИДИЯсервис», фидбек 09.09).
+        missing_registry = []
+        for c in session.query(models.Card).filter(
+            models.Card.status == "Сборка",
+            models.Card.is_deleted == False,
+        ).all():
+            if c.writeoff_group_id is not None or float(c.total_amount or 0) <= 0:
+                continue
+            has_tx = session.query(models.Transaction).filter(
+                models.Transaction.card_id == c.id,
+                models.Transaction.is_document == False,
+            ).first()
+            if not has_tx:
+                missing_registry.append({"card_id": c.id, "title": c.title,
+                                         "amount": float(c.total_amount or 0)})
+                if not dry_run:
+                    ensure_registry_remainder(session, c)
 
         if not dry_run:
             for o in orphan_docs:
@@ -859,6 +1127,15 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
             "orphan_documents_count": len(orphan_docs),
             "status_fixes": fixed_status,
             "status_fixes_count": len(fixed_status),
+            "remainder_fixes": remainder_fixes,
+            "remainder_fixes_count": len(remainder_fixes),
+            "orphan_groups": orphan_groups,
+            "orphan_groups_count": len(orphan_groups),
+            "missing_registry": missing_registry,
+            "missing_registry_count": len(missing_registry),
+            "zero_rows_removed": zero_rows_removed,
+            "zero_rows_removed_count": len(zero_rows_removed),
+            "backup": backup_path,
         }
     finally:
         tdb.close()

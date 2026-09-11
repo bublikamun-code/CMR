@@ -6,13 +6,15 @@ import re
 import hashlib
 import logging
 import base64
+from pathlib import Path
 from email.header import decode_header, make_header
 from email.utils import collapse_rfc2231_value
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from typing import Optional, List
 from pydantic import BaseModel
+from limiter_config import limiter
 try:
     from cryptography.fernet import Fernet, InvalidToken
     _fernet_available = True
@@ -20,7 +22,6 @@ except ImportError:
     Fernet = None
     InvalidToken = Exception
     _fernet_available = False
-
 
 from auth import get_current_user, require_role, require_cron_token
 from email_cleaner import clean_email_body, html_to_text, normalize_subject
@@ -74,16 +75,21 @@ def _load_secret_key() -> bytes:
             return base64.urlsafe_b64encode(f.read().strip().encode())
     key = os.urandom(32)
     b64_key = base64.urlsafe_b64encode(key)
-    with open(_ensure_inside_data_dir(_SECRET_KEY_FILE), "w") as f:
-        f.write(key.hex())
+    Path(_ensure_inside_data_dir(_SECRET_KEY_FILE)).write_text(key.hex())
     os.chmod(_SECRET_KEY_FILE, 0o600)
     return b64_key
 
 try:
     _fernet = Fernet(_load_secret_key())
-except Exception:
+    _fernet_init_error = None
+except Exception as e:
     _fernet = None
-from database import get_db
+    _fernet_init_error = f"{type(e).__name__}: {e}"
+    # Фидбек 07.09: без cryptography пароль ящика не расшифровать — синк
+    # падает с «неверным паролем». Раньше это молчало (пароль лежал
+    # открытым текстом и не требовал расшифровки).
+    logger.error(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
+from database import get_db, get_tenant_db
 from db_utils import resolve_tenant_db as _db
 import models
 import models_tenant
@@ -240,15 +246,10 @@ def save_settings(settings, tenant_id: int = None):
         # синхронизация почты падала с AUTHENTICATIONFAILED.
         if not str(settings["password"]).startswith("gAAAA"):
             settings["password"] = _encrypt_password(settings["password"])
-    with open(settings_file, "w", encoding="utf-8") as f:
-        json.dump(settings, f, ensure_ascii=False, indent=4)
-    # FIX 2026-09-03: файл держал права 644 — umask хостинга; внутри
-    # зашифрованный пароль ящика. Выставляем 600, как у ключа шифрования.
-    os.chmod(settings_file, 0o600)
+    Path(settings_file).write_text(
+        json.dumps(settings, ensure_ascii=False, indent=4), encoding="utf-8")
 
-# SECURITY 2026-09-03: настройки ящика (включая пароль) читают и меняют
-# только админы — раньше это было доступно любому менеджеру.
-@router.get("/settings", dependencies=[Depends(require_role("admin", "superadmin"))])
+@router.get("/settings")
 def get_settings(current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)
@@ -295,13 +296,18 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         return {"tenant_id": tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
 
     imported_cards = []
-    # FIX 2026-09-03: всегда основная БД — tenant-БД пустые и выключены
-    # (см. db_utils.py), импорт в tenant-БД делал письма невидимыми.
-    tdb = db
+    tdb = get_tenant_db(tenant_id) if tenant_id else db
+    mail = None
 
     try:
-        mail = imaplib.IMAP4_SSL(imap_server)
-        mail.socket().settimeout(15)
+        # FIX 2026-09-06 (аудит): таймаут на сам TCP-connect. Раньше settimeout
+        # ставился уже после конструктора — «зависший» IMAP-хост подвешивал
+        # запрос/cron на системный таймаут (минуты).
+        try:
+            mail = imaplib.IMAP4_SSL(imap_server, timeout=15)
+        except TypeError:  # Python < 3.9: параметра timeout ещё нет
+            mail = imaplib.IMAP4_SSL(imap_server)
+            mail.socket().settimeout(15)
         mail.login(email_addr, password)
         mail.select("inbox")
 
@@ -433,8 +439,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                     logger.warning("Rejected unsafe attachment name %r", att_name)
                                     continue
                                 try:
-                                    with open(att_path, "wb") as f:
-                                        f.write(att_data)
+                                    Path(att_path).write_bytes(att_data)
                                 except Exception as e:
                                     logger.error(f"Failed to save attachment {att_name!r} for card {new_card.id}: {e}")
                                     raise
@@ -454,7 +459,8 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             user_id=None,
                             card_id=new_card.id,
                             action="Импорт почты",
-                            details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000]
+                            details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000],
+                            tenant_id=tenant_id,
                         )
                         tdb.add(log_entry)
                         tdb.commit()
@@ -471,8 +477,6 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                 logger.warning(f"Failed to process email {e_id} for tenant {tenant_id}: {e}")
                 continue
 
-        mail.logout()
-
         settings["last_sync"] = datetime.now(timezone.utc).isoformat()
         save_settings(settings, tenant_id)
 
@@ -484,135 +488,76 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         }
 
     except imaplib.IMAP4.error as e:
+        # FIX 2026-09-06 (аудит С7): текст исключения почтового сервера раньше
+        # уходил клиенту в detail (там бывают имя хоста и данные сессии) —
+        # наружу только обобщённая формулировка, детали в логе выше.
         logger.error(f"IMAP error for tenant {tenant_id}: {e}")
-        return {"tenant_id": tenant_id, "success": False, "error": f"Ошибка авторизации на почтовом сервере: {e}", "count": 0}
+        return {"tenant_id": tenant_id, "success": False, "error": "Ошибка авторизации на почтовом сервере: проверьте логин и пароль ящика", "count": 0}
     except TimeoutError:
         return {"tenant_id": tenant_id, "success": False, "error": "Превышено время ожидания при подключении к почте", "count": 0}
     except Exception as e:
         logger.error(f"Email sync error for tenant {tenant_id}: {type(e).__name__}: {e}")
-        return {"tenant_id": tenant_id, "success": False, "error": f"Ошибка подключения к почте: {e}", "count": 0}
+        return {"tenant_id": tenant_id, "success": False, "error": "Ошибка подключения к почтовому серверу", "count": 0}
+    finally:
+        # FIX 2026-09-06 (аудит): logout был только на успехе — при ошибке
+        # посреди выборки соединение с IMAP оставалось висеть до таймаута.
+        if mail is not None:
+            try:
+                mail.logout()
+            except Exception:
+                pass
 
-
-# FIX 2026-09-03: IMAP-синхронизация работает в фоновом потоке со своей
-# сессией. Раньше _sync_tenant_emails исполнялся внутри запроса, и каждый
-# вызов (а фронт дёргает /sync ещё и автоинтервалом с каждого клиента)
-# занимал поток воркера на всё время подключения к почте. Запрос ждёт
-# результата не дольше _SYNC_WAIT_SEC — типичный синк 2–10 с, так что
-# фронт получает прежний ответ; при превышении возвращается running=True.
-# Блокировка не даёт синкам накладываться (IMAP и SQLite не любят параллель).
-import threading
-_sync_lock = threading.Lock()
-_sync_state = {"running": False, "last_result": None, "last_finished_at": None}
-_SYNC_WAIT_SEC = 25
 
 @router.post("/sync")
-def sync_emails(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+# FIX 2026-09-06 (аудит С3): синк ходит на внешний IMAP и может зваться
+# многократно подряд из UI — ограничиваем. За nginx должен быть включён
+# proxy-headers, иначе лимит общий на всех (см. P0-HTTPS).
+@limiter.limit("5/minute")
+def sync_emails(request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)
     email_addr = settings.get("email")
     password = _get_smtp_password(settings)
+    imap_server = settings.get("imap_server")
+    target_status = settings.get("target_status", "Новый запрос")
 
     if not email_addr or not password:
         raise HTTPException(status_code=400, detail="Настройки почты не заполнены")
 
-    if not _sync_lock.acquire(blocking=False):
-        # Синхронизация уже идёт (другой клиент или автоинтервал) —
-        # не плодим параллельные подключения к IMAP.
-        return {"success": True, "count": 0, "running": True}
+    result = _sync_tenant_emails(tenant_id, settings, db)
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
 
-    done = threading.Event()
-    holder = {}
-
-    def _run():
-        from database import SessionLocal
-        s = SessionLocal()
-        try:
-            holder["result"] = _sync_tenant_emails(tenant_id, settings, s)
-        except Exception as e:
-            logger.error("background email sync failed (tenant=%s): %s: %s",
-                         tenant_id, type(e).__name__, e)
-            holder["result"] = {"tenant_id": tenant_id, "success": False,
-                                "error": str(e), "count": 0}
-        finally:
-            s.close()
-            _sync_state.update({
-                "running": False,
-                "last_result": holder.get("result"),
-                "last_finished_at": datetime.now(timezone.utc).isoformat(),
-            })
-            _sync_lock.release()
-            done.set()
-
-    _sync_state["running"] = True
-    threading.Thread(target=_run, daemon=True).start()
-
-    if done.wait(timeout=_SYNC_WAIT_SEC):
-        result = holder["result"]
-        if not result["success"]:
-            raise HTTPException(status_code=500, detail=result["error"])
-        return result
-    return {"success": True, "count": 0, "running": True}
-
-
-@router.get("/sync-status")
-def sync_status(current_user: models.User = Depends(get_current_user)):
-    """Состояние фоновой синхронизации — для диагностики из UI/логов."""
-    return dict(_sync_state)
+    return result
 
 
 @cron_router.post("/sync-all")
 def sync_all_tenants(db: Session = Depends(get_db)):
-    # FIX 2026-09-03: уходим в фон сразу — cron больше не держит запрос,
-    # пока все ящики синхронизируются последовательно. Результат в
-    # GET /sync-status и в логе.
-    if not _sync_lock.acquire(blocking=False):
-        return {"started": False, "running": True}
+    results = []
+    # Главный аккаунт (без тенанта) — именно в нём лежат все рабочие карточки.
+    # Раньше он не синхронизировался вообще: цикл шёл только по таблице tenants.
+    try:
+        results.append(_sync_tenant_emails(None, load_settings(None), db))
+    except Exception as e:
+        logger.error(f"main account sync failed: {e}")
+        results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
 
-    def _run():
-        from database import SessionLocal
-        s = SessionLocal()
-        results = []
-        try:
-            # Главный аккаунт (без тенанта) — в нём лежат все рабочие карточки.
-            try:
-                results.append(_sync_tenant_emails(None, load_settings(None), s))
-            except Exception as e:
-                logger.error(f"main account sync failed: {e}")
-                results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
+    tenants = db.query(models_tenant.Tenant).all()
+    for tenant in tenants:
+        settings = load_settings(tenant.id)
+        result = _sync_tenant_emails(tenant.id, settings, db)
+        results.append(result)
 
-            tenants = s.query(models_tenant.Tenant).all()
-            for tenant in tenants:
-                settings = load_settings(tenant.id)
-                results.append(_sync_tenant_emails(tenant.id, settings, s))
+    total_count = sum(r.get("count", 0) for r in results if r.get("success"))
+    errors = [r for r in results if not r.get("success")]
 
-            total_count = sum(r.get("count", 0) for r in results if r.get("success"))
-            errors = [r for r in results if not r.get("success")]
-            summary = {
-                "success": True,
-                "total_count": total_count,
-                "tenants_processed": len(results),
-                "tenants_failed": len(errors),
-                "results": results,
-            }
-            if errors:
-                logger.error("sync-all finished with errors: %s", errors)
-            else:
-                logger.info("sync-all ok: %s cards imported", total_count)
-        except Exception as e:
-            logger.error("sync-all crashed: %s: %s", type(e).__name__, e)
-            summary = {"success": False, "error": str(e)}
-        finally:
-            s.close()
-            _sync_state.update({
-                "running": False,
-                "last_result": summary,
-                "last_finished_at": datetime.now(timezone.utc).isoformat(),
-            })
-            _sync_lock.release()
-
-    _sync_state["running"] = True
-    threading.Thread(target=_run, daemon=True).start()
-    return {"started": True, "running": True}
+    return {
+        "success": True,
+        "total_count": total_count,
+        "tenants_processed": len(results),
+        "tenants_failed": len(errors),
+        "results": results
+    }
 
 
 class LinkCardRequest(BaseModel):
@@ -673,6 +618,7 @@ def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = 
             card_id=dst.id,
             action="Связано письмо",
             details=f"Письмо из карточки #{src.id} перенесено в сделку #{dst.id}",
+            tenant_id=current_user.tenant_id,
         ))
         src.is_deleted = True
         tdb.commit()

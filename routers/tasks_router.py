@@ -9,10 +9,10 @@
 Уведомления пишутся в базу получателя (см. notify.py).
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import models
 import schemas
@@ -52,10 +52,12 @@ def _snapshot_title(db: Session, model, obj_id):
     return None
 
 
-def _serialize(db: Session, task: models.Task) -> dict:
+def _serialize(db: Session, task: models.Task, usernames: dict = None) -> dict:
     def username(uid):
         if not uid:
             return None
+        if usernames is not None:
+            return usernames.get(uid)
         u = db.get(models.User, uid)
         return u.username if u else None
 
@@ -121,10 +123,31 @@ def list_tasks(my: Optional[int] = None, status: Optional[str] = None,
         like = f"%{q}%"
         query = query.filter(or_(models.Task.title.ilike(like),
                                  models.Task.description.ilike(like)))
-    tasks = query.order_by(models.Task.status.desc(),
-                           models.Task.due_date.is_(None),
-                           models.Task.due_date.asc()).limit(500).all()
-    return [_serialize(db, t) for t in tasks]
+    tasks = query.options(
+        # FIX 2026-08-30 (N+1): чек-листы грузились лениво на каждую задачу —
+        # до 500 отдельных SELECT на один запрос списка.
+        selectinload(models.Task.checklist_items)
+    ).order_by(models.Task.status.desc(),
+               models.Task.due_date.is_(None),
+               models.Task.due_date.asc()).limit(500).all()
+    # FIX 2026-08-30 (N+1): имена пользователей — одним запросом вместо
+    # db.get на каждую задачу.
+    usernames = dict(db.query(models.User.id, models.User.username).all())
+    return [_serialize(db, t, usernames) for t in tasks]
+
+
+def _validate_link(db: Session, model, obj_id, label: str):
+    """Фикс аудита 10.09: card_id/client_id приходят из формы без проверки.
+
+    Раньше несуществующий id доезжал до FK-констрейнта и превращался в
+    глобальный 409 «Дубликат или нарушена связь», а в редком случае
+    совпадения чисел с чужой карточкой в снимок названия попадала не та
+    сделка. Теперь проверяем существование сразу и честно.
+    """
+    if not obj_id:
+        return
+    if db.get(model, obj_id) is None:
+        raise HTTPException(status_code=404, detail=f"{label} не найдена")
 
 
 @router.post("", response_model=schemas.TaskResponse)
@@ -134,6 +157,8 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="Укажите название задачи")
     if data.status and data.status not in schemas.TASK_STATUSES:
         raise HTTPException(status_code=400, detail="Недопустимый статус")
+    _validate_link(db, models.Card, data.card_id, "Сделка")
+    _validate_link(db, models.Client, data.client_id, "Клиент")
 
     task = models.Task(
         title=data.title.strip()[:255],
@@ -144,7 +169,7 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         creator_id=current_user.id,
         card_id=data.card_id,
         client_id=data.client_id,
-        completed_at=datetime.utcnow() if data.status == "done" else None,
+        completed_at=datetime.now(timezone.utc) if data.status == "done" else None,
     )
     db.add(task)
     db.commit()
@@ -185,14 +210,16 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
     if data.assignee_id is not None:
         task.assignee_id = data.assignee_id or None
     if data.card_id is not None:
+        _validate_link(db, models.Card, data.card_id or None, "Сделка")
         task.card_id = data.card_id or None
     if data.client_id is not None:
+        _validate_link(db, models.Client, data.client_id or None, "Клиент")
         task.client_id = data.client_id or None
     if data.status is not None:
         if data.status not in schemas.TASK_STATUSES:
             raise HTTPException(status_code=400, detail="Недопустимый статус")
         task.status = data.status
-        task.completed_at = datetime.utcnow() if data.status == "done" else None
+        task.completed_at = datetime.now(timezone.utc) if data.status == "done" else None
 
     db.commit()
     db.refresh(task)

@@ -14,7 +14,10 @@ function renderPaymentCell(tr) {
     const paid = parseFloat(tr.paid_amount) || 0;
     const status = tr.payment_status || 'Не оплачен';
     const cls = PAYMENT_STATUS_CLASSES[status] || 'pay-unpaid';
-    const rest = Math.max(0, total - paid).toFixed(2);
+    // Фикс аудита 10.09: rest — ЧИСЛО. toFixed() отдавал строку, и
+    // formatMoneyBYN(string) звал String#toLocaleString без локали:
+    // тултип показывал «2500.75 BYN» вместо «2 500,75 BYN».
+    const rest = Math.max(0, total - paid);
     const percent = total > 0 ? Math.min(100, (paid / total) * 100) : (status === 'Оплачен' ? 100 : 0);
 
     const title = `Оплачено ${formatMoneyBYN(paid)} из ${formatMoneyBYN(total)}. Остаток: ${formatMoneyBYN(rest)} (${percent.toFixed(0)}%)`;
@@ -54,7 +57,18 @@ document.addEventListener('DOMContentLoaded', () => {
     bindTableSearch('payments-search', 'payments-table');
 
     const exportBtn = document.getElementById('payments-export');
-    if (exportBtn) exportBtn.addEventListener('click', () => exportTransactionsToCsv(currentPayments, 'reestr_oplat.csv'));
+    // Фикс аудита 10.09: экспорт выгружал все строки месяца, игнорируя
+    // поле поиска — в файл попадало то, чего на экране не было.
+    if (exportBtn) exportBtn.addEventListener('click', () => {
+        const q = (document.getElementById('payments-search')?.value || '').trim().toLowerCase();
+        const visible = q
+            ? currentPayments.filter(t => {
+                const tr = document.querySelector(`#payments-table tbody tr[data-id="${t.id}"]`);
+                return tr && tr.style.display !== 'none';
+            })
+            : currentPayments;
+        exportTransactionsToCsv(visible, 'reestr_oplat.csv');
+    });
 
     setupTableScrollShadow('page-payments');
 });
@@ -145,6 +159,13 @@ function renderPayments() {
         // Обновляем/добавляем строки
         rows.forEach(tr => {
             const dateStr = new Date(tr.date).toLocaleDateString('ru-RU');
+            // ISO-дата для инлайн-редактора (<input type="date">): берём из
+            // показанной dateStr, чтобы редактор открывался ровно с той датой,
+            // что видит пользователь (серверное время может отличаться)
+            const isoFromParts = (() => {
+                const [d, m, y] = dateStr.split('.');
+                return dateStr.includes('.') ? `${y}-${m}-${d}` : '';
+            })();
             const existing = existingRows[tr.id];
 
             if (existing) {
@@ -158,9 +179,18 @@ function renderPayments() {
                 const cbWrittenOff = existing.querySelector('.cb-written-off');
                 if (cbWrittenOff) cbWrittenOff.checked = tr.is_written_off;
 
-                // Сумма и примечание — inline-edit ячейки. Пока пользователь их
-                // редактирует, <span> подменён на <input>: в этот момент не трогаем,
-                // иначе опрос затрёт незакоммиченный ввод.
+                // Дата, сумма и примечание — inline-edit ячейки. Пока
+                // пользователь их редактирует, <span> подменён на <input>:
+                // в этот момент не трогаем, иначе опрос затрёт ввод.
+                const dateCell = existing.querySelector('.inline-edit-cell[data-field="date"]');
+                if (dateCell && !dateCell.querySelector('input')) {
+                    const dateSpan = dateCell.querySelector('.inline-edit');
+                    if (dateSpan) {
+                        dateSpan.textContent = dateStr;
+                        dateCell.dataset.iso = isoFromParts;
+                    }
+                }
+
                 const amountCell = existing.querySelector('.inline-edit-cell[data-field="amount"]');
                 if (amountCell && !amountCell.querySelector('input')) {
                     const amountSpan = amountCell.querySelector('.inline-edit');
@@ -189,11 +219,13 @@ function renderPayments() {
                 row.setAttribute('data-id', tr.id);
                 row.className = 'reveal reveal-fast';
                 row.innerHTML = `
-                    <td>${dateStr}</td>
+                    <td class="inline-edit-cell" data-field="date" data-id="${tr.id}" data-iso="${isoFromParts}" title="Дата оплаты — нажмите, чтобы изменить">
+                        <span class="inline-edit">${escapeHtml(dateStr)}</span>
+                    </td>
                     <td class="clickable-company" data-card-id="${tr.card_id || ''}" title="${escapeHtml(tr.company_name)}">
                         ${escapeHtml(tr.company_name)}
                     </td>
-                    <td class="inline-edit-cell amount-cell" data-field="amount" data-id="${tr.id}">
+                    <td class="inline-edit-cell amount-cell" data-field="amount" data-id="${tr.id}" data-card-id="${tr.card_id || ''}" title="${tr.card_id ? 'Правка ведёт сумму сделки' : ''}">
                         <span class="inline-edit font-mono text-right tabular-nums">${escapeHtml(formatMoneyBYN(tr.amount || 0))}</span>
                     </td>
                     <td class="payment-cell">${renderPaymentCell(tr)}</td>
@@ -227,6 +259,10 @@ function renderPayments() {
                     'Удалить эту запись из реестра?\n\nБудут удалены её накладные и копии в «Документах». Сделка вернётся в «Сборку».',
                     { okText: 'Удалить', danger: true }
                 )) return;
+                // Фикс аудита 10.09: повторный клик во время запроса давал
+                // 404 и пугающий тост ошибки после успешного удаления.
+                if (btn.disabled) return;
+                btn.disabled = true;
                 try {
                     // Удаляем ВСЁ по сделке разом, иначе документы оставались висеть,
                     // а карточка застревала в «Закрыто» и пропадала со всех досок.
@@ -241,6 +277,7 @@ function renderPayments() {
                     if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
                     showToast('Запись удалена', 'success');
                 } catch (err) {
+                    btn.disabled = false;
                     showToast('Ошибка удаления: ' + err.message, 'error');
                 }
             };
@@ -304,9 +341,15 @@ document.addEventListener('click', (e) => {
     // выравнивание по правому краю и уезжало влево.
     const spanClass = span.className;
     const input = document.createElement('input');
-    input.type = field === 'amount' ? 'number' : 'text';
+    input.type = field === 'amount' ? 'number' : (field === 'date' ? 'date' : 'text');
     input.className = 'inline-edit-input';
-    input.value = field === 'amount' ? currentValue.replace(/[^0-9.]/g, '') : currentValue;
+    // ПРЕФИЛЛ СУММЫ: показанное «5 735,00» превращалось в «573500» —
+    // пробелы и запятая просто вырезались, и редактор открывался с суммой
+    // ×100. Именно так на бою появились записи-остатки с миллионами
+    // («ПроШоу Технологии», «Рацио Домус»). Теперь запятая становится
+    // точкой, пробелы (в т.ч. неразрывные) и «BYN» вычищаются.
+    input.value = field === 'amount' ? currentValue.replace(/[\s\u00a0]/g, '').replace('BYN', '').replace(',', '.').replace(/[^0-9.]/g, '')
+        : (field === 'date' ? (cell.dataset.iso || '') : currentValue);
     if (field === 'amount') { input.step = '0.01'; input.min = '0'; }
     
     span.replaceWith(input);
@@ -327,15 +370,61 @@ document.addEventListener('click', (e) => {
             const numVal = parseFloat(newVal) || 0;
             spanNew.textContent = formatMoneyBYN(numVal);
             if (formatMoneyBYN(numVal) !== currentValue) {
+                // Строка реестра показывает СУММУ СДЕЛКИ, поэтому и правка
+                // ведёт в сумму сделки (карточка пересчитает остаток к
+                // выписке). Править сумму отдельной записи вручную нельзя —
+                // это ломало остатки. Записи без сделки (старые) правятся
+                // как раньше — напрямую.
+                const cardId = cell.dataset.cardId;
+                try {
+                    if (numVal <= 0) throw new Error('Сумма должна быть больше нуля');
+                    if (cardId) {
+                        await apiFetch('/cards/' + cardId, {
+                            method: 'PATCH',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ total_amount: numVal })
+                        });
+                        showToast('Сумма сделки сохранена', 'success');
+                    } else {
+                        await apiFetch('/payments/transactions/' + id, {
+                            method: 'PATCH',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ amount: numVal })
+                        });
+                        showToast('Сумма сохранена', 'success');
+                    }
+                    if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
+                    // Фикс аудита 10.09: сумма сделки изменилась — остаток «к
+                    // списанию» на доске списаний и суммы канбана устарели.
+                    if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
+                    if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
+                } catch (err) { showToast('Ошибка: ' + err.message, 'error'); failed = true; }
+            }
+        } else if (field === 'date') {
+            // Дата обязательна: пустое поле просто закрывается без правки
+            if (!newVal) {
+                input.replaceWith(span);
+                return;
+            }
+            if (newVal !== (cell.dataset.iso || '')) {
+                const [yy, mm, dd] = newVal.split('-');
+                spanNew.textContent = `${dd}.${mm}.${yy}`;
                 try {
                     await apiFetch('/payments/transactions/' + id, {
                         method: 'PATCH',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ amount: numVal })
+                        body: JSON.stringify({ date: newVal })
                     });
-                    showToast('Сумма сохранена', 'success');
-                    if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
-                } catch (err) { showToast('Ошибка: ' + err.message, 'error'); failed = true; }
+                    cell.dataset.iso = newVal;
+                    showToast('Дата оплаты сохранена', 'success');
+                } catch (err) {
+                    showToast('Ошибка: ' + err.message, 'error');
+                    failed = true;
+                    input.replaceWith(span);
+                    return;
+                }
+            } else {
+                spanNew.textContent = currentValue;
             }
         } else {
             spanNew.textContent = newVal || '';
@@ -392,7 +481,10 @@ function setupPaymentsAutoSave() {
                 })));
             } catch (error) {
                 showToast("Не удалось сохранить: " + error.message, 'error');
-                if (e.target.type === 'checkbox') e.target.checked = !e.target.checked;
+                // Фикс аудита 10.09: у составной записи часть частей уже могла
+                // сохраниться — слепой перекат галочки врёт. Перерисовываем
+                // из данных сервера.
+                if (e.target.type === 'checkbox') loadPaymentsTable();
             }
         }
     };

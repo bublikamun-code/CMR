@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List
 import models, schemas
 from database import get_db, get_tenant_db
 from auth import get_current_user
-from db_utils import resolve_tenant_db as _db
+from db_utils import resolve_tenant_db as _db, cap_list
 
 router = APIRouter(
     prefix="/suppliers",
@@ -14,12 +14,10 @@ router = APIRouter(
 )
 
 @router.get("", response_model=List[schemas.SupplierResponse])
-def list_suppliers(q: str = Query(None), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def list_suppliers(q: str = Query(None), response: Response = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Supplier)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Supplier)
         if q:
             pattern = f"%{q}%"
             query = query.filter(or_(
@@ -27,7 +25,8 @@ def list_suppliers(q: str = Query(None), db: Session = Depends(get_db), current_
                 models.Supplier.unp.ilike(pattern),
                 models.Supplier.phone.ilike(pattern),
             ))
-        return query.order_by(models.Supplier.name).all()
+        # Н11 (аудит 06.09): предохранитель от неограниченного списка
+        return cap_list(query.order_by(models.Supplier.name).all(), response)
     finally:
         if tdb is not db:
             tdb.close()
@@ -37,8 +36,6 @@ def get_supplier(supplier_id: int, db: Session = Depends(get_db), current_user: 
     tdb = _db(current_user, db)
     try:
         query = tdb.query(models.Supplier).filter(models.Supplier.id == supplier_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -66,9 +63,6 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
     try:
         session = tdb
         query = tdb.query(models.Supplier).filter(models.Supplier.id == supplier_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -87,9 +81,6 @@ def delete_supplier(supplier_id: int, db: Session = Depends(get_db), current_use
     try:
         session = tdb
         query = tdb.query(models.Supplier).filter(models.Supplier.id == supplier_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
         s = query.first()
         if not s:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -114,14 +105,15 @@ def supplier_purchases(supplier_id: int, db: Session = Depends(get_db), current_
     tdb = _db(current_user, db)
     try:
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-
         sup = session.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
         if not sup:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
 
-        items = session.query(models.CardChecklist).filter(
+        items = session.query(models.CardChecklist).options(
+            # FIX 2026-08-30 (N+1): сделка грузилась отдельным SELECT на каждый
+            # пункт чек-листа (it.card в цикле ниже).
+            selectinload(models.CardChecklist.card)
+        ).filter(
             models.CardChecklist.supplier_id == supplier_id
         ).order_by(models.CardChecklist.id.desc()).all()
 

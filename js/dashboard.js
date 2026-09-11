@@ -44,7 +44,7 @@ async function loadDashboard() {
     try {
         if (!_dashLoaded) {
             container.innerHTML = `
-                <div class="dash-grid" style="opacity: 0.6;">
+                <div class="dash-grid dash-skeleton">
                     <div class="dash-card">
                         <div class="skeleton-line" style="width: 30%; height: 20px; margin-bottom: 20px;"></div>
                         <div class="dash-summary-grid">
@@ -82,14 +82,32 @@ async function loadDashboard() {
             clients: !has('clients'),
             suppliers: !has('suppliers')
         };
+        // Фикс аудита 10.09: .catch(() => []) при любом сбое сети затирал
+        // живой кэш CRM_STORE пустым массивом (group-writeoff в карточке
+        // читает cards из стора и «терял» все сделки). Сбой теперь показываем
+        // как ошибку, стор не трогаем.
         const fetches = {};
-        if (needFetch.cards) fetches.cards = apiFetch('/kanban/cards').catch(() => []);
-        if (needFetch.transactions) fetches.transactions = apiFetch('/payments/transactions').catch(() => []);
-        if (needFetch.clients) fetches.clients = apiFetch('/clients').catch(() => []);
-        if (needFetch.suppliers) fetches.suppliers = apiFetch('/suppliers').catch(() => []);
-        const fetched = Object.fromEntries(await Promise.all(
-            Object.entries(fetches).map(async ([k, p]) => [k, await p])
-        ));
+        if (needFetch.cards) fetches.cards = apiFetch('/kanban/cards');
+        if (needFetch.transactions) fetches.transactions = apiFetch('/payments/transactions');
+        if (needFetch.clients) fetches.clients = apiFetch('/clients');
+        if (needFetch.suppliers) fetches.suppliers = apiFetch('/suppliers');
+        let fetched;
+        try {
+            fetched = Object.fromEntries(await Promise.all(
+                Object.entries(fetches).map(async ([k, p]) => [k, await p])
+            ));
+        } catch (err) {
+            console.error('Ошибка загрузки данных дашборда:', err);
+            const host = document.querySelector('main');
+            if (host) {
+                host.prepend(renderAlert({
+                    type: 'error',
+                    title: 'Не удалось загрузить данные дашборда',
+                    message: err.message,
+                }));
+            }
+            return;
+        }
 
         _dashCards = needFetch.cards ? fetched.cards : CRM_STORE.get('cards');
         _dashTransactions = needFetch.transactions ? fetched.transactions : CRM_STORE.get('transactions') || [];
@@ -272,7 +290,20 @@ function renderDashboard() {
     }
 
     // График продаж по месяцам
-    setTimeout(() => renderMonthlyChart(cards), 100);
+    // Ф9 (аудит 06.09): Chart.js (205КБ) грузится лениво — только когда
+    // дашборду реально нужен график, а не при каждом открытии приложения.
+    // Фикс аудита 10.09: без .catch отказ загрузки Chart.js давал
+    // необработанное отклонение и молча пустую область графика.
+    ensureChartLib()
+        .then(() => setTimeout(() => renderMonthlyChart(cards), 100))
+        .catch(() => {
+            const wrap = document.getElementById('dash-chart-monthly')?.closest('.dash-card');
+            if (wrap) wrap.appendChild(renderAlert({
+                type: 'info',
+                title: 'График недоступен',
+                message: 'Не удалось загрузить библиотеку графиков.',
+            }));
+        });
 
     // Активировать reveal-анимации для свежесозданных элементов
     if (typeof window.revealRefresh === 'function') window.revealRefresh();
@@ -308,8 +339,8 @@ function renderMonthlyChart(cards) {
     if (canvas._chart) canvas._chart.destroy();
 
     const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const primaryColor = cssVar('--primary-color') || '#4a57a4';
-    const successColor = cssVar('--success-color') || '#10b981';
+    const primaryColor = cssVar('--primary-color') || '#4f46e5';
+    const successColor = cssVar('--success-color') || '#047857';
     const textColor = cssVar('--text-color') || '#1e293b';
     const borderColor = cssVar('--border-color') || 'rgba(0,0,0,0.1)';
 
@@ -373,6 +404,23 @@ function renderMonthlyChart(cards) {
     });
 }
 
+// Ф9 (аудит 06.09): ленивая загрузка Chart.js — подключает вендора один раз
+// по первому требованию (вендорский файл не меняется, ?v= не нужен).
+var _chartLibPromise = null;
+function ensureChartLib() {
+    if (window.Chart) return Promise.resolve();
+    if (!_chartLibPromise) {
+        _chartLibPromise = new Promise(function (resolve, reject) {
+            var s = document.createElement('script');
+            s.src = 'js/vendor/chart.umd.min.js';
+            s.onload = function () { resolve(); };
+            s.onerror = function () { _chartLibPromise = null; reject(new Error('Chart.js не загрузился')); };
+            document.head.appendChild(s);
+        });
+    }
+    return _chartLibPromise;
+}
+
 // UI Audit (2026-08-09, C.3): при смене темы перерендер графика с новыми цветами.
 // Хранить последние cards глобально, чтобы перерендерить без повторной загрузки.
 let _lastCards = null;
@@ -384,6 +432,6 @@ renderMonthlyChart = function(cards) {
 document.addEventListener('crm:theme-changed', () => {
     if (_lastCards) {
         // Даём CSS-переменным время примениться прежде, чем мы их читаем
-        setTimeout(() => _origRender(_lastCards), 50);
+        ensureChartLib().then(() => setTimeout(() => _origRender(_lastCards), 50));
     }
 });

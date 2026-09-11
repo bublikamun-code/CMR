@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from typing import List
 import models, schemas
 from database import get_scoped_session
 from auth import get_current_user
+from db_utils import cap_list
 
 router = APIRouter(
     prefix="/tags",
@@ -20,9 +21,10 @@ def _scoped_db(current_user: models.User = Depends(get_current_user)):
 
 
 @router.get("", response_model=List[schemas.TagResponse])
-def list_tags(db: Session = Depends(_scoped_db), current_user: models.User = Depends(get_current_user)):
+def list_tags(response: Response = None, db: Session = Depends(_scoped_db), current_user: models.User = Depends(get_current_user)):
     query = db.query(models.Tag)
-    return query.order_by(models.Tag.name).all()
+    # Н11 (аудит 06.09): предохранитель от неограниченного списка
+    return cap_list(query.order_by(models.Tag.name).all(), response)
 
 
 @router.post("", response_model=schemas.TagResponse)

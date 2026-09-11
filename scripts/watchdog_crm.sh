@@ -26,11 +26,19 @@ except:
     print('stopped')
 ")
 
+# FIX 2026-09-04 (аудит отказоустойчивости): после перезагрузки сервера
+# демон PM2 мёртв, и «pm2 restart crm» на пустом демоне приложение не
+# поднимал — CRM молча лежала до ручного вмешательства. Теперь: сначала
+# resurrect из дампа (pm2 save), при неудаче — старт из ecosystem.config.js.
 if [ "$PM2_STATUS" != "online" ]; then
-    echo "$(date '+%F %T') CRM stopped, restarting via PM2" >> "$LOG_FILE"
-    pm2 restart crm 2>&1 | head -5 >> "$LOG_FILE"
+    echo "$(date '+%F %T') CRM stopped, restoring via PM2" >> "$LOG_FILE"
+    if ! pm2 resurrect 2>>"$LOG_FILE"; then
+        cd "$APP_DIR" && pm2 start ecosystem.config.js 2>&1 | head -5 >> "$LOG_FILE"
+    fi
     sleep 6
     pm2 list >> "$LOG_FILE" 2>&1
+    curl -s -o /dev/null -m 10 -w "health after restore: %{http_code}\n" \
+        "http://127.0.0.1:$APP_PORT/health" >> "$LOG_FILE" 2>&1
 fi
 
 # Trigger scheduled email sync for all tenants.

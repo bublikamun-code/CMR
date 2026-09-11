@@ -5,8 +5,9 @@ let suppliersCurrentPage = 1;
 const SUPPLIERS_PAGE_SIZE = 50;
 
 document.addEventListener('DOMContentLoaded', () => {
-    const suppliersBtn = document.querySelector('[data-target="page-suppliers"]');
-    if (suppliersBtn) suppliersBtn.addEventListener('click', loadSuppliersTable);
+    // Фикс аудита 10.09: отдельная подписка на кнопку навигации дублировала
+    // загрузку — activatePage уже зовёт лоадер через CRM_FRESHNESS.
+
     if (document.getElementById('page-suppliers')?.classList.contains('active')) loadSuppliersTable();
 
     bindTableSearch('suppliers-search', 'suppliers-table', 200, (value) => {
@@ -98,7 +99,7 @@ function renderSuppliers() {
                         </div>
                         <div class="empty-state-title">${isSearch ? 'Поставщики не найдены' : 'Поставщики не найдены'}</div>
                         <div class="empty-state-desc">${isSearch ? 'Попробуйте изменить запрос поиска.' : 'В базе данных пока нет ни одного поставщика. Добавьте первого поставщика, чтобы начать работу.'}</div>
-                        ${isSearch ? '' : `<button class="empty-state-btn" onclick="openSupplierModal()">
+                        ${isSearch ? '' : `<button class="empty-state-btn" data-handler="openSupplierModal">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             Новый поставщик
                         </button>`}
@@ -159,6 +160,7 @@ function renderSuppliers() {
             if (!await confirmDialog(`Удалить поставщика "${supplier?.name}"?`)) return;
             try {
                 await apiFetch(`/suppliers/${id}`, { method: 'DELETE' });
+                if (typeof window.invalidateSuppliersCache === 'function') window.invalidateSuppliersCache();
                 showToast('Поставщик удалён', 'success');
                 loadSuppliersTable();
             } catch (err) {
@@ -236,6 +238,9 @@ async function saveSupplier() {
             });
             showToast('Поставщик создан', 'success');
         }
+        // Фикс аудита 10.09: сбрасываем кэш карточки — иначе новый поставщик
+        // не появлялся в чек-листе сделки до перезагрузки страницы.
+        if (typeof window.invalidateSuppliersCache === 'function') window.invalidateSuppliersCache();
         document.getElementById('supplier-modal').classList.add('hidden');
         loadSuppliersTable();
     } catch (err) {
