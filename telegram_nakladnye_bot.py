@@ -176,6 +176,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "doc_number": ocr.get("doc_number", ""),
                     "doc_date": ocr.get("doc_date", ""),
                     "amount": ocr.get("amount"),
+                    "vat_amount": ocr.get("vat_amount"),
                     "unload_address": ocr.get("unload_address", ""),
                     "store": store,
                     "status": "new",
@@ -238,7 +239,8 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name = r.get("supplier_name", "?")
             num = r.get("doc_number", "?")
             amt = r.get("amount", "—")
-            summary_lines.append(f"• {name} №{num} — {amt} BYN")
+            dtype = r.get("doc_type", "")
+            summary_lines.append(f"• {dtype} {name} №{num} — {amt} BYN")
 
         if not results:
             summary_lines = ["• Фото сохранены, данные не распознаны — проверьте вручную"]
@@ -261,30 +263,39 @@ async def ocr_photo(image_bytes: bytes):
     import base64
     b64 = base64.b64encode(image_bytes).decode()
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OCR_MODEL,
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "Ты OCR-ассистент для распознавания белорусских накладных. "
-                        "Извлеки из фото накладной следующие поля и верни ТОЛЬКО JSON:\n"
-                        '{"supplier_name": "название поставщика", '
-                        '"doc_type": "ТН или ТТН или УПД", '
-                        '"doc_series": "серия (если есть)", '
-                        '"doc_number": "номер накладной", '
-                        '"doc_date": "YYYY-MM-DD", '
-                        '"amount": число_с_НДС, '
-                        '"unload_address": "адрес разгрузки (для ТТН)"}\n'
-                        "Если поле не распознано — null. Без пояснений, только JSON."
+                        "Ты OCR-ассистент для распознавания белорусских товарных накладных.\n"
+                        "На фото может быть: ТН (товарная накладная), ТТН (товарно-транспортная накладная) "
+                        "или УПД (универсальный передаточный документ).\n\n"
+                        "Извлеки следующие поля и верни ТОЛЬКО валидный JSON без пояснений:\n"
+                        "{\n"
+                        '  "supplier_name": "полное название поставщика (продавца/грузоотправителя) — '
+                        'обычно в шапке документа: ИП, ООО, ОДО, ЧТУП и т.д.",\n'
+                        '  "doc_type": "ТН" или "ТТН" или "УПД" — определяется по заголовку документа,\n'
+                        '  "doc_series": "серия бланка если указана (например АВ, МК)",\n'
+                        '  "doc_number": "номер накладной — цифры после слова № или N",\n'
+                        '  "doc_date": "дата документа в формате YYYY-MM-DD",\n'
+                        '  "amount": число_итого_с_НДС (всего с НДС, итоговая сумма, '
+                        'обычно внизу документа — поле "Всего" или "Итого с НДС"),\n'
+                        '  "vat_amount": число_НДС (сумма НДС — поле "НДС" или "в т.ч. НДС"),\n'
+                        '  "unload_address": "адрес разгрузки (для ТТН — поле "Адрес разгрузки" '
+                        'или "Адрес доставки")"\n'
+                        "}\n"
+                        "Если поле не удалось распознать — ставь null.\n"
+                        "Возвращай ТОЛЬКО JSON-объект, без markdown, без пояснений."
                     ),
                 },
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Распознай накладную на этом фото."},
+                        {"type": "text", "text": "Распознай данные из этой накладной."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
                     ],
                 },

@@ -13902,3 +13902,46 @@ textarea {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* === Накладные: компактный тулбар + выравнивание таблицы === */
+#page-nakladnye .panel-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+}
+#page-nakladnye .panel-toolbar .filter-select,
+#page-nakladnye .panel-toolbar .select-dd-wrap {
+    min-width: 0;
+    flex-shrink: 1;
+    max-width: 150px;
+}
+#page-nakladnye .panel-toolbar .search-input {
+    min-width: 120px;
+    flex-shrink: 2;
+}
+#page-nakladnye .panel-toolbar .btn-export,
+#page-nakladnye .panel-toolbar .btn-primary {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+#nakladnye-table th {
+    font-size: 11px;
+    padding: 10px 8px;
+    text-align: center;
+    letter-spacing: 0.3px;
+}
+#nakladnye-table td {
+    padding: 8px 8px;
+    text-align: center;
+}
+#nakladnye-table td:nth-child(2) {
+    text-align: left;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#nakladnye-table .cb-col {
+    width: 32px;
+    padding: 8px 4px;
+}
