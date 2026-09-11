@@ -255,14 +255,14 @@ def test_delete_last_transaction_card_without_amount_stays_empty(client, manager
     assert [t for t in _txs(db, card.id) if not t.is_document] == []
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: payments_router.py:361-362 — если номер накладной "
-                          "не распознан и сумма не совпала, но кандидат ровно один, "
-                          "он объявляется «парой» и удаляется. Так можно снести "
-                          "запись-остаток, не имеющую отношения к документу.")
 def test_delete_document_does_not_kill_unrelated_remainder(client, manager, db, make_card):
-    """Документ с нераспознанным номером и чужой суммой не должен тянуть за собой остаток."""
+    """Документ с нераспознанным номером и чужой суммой не должен тянуть за собой остаток.
+
+    Починено в Фазе 2 (2026-09-11): _find_invoice_twins больше не считает
+    запись-остаток кандидатом в пары и не объявляет парой «единственного
+    кандидата». Раньше при нераспознанном номере и несовпавшей сумме
+    удалялась первая попавшаяся запись — так терялся остаток по сделке.
+    """
     _, h = manager
     card = make_card(total_amount=1000.0, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
@@ -279,6 +279,58 @@ def test_delete_document_does_not_kill_unrelated_remainder(client, manager, db, 
     _reload(db)
     rest = [t for t in _txs(db, card.id) if not t.is_document]
     assert len(rest) == 1, "запись-остаток не имеет отношения к удалённому документу"
+
+
+def test_delete_one_invoice_does_not_delete_the_other(client, manager, db, make_card):
+    """Вторая жертва убранного fallback'а «единственный кандидат — это пара».
+
+    У сделки две накладные с разными номерами и суммами. Удаление одной не
+    должно трогать вторую — раньше при нераспознанной паре оставшаяся
+    накладная объявлялась близнецом и удалялась вместе с ней.
+    """
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=3000.0, status="Сборка")
+    card_id = card.id
+    assert _trigger(client, h, card_id).status_code == 200
+    assert _issue(client, h, card_id, "ТТН1001", 1000.0).status_code == 200
+    assert _issue(client, h, card_id, "ТТН1002", 800.0).status_code == 200
+
+    _reload(db)
+    first = [t for t in _txs(db, card_id)
+             if t.invoice_number == "ТТН1001" and not t.is_document][0]
+    first_id = first.id
+
+    assert client.delete(f"/payments/transactions/{first_id}", headers=h).status_code == 200
+
+    _reload(db)
+    ledger_numbers = sorted(t.invoice_number for t in _txs(db, card_id)
+                            if t.invoice_number and not t.is_document)
+    assert ledger_numbers == ["ТТН1002"], f"вторая накладная пострадала: {ledger_numbers}"
+    doc_numbers = sorted(t.invoice_number for t in _txs(db, card_id) if t.is_document)
+    assert doc_numbers == ["ТТН1002"], \
+        f"копия удалённой накладной должна уйти, копия оставшейся — остаться: {doc_numbers}"
+
+
+def test_delete_invoice_keeps_remainder_of_the_same_amount(client, manager, db, make_card):
+    """Остаток, совпадающий по сумме с удаляемой накладной, не является её парой."""
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=800.0, status="В работе")
+    card_id = card.id
+    db.add(models.Transaction(card_id=card_id, company_name="Сделка", amount=400.0,
+                              is_document=False, invoice_number="ТТН2001"))
+    db.add(models.Transaction(card_id=card_id, company_name="Сделка", amount=400.0,
+                              is_document=False, invoice_number=None))
+    db.commit()
+
+    _reload(db)
+    inv = [t for t in _txs(db, card_id) if t.invoice_number == "ТТН2001"][0]
+    inv_id = inv.id
+    assert client.delete(f"/payments/transactions/{inv_id}", headers=h).status_code == 200
+
+    _reload(db)
+    left = [t for t in _txs(db, card_id)
+            if not t.invoice_number and not t.is_document and not t.is_warehouse_writeoff]
+    assert len(left) == 1, "остаток совпадал по сумме, но парой накладной не является"
 
 
 # ---------------------------------------------------------------------------

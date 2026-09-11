@@ -327,9 +327,19 @@ def _find_invoice_twins(session, tx):
     """Пара накладной: её копия в «Документах» (или исходник, если правят копию).
 
     «Накладная + копия» — ОДНА сущность: правки и удаление должны касаться
-    обеих сторон. Поиск — по тем же правилам, что и при удалении: по номеру
-    без нецифровых символов, затем по сумме, затем единственный кандидат.
+    обеих сторон. Поиск по номеру без нецифровых символов, затем по сумме.
     Вызывать ДО изменения полей tx: пара ищется по текущим (старым) значениям.
+
+    FIX 2026-09-11 (аудит): два исправления потери данных.
+
+    1. Запись-остаток (без номера, не документ, не складское списание) больше
+       не попадает в кандидаты. Она не может быть парой накладной по смыслу,
+       а раньше удалялась вместе с документом, у которого номер не распознан.
+    2. Убран запасной путь «если кандидат ровно один — это пара». Он срабатывал
+       при нераспознанном номере и несовпавшей сумме и объявлял парой первую
+       попавшуюся запись: при удалении документа так сносилась запись-остаток,
+       а при удалении одной из двух накладных сделки — вторая накладная.
+       «Кандидат один» не означает «кандидат — пара».
     """
     if tx.card_id is None:
         return []
@@ -342,11 +352,18 @@ def _find_invoice_twins(session, tx):
         это одна накладная. Сравниваем только цифры."""
         return "".join(ch for ch in (v or "") if ch.isdigit())
 
-    candidates = session.query(models.Transaction).filter(
-        models.Transaction.card_id == tx.card_id,
-        models.Transaction.id != tx.id,
-        models.Transaction.is_document == (not was_doc),
-    ).all()
+    def _is_invoice_like(t):
+        return bool(t.is_document or t.is_warehouse_writeoff
+                    or (t.invoice_number or "").strip())
+
+    candidates = [
+        c for c in session.query(models.Transaction).filter(
+            models.Transaction.card_id == tx.card_id,
+            models.Transaction.id != tx.id,
+            models.Transaction.is_document == (not was_doc),
+        ).all()
+        if _is_invoice_like(c)
+    ]
 
     key = _norm(number)
     twins = []
@@ -357,9 +374,6 @@ def _find_invoice_twins(session, tx):
         twins = [c for c in candidates
                  if abs(float(c.amount or 0) - amount) < 0.01
                  and (not key or not _norm(c.invoice_number))]
-    # у сделки ровно одна накладная — пара однозначна
-    if not twins and len(candidates) == 1:
-        twins = candidates
     return twins
 
 
