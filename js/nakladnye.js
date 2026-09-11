@@ -159,31 +159,47 @@ const NakladnyeUI = {
             showToast('Фото отсутствуют', 'info');
             return;
         }
-        let overlay = document.getElementById('nak-photos-overlay');
-        if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = 'nak-photos-overlay';
-            overlay.className = 'cmd-palette-overlay';
-            overlay.innerHTML = `
-                <div class="cmd-palette" style="max-width:900px;max-height:90vh;overflow:auto;padding:20px">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                        <h3 style="margin:0">Фото накладной</h3>
-                        <button class="btn-secondary" onclick="document.getElementById('nak-photos-overlay').classList.add('hidden')">Закрыть</button>
-                    </div>
-                    <div id="nak-photos-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px"></div>
-                </div>`;
-            document.body.appendChild(overlay);
+        this._openLightbox(nak.photo_paths.map(p => `/nakladnye/photos/${p}`), 0);
+    },
+
+    _openLightbox(urls, index) {
+        let lb = document.getElementById('nak-lightbox');
+        if (!lb) {
+            lb = document.createElement('div');
+            lb.id = 'nak-lightbox';
+            lb.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;cursor:zoom-out';
+            lb.innerHTML = `
+                <button id="lb-close" style="position:absolute;top:16px;right:20px;background:none;border:none;color:#fff;font-size:32px;cursor:pointer;z-index:10">&times;</button>
+                <button id="lb-prev" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);background:none;border:none;color:#fff;font-size:40px;cursor:pointer;z-index:10">&#8249;</button>
+                <button id="lb-next" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);background:none;border:none;color:#fff;font-size:40px;cursor:pointer;z-index:10">&#8250;</button>
+                <img id="lb-img" style="max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;box-shadow:0 4px 40px rgba(0,0,0,.5)">
+                <div id="lb-counter" style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:14px;opacity:.7"></div>
+            `;
+            document.body.appendChild(lb);
         }
-        const grid = document.getElementById('nak-photos-grid');
-        grid.innerHTML = '';
-        nak.photo_paths.forEach(p => {
-            const img = document.createElement('img');
-            img.src = `/nakladnye/photos/${p}`;
-            img.style.cssText = 'width:100%;border-radius:8px;cursor:pointer';
-            img.onclick = () => window.open(img.src, '_blank');
-            grid.appendChild(img);
-        });
-        overlay.classList.remove('hidden');
+
+        this._lbUrls = urls;
+        this._lbIndex = index;
+        const img = document.getElementById('lb-img');
+        const counter = document.getElementById('lb-counter');
+        img.src = urls[index];
+        counter.textContent = urls.length > 1 ? `${index + 1} / ${urls.length}` : '';
+
+        document.getElementById('lb-prev').style.display = urls.length > 1 ? 'block' : 'none';
+        document.getElementById('lb-next').style.display = urls.length > 1 ? 'block' : 'none';
+
+        const show = (i) => {
+            this._lbIndex = (i + urls.length) % urls.length;
+            img.src = urls[this._lbIndex];
+            counter.textContent = `${this._lbIndex + 1} / ${urls.length}`;
+        };
+
+        lb.onclick = (e) => { if (e.target === lb) lb.style.display = 'none'; };
+        document.getElementById('lb-close').onclick = () => lb.style.display = 'none';
+        document.getElementById('lb-prev').onclick = (e) => { e.stopPropagation(); show(this._lbIndex - 1); };
+        document.getElementById('lb-next').onclick = (e) => { e.stopPropagation(); show(this._lbIndex + 1); };
+
+        lb.style.display = 'flex';
     }
 };
 

@@ -13924,22 +13924,36 @@ textarea {
     flex-shrink: 0;
     white-space: nowrap;
 }
+#nakladnye-table {
+    table-layout: auto;
+    width: 100%;
+}
 #nakladnye-table th {
     font-size: 11px;
-    padding: 10px 8px;
+    padding: 8px 6px;
     text-align: center;
     letter-spacing: 0.3px;
+    white-space: nowrap;
 }
 #nakladnye-table td {
-    padding: 8px 8px;
+    padding: 6px 6px;
     text-align: center;
+    vertical-align: middle;
 }
 #nakladnye-table td:nth-child(2) {
     text-align: left;
-    max-width: 180px;
+    max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+#nakladnye-table td:nth-child(4),
+#nakladnye-table td:nth-child(7),
+#nakladnye-table td:nth-child(8) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
 }
 #nakladnye-table .cb-col {
     width: 32px;
