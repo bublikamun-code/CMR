@@ -35,6 +35,10 @@ _TMP = tempfile.mkdtemp(prefix="crm_test_")
 os.environ["CRM_DATA_DIR"] = _TMP
 os.environ["CRM_SECRET_KEY"] = "test-secret-key-not-used-in-production"
 os.environ["CRM_CRON_TOKEN"] = "test-cron-token"
+# nakladnye_router читает токен бота на импорте модуля (строка 28), поэтому
+# переменная обязана быть выставлена до импорта main. Без неё bot-эндпоинты
+# отвечают 403 всегда и протестировать их нельзя.
+os.environ["TELEGRAM_BOT_TOKEN"] = "test-bot-token"
 os.makedirs(os.path.join(_TMP, "uploads"), exist_ok=True)
 os.makedirs(os.path.join(_TMP, "tenants"), exist_ok=True)
 
@@ -200,6 +204,12 @@ def superadmin(make_user):
 @pytest.fixture
 def cron_headers():
     return {"X-Cron-Token": os.environ["CRM_CRON_TOKEN"]}
+
+
+@pytest.fixture
+def bot_headers():
+    """Авторизация telegram-бота накладных (заголовок X-Bot-Token)."""
+    return {"X-Bot-Token": os.environ["TELEGRAM_BOT_TOKEN"]}
 
 
 # --- фабрики данных -------------------------------------------------------
