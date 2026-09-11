@@ -88,14 +88,16 @@ def test_one_card_with_two_invoices_is_allowed(client, manager, db, make_card):
 # Настоящие дубли
 # ---------------------------------------------------------------------------
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: одна и та же накладная на ОДНОЙ сделке выписывается "
-                          "сколько угодно раз — в реестре появляется вторая строка с тем же "
-                          "номером. Копия в «Документах» при этом корректно не дублируется "
-                          "(_issue_document), а вот запись реестра ничем не защищена: "
-                          "уникальности по (card_id, invoice_number) нет ни в БД, ни в коде.")
 def test_same_invoice_number_on_same_card_is_rejected(client, manager, db, make_card):
+    """Починено в Фазе 2 (2026-09-12, дефект 6).
+
+    Одна и та же накладная на ОДНОЙ сделке выписывалась сколько угодно раз:
+    в реестре появлялась вторая строка с тем же номером, а issued_total
+    суммировал все записи с номером, поэтому остаток к выписке считался дважды
+    и сделка закрывалась раньше времени. Копия в «Документах» при этом
+    корректно не дублировалась (_issue_document) — защищена теперь и запись
+    реестра. Проверка в issue_invoice, до создания строки, отказ 400.
+    """
     _, h = manager
     card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
@@ -107,6 +109,66 @@ def test_same_invoice_number_on_same_card_is_rejected(client, manager, db, make_
     _reload(db)
     same = [t for t in _ledger(db, card.id) if t.invoice_number == "ТТН0001"]
     assert len(same) == 1
+
+
+def test_same_invoice_in_other_spelling_on_same_card_is_rejected(client, manager, db, make_card):
+    """Дубль ловится и при другом написании того же номера.
+
+    В боевых данных соседствуют «ТТН 4881030» и «ТТН4881030», поэтому сравнение
+    идёт только по цифрам (_norm_invoice_number). Проверка по сырой строке
+    пропустила бы ровно тот дубль, который встречается в жизни.
+    """
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
+    assert _trigger(client, h, card.id).status_code == 200
+
+    assert _issue(client, h, card.id, "ТТН4881030", 300.0).status_code == 200
+    for variant in ("ТТН 4881030", "4881030", " ттн-4881030 "):
+        r = _issue(client, h, card.id, variant, 100.0)
+        assert r.status_code == 400, f"{variant!r} принят как новая накладная"
+
+    _reload(db)
+    assert len([t for t in _ledger(db, card.id) if t.invoice_number]) == 1
+
+
+def test_duplicate_rejection_does_not_disturb_the_remainder(client, manager, db, make_card):
+    """Отказ по дублю не портит состояние: остаток и сумма сделки на месте.
+
+    Проверка стоит до любых мутаций, но утвердить это тестом дешевле, чем
+    рассуждать: отказ в середине money-пути уже стоил нам 500 в «Сборке»
+    (коммит 9bc3532).
+    """
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
+    assert _trigger(client, h, card.id).status_code == 200
+    assert _issue(client, h, card.id, "ТТН0002", 300.0).status_code == 200
+
+    _reload(db)
+    before = [(t.id, round(float(t.amount), 2), t.invoice_number) for t in _ledger(db, card.id)]
+
+    assert _issue(client, h, card.id, "ТТН0002", 300.0).status_code == 400
+
+    _reload(db)
+    after = [(t.id, round(float(t.amount), 2), t.invoice_number) for t in _ledger(db, card.id)]
+    assert after == before
+    db.refresh(card)
+    assert round(float(card.total_amount), 2) == 1000.0
+
+
+def test_number_without_digits_is_compared_literally(client, manager, db, make_card):
+    """Номер без цифр («б/н») сравнивается строкой, а не по пустому ключу.
+
+    Иначе любые две записи без цифр в номере выглядели бы дублями друг друга,
+    и вторая законная накладная «б/н» на той же сделке оказалась бы заблокирована.
+    """
+    _, h = manager
+    card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
+    assert _trigger(client, h, card.id).status_code == 200
+
+    assert _issue(client, h, card.id, "б/н", 100.0).status_code == 200
+    assert _issue(client, h, card.id, "б/н", 100.0).status_code == 400
+    # другое текстовое обозначение — не дубль
+    assert _issue(client, h, card.id, "без номера", 100.0).status_code == 200
 
 
 def test_invoice_number_matching_ignores_spaces_and_prefixes(client, manager, db, make_card):

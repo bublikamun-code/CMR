@@ -176,18 +176,54 @@ def test_issue_invoice_nonpositive_rejected(client, manager, db, make_card, amou
     assert len(_txs(db, card.id)) == 1
 
 
-def test_issue_invoice_same_number_does_not_duplicate_document(client, manager, db, make_card):
-    """Копия в «Документах» — одна на номер накладной."""
+def test_issue_invoice_same_number_is_rejected_and_document_stays_single(
+        client, manager, db, make_card):
+    """Копия в «Документах» — одна на номер накладной.
+
+    Изменено в Фазе 2 (2026-09-12, дефект 6): раньше тест выписывал один номер
+    дважды и проверял, что копия-документ не задвоилась. Повторная выписка того
+    же номера на той же сделке теперь отклоняется (400), поэтому документ
+    остаётся один уже потому, что запись реестра одна. Прежняя защита
+    _issue_document проверена отдельным тестом ниже.
+    """
     _, h = manager
     card = make_card(total_amount=2000.0, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
 
     assert _issue(client, h, card.id, "ТТН0005", 500.0).status_code == 200
-    assert _issue(client, h, card.id, "ТТН0005", 500.0).status_code == 200
+    assert _issue(client, h, card.id, "ТТН0005", 500.0).status_code == 400
 
     _reload(db)
     docs = _txs(db, card.id, is_document=True)
     assert len(docs) == 1, f"ожидалась одна копия-документ, найдено {len(docs)}"
+    ledger = [t for t in _txs(db, card.id, is_document=False)
+              if (t.invoice_number or "").strip()]
+    assert len(ledger) == 1, f"ожидалась одна запись реестра, найдено {len(ledger)}"
+
+
+def test_issue_document_reuses_existing_document_copy(client, manager, db, make_card):
+    """_issue_document не плодит вторую копию, если документ с таким номером уже есть.
+
+    Сохранён исходный смысл прежнего test_issue_invoice_same_number_does_not_
+    duplicate_document. Штатным путём рассогласование теперь недостижимо —
+    дубль номера отклоняется раньше (дефект 6), — поэтому состояние
+    готовится напрямую: копия-документ есть, записи реестра с этим номером нет
+    (такое остаётся, например, после ручной правки базы).
+    """
+    _, h = manager
+    card = make_card(total_amount=2000.0, status="Сборка")
+    assert _trigger(client, h, card.id).status_code == 200
+
+    db.add(models.Transaction(card_id=card.id, company_name=card.title, amount=500.0,
+                              store_location=STORE, invoice_number="ТТН0007",
+                              is_document=True))
+    db.commit()
+
+    assert _issue(client, h, card.id, "ТТН0007", 500.0).status_code == 200
+
+    _reload(db)
+    docs = _txs(db, card.id, is_document=True)
+    assert len(docs) == 1, f"копия-документ задвоилась: найдено {len(docs)}"
 
 
 # ---------------------------------------------------------------------------

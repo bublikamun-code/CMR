@@ -334,6 +334,45 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
     finally:
         tdb.close()
 
+def _norm_invoice_number(v):
+    """Нормализованный номер накладной — только цифры.
+
+    Номера пишут по-разному: «ТТН4881006», «ТТН 4881006» и «4881006» — это одна
+    и та же накладная. В боевых данных оба написания соседствуют (см.
+    tests/test_nakladnye_dedup.py), поэтому ЛЮБОЕ сравнение номеров обязано идти
+    через эту функцию.
+
+    FIX 2026-09-12 (Фаза 2, дефект 6): вынесена на уровень модуля. Раньше
+    правило было продублировано вложенными _norm в _find_invoice_twins и в
+    repair-эндпоинте, а третья копия понадобилась бы для проверки дублей.
+    """
+    return "".join(ch for ch in (v or "") if ch.isdigit())
+
+
+def _find_duplicate_invoice(txs, number):
+    """Запись реестра ЭТОЙ ЖЕ сделки с тем же номером — настоящий дубль.
+
+    Штатные сценарии, которые дублями НЕ являются и ломать их нельзя
+    (подтверждено данными боевой БД, см. PROGRESS.md):
+      - один номер на нескольких сделках — доли одной физической накладной;
+      - несколько разных номеров на одной сделке — частичные отгрузки.
+    Отсюда область поиска: только записи одной карточки.
+
+    Сравнение по цифрам (_norm_invoice_number). Если цифр в номере нет вовсе
+    («б/н»), сравниваем строку после strip — иначе две содержательно разные
+    записи без номера выглядели бы дублями друг друга.
+    """
+    key = _norm_invoice_number(number)
+    raw = (number or "").strip()
+    for t in txs:
+        if key:
+            if _norm_invoice_number(t.invoice_number) == key:
+                return t
+        elif (t.invoice_number or "").strip() == raw:
+            return t
+    return None
+
+
 def _find_invoice_twins(session, tx):
     """Пара накладной: её копия в «Документах» (или исходник, если правят копию).
 
@@ -361,7 +400,7 @@ def _find_invoice_twins(session, tx):
     def _norm(v):
         """Номера накладных пишут по-разному: «ТТН4881006» и «4881006» —
         это одна накладная. Сравниваем только цифры."""
-        return "".join(ch for ch in (v or "") if ch.isdigit())
+        return _norm_invoice_number(v)
 
     def _is_invoice_like(t):
         return bool(t.is_document or t.is_warehouse_writeoff
@@ -624,6 +663,21 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
             models.Transaction.is_document == False
         ).all()
 
+        # FIX 2026-09-12 (Фаза 2, дефект 6): та же защита от дубля номера, что
+        # и в issue_invoice. Без неё дубль обходился бы через соседнюю дверь —
+        # этот эндпоинт тоже создаёт запись реестра с номером накладной,
+        # а issued_total в обоих местах суммирует все записи с номером.
+        # Пустой номер пропускаем: сюда можно добавить и запись без номера.
+        if (payload.invoice_number or "").strip():
+            duplicate = _find_duplicate_invoice(existing, payload.invoice_number)
+            if duplicate is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"Накладная {payload.invoice_number.strip()} уже есть по этой "
+                            f"сделке (запись #{duplicate.id}). Второй раз тот же номер "
+                            f"добавить нельзя."),
+                )
+
         if payload.amount is not None:
             # сумму задал пользователь в форме — проверяем её против остатка
             # (фикс аудита 10.09): раньше можно было выписать накладную
@@ -758,6 +812,32 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             models.Transaction.card_id == card_id,
             models.Transaction.is_document == False,
         ).order_by(models.Transaction.id.asc()).all()
+
+        # FIX 2026-09-12 (Фаза 2, дефект 6): один и тот же номер на ОДНОЙ сделке
+        # выписывался сколько угодно раз — в реестре появлялась вторая строка
+        # с тем же номером, и остаток к выписке считался дважды (issued_total
+        # ниже суммирует все записи с номером). Сделка при этом закрывалась
+        # раньше времени или, наоборот, показывала несуществующий остаток.
+        #
+        # Область проверки — записи ЭТОЙ карточки, потому что штатные сценарии
+        # «2 карточки — 1 накладная» (доли одной физической накладной) и
+        # «1 карточка — 2 накладных» (частичные отгрузки) ломать нельзя:
+        # они подтверждены данными боевой БД и закреплены инвариантами в
+        # tests/test_nakladnye_dedup.py.
+        #
+        # Сравнение по цифрам: в данных соседствуют «ТТН 4881030» и «ТТН4881030».
+        # Именно поэтому защита делается в коде, а не уникальным индексом по
+        # (card_id, invoice_number): правило «только цифры» средствами SQLite
+        # в индекс не выражается, а индекс по сырой строке пропустил бы ровно
+        # тот дубль, который встречается в жизни.
+        duplicate = _find_duplicate_invoice(txs, number)
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Накладная {number} уже выписана по этой сделке "
+                        f"(запись #{duplicate.id} на {float(duplicate.amount or 0):.2f} BYN). "
+                        f"Чтобы исправить её, удалите существующую и выпишите заново."),
+            )
 
         # запись-остаток: не списана и без номера накладной
         remainder = next(
@@ -1037,7 +1117,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
         backup_path = None if dry_run else _backup_db_snapshot(session)
 
         def _norm(v):
-            return "".join(ch for ch in (v or "") if ch.isdigit())
+            return _norm_invoice_number(v)
 
         all_tx = session.query(models.Transaction).filter(
             models.Transaction.card_id.isnot(None)
