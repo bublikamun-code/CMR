@@ -28,6 +28,7 @@ from routers import email_parser_router
 from routers import custom_objects_router
 from routers import workflows_router
 from routers import webhooks_router
+from routers import nakladnye_router
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -97,6 +98,7 @@ app.include_router(notifications_router.cron_router)
 app.include_router(custom_objects_router.router)
 app.include_router(workflows_router.router)
 app.include_router(webhooks_router.router)
+app.include_router(nakladnye_router.router)
 
 @app.get("/")
 def serve_frontend():

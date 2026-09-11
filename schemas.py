@@ -485,3 +485,53 @@ class NotificationResponse(BaseModel):
 class NotificationsListResponse(BaseModel):
     unread_count: int
     items: List[NotificationResponse]
+
+
+# --- Накладные ---
+
+NAKLADNYE_STATUSES = ("new", "verified", "arrived", "paid")
+NAKLADNYE_DOC_TYPES = ("ТН", "ТТН", "УПД")
+
+class NakladnayaBase(BaseModel):
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    doc_type: Optional[str] = None
+    doc_series: Optional[str] = None
+    doc_number: Optional[str] = None
+    doc_date: Optional[str] = None
+    amount: Optional[float] = None
+    unload_address: Optional[str] = None
+    store: Optional[str] = None
+    is_verified: bool = False
+    is_paid: bool = False
+    status: str = "new"
+
+class NakladnayaCreate(NakladnayaBase):
+    pass
+
+class NakladnayaUpdate(BaseModel):
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    doc_type: Optional[str] = None
+    doc_series: Optional[str] = None
+    doc_number: Optional[str] = None
+    doc_date: Optional[str] = None
+    amount: Optional[float] = None
+    unload_address: Optional[str] = None
+    store: Optional[str] = None
+    is_verified: Optional[bool] = None
+    is_paid: Optional[bool] = None
+    status: Optional[str] = None
+
+class SupplierBrief(BaseModel):
+    id: int
+    name: str
+    model_config = ConfigDict(from_attributes=True)
+
+class NakladnayaResponse(NakladnayaBase):
+    id: int
+    photo_paths: Optional[List[str]] = None
+    created_by_bot: bool = False
+    created_at: datetime
+    supplier: Optional[SupplierBrief] = None
+    model_config = ConfigDict(from_attributes=True)

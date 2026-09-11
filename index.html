@@ -186,6 +186,7 @@
                     <button type="button" class="settings-tab active" data-finance-tab="payments" role="tab" aria-selected="true">Реестр оплат</button>
                     <button type="button" class="settings-tab" data-finance-tab="writeoffs" role="tab" aria-selected="false">Списание</button>
                     <button type="button" class="settings-tab" data-finance-tab="documents" role="tab" aria-selected="false">Документы</button>
+                    <button type="button" class="settings-tab" data-finance-tab="nakladnye" role="tab" aria-selected="false">Накладные</button>
                 </div>
 
                 <div id="page-payments" class="finance-panel active" role="tabpanel">
@@ -269,6 +270,59 @@
                                 <td id="documents-count"></td>
                                 <td id="documents-total"></td>
                                 <td colspan="7"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                </div>
+
+                <div id="page-nakladnye" class="finance-panel" role="tabpanel">
+                <div class="panel-toolbar">
+                    <div id="nakladnye-month" class="month-filter" title="Фильтр по дате накладной"></div>
+                    <select id="nakladnye-filter-store" class="filter-select" aria-label="Фильтр по магазину">
+                        <option value="">Все магазины</option>
+                    </select>
+                    <select id="nakladnye-filter-type" class="filter-select" aria-label="Фильтр по типу">
+                        <option value="">Все типы</option>
+                        <option value="ТН">ТН</option>
+                        <option value="ТТН">ТТН</option>
+                        <option value="УПД">УПД</option>
+                    </select>
+                    <select id="nakladnye-filter-status" class="filter-select" aria-label="Фильтр по статусу">
+                        <option value="">Все статусы</option>
+                        <option value="new">Новая</option>
+                        <option value="verified">Проверена</option>
+                        <option value="arrived">Пришла</option>
+                        <option value="paid">Оплачена</option>
+                    </select>
+                    <input type="text" id="nakladnye-search" class="search-input" placeholder="Поиск..." aria-label="Поиск по накладным">
+                    <button id="nakladnye-add-btn" class="btn-primary btn-sm">Добавить</button>
+                    <button id="nakladnye-export" class="btn-secondary btn-export">Экспорт CSV</button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="nakladnye-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="doc_date">Дата</th>
+                                <th class="sortable" data-sort="supplier_name">Поставщик</th>
+                                <th class="sortable" data-sort="doc_type">Тип</th>
+                                <th class="sortable" data-sort="doc_number">№ накладной</th>
+                                <th class="sortable" data-sort="amount">Сумма (с НДС)</th>
+                                <th class="sortable" data-sort="store">Магазин</th>
+                                <th>Адрес разгрузки</th>
+                                <th class="cb-col" title="Проверена">✓</th>
+                                <th class="cb-col" title="Оплачена">₽</th>
+                                <th>Фото</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-totals">
+                                <td>Итого</td>
+                                <td id="nakladnye-count"></td>
+                                <td id="nakladnye-total" colspan="9"></td>
                             </tr>
                         </tfoot>
                     </table>
@@ -793,6 +847,66 @@
         </div>
     </div>
 
+    <!-- Модалка накладной (создание/редактирование) -->
+    <div id="nakladnaya-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="nakladnaya-modal-title">
+        <div class="modal-content">
+            <button class="close-btn" aria-label="Закрыть" onclick="NakladnyeUI.closeModal()"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            <h2 id="nakladnaya-modal-title">Новая накладная</h2>
+            <form id="nakladnaya-form" autocomplete="off" novalidate>
+                <div class="settings-content form-grid-2col">
+                    <label>Поставщик
+                        <select id="nak-supplier-select">
+                            <option value="">— выберите —</option>
+                        </select>
+                    </label>
+                    <label>Тип накладной
+                        <select id="nak-doc-type">
+                            <option value="">—</option>
+                            <option value="ТН">ТН</option>
+                            <option value="ТТН">ТТН</option>
+                            <option value="УПД">УПД</option>
+                        </select>
+                    </label>
+                    <label>Серия
+                        <input type="text" id="nak-doc-series" placeholder="Серия">
+                    </label>
+                    <label>Номер *
+                        <input type="text" id="nak-doc-number" placeholder="Номер накладной" required>
+                    </label>
+                    <label>Дата
+                        <input type="date" id="nak-doc-date">
+                    </label>
+                    <label>Сумма (с НДС)
+                        <input type="number" id="nak-amount" step="0.01" min="0" placeholder="0.00">
+                    </label>
+                    <label>Магазин
+                        <select id="nak-store">
+                            <option value="">—</option>
+                        </select>
+                    </label>
+                    <label>Адрес разгрузки
+                        <input type="text" id="nak-unload-address" placeholder="Для ТТН">
+                    </label>
+                    <label>Статус
+                        <select id="nak-status">
+                            <option value="new">Новая</option>
+                            <option value="verified">Проверена</option>
+                            <option value="arrived">Пришла</option>
+                            <option value="paid">Оплачена</option>
+                        </select>
+                    </label>
+                    <label style="grid-column:1/-1">Фото
+                        <input type="file" id="nak-photos" accept="image/*" multiple>
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="NakladnyeUI.closeModal()">Отмена</button>
+                    <button type="submit" class="btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Модалка задачи (создание/редактирование) -->
     <div id="task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
         <div class="modal-content">
@@ -852,6 +966,7 @@
     <script defer src="js/payments.js?v=272a0b37bc"></script>
     <script defer src="js/writeoffs.js?v=4959f2499b"></script>
     <script defer src="js/documents.js?v=9b0851f209"></script>
+    <script defer src="js/nakladnye.js?v=1"></script>
     <script defer src="js/contacts.js?v=f3ff5b3c89"></script>
     <script defer src="js/clients.js?v=2f13b2b536"></script>
     <script defer src="js/suppliers.js?v=dc70ccbaeb"></script>

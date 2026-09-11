@@ -404,6 +404,34 @@ class TaskChecklistItem(Base):
 # Лента уведомлений
 # ============================================================
 
+# ============================================================
+# Накладные (ТН / ТТН / УПД) — приём от магазинов через бот
+# ============================================================
+
+class Nakladnaya(Base):
+    __tablename__ = "nakladnye"
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True)
+    supplier_name = Column(String, index=True)
+    doc_type = Column(String(20), nullable=True)  # ТН, ТТН, УПД
+    doc_series = Column(String(50), nullable=True)
+    doc_number = Column(String(50), nullable=True, index=True)
+    doc_date = Column(String(20), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=True)
+    unload_address = Column(String(255), nullable=True)
+    store = Column(String(100), nullable=True, index=True)
+    is_verified = Column(Boolean, default=False)
+    is_paid = Column(Boolean, default=False)
+    status = Column(String(20), default="new", index=True)  # new, verified, arrived, paid
+    photo_paths = Column(Text, nullable=True)  # JSON array of file paths
+    created_by_bot = Column(Boolean, default=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    supplier = relationship("Supplier", lazy="joined")
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True, index=True)

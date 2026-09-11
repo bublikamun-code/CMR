@@ -31,6 +31,7 @@
             if (active.id === 'page-payments')  { if (typeof loadPaymentsTable  === 'function') loadPaymentsTable(); }
             if (active.id === 'page-writeoffs') { if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard(); }
             if (active.id === 'page-documents') { if (typeof loadDocumentsTable === 'function') loadDocumentsTable(); }
+            if (active.id === 'page-nakladnye') { if (typeof loadNakladnyeTable === 'function') loadNakladnyeTable(); }
         },
         'page-clients':    () => typeof loadClientsTable   === 'function' && loadClientsTable(),
         'page-suppliers':  () => typeof loadSuppliersTable === 'function' && loadSuppliersTable(),

@@ -1,5 +1,6 @@
 email_settings.json
 crm_app.db*
+.env
 tools/visual-check/.env
 tools/visual-check/shots/
 tools/visual-check/node_modules/
