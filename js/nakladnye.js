@@ -35,7 +35,7 @@ const NakladnyeUI = {
 
         // Rebuild enhanced dropdowns
         if (typeof enhanceSelectToDropdown === 'function') {
-            ['nak-supplier-select', 'nak-doc-type', 'nak-store'].forEach(sid => {
+            ['nak-doc-type', 'nak-store'].forEach(sid => {
                 const sel = document.getElementById(sid);
                 if (sel) {
                     sel.dataset.enhanced = '';
@@ -44,6 +44,30 @@ const NakladnyeUI = {
                     enhanceSelectToDropdown(sel);
                 }
             });
+        }
+
+        // Supplier dropdown with search
+        if (typeof createDropdown === 'function') {
+            const supSel = document.getElementById('nak-supplier-select');
+            if (supSel) {
+                const wrap = supSel.nextElementSibling;
+                if (wrap && wrap.classList.contains('select-dd-wrap')) wrap.remove();
+                supSel.dataset.enhanced = '';
+                const options = Array.from(supSel.options).map(o => ({ value: o.value, label: o.textContent }));
+                const ddWrap = document.createElement('span');
+                ddWrap.className = 'select-dd-wrap';
+                ddWrap.appendChild(createDropdown({
+                    options,
+                    value: supSel.value,
+                    searchable: true,
+                    onChange: (v) => {
+                        supSel.value = v;
+                        supSel.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }));
+                supSel.insertAdjacentElement('afterend', ddWrap);
+                supSel.classList.add('native-select-hidden');
+            }
         }
 
         if (id) {
