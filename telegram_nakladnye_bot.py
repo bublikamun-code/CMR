@@ -155,17 +155,24 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text(f"⏳ Обрабатываю {len(photos)} фото...")
 
-        ocr_results = []
-        for photo in photos:
-            ocr = await ocr_photo(photo["data"])
-            if ocr:
-                ocr["_photo"] = photo
-                ocr_results.append(ocr)
+        # Batch OCR: все фото одним запросом для точного группирования
+        all_ocr = await ocr_photos_batch([p["data"] for p in photos])
+        if not all_ocr:
+            # Fallback: поштучный OCR
+            all_ocr = []
+            for photo in photos:
+                ocr = await ocr_photo(photo["data"])
+                if ocr:
+                    all_ocr.append(ocr)
 
-        # Группируем по номеру накладной: несколько фото = одна накладная
+        # Привязываем фото к результатам OCR
+        for i, ocr in enumerate(all_ocr):
+            ocr["_photo_indices"] = ocr.get("photo_indices", [i] if i < len(photos) else [])
+
+        # Группируем по номеру накладной
         invoices = {}
         warnings = []
-        for ocr in ocr_results:
+        for ocr in all_ocr:
             num = ocr.get("doc_number") or "unknown"
             if num not in invoices:
                 invoices[num] = []
@@ -175,9 +182,20 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         merged = []
         for num, pages in invoices.items():
             first = pages[0]
-            last = pages[-1]  # итоговые суммы на последней странице
+            last = pages[-1]
             page_num = first.get("page_number")
             total_pages = first.get("total_pages")
+
+            # Собираем все фото для этой накладной
+            inv_photos = []
+            for p in pages:
+                for idx in p.get("_photo_indices", []):
+                    if idx < len(photos):
+                        inv_photos.append(photos[idx])
+
+            if not inv_photos and len(photos) > 0:
+                inv_photos = [photos[0]]
+
             if page_num and total_pages and len(pages) < total_pages:
                 warnings.append(
                     f"⚠️ {first.get('doc_type','')} №{num}: "
@@ -192,7 +210,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "amount": last.get("amount"),
                 "vat_amount": last.get("vat_amount"),
                 "unload_address": first.get("unload_address", ""),
-                "photos": [p["_photo"] for p in pages],
+                "photos": inv_photos,
             })
 
         import httpx
@@ -288,6 +306,106 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 
+OCR_PROMPT = (
+    "Ты OCR-ассистент для белорусских товарных накладных.\n"
+    "На фото может быть несколько накладных (по 1-2 фото на каждую).\n\n"
+    "ТИПЫ ДОКУМЕНТОВ:\n"
+    "• ТН = ТОВАРНАЯ НАКЛАДНАЯ (заголовок содержит «ТОВАРНАЯ НАКЛАДНАЯ»)\n"
+    "• ТТН = ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ (заголовок содержит «ТТН» или «ТРАНСПОРТНАЯ»)\n"
+    "• УПД = УНИВЕРСАЛЬНЫЙ ПЕРЕДАТОЧНЫЙ ДОКУМЕНТ\n"
+    "ВНИМАНИЕ: ТН и ТТН — это РАЗНЫЕ типы! Не путай.\n\n"
+    "ПРАВИЛА:\n"
+    "• supplier_name — ГРУЗООТПРАВИТЕЛЬ (компания). «Свет в доме» = грузополучатель, НЕ указывай.\n"
+    "  НЕ указывай должности и ФИО людей (комплектовщик, директор, водитель и т.д.)!\n"
+    "• Серия — 2 буквы СЛЕВА (ЯЖ, АВ, МК, АС и т.д.)\n"
+    "• Номер — под штрихкодом или внизу, только цифры.\n"
+    "• unload_address — ТОЛЬКО для ТТН! Для ТН всегда null.\n\n"
+    "СУММЫ:\n"
+    "• amount = «Стоимость с НДС» / «Всего с НДС» — ОБЩАЯ СУММА (всегда > НДС)\n"
+    "• vat_amount = «Сумма НДС» / «в т.ч. НДС» — только налог (всегда < amount)\n"
+    "• Числа с десятичной точкой: 653.09, 108.84. Запятая = точка!\n"
+    "• amount > vat_amount — всегда.\n\n"
+    "Верни МАССИВ JSON-объектов (по одному на каждую ОТДЕЛЬНУЮ накладную):\n"
+    "[{\n"
+    '  "supplier_name": "грузоотправитель (ИП, ООО, ОДО, ЧТУП)",\n'
+    '  "doc_type": "ТН" | "ТТН" | "УПД",\n'
+    '  "doc_series": "буквы серии",\n'
+    '  "doc_number": "цифры номера",\n'
+    '  "doc_date": "YYYY-MM-DD",\n'
+    '  "amount": число_с_НДС,\n'
+    '  "vat_amount": число_НДС,\n'
+    '  "unload_address": "адрес (ТОЛЬКО для ТТН, иначе null)",\n'
+    '  "photo_indices": [0] или [0, 1] — индексы фото (с 0), относящихся к этой накладной\n'
+    "}]\n"
+    "Если 2 фото = одна накладная (страница 1 и 2) — один объект с photo_indices: [0, 1].\n"
+    "Если не распознано — null. ТОЛЬКО JSON массив, без markdown."
+)
+
+
+async def ocr_photos_batch(images_bytes: list):
+    """OCR всех фото одним запросом — модель видит всё сразу."""
+    if not OPENAI_API_KEY or OpenAI is None:
+        return None
+
+    import base64
+    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+
+    content = [{"type": "text", "text": f"Распознай все накладные на этих {len(images_bytes)} фото."}]
+    for i, img_bytes in enumerate(images_bytes):
+        b64 = base64.b64encode(img_bytes).decode()
+        content.append({"type": "text", "text": f"--- Фото {i} ---"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+
+    try:
+        response = client.chat.completions.create(
+            model=OCR_MODEL,
+            messages=[
+                {"role": "system", "content": OCR_PROMPT},
+                {"role": "user", "content": content},
+            ],
+            max_tokens=1500,
+            temperature=0,
+        )
+        text = response.choices[0].message.content.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        data = json.loads(text)
+
+        if not isinstance(data, list):
+            data = [data]
+
+        # Валидация каждой записи
+        for item in data:
+            amt = item.get("amount")
+            vat = item.get("vat_amount")
+
+            def fix_decimal(v):
+                if v is None:
+                    return v
+                v = float(v)
+                if v == int(v) and v >= 10000:
+                    v = v / 100
+                return round(v, 2)
+
+            if amt is not None:
+                item["amount"] = fix_decimal(amt)
+            if vat is not None:
+                item["vat_amount"] = fix_decimal(vat)
+
+            if (item.get("amount") and item.get("vat_amount")
+                    and item["amount"] < item["vat_amount"]):
+                item["amount"], item["vat_amount"] = item["vat_amount"], item["amount"]
+
+            # unload_address только для ТТН
+            if item.get("doc_type") != "ТТН":
+                item["unload_address"] = None
+
+        return data
+    except Exception as e:
+        logger.error(f"Batch OCR error: {e}")
+        return None
+
+
 async def ocr_photo(image_bytes: bytes):
     if not OPENAI_API_KEY or OpenAI is None:
         return None
@@ -300,45 +418,16 @@ async def ocr_photo(image_bytes: bytes):
         response = client.chat.completions.create(
             model=OCR_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты OCR-ассистент для белорусских товарных накладных (ТН, ТТН, УПД).\n\n"
-                        "ПРАВИЛА:\n"
-                        "• supplier_name — ГРУЗООТПРАВИТЕЛЬ. «Свет в доме» = грузополучатель, НЕ указывай.\n"
-                        "• Серия — 2 буквы СЛЕВА (ЯЖ, АВ, МК). Номер — под штрихкодом/внизу, только цифры.\n\n"
-                        "СУММЫ — КРИТИЧНО:\n"
-                        "• amount = «Стоимость с НДС» / «Всего с НДС» — это ОБЩАЯ СУММА (она ВСЕГДА больше, чем НДС).\n"
-                        "• vat_amount = «Сумма НДС» / «в т.ч. НДС» — это только налог (он ВСЕГДА меньше, чем amount).\n"
-                        "• Числа с десятичной точкой: 653.09, 108.84, 2170.80.\n"
-                        "• НЕ ПРОПУСКАЙ точку! «108,84» → 108.84 (не 10884). Запятая = точка.\n"
-                        "• amount > vat_amount — это всегда так. Если наоборот — ты перепутал поля.\n\n"
-                        "Верни ТОЛЬКО JSON:\n"
-                        "{\n"
-                        '  "supplier_name": "грузоотправитель",\n'
-                        '  "doc_type": "ТН" | "ТТН" | "УПД",\n'
-                        '  "doc_series": "буквы серии",\n'
-                        '  "doc_number": "цифры номера",\n'
-                        '  "doc_date": "YYYY-MM-DD",\n'
-                        '  "amount": общая_сумма_с_НДС,\n'
-                        '  "vat_amount": сумма_НДС_отдельно,\n'
-                        '  "unload_address": "адрес разгрузки (ТТН)",\n'
-                        '  "page_number": номер_страницы,\n'
-                        '  "total_pages": всего_страниц\n'
-                        "}\n"
-                        "Не видно — null. page_number по умолчанию 1.\n"
-                        "ТОЛЬКО JSON."
-                    ),
-                },
+                {"role": "system", "content": OCR_PROMPT},
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Распознай данные из этой накладной."},
+                        {"type": "text", "text": "Распознай накладную на этом фото. Верни массив из одного элемента."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
                     ],
                 },
             ],
-            max_tokens=500,
+            max_tokens=1500,
             temperature=0,
         )
         text = response.choices[0].message.content.strip()
@@ -346,12 +435,11 @@ async def ocr_photo(image_bytes: bytes):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0]
         data = json.loads(text)
 
-        # Валидация сумм
-        amt = data.get("amount")
-        vat = data.get("vat_amount")
+        # Если пришёл массив — берём первый элемент
+        if isinstance(data, list):
+            data = data[0] if data else {}
 
         def fix_decimal(v):
-            """Если число целое и подозрительно большое (>9999), вероятно пропущена точка."""
             if v is None:
                 return v
             v = float(v)
@@ -359,24 +447,26 @@ async def ocr_photo(image_bytes: bytes):
                 v = v / 100
             return round(v, 2)
 
-        if amt is not None:
-            data["amount"] = fix_decimal(amt)
-        if vat is not None:
-            data["vat_amount"] = fix_decimal(vat)
+        if data.get("amount") is not None:
+            data["amount"] = fix_decimal(data["amount"])
+        if data.get("vat_amount") is not None:
+            data["vat_amount"] = fix_decimal(data["vat_amount"])
 
-        # amount всегда >= vat_amount, иначе меняем местами
+        # amount всегда >= vat_amount
         if (data.get("amount") and data.get("vat_amount")
                 and data["amount"] < data["vat_amount"]):
             data["amount"], data["vat_amount"] = data["vat_amount"], data["amount"]
 
-        # Проверка: НДС 20% → amount ≈ vat * 6.
-        # Если ratio сильно отклоняется (не 4..8), вероятно перепутаны поля.
+        # unload_address только для ТТН
+        if data.get("doc_type") != "ТТН":
+            data["unload_address"] = None
+
+        # Ratio check
         amt = data.get("amount")
         vat = data.get("vat_amount")
         if amt and vat and vat > 0:
             ratio = amt / vat
             if ratio < 4 or ratio > 8:
-                # Возможно, одна из сумм не НДС, а что-то другое. Логируем.
                 logger.warning(f"OCR suspicious ratio: amount={amt}, vat={vat}, ratio={ratio:.1f}")
 
         return data
