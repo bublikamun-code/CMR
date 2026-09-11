@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS nakladnye (
     doc_number TEXT(50),
     doc_date TEXT(20),
     amount REAL,
+    amount_no_vat REAL,
     unload_address TEXT(255),
     store TEXT(100),
     is_verified INTEGER DEFAULT 0,

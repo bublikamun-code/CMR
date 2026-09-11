@@ -417,7 +417,8 @@ class Nakladnaya(Base):
     doc_series = Column(String(50), nullable=True)
     doc_number = Column(String(50), nullable=True, index=True)
     doc_date = Column(String(20), nullable=True)
-    amount = Column(Numeric(12, 2), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=True)  # с НДС
+    amount_no_vat = Column(Numeric(12, 2), nullable=True)  # без НДС
     unload_address = Column(String(255), nullable=True)
     store = Column(String(100), nullable=True, index=True)
     is_verified = Column(Boolean, default=False)

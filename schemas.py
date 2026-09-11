@@ -500,6 +500,7 @@ class NakladnayaBase(BaseModel):
     doc_number: Optional[str] = None
     doc_date: Optional[str] = None
     amount: Optional[float] = None
+    amount_no_vat: Optional[float] = None
     unload_address: Optional[str] = None
     store: Optional[str] = None
     is_verified: bool = False
@@ -517,6 +518,7 @@ class NakladnayaUpdate(BaseModel):
     doc_number: Optional[str] = None
     doc_date: Optional[str] = None
     amount: Optional[float] = None
+    amount_no_vat: Optional[float] = None
     unload_address: Optional[str] = None
     store: Optional[str] = None
     is_verified: Optional[bool] = None

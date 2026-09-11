@@ -307,7 +307,8 @@
                                 <th class="sortable" data-sort="supplier_name">Поставщик</th>
                                 <th class="sortable" data-sort="doc_type">Тип</th>
                                 <th class="sortable" data-sort="doc_number">№ накладной</th>
-                                <th class="sortable" data-sort="amount">Сумма (с НДС)</th>
+                                <th class="sortable" data-sort="amount">Сумма с НДС</th>
+                                <th class="sortable" data-sort="amount_no_vat">Сумма без НДС</th>
                                 <th class="sortable" data-sort="store">Магазин</th>
                                 <th>Адрес разгрузки</th>
                                 <th class="cb-col" title="Проверена">✓</th>
@@ -876,8 +877,11 @@
                     <label>Дата
                         <input type="date" id="nak-doc-date">
                     </label>
-                    <label>Сумма (с НДС)
+                    <label>Сумма с НДС
                         <input type="number" id="nak-amount" step="0.01" min="0" placeholder="0.00">
+                    </label>
+                    <label>Сумма без НДС
+                        <input type="number" id="nak-amount-no-vat" step="0.01" min="0" placeholder="0.00">
                     </label>
                     <label>Магазин
                         <select id="nak-store">
