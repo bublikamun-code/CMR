@@ -210,6 +210,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "amount": last.get("amount"),
                 "vat_amount": last.get("vat_amount"),
                 "unload_address": first.get("unload_address", ""),
+                "has_second_page": any(p.get("has_second_page") for p in pages),
                 "photos": inv_photos,
             })
 
@@ -238,13 +239,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     },
                 )
                 if dup_check.status_code == 200 and dup_check.json().get("duplicate"):
-                    nak_id = dup_check.json().get("id")
-                    for photo in inv["photos"]:
-                        await client.post(
-                            f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
-                            headers={"X-Bot-Token": BOT_TOKEN},
-                            files={"file": (photo["filename"], photo["data"], "image/jpeg")},
-                        )
+                    inv["_duplicate"] = True
                     continue
 
                 resp = await client.post(
@@ -279,27 +274,60 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             files={"file": (photo["filename"], photo["data"], "image/jpeg")},
                         )
 
+        # Фильтр «Свет в доме» из supplier_name
+        svet_v_dome = {"свет в доме", "ооо свет в доме"}
+        for inv in merged:
+            if inv.get("supplier_name", "").lower().strip() in svet_v_dome:
+                inv["supplier_name"] = ""
+
         summary_lines = []
+        dup_lines = []
         for inv in merged:
             name = inv["supplier_name"] or "?"
             num = inv["doc_number"] or "?"
             amt = inv["amount"] or "—"
             dtype = inv["doc_type"] or ""
+            ser = inv["doc_series"] or ""
             pages_count = len(inv["photos"])
             pages_str = f" ({pages_count} стр.)" if pages_count > 1 else ""
-            summary_lines.append(f"• {dtype} {name} №{num} — {amt} BYN{pages_str}")
 
-        if not merged:
+            if inv.get("_duplicate"):
+                dup_lines.append(f"⚠️ {dtype} {ser} №{num} — уже есть в CRM")
+            else:
+                summary_lines.append(f"• {dtype} {name} №{num} — {amt} BYN{pages_str}")
+
+        # Предупреждения о пропущенных страницах
+        for inv in merged:
+            if not inv.get("_duplicate"):
+                for ocr in [inv]:
+                    if ocr.get("has_second_page") and len(ocr.get("photos", [])) < 2:
+                        num = ocr.get("doc_number", "?")
+                        ser = ocr.get("doc_series", "")
+                        warnings.append(
+                            f"⚠️ {ocr.get('doc_type','')} {ser} №{num}: "
+                            f"документ имеет 2-ю страницу, но она не отправлена"
+                        )
+
+        if not summary_lines and not dup_lines:
             summary_lines = ["• Фото сохранены, данные не распознаны — проверьте вручную"]
 
-        warn_text = ("\n\n" + "\n".join(warnings)) if warnings else ""
+        all_text = ""
+        if summary_lines:
+            all_text += "\n".join(summary_lines)
+        if dup_lines:
+            all_text += ("\n\n" if all_text else "") + "\n".join(dup_lines)
+        if warnings:
+            all_text += ("\n\n" if all_text else "") + "\n".join(warnings)
 
+        saved_count = sum(1 for inv in merged if not inv.get("_duplicate"))
+        dup_count = sum(1 for inv in merged if inv.get("_duplicate"))
+
+        header = f"✅ *Сохранено в CRM*" if saved_count > 0 else "ℹ️ *Результат*"
         await query.edit_message_text(
-            f"✅ *Сохранено в CRM*\n\n"
+            f"{header}\n\n"
             f"Склад: {store}\n"
-            f"Накладных: {max(len(merged), 1)}\n\n"
-            + "\n".join(summary_lines)
-            + warn_text
+            f"Новых: {saved_count}" + (f", дублей: {dup_count}" if dup_count else "") + "\n\n"
+            + all_text
             + "\n\n/start — принять ещё",
             parse_mode="Markdown",
         )
@@ -310,35 +338,42 @@ OCR_PROMPT = (
     "Ты OCR-ассистент для белорусских товарных накладных.\n"
     "На фото может быть несколько накладных (по 1-2 фото на каждую).\n\n"
     "ТИПЫ ДОКУМЕНТОВ:\n"
-    "• ТН = ТОВАРНАЯ НАКЛАДНАЯ (заголовок содержит «ТОВАРНАЯ НАКЛАДНАЯ»)\n"
-    "• ТТН = ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ (заголовок содержит «ТТН» или «ТРАНСПОРТНАЯ»)\n"
+    "• ТН = ТОВАРНАЯ НАКЛАДНАЯ (заголовок «ТОВАРНАЯ НАКЛАДНАЯ»)\n"
+    "• ТТН = ТОВАРНО-ТРАНСПОРТНАЯ НАКЛАДНАЯ (заголовок «ТТН» или «ТРАНСПОРТНАЯ»)\n"
     "• УПД = УНИВЕРСАЛЬНЫЙ ПЕРЕДАТОЧНЫЙ ДОКУМЕНТ\n"
-    "ВНИМАНИЕ: ТН и ТТН — это РАЗНЫЕ типы! Не путай.\n\n"
-    "ПРАВИЛА:\n"
-    "• supplier_name — ГРУЗООТПРАВИТЕЛЬ (компания). «Свет в доме» = грузополучатель, НЕ указывай.\n"
-    "  НЕ указывай должности и ФИО людей (комплектовщик, директор, водитель и т.д.)!\n"
+    "ТН и ТТН — РАЗНЫЕ типы!\n\n"
+    "ПОСТАВЩИК — КРИТИЧНО:\n"
+    "• «Свет в доме», «ООО Свет в доме», «Общество с ограниченной ответственностью Свет в доме» — "
+    "это НАША КОМПАНИЯ (грузополучатель). НИКОГДА не указывай её как supplier_name!\n"
+    "• supplier_name = ДРУГАЯ компания в документе (грузоотправитель/продавец).\n"
+    "• НЕ указывай ФИО людей (комплектовщик, директор, водитель, кладовщик и т.д.)!\n"
+    "• supplier_name — это всегда название ОРГАНИЗАЦИИ (ИП, ООО, ОДО, ЧТУП, ЧП и т.д.)\n\n"
+    "ПОЛЯ:\n"
     "• Серия — 2 буквы СЛЕВА (ЯЖ, АВ, МК, АС и т.д.)\n"
     "• Номер — под штрихкодом или внизу, только цифры.\n"
-    "• unload_address — ТОЛЬКО для ТТН! Для ТН всегда null.\n\n"
+    "• unload_address — ТОЛЬКО для ТТН! Для ТН всегда null.\n"
+    "• has_second_page — true если документ явно обрезан, есть «продолжение на обороте», "
+    "таблица не закончена, или видно что это страница 1 из 2.\n\n"
     "СУММЫ:\n"
     "• amount = «Стоимость с НДС» / «Всего с НДС» — ОБЩАЯ СУММА (всегда > НДС)\n"
     "• vat_amount = «Сумма НДС» / «в т.ч. НДС» — только налог (всегда < amount)\n"
     "• Числа с десятичной точкой: 653.09, 108.84. Запятая = точка!\n"
     "• amount > vat_amount — всегда.\n\n"
-    "Верни МАССИВ JSON-объектов (по одному на каждую ОТДЕЛЬНУЮ накладную):\n"
+    "Верни МАССИВ JSON-объектов:\n"
     "[{\n"
-    '  "supplier_name": "грузоотправитель (ИП, ООО, ОДО, ЧТУП)",\n'
+    '  "supplier_name": "ДРУГАЯ компания (НЕ Свет в доме!)",\n'
     '  "doc_type": "ТН" | "ТТН" | "УПД",\n'
     '  "doc_series": "буквы серии",\n'
     '  "doc_number": "цифры номера",\n'
     '  "doc_date": "YYYY-MM-DD",\n'
     '  "amount": число_с_НДС,\n'
     '  "vat_amount": число_НДС,\n'
-    '  "unload_address": "адрес (ТОЛЬКО для ТТН, иначе null)",\n'
-    '  "photo_indices": [0] или [0, 1] — индексы фото (с 0), относящихся к этой накладной\n'
+    '  "unload_address": "адрес (ТОЛЬКО ТТН, иначе null)",\n'
+    '  "has_second_page": false,\n'
+    '  "photo_indices": [0] или [0, 1]\n'
     "}]\n"
-    "Если 2 фото = одна накладная (страница 1 и 2) — один объект с photo_indices: [0, 1].\n"
-    "Если не распознано — null. ТОЛЬКО JSON массив, без markdown."
+    "2 фото одной накладной → один объект с photo_indices: [0, 1].\n"
+    "ТОЛЬКО JSON массив."
 )
 
 
@@ -415,6 +450,11 @@ async def ocr_photos_batch(images_bytes: list):
             # unload_address только для ТТН
             if item.get("doc_type") != "ТТН":
                 item["unload_address"] = None
+
+            # Фильтр «Свет в доме»
+            sup = (item.get("supplier_name") or "").lower()
+            if "свет в доме" in sup:
+                item["supplier_name"] = ""
 
         return data
     except Exception as e:
