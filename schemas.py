@@ -527,6 +527,7 @@ class NakladnayaUpdate(BaseModel):
     is_arrived: Optional[bool] = None
     is_paid: Optional[bool] = None
     status: Optional[str] = None
+    products: Optional[List[dict]] = None
 
 class SupplierBrief(BaseModel):
     id: int
