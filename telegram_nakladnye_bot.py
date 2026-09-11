@@ -374,6 +374,16 @@ async def ocr_photo(image_bytes: bytes):
                 and data["amount"] < data["vat_amount"]):
             data["amount"], data["vat_amount"] = data["vat_amount"], data["amount"]
 
+        # Проверка: НДС 20% → amount ≈ vat * 6.
+        # Если ratio сильно отклоняется (не 4..8), вероятно перепутаны поля.
+        amt = data.get("amount")
+        vat = data.get("vat_amount")
+        if amt and vat and vat > 0:
+            ratio = amt / vat
+            if ratio < 4 or ratio > 8:
+                # Возможно, одна из сумм не НДС, а что-то другое. Логируем.
+                logger.warning(f"OCR suspicious ratio: amount={amt}, vat={vat}, ratio={ratio:.1f}")
+
         return data
     except Exception as e:
         logger.error(f"OCR error: {e}")
