@@ -405,6 +405,23 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             if card.status in ("На списание", "Закрыто"):
                 from routers.payments_router import _writeoff_status_for
                 card.status = _writeoff_status_for(card, ledger)
+            # FIX 2026-09-12 (Фаза 2, дефект 9): writeoff_groups.total_amount —
+            # агрегат сумм входящих в группу сделок, но пересчитывался он только
+            # в эндпоинтах самой группы (создание, добавление/вывод карточки,
+            # выписка накладной по группе). Правка суммы сделки через
+            # PATCH /cards/{id} группу не трогала, и итог группы расходился
+            # с суммой её карточек: на доске списания и в акте висело старое
+            # число. Функция пересчёта переиспользуется из writeoff_groups_router,
+            # второй копии формулы здесь появиться не должно.
+            if card.writeoff_group_id is not None:
+                from routers.writeoff_groups_router import _recompute_group_total
+                group = session.query(models.WriteoffGroup).filter(
+                    models.WriteoffGroup.id == card.writeoff_group_id).first()
+                if group is not None:
+                    # autoflush=False: фиксируем новую сумму сделки, чтобы
+                    # group.cards считался от актуальных значений
+                    session.flush()
+                    _recompute_group_total(group)
         if 'store_location' in card_update.model_fields_set:
             # Н4 (решение владельца, 06.09): правило «склад сделки единый» —
             # СОЗНАТЕЛЬНОЕ. Смена склада сделки синхронно обновляет склад у

@@ -443,12 +443,16 @@ def test_rename_supplier_updates_snapshots(client, manager, db):
     assert nakl.supplier_name == "Новое имя"
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: writeoff_groups.total_amount пересчитывается "
-                          "только в эндпоинтах группы. Смена cards.total_amount через "
-                          "PATCH /cards/{id} сумму группы не обновляет.")
 def test_card_total_change_recomputes_group_total(client, manager, db, make_card):
+    """Починено в Фазе 2 (2026-09-12, дефект 9).
+
+    writeoff_groups.total_amount — агрегат сумм входящих в группу сделок, но
+    пересчитывался только в эндпоинтах самой группы. Правка суммы сделки через
+    PATCH /cards/{id} группу не трогала, и итог расходился с суммой карточек:
+    на доске списания висело старое число. Пересчёт переиспользует
+    _recompute_group_total из writeoff_groups_router — второй копии формулы
+    в card_details_router нет.
+    """
     _, h = manager
     group = models.WriteoffGroup(name="Группа", total_amount=0.0)
     db.add(group)
@@ -463,3 +467,41 @@ def test_card_total_change_recomputes_group_total(client, manager, db, make_card
     _reload(db)
     fresh = db.query(models.WriteoffGroup).filter(models.WriteoffGroup.id == group_id).first()
     assert round(float(fresh.total_amount), 2) == 700.0
+
+
+def test_group_total_follows_card_total_down(client, manager, db, make_card):
+    """Уменьшение суммы сделки тоже пересчитывает группу.
+
+    Отдельный случай, а не «и так понятно»: часть логики update_card завязана
+    на знак изменения (остаток к выписке может стать отрицательным и запись
+    удаляется), поэтому пересчёт на уменьшении проверяется явно.
+    """
+    _, h = manager
+    group = models.WriteoffGroup(name="Группа", total_amount=0.0)
+    db.add(group)
+    db.commit()
+    group_id = group.id
+    c1 = make_card(title="A", total_amount=900.0, status="Сборка", writeoff_group_id=group_id)
+    make_card(title="B", total_amount=100.0, status="Сборка", writeoff_group_id=group_id)
+
+    r = client.patch(f"/cards/{c1.id}", headers=h, json={"total_amount": 400.0})
+    assert r.status_code == 200, r.text
+
+    _reload(db)
+    fresh = db.query(models.WriteoffGroup).filter(models.WriteoffGroup.id == group_id).first()
+    assert round(float(fresh.total_amount), 2) == 500.0
+
+
+def test_card_without_group_is_unaffected(client, manager, db, make_card):
+    """Сделка вне группы: пересчёт не вызывается и ничего не ломает."""
+    _, h = manager
+    card = make_card(title="A", total_amount=100.0, status="Сборка")
+
+    r = client.patch(f"/cards/{card.id}", headers=h, json={"total_amount": 500.0})
+    assert r.status_code == 200, r.text
+
+    _reload(db)
+    fresh = db.get(models.Card, card.id)
+    assert round(float(fresh.total_amount), 2) == 500.0
+    assert fresh.writeoff_group_id is None
+    assert db.query(models.WriteoffGroup).count() == 0
