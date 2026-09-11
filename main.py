@@ -108,17 +108,9 @@ def serve_frontend():
 def serve_admin():
     return FileResponse("admin.html")
 
-@app.get("/custom_objects.html")
-def serve_custom_objects():
-    return FileResponse("custom_objects.html")
-
-@app.get("/workflows.html")
-def serve_workflows():
-    return FileResponse("workflows.html")
-
-@app.get("/settings.html")
-def serve_settings():
-    return FileResponse("settings.html")
+# Отдельные страницы /settings.html, /workflows.html и /custom_objects.html удалены:
+# на проде этих файлов нет и роуты отдавали HTTP 500. Настройки, воркфлоу и кастомные
+# объекты живут страницами внутри index.html (js/settings.js ходит в /custom/* напрямую).
 
 @app.get("/api/version")
 def get_version():
