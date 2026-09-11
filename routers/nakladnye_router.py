@@ -40,6 +40,15 @@ def _bot_auth(request: Request) -> None:
     return None
 
 
+def _parse_products(n) -> list:
+    if not n.products_json:
+        return []
+    try:
+        return json.loads(n.products_json)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
 def _nak_dict(n: models.Nakladnaya) -> dict:
     photos = []
     if n.photo_paths:
@@ -64,6 +73,7 @@ def _nak_dict(n: models.Nakladnaya) -> dict:
         "is_paid": bool(n.is_paid),
         "status": n.status or "new",
         "photo_paths": photos,
+        "products": _parse_products(n),
         "created_by_bot": bool(n.created_by_bot),
         "created_at": n.created_at,
         "supplier": {"id": n.supplier.id, "name": n.supplier.name} if n.supplier else None,
@@ -147,6 +157,11 @@ def create_nakladnaya(
             if sup:
                 data["supplier_name"] = sup.name
 
+        # Serialize products list to JSON text
+        products = data.pop("products", None)
+        if products:
+            data["products_json"] = json.dumps(products, ensure_ascii=False)
+
         nak = models.Nakladnaya(**data, tenant_id=current_user.tenant_id)
         session.add(nak)
         session.commit()
@@ -180,6 +195,11 @@ def update_nakladnaya(
             sup = session.query(models.Supplier).filter(models.Supplier.id == update_data["supplier_id"]).first()
             if sup and "supplier_name" not in update_data:
                 nak.supplier_name = sup.name
+
+        # Serialize products
+        products = update_data.pop("products", None)
+        if products is not None:
+            nak.products_json = json.dumps(products, ensure_ascii=False) if products else None
 
         for key, value in update_data.items():
             setattr(nak, key, value)
@@ -287,6 +307,86 @@ def serve_nakladnaya_photo(filename: str):
     return FileResponse(full)
 
 
+@router.get("/export/products-excel", dependencies=[Depends(get_current_user)])
+def export_products_excel(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    store: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Экспорт товаров из накладных в Excel."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl не установлен")
+
+    tdb = _db(current_user, db)
+    try:
+        session = tdb
+        query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.products_json.isnot(None))
+        if current_user.role == "superadmin" and current_user.tenant_id is None:
+            session = db
+            query = db.query(models.Nakladnaya).filter(models.Nakladnaya.products_json.isnot(None))
+        if store:
+            query = query.filter(models.Nakladnaya.store == store)
+        rows = query.order_by(models.Nakladnaya.doc_date.desc()).all()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Товары"
+        headers = ["Дата", "Поставщик", "Тип", "Серия", "№ накладной", "Магазин",
+                    "Товар", "Кол-во", "Ед.", "Цена без НДС", "Сумма без НДС"]
+        header_font = Font(bold=True)
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+
+        row_num = 2
+        for nak in rows:
+            d = nak.doc_date or ""
+            if date_from and d < date_from:
+                continue
+            if date_to and d > date_to:
+                continue
+            products = _parse_products(nak)
+            for p in products:
+                qty = p.get("qty") or 0
+                price = p.get("price_no_vat") or 0
+                total = round(qty * price, 2)
+                ws.cell(row=row_num, column=1, value=nak.doc_date or "")
+                ws.cell(row=row_num, column=2, value=nak.supplier_name or "")
+                ws.cell(row=row_num, column=3, value=nak.doc_type or "")
+                ws.cell(row=row_num, column=4, value=nak.doc_series or "")
+                ws.cell(row=row_num, column=5, value=nak.doc_number or "")
+                ws.cell(row=row_num, column=6, value=nak.store or "")
+                ws.cell(row=row_num, column=7, value=p.get("name", ""))
+                ws.cell(row=row_num, column=8, value=qty)
+                ws.cell(row=row_num, column=9, value=p.get("unit", ""))
+                ws.cell(row=row_num, column=10, value=price)
+                ws.cell(row=row_num, column=11, value=total)
+                row_num += 1
+
+        for col in ws.columns:
+            max_len = max(len(str(c.value or "")) for c in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+
+        import io
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=nakladnye_products.xlsx"},
+        )
+    finally:
+        tdb.close()
+
+
 # ============================================================
 # Bot endpoints (bot token auth, no JWT)
 # ============================================================
@@ -298,6 +398,10 @@ def bot_create_nakladnaya(payload: schemas.NakladnayaCreate, db: Session = Depen
         sup = db.query(models.Supplier).filter(models.Supplier.id == payload.supplier_id).first()
         if sup and not data.get("supplier_name"):
             data["supplier_name"] = sup.name
+
+    products = data.pop("products", None)
+    if products:
+        data["products_json"] = json.dumps(products, ensure_ascii=False)
 
     nak = models.Nakladnaya(**data, created_by_bot=True)
     db.add(nak)

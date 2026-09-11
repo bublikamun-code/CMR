@@ -244,6 +244,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('nakladnye-export')?.addEventListener('click', () => exportNakladnyeCsv());
 
+    document.getElementById('nakladnye-excel-products')?.addEventListener('click', () => {
+        const params = new URLSearchParams();
+        const store = document.getElementById('nakladnye-filter-store')?.value;
+        if (store) params.set('store', store);
+        if (nakladnyeMonth && nakladnyeMonth !== 'all') {
+            params.set('date_from', nakladnyeMonth + '-01');
+            params.set('date_to', nakladnyeMonth + '-31');
+        }
+        window.location.href = `/nakladnye/export/products-excel?${params.toString()}`;
+    });
+
     // Filter: store
     const storeFilter = document.getElementById('nakladnye-filter-store');
     if (storeFilter) {

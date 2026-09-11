@@ -507,6 +507,7 @@ class NakladnayaBase(BaseModel):
     is_arrived: bool = False
     is_paid: bool = False
     status: str = "new"
+    products: Optional[List[dict]] = None
 
 class NakladnayaCreate(NakladnayaBase):
     pass

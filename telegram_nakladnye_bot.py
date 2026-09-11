@@ -230,6 +230,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "unload_address": inv["unload_address"],
                     "store": store,
                     "status": "new",
+                    "products": inv.get("products"),
                 }
 
                 dup_check = await client.get(
@@ -371,6 +372,10 @@ OCR_PROMPT = (
     "• amount > vat_amount — ВСЕГДА.\n"
     "• Типичный ratio: amount/vat ≈ 6 (для НДС 20%).\n"
     "• Числа с десятичной точкой: 653.09, 108.84. Запятая = точка!\n\n"
+    "ТОВАРЫ (из таблицы накладной):\n"
+    "• Извлеки ВСЕ строки товаров из таблицы.\n"
+    "• Для каждой строки: наименованиевание, количество, единица измерения, цена без НДС.\n"
+    "• Если цена указана с НДС — вычти НДС: цена_без_НДС = цена_с_НДС / 1.2\n\n"
     "Верни МАССИВ JSON-объектов:\n"
     "[{\n"
     '  "supplier_name": "ДРУГАЯ компания (НЕ Свет в доме!)",\n'
@@ -382,7 +387,8 @@ OCR_PROMPT = (
     '  "vat_amount": число_НДС,\n'
     '  "unload_address": "адрес (ТОЛЬКО ТТН, иначе null)",\n'
     '  "has_second_page": false,\n'
-    '  "photo_indices": [0] или [0, 1]\n'
+    '  "photo_indices": [0] или [0, 1],\n'
+    '  "products": [{"name": "название товара", "qty": число, "unit": "шт/м/кг", "price_no_vat": число}]\n'
     "}]\n"
     "2 фото одной накладной → один объект с photo_indices: [0, 1].\n"
     "ТОЛЬКО JSON массив."

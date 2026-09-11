@@ -426,6 +426,7 @@ class Nakladnaya(Base):
     is_paid = Column(Boolean, default=False)
     status = Column(String(20), default="new", index=True)  # new, verified, arrived, paid
     photo_paths = Column(Text, nullable=True)  # JSON array of file paths
+    products_json = Column(Text, nullable=True)  # JSON array of product line items
     created_by_bot = Column(Boolean, default=False)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
