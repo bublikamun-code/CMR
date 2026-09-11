@@ -94,6 +94,8 @@ def _nak_dict(n: models.Nakladnaya) -> dict:
         "doc_date": n.doc_date,
         "amount": float(n.amount) if n.amount is not None else None,
         "vat_amount": float(n.vat_amount) if n.vat_amount is not None else None,
+        # дефект 14: поле доступно на запись, поэтому обязано читаться обратно
+        "amount_no_vat": float(n.amount_no_vat) if n.amount_no_vat is not None else None,
         "unload_address": n.unload_address,
         "store": n.store,
         "is_verified": bool(n.is_verified),

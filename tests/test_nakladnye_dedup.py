@@ -441,19 +441,53 @@ def test_doc_type_case_and_spaces_are_normalized(client, bot_headers, db):
     assert r.json()["doc_type"] == "ТТН"
 
 
-@pytest.mark.known_bug
-@pytest.mark.xfail(strict=True,
-                   reason="ЖИВОЙ ДЕФЕКТ: колонка nakladnye.amount_no_vat есть в боевом DDL, "
-                          "но отсутствует и в models.py, и в NakladnayaBase — клиент "
-                          "физически не может её заполнить. Тот же класс дефекта, "
-                          "что и починенный в 3d109d6 NakladnayaUpdate.products.")
 def test_amount_no_vat_is_settable(client, manager):
+    """Починено в Фазе 2 (2026-09-12, дефект 14).
+
+    Колонка nakladnye.amount_no_vat есть в боевом DDL (добавлена
+    migrate_add_nakladnye.py), но отсутствовала и в models.py, и в
+    NakladnayaBase — клиент физически не мог её заполнить, а сервер не мог
+    отдать. Сумма без НДС нужна для сверки с поставщиком и для Excel-выгрузки,
+    где товары идут в ценах без НДС (price_no_vat).
+    """
     _, h = manager
     r = client.post("/nakladnye", headers=h, json={
         "doc_series": "АБ", "doc_number": "3", "amount": 120.0, "amount_no_vat": 100.0,
     })
     assert r.status_code == 200, r.text
     assert r.json().get("amount_no_vat") == 100.0
+
+
+def test_amount_no_vat_roundtrips_through_patch_and_db(client, manager, db):
+    """Поле доступно и на правку, и читается из базы: NakladnayaUpdate —
+    отдельная схема, она NakladnayaBase не наследует."""
+    _, h = manager
+    nak = models.Nakladnaya(doc_series="АБ", doc_number="31", amount=120.0,
+                            supplier_name="П")
+    db.add(nak)
+    db.commit()
+
+    r = client.patch(f"/nakladnye/{nak.id}", headers=h, json={"amount_no_vat": 100.0})
+    assert r.status_code == 200, r.text
+    assert r.json()["amount_no_vat"] == 100.0
+
+    _reload(db)
+    fresh = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak.id).first()
+    assert round(float(fresh.amount_no_vat), 2) == 100.0
+
+
+def test_amount_no_vat_is_optional(client, manager):
+    """Поле не обязательное: OCR его часто не распознаёт.
+
+    Накладная без суммы без НДС создаётся и отдаётся с None, а не с 0.0 —
+    ноль выглядел бы как реальная сумма и попал бы в итоги сверки.
+    """
+    _, h = manager
+    r = client.post("/nakladnye", headers=h, json={
+        "doc_series": "АБ", "doc_number": "32", "amount": 120.0,
+    })
+    assert r.status_code == 200, r.text
+    assert r.json().get("amount_no_vat") is None
 
 
 def test_nakladnye_delete_does_not_require_admin(client, manager, db):

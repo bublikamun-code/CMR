@@ -423,6 +423,11 @@ class Nakladnaya(Base):
     doc_date = Column(String(20), nullable=True)
     amount = Column(Numeric(12, 2), nullable=True)  # с НДС
     vat_amount = Column(Numeric(12, 2), nullable=True)  # сумма НДС
+    # FIX 2026-09-12 (Фаза 2, дефект 14): колонка есть в боевом DDL (добавлена
+    # migrate_add_nakladnye.py), но в модели отсутствовала — клиент не мог её
+    # ни прочитать, ни заполнить. Сумма без НДС нужна для сверки с поставщиком
+    # и для Excel-выгрузки, где товары идут в ценах без НДС (price_no_vat).
+    amount_no_vat = Column(Numeric(12, 2), nullable=True)  # без НДС
     unload_address = Column(String(255), nullable=True)
     store = Column(String(100), nullable=True, index=True)
     is_verified = Column(Boolean, default=False)

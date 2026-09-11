@@ -642,6 +642,9 @@ class NakladnayaBase(BaseModel):
     doc_date: Optional[str] = None
     amount: Optional[float] = None
     vat_amount: Optional[float] = None
+    # FIX 2026-09-12 (Фаза 2, дефект 14): колонка есть в боевом DDL, но отсутствовала
+    # и в models.py, и здесь — клиент физически не мог её заполнить.
+    amount_no_vat: Optional[float] = None
     unload_address: Optional[str] = None
     store: Optional[str] = None
     is_verified: bool = False
@@ -684,6 +687,7 @@ class NakladnayaUpdate(BaseModel):
     is_paid: Optional[bool] = None
     status: Optional[str] = None
     products: Optional[List[dict]] = None
+    amount_no_vat: Optional[float] = None   # дефект 14: как и в NakladnayaBase
 
     # Те же правила, что и при создании (дефект 12). Без них мусор, который
     # не прошёл в POST /nakladnye, свободно записывался бы через PATCH —
