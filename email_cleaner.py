@@ -97,12 +97,17 @@ def clean_email_body(body: str) -> str:
     return text or 'Текст письма пуст'
 
 
-def html_to_text(html: str) -> str:
+def html_to_text(html_body: str) -> str:
     """Fallback, когда у письма нет text/plain части (частый случай форм с сайта).
-    Сохраняем структуру: абзацы, списки, таблицы, отступы."""
-    if not html:
+    Сохраняем структуру: абзацы, списки, таблицы, отступы.
+
+    Параметр нарочно не называется `html`: это имя занято импортом модуля
+    stdlib, и прежний `def html_to_text(html)` делал вызов `html.unescape(h)`
+    ниже обращением к методу строки — AttributeError на каждом непустом письме.
+    """
+    if not html_body:
         return ''
-    h = re.sub(r'(?is)<(script|style|head).*?</\1>', ' ', html)
+    h = re.sub(r'(?is)<(script|style|head).*?</\1>', ' ', html_body)
     h = re.sub(r'(?i)<br\s*/?>', '\n', h)
     # Списки: каждый li — на новой строке с маркером
     h = re.sub(r'(?i)<li[^>]*>', '\n• ', h)
