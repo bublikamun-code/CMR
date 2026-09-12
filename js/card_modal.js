@@ -642,7 +642,9 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     container.removeEventListener('click', container._modalClickHandler);
     container._modalClickHandler = (e) => {
-        if (e.target.classList.contains('btn-delete-attachment') || e.target.classList.contains('file-chip__delete')) {
+        // D17 (аудит 12.09): операнд btn-delete-attachment удалён — класс
+        // нигде не рендерится, вложения живут только на file-chip__delete.
+        if (e.target.classList.contains('file-chip__delete')) {
             deleteAttachment(parseInt(e.target.dataset.fileId), parseInt(e.target.dataset.cardId));
         }
     };
@@ -1932,6 +1934,8 @@ async function renderCardInvoices(card) {
                 try {
                     const r = await apiFetch(`/payments/cards/${card.id}/sync-writeoff-status`, { method: 'POST' });
                     card.status = r.status;
+                    // статус сделки входит в данные группы — кэш групп сбрасываем
+                    invalidateWriteoffGroupsCache();
                 } catch (e2) {}
                 await renderCardInvoices(card);
                 if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
@@ -1981,7 +1985,7 @@ async function renderCardGroupBlock(card) {
     try {
         const [cards, groups] = await Promise.all([
             (window.CRM_STORE && CRM_STORE.get('cards')) || apiFetch('/kanban/cards'),
-            apiFetch('/writeoffs/groups/')
+            loadWriteoffGroups()
         ]);
 
         if (card.writeoff_group_id) {
@@ -2041,6 +2045,7 @@ async function renderCardGroupBlock(card) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ card_ids: [card.id, ...selected], name })
                 });
+                invalidateWriteoffGroupsCache();
                 showToast('Группа создана', 'success');
                 await refreshAndRerenderGroup(card);
                 if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
@@ -2109,6 +2114,7 @@ function renderExistingGroup(card, group, container) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ invoice_number: number, invoice_date: dateEl.value || null })
                 });
+                invalidateWriteoffGroupsCache();
                 showToast('Общая накладная выписана', 'success');
                 await refreshAndRerenderGroup(card);
                 if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
@@ -2124,6 +2130,7 @@ function renderExistingGroup(card, group, container) {
             if (!await confirmDialog('Распустить группу? Сделки останутся на списании по отдельности.', { okText: 'Распустить', danger: true })) return;
             try {
                 await apiFetch(`/writeoffs/groups/${group.id}`, { method: 'DELETE' });
+                invalidateWriteoffGroupsCache();
                 showToast('Группа распущена', 'success');
                 card.writeoff_group_id = null;
                 await renderCardGroupBlock(card);
@@ -2139,8 +2146,9 @@ function renderExistingGroup(card, group, container) {
                 e.stopPropagation();
                 const cid = parseInt(btn.dataset.id);
                 try {
-                    await apiFetch(`/writeoffs/groups/${group.id}/cards/${cid}`, { method: 'DELETE' });
-                    showToast('Карточка выведена из группы', 'success');
+                await apiFetch(`/writeoffs/groups/${group.id}/cards/${cid}`, { method: 'DELETE' });
+                invalidateWriteoffGroupsCache();
+                showToast('Карточка выведена из группы', 'success');
                     if (cid === card.id) {
                         card.writeoff_group_id = null;
                         await renderCardGroupBlock(card);
@@ -2318,20 +2326,48 @@ function updateChecklistItemState(input, item) {
    как сделка закрепляется за клиентом. Ручной ввод убран:
    иначе одна и та же компания попадала в базу в трёх написаниях.
    ============================================================ */
-let _suppliersCache = null;
+// D11 (аудит 12.09): /writeoffs/groups/ запрашивался при каждом открытии
+// модалки и почти всегда выбрасывался (секция видна только статусам
+// «На списание»). Кэш на уровне модуля + инвалидация в каждой точке
+// мутации групп (создание/распуск/выход/выписка накладной группы —
+// здесь и в writeoffs.js). Ошибка сети не кэшируется.
+let _writeoffGroupsCache = null;
+let _writeoffGroupsInflight = null;
+let _writeoffGroupsGen = 0;
+function loadWriteoffGroups(force = false) {
+    if (force) { _writeoffGroupsCache = null; _writeoffGroupsGen++; }
+    if (_writeoffGroupsCache) return Promise.resolve(_writeoffGroupsCache);
+    // Дедупликация: renderCardGroupBlock может вызваться дважды на открытии —
+    // второй вызов дожидается того же запроса. Поколение не даёт in-flight
+    // ответу перезаписать кэш, инвалидированный во время запроса.
+    if (_writeoffGroupsInflight) return _writeoffGroupsInflight;
+    const gen = _writeoffGroupsGen;
+    _writeoffGroupsInflight = apiFetch('/writeoffs/groups/')
+        .then(list => {
+            if (gen === _writeoffGroupsGen) _writeoffGroupsCache = list;
+            return list;
+        })
+        .catch(() => [])
+        .finally(() => { _writeoffGroupsInflight = null; });
+    return _writeoffGroupsInflight;
+}
+window.invalidateWriteoffGroupsCache = function() { _writeoffGroupsCache = null; };
 
-// Фикс аудита 10.09: кэш не инвалидался — поставщик, созданный в разделе
-// «Поставщики», в чек-листе карточки не появлялся до перезагрузки страницы.
-window.invalidateSuppliersCache = function() { _suppliersCache = null; };
-
+// D17 (аудит 12.09): было два кэша поставщиков — локальный _suppliersCache
+// и CRM_STORE.suppliers (его наполняют раздел «Поставщики» и дашборд).
+// Локальный отставал: invalidateSuppliersCache дёргался не из всех точек,
+// а ошибка сети кэшировалась как [] до перезагрузки страницы. Один
+// источник — CRM_STORE; ошибка сети не кэшируется.
 async function loadSuppliersList(force = false) {
-    if (_suppliersCache && !force) return _suppliersCache;
+    const cached = window.CRM_STORE ? CRM_STORE.get('suppliers') : null;
+    if (!force && Array.isArray(cached) && cached.length) return cached;
     try {
-        _suppliersCache = await apiFetch('/suppliers');
+        const list = await apiFetch('/suppliers');
+        if (window.CRM_STORE) CRM_STORE.set('suppliers', list);
+        return list;
     } catch (e) {
-        _suppliersCache = [];
+        return [];
     }
-    return _suppliersCache;
 }
 
 async function mountSupplierPicker(mount, currentId, onChange) {

@@ -160,7 +160,6 @@ function renderSuppliers() {
             if (!await confirmDialog(`Удалить поставщика "${supplier?.name}"?`)) return;
             try {
                 await apiFetch(`/suppliers/${id}`, { method: 'DELETE' });
-                if (typeof window.invalidateSuppliersCache === 'function') window.invalidateSuppliersCache();
                 showToast('Поставщик удалён', 'success');
                 loadSuppliersTable();
             } catch (err) {
@@ -238,9 +237,8 @@ async function saveSupplier() {
             });
             showToast('Поставщик создан', 'success');
         }
-        // Фикс аудита 10.09: сбрасываем кэш карточки — иначе новый поставщик
-        // не появлялся в чек-листе сделки до перезагрузки страницы.
-        if (typeof window.invalidateSuppliersCache === 'function') window.invalidateSuppliersCache();
+        // D17 (аудит 12.09): отдельный сброс кэша не нужен — карточка читает
+        // поставщиков из CRM_STORE, который loadSuppliersTable() обновляет ниже.
         document.getElementById('supplier-modal').classList.add('hidden');
         loadSuppliersTable();
     } catch (err) {

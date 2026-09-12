@@ -30,7 +30,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    loadWriteoffsBoard();
+    // D11 (аудит 12.09): безусловная загрузка доски на старте удалена —
+    // она тянула транзакции+сделки+группы даже если пользователь не заходит
+    // в Финансы. Активная вкладка покрывается проверкой выше (строки 11-12),
+    // переключение вкладок — лоадером initFinanceTabs в features.js.
 });
 
 // Склады для доски списаний берутся из данных (store_location транзакций
@@ -576,6 +579,7 @@ function renderGroupTile(group) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ invoice_number: number.trim() })
                 });
+                if (typeof window.invalidateWriteoffGroupsCache === 'function') window.invalidateWriteoffGroupsCache();
                 showToast('Общая накладная выписана', 'success');
                 loadWriteoffsBoard();
                 if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
@@ -859,6 +863,7 @@ function openAttachPicker(srcCard, group) {
                             body: JSON.stringify({ card_ids: [srcCard.id, c.id] })
                         });
                     }
+                    if (typeof window.invalidateWriteoffGroupsCache === 'function') window.invalidateWriteoffGroupsCache();
                     close();
                     showToast('Сделка прикреплена. Теперь выписывайте общую накладную с плитки группы.', 'success');
                     loadWriteoffsBoard();
