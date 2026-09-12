@@ -1,0 +1,30 @@
+name: check
+
+# CI-гейты Фазы 4: красный прогон блокирует merge в main.
+# Состав гейта — scripts/check.sh (6 шагов): import main → pytest ×2
+# профиля схемы → stamp_assets --check → ruff → чистый venv + bcrypt.
+
+on:
+  push:
+    branches: [main, "fix/**", "test/**", "refactor/**", "feat/**"]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Зависимости проекта (.venv)
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -r requirements-dev.txt
+
+      # check.sh обращается к .venv/bin/python — в CI venv создаётся
+      # с тем же именем, скрипт работает без изменений.
+      - name: Гейты
+        run: bash scripts/check.sh
