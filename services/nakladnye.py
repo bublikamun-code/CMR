@@ -91,3 +91,42 @@ def commit_with_doc_key_guard(session, doc_series, doc_number):
                     f"(id={existing.id}). Повторно тот же документ не создаётся — "
                     f"если это повторная отгрузка, откройте существующую запись."),
         ) from e
+
+
+def nak_dict(n: models.Nakladnaya) -> dict:
+    """Сериализация накладной в dict для ответа API.
+
+    Вынесено из _nak_dict в routers/nakladnye_router.py (Фаза 4) —
+    тело перенесено посимвольно.
+    """
+    photos = []
+    if n.photo_paths:
+        try:
+            photos = json.loads(n.photo_paths)
+        except (json.JSONDecodeError, TypeError):
+            photos = []
+    return {
+        "id": n.id,
+        "supplier_id": n.supplier_id,
+        "supplier_name": n.supplier_name or "",
+        "doc_type": n.doc_type,
+        "doc_series": n.doc_series,
+        "doc_number": n.doc_number,
+        "doc_date": n.doc_date,
+        "amount": float(n.amount) if n.amount is not None else None,
+        "vat_amount": float(n.vat_amount) if n.vat_amount is not None else None,
+        # дефект 14: поле доступно на запись, поэтому обязано читаться обратно
+        "amount_no_vat": float(n.amount_no_vat) if n.amount_no_vat is not None else None,
+        "unload_address": n.unload_address,
+        "store": n.store,
+        "is_verified": bool(n.is_verified),
+        "is_arrived": bool(n.is_arrived) if n.is_arrived is not None else False,
+        "is_paid": bool(n.is_paid),
+        "status": n.status or "new",
+        "photo_paths": photos,
+        "products": parse_products(n),
+        "excel_path": n.excel_path,
+        "created_by_bot": bool(n.created_by_bot),
+        "created_at": n.created_at,
+        "supplier": {"id": n.supplier.id, "name": n.supplier.name} if n.supplier else None,
+    }

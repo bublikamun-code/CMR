@@ -18,6 +18,7 @@ from services.nakladnye import (
     commit_with_doc_key_guard,
     effective_amounts,
     ensure_amounts_consistent,
+    nak_dict,
     parse_products,
 )
 
@@ -46,40 +47,6 @@ def _bot_auth(request: Request) -> None:
     if not BOT_TOKEN or token != BOT_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid bot token")
     return None
-
-
-def _nak_dict(n: models.Nakladnaya) -> dict:
-    photos = []
-    if n.photo_paths:
-        try:
-            photos = json.loads(n.photo_paths)
-        except (json.JSONDecodeError, TypeError):
-            photos = []
-    return {
-        "id": n.id,
-        "supplier_id": n.supplier_id,
-        "supplier_name": n.supplier_name or "",
-        "doc_type": n.doc_type,
-        "doc_series": n.doc_series,
-        "doc_number": n.doc_number,
-        "doc_date": n.doc_date,
-        "amount": float(n.amount) if n.amount is not None else None,
-        "vat_amount": float(n.vat_amount) if n.vat_amount is not None else None,
-        # дефект 14: поле доступно на запись, поэтому обязано читаться обратно
-        "amount_no_vat": float(n.amount_no_vat) if n.amount_no_vat is not None else None,
-        "unload_address": n.unload_address,
-        "store": n.store,
-        "is_verified": bool(n.is_verified),
-        "is_arrived": bool(n.is_arrived) if n.is_arrived is not None else False,
-        "is_paid": bool(n.is_paid),
-        "status": n.status or "new",
-        "photo_paths": photos,
-        "products": parse_products(n),
-        "excel_path": n.excel_path,
-        "created_by_bot": bool(n.created_by_bot),
-        "created_at": n.created_at,
-        "supplier": {"id": n.supplier.id, "name": n.supplier.name} if n.supplier else None,
-    }
 
 
 # ============================================================
@@ -119,7 +86,7 @@ def list_nakladnye(
             )
 
         rows = query.order_by(models.Nakladnaya.created_at.desc()).limit(5000).all()
-        result = [_nak_dict(r) for r in rows]
+        result = [nak_dict(r) for r in rows]
 
         if date_from or date_to:
             filtered = []
@@ -163,7 +130,7 @@ def create_nakladnaya(
         # rollback объект разобран и его атрибуты недоступны.
         commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
         db.refresh(nak)
-        return _nak_dict(nak)
+        return nak_dict(nak)
     finally:
         db.close()
 
@@ -204,7 +171,7 @@ def update_nakladnaya(
         # индекс это поймает, а guard переведёт в 400 вместо 500
         commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
         db.refresh(nak)
-        return _nak_dict(nak)
+        return nak_dict(nak)
     finally:
         db.close()
 
@@ -282,7 +249,7 @@ async def upload_nakladnaya_photo(
 
         db.commit()
         db.refresh(nak)
-        return _nak_dict(nak)
+        return nak_dict(nak)
     finally:
         db.close()
 
@@ -486,7 +453,7 @@ def bot_create_nakladnaya(payload: schemas.NakladnayaCreate, db: Session = Depen
     # производные колонки у старых строк.
     commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
     db.refresh(nak)
-    return _nak_dict(nak)
+    return nak_dict(nak)
 
 
 @router.patch("/bot/{nak_id}", dependencies=[Depends(_bot_auth)])
@@ -510,7 +477,7 @@ def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Se
     # уводить запись на уже занятый ключ
     commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
     db.refresh(nak)
-    return _nak_dict(nak)
+    return nak_dict(nak)
 
 
 @router.post("/bot/{nak_id}/photos", dependencies=[Depends(_bot_auth)])
@@ -550,7 +517,7 @@ async def bot_upload_photo(
 
     db.commit()
     db.refresh(nak)
-    return _nak_dict(nak)
+    return nak_dict(nak)
 
 
 @router.get("/bot/check-duplicate", dependencies=[Depends(_bot_auth)])
