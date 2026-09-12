@@ -241,6 +241,25 @@ DDL уронят прогон.
 
 
 
+## Фаза 4 — в работе (ветка `refactor/phase4-arch`)
+
+### Сделано
+
+| Что | Коммит |
+|---|---|
+| `scripts/check.sh` — 6 CI-гейтов: `import main` (143 роута) → pytest×2 профиля (259 / 255+4) → `stamp_assets --check` → ruff (теперь **0 ошибок**) → чистый venv + проверка bcrypt 4.0.1. Первый красный гейт останавливает прогон. Полный прогон: exit 0 | `ad5cac1` |
+| 118 находок ruff занулены без изменения поведения: B904 везде `from e`, S110 → `contextlib.suppress`, TRY300 → `else`, TRY401 без `{e}` в `logging.exception`, TRY301 → helper `_search_unseen` (ответ клиенту прежний), TRY004 → `TypeError` (grep: никто не ловил `RuntimeError`), PERF/SIM/B007 — механика | `ad5cac1` |
+
+### Осталось в Фазе 4
+
+1. Бэкенд-инварианты: service-слой для money-путей (payments/writeoffs/nakladnye),
+   один запрос = один commit, допуски и статусы в константы (`constants.py`),
+   удалить мёртвый тенант-код, ad-hoc `migrate_*.py` заменены раннером `migrate.py`.
+2. Подключить гейт к GitHub Actions (или хотя бы pre-push хук), чтобы красный
+   гейт физически блокировал merge.
+3. Frontend strangler fig: Vite-пилот на `nakladnye.js` (самый изолированный).
+4. Скриншот-регрессия `tools/visual-check` на 4 ширинах + тёмная тема в гейте.
+
 ## Дальше по плану
 
 1. **Фазы 0–3 закрыты и влиты в `main`**; прод = `main` = тег `prod-20260912`
