@@ -165,7 +165,11 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         completed_at=datetime.now(timezone.utc) if data.status == "done" else None,
     )
     db.add(task)
-    db.commit()
+    # Атомарность (Фаза 4): задача и снимки названий — одна транзакция.
+    # flush вместо промежуточного commit: id задачи и server-defaults
+    # появляются до снимков, но внешняя видимость — только после единственного
+    # commit'а ниже.
+    db.flush()
     db.refresh(task)
 
     # Снимки названий сделки/клиента (живут в основной базе)
@@ -173,9 +177,8 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id)
     if task.client_id:
         task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id)
-    if task.card_title_snapshot is not None or task.client_name_snapshot is not None:
-        db.commit()
-        db.refresh(task)
+    db.commit()
+    db.refresh(task)
 
     # Уведомление назначенному исполнителю (в его базу)
     if data.assignee_id:
@@ -218,7 +221,10 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
         task.status = data.status
         task.completed_at = datetime.now(timezone.utc) if data.status == "done" else None
 
-    db.commit()
+    # Атомарность (Фаза 4): правки и пересчёт снимков — одна транзакция.
+    # flush вместо промежуточного commit: снимки ниже читают из этой же
+    # сессии и уходят в БД единственным commit'ом.
+    db.flush()
     db.refresh(task)
 
     # Обновить снимки названий при смене привязки
@@ -231,8 +237,8 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
             task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id)
         else:
             task.client_name_snapshot = None
-        db.commit()
-        db.refresh(task)
+    db.commit()
+    db.refresh(task)
 
     # Уведомления об изменениях (пишутся в базу получателя)
     if data.assignee_id is not None and task.assignee_id and task.assignee_id != old_assignee:

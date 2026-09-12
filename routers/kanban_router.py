@@ -70,7 +70,10 @@ def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current
         tags = db.query(models.Tag).filter(models.Tag.id.in_(card.tag_ids)).all()
         new_card.tags = tags
     db.add(new_card)
-    db.commit()
+    # Атомарность (Фаза 4): карточка и ActivityLog уходят в БД одним
+    # commit'ом. flush вместо промежуточного commit: id карточки нужен для
+    # журнала, но внешняя видимость до конца запроса ни к чему.
+    db.flush()
     db.refresh(new_card)
     log = models.ActivityLog(
         user_id=current_user.id,

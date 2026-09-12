@@ -145,12 +145,14 @@ def remove_card_from_group(group_id: int, card_id: int, db: Session = Depends(ge
     group.cards.remove(card)
     recompute_group_total(group)
 
-    if not group.cards:
+    # Ветки взаимоисключающие, но commit один на обеих (Фаза 4): удаление
+    # пустой группы и обычный выход карточки уходят в БД одним commit'ом.
+    dissolved = not group.cards
+    if dissolved:
         db.delete(group)
-        db.commit()
-        return {"detail": "Группа распущена"}
-
     db.commit()
+    if dissolved:
+        return {"detail": "Группа распущена"}
     db.refresh(group)
     return group
 
