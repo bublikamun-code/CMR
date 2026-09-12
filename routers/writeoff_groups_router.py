@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 import models
 import schemas
 from auth import get_current_user
+from constants import MONEY_EPSILON
 from database import get_db
 from db_utils import resolve_tenant_db as _db
 
@@ -213,7 +214,7 @@ def issue_group_invoice(group_id: int, payload: IssueGroupInvoiceRequest, db: Se
         amount = round(float(payload.amount or group_total), 2)
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Сумма накладной должна быть больше нуля")
-        if abs(amount - group_total) > 0.01:
+        if abs(amount - group_total) > MONEY_EPSILON:
             raise HTTPException(
                 status_code=400,
                 detail=f"Групповая накладная пока выписывается только на полную сумму группы: {group_total:.2f} BYN"

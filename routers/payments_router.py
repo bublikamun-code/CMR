@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 import models
 import schemas
 from auth import get_current_user
+from constants import MONEY_EPSILON
 from database import get_db
 from db_utils import resolve_tenant_db as _db
 
@@ -226,7 +227,7 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
             total = round(sum(float(p.amount or 0) for p in parts), 2)
             # сумма счёта берётся у карточки, если она заполнена
             card_total = float(base.card.total_amount or 0) if base.card else 0.0
-            if card_total > 0.01:
+            if card_total > MONEY_EPSILON:
                 total = round(card_total, 2)
 
             invoices = [p for p in parts if (p.invoice_number or "").strip()]
@@ -425,7 +426,7 @@ def _find_invoice_twins(session, tx):
     # запасной путь: номер не совпал (или его нет) — ищем по сумме
     if not twins:
         twins = [c for c in candidates
-                 if abs(float(c.amount or 0) - amount) < 0.01
+                 if abs(float(c.amount or 0) - amount) < MONEY_EPSILON
                  and (not key or not _norm(c.invoice_number))]
     return twins
 
@@ -600,7 +601,7 @@ def _writeoff_status_for(card, ledger):
         issued = round(sum(float(t.amount or 0) for t in ledger
                            if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
         rest = round(float(card.total_amount or 0) - issued, 2)
-        return "На списание" if rest > 0.01 else "Закрыто"
+        return "На списание" if rest > MONEY_EPSILON else "Закрыто"
     return "На списание" if any(not t.is_warehouse_writeoff for t in ledger) else "Закрыто"
 
 
@@ -643,7 +644,7 @@ def card_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
             pending=len(issued_rows) - written,
             invoices_amount=round(inv_sum, 2),
             card_amount=round(card_sum, 2),
-            fully_covered=(card_sum > 0 and inv_sum >= card_sum - 0.01),
+            fully_covered=(card_sum > 0 and inv_sum >= card_sum - MONEY_EPSILON),
         )
     finally:
         tdb.close()
@@ -694,7 +695,7 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
             issued_before = round(sum(float(t.amount or 0) for t in existing
                                       if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
             rest_before = round(float(card.total_amount or 0) - issued_before, 2)
-            if amount > rest_before + 0.01:
+            if amount > rest_before + MONEY_EPSILON:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Сумма накладной ({amount}) больше остатка по сделке ({rest_before})",
@@ -737,11 +738,11 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
         remainder = next((t for t in ledger
                           if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
         if remainder is not None:
-            if new_rest <= 0.01:
+            if new_rest <= MONEY_EPSILON:
                 session.delete(remainder)
             else:
                 remainder.amount = new_rest
-        elif new_rest > 0.01:
+        elif new_rest > MONEY_EPSILON:
             session.add(models.Transaction(
                 company_name=card.title, amount=new_rest,
                 store_location=new_tx.store_location, card_id=card_id,
@@ -865,7 +866,7 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
         # списания считается так же, теперь и модалка показывает то же число.
         rest_before = max(0.0, round(card_amount - issued_total, 2))
 
-        if amount > rest_before + 0.01:
+        if amount > rest_before + MONEY_EPSILON:
             raise HTTPException(
                 status_code=400,
                 detail=f"Сумма накладной {amount:.2f} больше остатка по сделке {rest_before:.2f}"
@@ -873,7 +874,7 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
 
         rest_after = round(rest_before - amount, 2)
 
-        if remainder is not None and rest_after <= 0.01:
+        if remainder is not None and rest_after <= MONEY_EPSILON:
             # накладная закрывает остаток целиком — превращаем саму запись-остаток в накладную
             invoice = remainder
             invoice.invoice_number = number
@@ -895,7 +896,7 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
             )
             session.add(invoice)
             if remainder is not None:
-                if rest_after <= 0.01:
+                if rest_after <= MONEY_EPSILON:
                     # остаток исчерпан — удаляем пустую запись вместо нулевой
                     session.delete(remainder)
                     new_remainder = None
@@ -904,7 +905,7 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
                     remainder.store_location = store
                     new_remainder = remainder
             else:
-                if rest_after > 0.01:
+                if rest_after > MONEY_EPSILON:
                     new_remainder = models.Transaction(
                         company_name=card.title, amount=rest_after,
                         store_location=store, card_id=card_id,
@@ -1151,7 +1152,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                                         "amount": float(d.amount or 0)})
                     continue
                 if (_norm(d.invoice_number) and _norm(d.invoice_number) not in live_keys
-                        and not any(abs(float(t.amount or 0) - float(d.amount or 0)) < 0.01 for t in live)):
+                        and not any(abs(float(t.amount or 0) - float(d.amount or 0)) < MONEY_EPSILON for t in live)):
                     orphan_docs.append({"id": d.id, "card_id": card_id,
                                         "invoice_number": d.invoice_number,
                                         "amount": float(d.amount or 0)})
@@ -1172,14 +1173,14 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                 pending_rows = [t for t in live
                                 if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()]
                 current_rest = round(sum(float(t.amount or 0) for t in pending_rows), 2)
-                if abs(expected_rest - current_rest) > 0.01:
+                if abs(expected_rest - current_rest) > MONEY_EPSILON:
                     remainder_fixes.append({
                         "card_id": card_id, "title": card.title,
                         "was": current_rest, "will_be": expected_rest,
                         "extra_rows": len(pending_rows) - 1,
                     })
                     if not dry_run:
-                        if expected_rest <= 0.01:
+                        if expected_rest <= MONEY_EPSILON:
                             # остаток исчерпан — записи-остатки удаляются,
                             # а не остаются нулевыми
                             for p in pending_rows:
@@ -1194,7 +1195,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                                 store_location=card.store_location, card_id=card_id,
                             ))
                     if pending_rows:
-                        if expected_rest <= 0.01:
+                        if expected_rest <= MONEY_EPSILON:
                             will_delete_ids = {p.id for p in pending_rows}
                         else:
                             will_delete_ids = {p.id for p in pending_rows[1:]}

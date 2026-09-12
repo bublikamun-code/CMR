@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from auth import get_current_user
+from constants import MONEY_EPSILON
 from database import get_db
 from db_utils import resolve_tenant_db as _db
 from limiter_config import limiter
@@ -387,11 +388,11 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             remainder = next((t for t in ledger
                               if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
             if remainder is not None:
-                if new_rest <= 0.01:
+                if new_rest <= MONEY_EPSILON:
                     session.delete(remainder)
                 else:
                     remainder.amount = new_rest
-            elif new_rest > 0.01 and card.status in ("Сборка", "На списание", "Закрыто"):
+            elif new_rest > MONEY_EPSILON and card.status in ("Сборка", "На списание", "Закрыто"):
                 # Фикс аудита 10.09: остаток = «сделка в реестре оплат»
                 # (инвариант: запись появляется при входе в «Сборку»).
                 # Правка суммы в «Новом запросе»/«В работе» раньше сразу
@@ -509,9 +510,9 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
             paid = float(card.paid_amount or 0)
             if total <= 0:
                 card.payment_status = "Не оплачен"
-            elif paid >= total - 0.01:
+            elif paid >= total - MONEY_EPSILON:
                 card.payment_status = "Оплачен"
-            elif paid > 0.01:
+            elif paid > MONEY_EPSILON:
                 card.payment_status = "Частично"
             else:
                 card.payment_status = "Не оплачен"
