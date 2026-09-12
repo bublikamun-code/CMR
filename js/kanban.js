@@ -18,6 +18,23 @@ document.addEventListener('DOMContentLoaded', () => {
             else loadKanbanBoard();
         }, 200);
     });
+
+    // D4 (UX-аудит): чипы оплаты — по образцу чипов статусов в «Задачах»
+    const payChips = document.getElementById('kanban-pay-chips');
+    if (payChips) payChips.addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-pay]');
+        if (!chip) return;
+        _kanbanFilters.pay = chip.getAttribute('data-pay');
+        payChips.querySelectorAll('.settings-tab').forEach(t => {
+            const on = t === chip;
+            t.classList.toggle('active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        // Счётчики колонок «N из M» и суммы считаются от видимых карточек —
+        // обновятся сами; действуем как остальные фильтры.
+        if (_kanbanView === 'list') renderListView();
+        else refreshKanbanView();
+    });
 });
 
 let showOldCards = { "Новый запрос": false, "В работе": false, "Ждет оплаты": false, "Сборка": false };
@@ -54,7 +71,9 @@ function renderPaymentBadge(card) {
 
 let _isDropping = false;
 let _kanbanSearchQuery = '';
-let _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '' };
+let _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '', pay: '' };
+// D4 (UX-аудит): чипы быстрого фильтра по оплате — значения payment_status
+const KANBAN_PAY_FILTERS = { unpaid: 'Не оплачен', partial: 'Частично', paid: 'Оплачен', deferred: 'Отсрочка' };
 let _kanbanView = 'board'; // 'board' or 'list'
 let _trashSearchQuery = '';
 // FIX 2026-09-03 (аудит): при заблокированном localStorage файл падал целиком.
@@ -223,6 +242,7 @@ async function loadKanbanBoard() {
                 if (f.amountMax && (parseFloat(c.total_amount) || 0) > (parseMoney(f.amountMax) ?? Infinity)) return false;
                 if (f.client && !(c.client?.name || '').toLowerCase().includes(f.client.toLowerCase())) return false;
                 if (f.priority && String(c.priority || 0) !== f.priority) return false;
+                if (f.pay && (c.payment_status || 'Не оплачен') !== KANBAN_PAY_FILTERS[f.pay]) return false;
 
                 return true;
             });
@@ -1006,7 +1026,7 @@ function applyKanbanFilters() {
 }
 
 function resetKanbanFilters() {
-    _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '' };
+    _kanbanFilters = { store: '', amountMin: '', amountMax: '', client: '', priority: '', pay: '' };
     document.getElementById('filter-store').value = '';
     document.getElementById('filter-amount-min').value = '';
     document.getElementById('filter-amount-max').value = '';
@@ -1016,6 +1036,11 @@ function resetKanbanFilters() {
         syncEnhancedSelect('filter-store');
         syncEnhancedSelect('filter-priority');
     }
+    document.querySelectorAll('#kanban-pay-chips .settings-tab').forEach(t => {
+        const on = !t.getAttribute('data-pay');
+        t.classList.toggle('active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
     refreshKanbanView();
 }
 
@@ -1073,6 +1098,7 @@ function renderListView() {
         if (f.amountMax && (parseFloat(c.total_amount) || 0) > (parseMoney(f.amountMax) ?? Infinity)) return false;
         if (f.client && !(c.client?.name || '').toLowerCase().includes(f.client.toLowerCase())) return false;
         if (f.priority && String(c.priority || 0) !== f.priority) return false;
+        if (f.pay && (c.payment_status || 'Не оплачен') !== KANBAN_PAY_FILTERS[f.pay]) return false;
         return true;
     });
 

@@ -14075,3 +14075,12 @@ textarea {
         grid-template-columns: 1fr;
     }
 }
+
+/* === D4 (аудит 12.09): чипы фильтра оплаты над канбаном ===
+   Стиль чипов — тот же .settings-tab, что у статусов в «Задачах». */
+#kanban-pay-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 0 0 12px;
+}
