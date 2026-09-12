@@ -565,6 +565,13 @@ function setupTableScrollShadow(pageId) {
     const update = () => container.classList.toggle('is-scrolled', container.scrollLeft + container.clientWidth < container.scrollWidth - 1);
     container.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
+    // Панель при инициализации скрыта (вкладка Финансов): размеры 0×0 и
+    // первый update() ложно пишет «всё видно». При показе вкладки размеры
+    // меняются — ResizeObserver перезамеряет (аудит 12.09: тень не
+    // появлялась ни у одной таблицы).
+    if (typeof ResizeObserver === 'function') {
+        new ResizeObserver(update).observe(container);
+    }
     update();
 }
 
