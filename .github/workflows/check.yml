@@ -1,9 +1,11 @@
 name: check
 
 # CI-гейты Фазы 4: красный прогон блокирует merge в main.
-# Состав гейта — scripts/check.sh (7 шагов): import main → pytest ×2
+# Состав гейта — scripts/check.sh (8 шагов): import main → pytest ×2
 # профиля схемы → stamp_assets --check → свежесть Vite-бандла → ruff →
-# чистый venv + bcrypt. Бандл собирается в гейте — node нужен в CI.
+# чистый venv + bcrypt → скриншот-регрессия (в CI пропускается: эталоны
+# отрендерены на macOS, локально закрывается pre-push хуком).
+# Бандл собирается в гейте — node нужен в CI.
 
 on:
   push:
