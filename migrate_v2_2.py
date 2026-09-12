@@ -5,7 +5,7 @@
 import sqlite3
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crm_app.db")
 
@@ -17,7 +17,9 @@ def migrate():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    print(f"=== Миграция v2.2 — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+    # UTC: скрипт запускают и на хостинге, и локально, отметка в логе должна
+    # читаться однозначно.
+    print(f"=== Миграция v2.2 — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===")
     print(f"БД: {DB_PATH}")
     print()
 

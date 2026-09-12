@@ -311,8 +311,11 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         mail.login(email_addr, password)
         mail.select("inbox")
 
-        from datetime import date as _date
-        today = _date.today().strftime("%d-%b-%Y")
+        # Дата для IMAP SINCE — в UTC, как и всё остальное в проекте (миграция
+        # 0003). date.today() давал локальную дату сервера: ночью фильтр
+        # уходил на сутки вперёд относительно UTC и отрезал письма последних
+        # часов, то есть часть входящих не импортировалась.
+        today = datetime.now(timezone.utc).strftime("%d-%b-%Y")
         status, messages = mail.search(None, f'(UNSEEN SINCE "{today}")')
         if status != "OK":
             raise HTTPException(status_code=500, detail="Не удалось получить список писем с почтового сервера")

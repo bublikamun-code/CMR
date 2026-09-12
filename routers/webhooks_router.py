@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import hashlib
 import hmac
@@ -201,7 +201,9 @@ def test_webhook(wh_id: int, current_user=Depends(get_current_user)):
         payload = {
             "event": "test",
             "data": {"message": "Тестовый webhook от CRM"},
-            "timestamp": datetime.now().isoformat()
+            # tz-aware UTC: получатель видит однозначный момент времени
+            # (+00:00), а не «локальное время неизвестного сервера».
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
         headers = {"Content-Type": "application/json"}
@@ -266,7 +268,7 @@ async def notify_webhooks(tenant_id, event, data):
             payload = {
                 "event": event,
                 "data": data,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             headers = {"Content-Type": "application/json"}

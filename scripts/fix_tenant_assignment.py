@@ -17,7 +17,7 @@ import shutil
 import sqlite3
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 APP_DIR = Path(__file__).resolve().parent.parent
 MAIN_DB = APP_DIR / "crm_app.db"
@@ -26,7 +26,8 @@ BACKUP_DIR = APP_DIR / "backups"
 
 def backup_db():
     BACKUP_DIR.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # UTC в имени бэкапа: имена должны быть монотонными независимо от TZ сервера.
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     backup_path = BACKUP_DIR / f"crm_app_pre_tenant_fix_{timestamp}.db"
     shutil.copy2(str(MAIN_DB), str(backup_path))
     print(f"[backup] Создана резервная копия: {backup_path}")

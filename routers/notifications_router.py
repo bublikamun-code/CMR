@@ -11,7 +11,7 @@ sync-overdue вызывается внешним cron'ом (заголовок X
 уведомление того же типа — новое не создаётся. Повторная просрочка после
 прочтения старого снова уведомит.
 """
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -132,8 +132,16 @@ def sync_overdue(db: Session = Depends(get_db)):
     created_total = 0
     notif_purged = 0
     versions_purged = 0
-    day_key = date.today().isoformat()
+    # Ключ дня берём из UTC-времени, а не из date.today(). Локальная дата
+    # сервера (Europe/Minsk, UTC+3) расходится с UTC, и это ломало две вещи:
+    # 1) day_key уходит в детали уведомления как ключ дедупликации — сутки
+    #    переключались бы в 21:00 UTC и просрочка получила бы повторное
+    #    уведомление на три часа раньше;
+    # 2) day_key сравнивается строкой с Card.due_date/payment_due_date в
+    #    фильтрах ниже — сделки, ещё не просроченные по UTC, попадали бы
+    #    в выборку вечером.
     now = datetime.now(timezone.utc)
+    day_key = now.date().isoformat()
 
     # 0. Просроченные задачи — задачи живут в ОСНОВНОЙ базе, один проход.
     overdue_tasks = (db.query(models.Task)

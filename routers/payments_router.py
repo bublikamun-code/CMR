@@ -28,7 +28,11 @@ def _backup_db_snapshot(session):
             return None
         backup_dir = os.path.join(os.path.dirname(db_path), "backups")
         os.makedirs(backup_dir, exist_ok=True)
-        target = os.path.join(backup_dir, f"before_repair_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+        # UTC в имени бэкапа: таймзона общего хостинга нам не подконтрольна,
+        # а имена обязаны быть монотонными — иначе перевод часов или смена TZ
+        # сервера дали бы файл, который сортируется раньше уже существующих.
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        target = os.path.join(backup_dir, f"before_repair_{stamp}.db")
         src = sqlite3.connect(db_path)
         dst = sqlite3.connect(target)
         with dst:
@@ -540,7 +544,11 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         if update_data.get("date"):
             raw = str(update_data["date"]).strip()
             new_day = None
-            for parser in (lambda s: datetime.strptime(s, "%Y-%m-%d"),
+            # DTZ007 подавлен осознанно: наивный результат strptime здесь
+            # промежуточный — ниже он получает tzinfo исходной записи (см. FIX
+            # выше). Делать его aware сразу означало бы приписать чужой UTC
+            # записям, которые миграция 0003 оставила наивными.
+            for parser in (lambda s: datetime.strptime(s, "%Y-%m-%d"),  # noqa: DTZ007
                            datetime.fromisoformat):
                 try:
                     new_day = parser(raw)
