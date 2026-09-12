@@ -3,6 +3,7 @@ crm_app.db*
 .env
 tools/visual-check/.env
 tools/visual-check/shots/
+tools/visual-check/shots-diff/
 tools/visual-check/node_modules/
 __pycache__/
 .venv/
@@ -15,3 +16,4 @@ tmp/
 *.bak_*
 .qwen/
 node_modules/
+opencode.json

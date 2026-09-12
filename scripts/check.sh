@@ -22,6 +22,10 @@
 #   7. чистый venv: pip install -r requirements.txt + хэширование пароля
 #      на фиксированном bcrypt (страховка Фазы 0: расфиксация bcrypt
 #      молча ломает вход)
+#   8. скриншот-регрессия tools/visual-check (4 ширины + тёмная тема):
+#      сид-БД → сервер на 8799 → pixelmatch против baselines/.
+#      Только локально: эталоны отрендерены на macOS, шрифты/антиалиасинг
+#      платформенные — Ubuntu-раннер CI дал бы ложные расхождения.
 #
 # Запуск:  bash scripts/check.sh
 # Выход 0 — все гейты зелёные; первый же красный гейт останавливает прогон.
@@ -32,27 +36,27 @@ PY=".venv/bin/python"
 
 step() { echo ""; echo "=== [$1] $2 ==="; }
 
-step 1/7 "import main"
+step 1/8 "import main"
 $PY -c "import main; print('  роутов:', len(main.app.routes))"
 
-step 2/7 "pytest — профиль боевого DDL (prod)"
+step 2/8 "pytest — профиль боевого DDL (prod)"
 $PY -m pytest -q
 
-step 3/7 "pytest — профиль models.py"
+step 3/8 "pytest — профиль models.py"
 CRM_TEST_SCHEMA=models $PY -m pytest -q
 
-step 4/7 "кэш-бастеры ассетов"
+step 4/8 "кэш-бастеры ассетов"
 $PY tools/stamp_assets.py --check
 
-step 5/7 "frontend-бандл свеж"
+step 5/8 "frontend-бандл свеж"
 npm ci --no-audit --no-fund
 npm run build
 git diff --exit-code -- js/nakladnye.bundle.js
 
-step 6/7 "ruff"
+step 6/8 "ruff"
 .venv/bin/ruff check .
 
-step 7/7 "чистый venv: requirements.txt + bcrypt"
+step 7/8 "чистый venv: requirements.txt + bcrypt"
 VENV_DIR=$(mktemp -d /tmp/crm-gate-venv.XXXXXX)
 trap 'rm -rf "$VENV_DIR"' EXIT
 python3.12 -m venv "$VENV_DIR"
@@ -65,6 +69,44 @@ assert ctx.verify("gate-check", h)
 import bcrypt
 print("  bcrypt", bcrypt.__version__, "— хэширование и проверка пароля ок")
 EOF
+
+step 8/8 "скриншот-регрессия (4 ширины + тёмная тема)"
+if [ -n "${CI:-}" ]; then
+    echo "  пропуск в CI: эталоны baselines/ отрендерены на macOS, шрифты и"
+    echo "  антиалиасинг Ubuntu-раннера дали бы ложные пиксельные расхождения."
+    echo "  Гейт обязателен локально (pre-push), в CI его закрывают шаги 1-7."
+else
+    (cd tools/visual-check && npm ci --no-audit --no-fund)
+    $PY tools/visual-check/seed_db.py
+    VISUAL_PORT=8799
+    if curl -sf "http://127.0.0.1:$VISUAL_PORT/health" > /dev/null; then
+        echo "  ОШИБКА: порт $VISUAL_PORT уже занят — погасите старый сервер" >&2
+        exit 1
+    fi
+    # Окружение — то же, что пинит seed_db.py (_env): сервер обязан
+    # смотреть в сид-базу, а не в боевую/корневую.
+    CRM_DATA_DIR="$PWD/tmp/visual-seed" \
+    CRM_SECRET_KEY="visual-regression-secret" \
+    CRM_CRON_TOKEN="visual-cron-token" \
+    TELEGRAM_BOT_TOKEN="visual-bot-token" \
+    PORT=$VISUAL_PORT \
+    "$PY" server.py --port $VISUAL_PORT > tmp/visual-server.log 2>&1 &
+    VISUAL_PID=$!
+    # Сервер обязан гаснуть при любом выходе из скрипта (красный гейт,
+    # Ctrl-C): иначе зависший процесс держит порт 8799 до ребута.
+    trap 'kill $VISUAL_PID 2>/dev/null || true; rm -rf "$VENV_DIR"' EXIT
+    for _ in $(seq 1 30); do
+        curl -sf "http://127.0.0.1:$VISUAL_PORT/health" > /dev/null && break
+        sleep 1
+    done
+    curl -sf "http://127.0.0.1:$VISUAL_PORT/health" > /dev/null || {
+        echo "  ОШИБКА: сервер не поднялся за 30 с, см. tmp/visual-server.log" >&2
+        exit 1
+    }
+    (cd tools/visual-check && TZ=Europe/Minsk node regress.mjs)
+    kill $VISUAL_PID 2>/dev/null || true
+    wait $VISUAL_PID 2>/dev/null || true
+fi
 
 echo ""
 echo "=== ВСЕ ГЕЙТЫ ЗЕЛЁНЫЕ ==="

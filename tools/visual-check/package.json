@@ -4,9 +4,14 @@
   "type": "module",
   "description": "Скриншот-обход экранов прода для визуального аудита (локальный инструмент, в прод не деплоится)",
   "scripts": {
-    "walk": "node walk.mjs"
+    "walk": "node walk.mjs",
+    "regress": "node regress.mjs",
+    "regress-update": "node regress.mjs --update-baselines",
+    "seed": "python3 seed_db.py"
   },
   "dependencies": {
-    "playwright-core": "^1.45.0"
+    "pixelmatch": "^7.2.0",
+    "playwright-core": "^1.45.0",
+    "pngjs": "^7.0.0"
   }
 }
