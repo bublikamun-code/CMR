@@ -263,14 +263,19 @@ DDL уронят прогон.
    проверить вкладку Actions; push `5f4ac5d` 2026-09-12 вечером должен был
    запустить workflow). Если Actions недоступна — уже есть проверенный
    в бою локальный pre-push (`8e3ae31`).
-2. Frontend strangler fig: Vite-пилот на `nakladnye.js` (самый изолированный).
-   Разведка 2026-09-12: 485 строк, глобальный скрипт; экспортирует
-   `NakladnyeUI` (inline-обработчики `index.html:857/902`) и
-   `loadNakladnyeTable` (`features.js:765`, `page-freshness.js:34`);
-   сидит на ~19 глобалах из `api.js`/`features.js`/`constants.js`;
-   конфликт со `stamp_assets.py` (только `css/`/`js/` и формат `?v=`) —
-   бандл отдавать через отдельный mount `/assets` вне штамповщика;
-   node в корне нет, собирать бандл только локально (на сервере node нет).
+2. ~~Frontend strangler fig: Vite-пилот на `nakladnye.js`~~ — **сделано
+   2026-09-12** (ветка `feat/vite-pilot-nakladnye`, коммиты `b94977a` +
+   `fd2c8fd`): скаффолдинг (package.json + vite ^6 + `vite.config.js`,
+   `emptyOutDir: false`), исходник переехал в `frontend/nakladnye.js`,
+   бандл `js/nakladnye.bundle.js` коммитится (node на сервере нет),
+   `index.html` грузит его как `<script type="module">`, контракт
+   `window.NakladnyeUI`/`window.loadNakladnyeTable` сохранён. Гейт
+   `check.sh` стал 7-шаговым: шаг 5/7 «frontend-бандл свеж»
+   (npm ci → vite build → git diff бандла). Проверка в бою:
+   `tools/visual-check/nakladnye-check.mjs` на копии боевой БД — 7/7 OK
+   (таблица 14 строк, итоги, модалка + inline-закрытие, поиск, экспорт
+   CSV, ноль ошибок консоли после логина). **На прод НЕ выкачен** —
+   деплой отдельным решением владельца.
 3. Скриншот-регрессия `tools/visual-check` на 4 ширинах + тёмная тема в гейте.
 4. ~~Деплой накопленного Фазы 4 на прод~~ — **сделано 2026-09-12 вечером**
    (main = `5f4ac5d`, см. «Текущее состояние»).
