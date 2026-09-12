@@ -8,13 +8,18 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
 import schemas
 from auth import get_current_user
 from database import get_db
+from services.nakladnye import (
+    commit_with_doc_key_guard,
+    effective_amounts,
+    ensure_amounts_consistent,
+    parse_products,
+)
 
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPLOAD_DIR = os.path.abspath(
@@ -43,86 +48,6 @@ def _bot_auth(request: Request) -> None:
     return None
 
 
-def _parse_products(n) -> list:
-    if not n.products_json:
-        return []
-    try:
-        return json.loads(n.products_json)
-    except (json.JSONDecodeError, TypeError):
-        return []
-
-
-def _ensure_amounts_consistent(amount, vat_amount):
-    """FIX 2026-09-12 (Фаза 2, дефект 11): НДС не может превышать сумму с НДС.
-
-    Схема NakladnayaUpdate проверяет пару только когда оба значения присланы
-    вместе. Частичная правка одного поля (vat_amount=500 при сохранённом
-    amount=100) схеме неподвластна: второе значение лежит в базе. Поэтому
-    здесь сравниваются ЭФФЕКТИВНЫЕ значения — присланное поверх сохранённого.
-
-    Отказ 400, а не 422: это проверка бизнес-правила по данным из базы,
-    а не ошибка формата запроса.
-    """
-    if amount is None or vat_amount is None:
-        return
-    if round(float(amount), 2) < round(float(vat_amount), 2):
-        raise HTTPException(
-            status_code=400,
-            detail=(f"НДС ({round(float(vat_amount), 2):.2f}) не может превышать "
-                    f"сумму документа с НДС ({round(float(amount), 2):.2f})"),
-        )
-
-
-def _effective_amounts(nak: models.Nakladnaya, update_data: dict):
-    """Сумма и НДС, которые получатся после применения update_data к nak."""
-    amount = update_data.get("amount", nak.amount)
-    vat = update_data.get("vat_amount", nak.vat_amount)
-    return amount, vat
-
-
-def _find_nakladnaya_by_doc_key(session, doc_series, doc_number):
-    """Существующая накладная с тем же нормализованным ключом документа."""
-    series, number = models.nakladnaya_doc_key(doc_series, doc_number)
-    if not number:
-        return None
-    return session.query(models.Nakladnaya).filter(
-        models.Nakladnaya.doc_series_norm == series,
-        models.Nakladnaya.doc_number_norm == number,
-    ).first()
-
-
-def _commit_with_doc_key_guard(session, doc_series, doc_number):
-    """FIX 2026-09-12 (Фаза 2, дефект 7): commit с переводом дубля в 400.
-
-    Уникальность обеспечивает частичный индекс uq_nakladnye_doc_key
-    (миграция 0005), поэтому проверка АТОМАРНА: гонка check-then-insert,
-    из-за которой параллельная отправка одного документа плодила две записи,
-    закрыта на уровне базы, а не ещё одним SELECT перед INSERT.
-
-    Здесь IntegrityError превращается в понятный ответ вместо 500. Значения
-    ключа передаются аргументами, а не читаются с объекта: после rollback
-    объект разобран, и обращение к его атрибутам подняло бы новую ошибку.
-
-    Если нарушение НЕ про уникальный ключ документа (например, битый FK),
-    ошибка пробрасывается дальше: объявить её дублем значило бы соврать
-    пользователю и увести разбор в сторону.
-    """
-    try:
-        session.commit()
-    except IntegrityError as e:
-        session.rollback()
-        existing = _find_nakladnaya_by_doc_key(session, doc_series, doc_number)
-        if existing is None:
-            raise
-        series, number = models.nakladnaya_doc_key(doc_series, doc_number)
-        raise HTTPException(
-            status_code=400,
-            detail=(f"Накладная с серией «{series}» и номером {number} уже принята "
-                    f"(id={existing.id}). Повторно тот же документ не создаётся — "
-                    f"если это повторная отгрузка, откройте существующую запись."),
-        ) from e
-
-
 def _nak_dict(n: models.Nakladnaya) -> dict:
     photos = []
     if n.photo_paths:
@@ -149,7 +74,7 @@ def _nak_dict(n: models.Nakladnaya) -> dict:
         "is_paid": bool(n.is_paid),
         "status": n.status or "new",
         "photo_paths": photos,
-        "products": _parse_products(n),
+        "products": parse_products(n),
         "excel_path": n.excel_path,
         "created_by_bot": bool(n.created_by_bot),
         "created_at": n.created_at,
@@ -236,7 +161,7 @@ def create_nakladnaya(
         # дефект 7: уникальность гарантирует индекс uq_nakladnye_doc_key, а не
         # проверка перед вставкой. Значения ключа читаются ДО commit — после
         # rollback объект разобран и его атрибуты недоступны.
-        _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
+        commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
         db.refresh(nak)
         return _nak_dict(nak)
     finally:
@@ -259,8 +184,8 @@ def update_nakladnaya(
 
         update_data = updates.model_dump(exclude_unset=True)
         # дефект 11: НДС не больше суммы документа — по эффективным значениям,
-        # потому что схема видит только присланные поля (см. _ensure_amounts_consistent)
-        _ensure_amounts_consistent(*_effective_amounts(nak, update_data))
+        # потому что схема видит только присланные поля (см. ensure_amounts_consistent)
+        ensure_amounts_consistent(*effective_amounts(nak, update_data))
         if update_data.get("supplier_id"):
             sup = db.query(models.Supplier).filter(models.Supplier.id == update_data["supplier_id"]).first()
             if sup and "supplier_name" not in update_data:
@@ -277,7 +202,7 @@ def update_nakladnaya(
 
         # дефект 7: правка серии/номера может увести запись на занятый ключ —
         # индекс это поймает, а guard переведёт в 400 вместо 500
-        _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
+        commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
         db.refresh(nak)
         return _nak_dict(nak)
     finally:
@@ -389,7 +314,7 @@ def get_nakladnaya_excel(
         if not nak:
             raise HTTPException(status_code=404, detail="Накладная не найдена")
 
-        products = _parse_products(nak)
+        products = parse_products(nak)
 
         wb = Workbook()
         ws = wb.active
@@ -488,7 +413,7 @@ def export_products_excel(
                 continue
             if date_to and d > date_to:
                 continue
-            products = _parse_products(nak)
+            products = parse_products(nak)
             for p in products:
                 qty = p.get("qty") or 0
                 price = p.get("price_no_vat") or 0
@@ -559,7 +484,7 @@ def bot_create_nakladnaya(payload: schemas.NakladnayaCreate, db: Session = Depen
     # создания новой. Он намеренно сравнивает сырые значения в Python, а не
     # читает *_norm — тогда его ответ не зависит от того, заполнены ли
     # производные колонки у старых строк.
-    _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
+    commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
     db.refresh(nak)
     return _nak_dict(nak)
 
@@ -572,7 +497,7 @@ def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Se
 
     update_data = updates.model_dump(exclude_unset=True)
     # дефект 11: то же правило, что и в CRM PATCH /nakladnye/{id}
-    _ensure_amounts_consistent(*_effective_amounts(nak, update_data))
+    ensure_amounts_consistent(*effective_amounts(nak, update_data))
     products = update_data.pop("products", None)
     if products is not None:
         nak.products_json = json.dumps(products, ensure_ascii=False) if products else None
@@ -583,7 +508,7 @@ def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Se
 
     # дефект 7: то же, что в CRM PATCH — правка серии/номера не должна
     # уводить запись на уже занятый ключ
-    _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
+    commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
     db.refresh(nak)
     return _nak_dict(nak)
 

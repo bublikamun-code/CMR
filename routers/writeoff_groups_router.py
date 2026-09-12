@@ -9,6 +9,7 @@ import schemas
 from auth import get_current_user
 from constants import MONEY_EPSILON
 from database import get_db
+from services.writeoffs import card_group_key, recompute_group_total
 
 router = APIRouter(
     prefix="/writeoffs/groups",
@@ -35,17 +36,6 @@ class IssueGroupInvoiceRequest(BaseModel):
 ALLOWED_GROUP_STATUSES = {"Сборка", "На списание"}
 
 
-def _card_group_key(card: models.Card):
-    """Ключ группировки: клиент + магазин."""
-    return (card.client_id, card.store_location)
-
-
-def _recompute_group_total(group: models.WriteoffGroup):
-    group.total_amount = round(
-        sum(float(c.total_amount or 0) for c in group.cards), 2
-    )
-
-
 @router.post("/", response_model=schemas.WriteoffGroupResponse)
 def create_group(payload: GroupCreateRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     if len(payload.card_ids) < 2:
@@ -55,9 +45,9 @@ def create_group(payload: GroupCreateRequest, db: Session = Depends(get_db), cur
     if len(cards) != len(payload.card_ids):
         raise HTTPException(status_code=404, detail="Одна или несколько карточек не найдены")
 
-    key = _card_group_key(cards[0])
+    key = card_group_key(cards[0])
     for c in cards:
-        if _card_group_key(c) != key:
+        if card_group_key(c) != key:
             raise HTTPException(
                 status_code=400,
                 detail="Все карточки группы должны принадлежать одному клиенту и одному магазину"
@@ -129,7 +119,7 @@ def add_card_to_group(group_id: int, card_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=f"Статус карточки «{card.status}» не позволяет добавить её в группу")
 
     card.writeoff_group_id = group_id
-    _recompute_group_total(group)
+    recompute_group_total(group)
     db.commit()
     db.refresh(group)
     return group
@@ -149,11 +139,11 @@ def remove_card_from_group(group_id: int, card_id: int, db: Session = Depends(ge
 
     # Фикс аудита 10.09: раньше ставили card.writeoff_group_id = NULL
     # напрямую, но загруженная коллекция group.cards об этом не узнавала —
-    # _recompute_group_total считала сумму вместе с удалённой карточкой,
+    # recompute_group_total считала сумму вместе с удалённой карточкой,
     # а «последняя карточка» не распускала группу. remove() обновляет
     # обе стороны back_populates (FK уйдёт в NULL сам).
     group.cards.remove(card)
-    _recompute_group_total(group)
+    recompute_group_total(group)
 
     if not group.cards:
         db.delete(group)

@@ -14,6 +14,8 @@ import schemas
 from auth import get_current_user
 from constants import MONEY_EPSILON
 from database import get_db
+from services.invoices import find_duplicate_invoice, find_invoice_twins, norm_invoice_number
+from services.writeoffs import ensure_registry_remainder, writeoff_status_for
 
 
 def _backup_db_snapshot(session):
@@ -73,46 +75,6 @@ class InvoiceCreateRequest(BaseModel):
     amount: float | None = None
     invoice_number: str | None = None
     invoice_date: str | None = None
-
-
-def ensure_registry_remainder(session, card):
-    """Сделка в «Сборке» обязана иметь запись-остаток в реестре оплат.
-
-    Запись создавали только кнопки карточки («В Сборку» / «В Списание» →
-    trigger_from_card), а перетаскивание в «Сборку» и кнопки переноса
-    запись не создавали — сделка пропадала из «Реестра оплат», хотя висела
-    в «Сборке» (кейс «ТрансЛИДИЯсервис», фидбек 09.09). Функция идемпотентна:
-    при существующих записях ничего не делает. Групповые сделки и сделки
-    без суммы пропускаются — первыми управляет группа, вторые по правилам
-    фронта дальше «Нового запроса» не двигаются.
-    """
-    if card is None or card.is_deleted or card.writeoff_group_id is not None:
-        return None
-    if float(card.total_amount or 0) <= 0:
-        return None
-    # FIX 2026-09-11 (Фаза 2): SessionLocal работает с autoflush=False, поэтому
-    # SELECT ниже не видит строки, добавленные в этой же транзакции, но ещё не
-    # отправленные в базу. При удалении накладной ветка возврата суммы уже
-    # добавляла запись-остаток, этот SELECT её не находил и создавал вторую,
-    # а частичный unique-индекс uq_remainder_per_card (миграция 0004) отвечал
-    # IntegrityError → необработанный 500. flush() делает заявленную в докстринге
-    # идемпотентность настоящей.
-    session.flush()
-    existing = session.query(models.Transaction).filter(
-        models.Transaction.card_id == card.id,
-        models.Transaction.is_document == False,
-    ).first()
-    if existing:
-        return None
-    tx = models.Transaction(
-        company_name=card.title,
-        amount=float(card.total_amount),
-        store_location=card.store_location,
-        card_id=card.id,
-    )
-    session.add(tx)
-    session.flush()
-    return tx
 
 
 @router.post("/trigger_from_card/{card_id}", response_model=schemas.TransactionResponse)
@@ -337,99 +299,6 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
         db.close()
 
 
-def _norm_invoice_number(v):
-    """Нормализованный номер накладной — только цифры.
-
-    Номера пишут по-разному: «ТТН4881006», «ТТН 4881006» и «4881006» — это одна
-    и та же накладная. В боевых данных оба написания соседствуют (см.
-    tests/test_nakladnye_dedup.py), поэтому ЛЮБОЕ сравнение номеров обязано идти
-    через эту функцию.
-
-    FIX 2026-09-12 (Фаза 2, дефект 6): вынесена на уровень модуля. Раньше
-    правило было продублировано вложенными _norm в _find_invoice_twins и в
-    repair-эндпоинте, а третья копия понадобилась бы для проверки дублей.
-    """
-    return "".join(ch for ch in (v or "") if ch.isdigit())
-
-
-def _find_duplicate_invoice(txs, number):
-    """Запись реестра ЭТОЙ ЖЕ сделки с тем же номером — настоящий дубль.
-
-    Штатные сценарии, которые дублями НЕ являются и ломать их нельзя
-    (подтверждено данными боевой БД, см. PROGRESS.md):
-      - один номер на нескольких сделках — доли одной физической накладной;
-      - несколько разных номеров на одной сделке — частичные отгрузки.
-    Отсюда область поиска: только записи одной карточки.
-
-    Сравнение по цифрам (_norm_invoice_number). Если цифр в номере нет вовсе
-    («б/н»), сравниваем строку после strip — иначе две содержательно разные
-    записи без номера выглядели бы дублями друг друга.
-    """
-    key = _norm_invoice_number(number)
-    raw = (number or "").strip()
-    for t in txs:
-        if key:
-            if _norm_invoice_number(t.invoice_number) == key:
-                return t
-        elif (t.invoice_number or "").strip() == raw:
-            return t
-    return None
-
-
-def _find_invoice_twins(session, tx):
-    """Пара накладной: её копия в «Документах» (или исходник, если правят копию).
-
-    «Накладная + копия» — ОДНА сущность: правки и удаление должны касаться
-    обеих сторон. Поиск по номеру без нецифровых символов, затем по сумме.
-    Вызывать ДО изменения полей tx: пара ищется по текущим (старым) значениям.
-
-    FIX 2026-09-11 (аудит): два исправления потери данных.
-
-    1. Запись-остаток (без номера, не документ, не складское списание) больше
-       не попадает в кандидаты. Она не может быть парой накладной по смыслу,
-       а раньше удалялась вместе с документом, у которого номер не распознан.
-    2. Убран запасной путь «если кандидат ровно один — это пара». Он срабатывал
-       при нераспознанном номере и несовпавшей сумме и объявлял парой первую
-       попавшуюся запись: при удалении документа так сносилась запись-остаток,
-       а при удалении одной из двух накладных сделки — вторая накладная.
-       «Кандидат один» не означает «кандидат — пара».
-    """
-    if tx.card_id is None:
-        return []
-    number = (tx.invoice_number or "").strip()
-    amount = float(tx.amount or 0)
-    was_doc = bool(tx.is_document)
-
-    def _norm(v):
-        """Номера накладных пишут по-разному: «ТТН4881006» и «4881006» —
-        это одна накладная. Сравниваем только цифры."""
-        return _norm_invoice_number(v)
-
-    def _is_invoice_like(t):
-        return bool(t.is_document or t.is_warehouse_writeoff
-                    or (t.invoice_number or "").strip())
-
-    candidates = [
-        c for c in session.query(models.Transaction).filter(
-            models.Transaction.card_id == tx.card_id,
-            models.Transaction.id != tx.id,
-            models.Transaction.is_document == (not was_doc),
-        ).all()
-        if _is_invoice_like(c)
-    ]
-
-    key = _norm(number)
-    twins = []
-    if key:
-        twins = [c for c in candidates if _norm(c.invoice_number) == key]
-    # запасной путь: номер не совпал (или его нет) — ищем по сумме
-    if not twins:
-        twins = [c for c in candidates
-                 if abs(float(c.amount or 0) - amount) < MONEY_EPSILON
-                 and (not key or not _norm(c.invoice_number))]
-    return twins
-
-
 @router.delete("/transactions/{transaction_id}")
 def delete_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
@@ -451,7 +320,7 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
         # Накладная и её копия в «Документах» — ОДНА сущность.
         # Удаление с любой стороны должно снести обе, иначе разъезжается:
         # из «Документов» удаляли копию, а накладная оставалась в карточке.
-        twins = _find_invoice_twins(db, tx)
+        twins = find_invoice_twins(db, tx)
 
         for t in twins:
             db.delete(t)
@@ -492,7 +361,7 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
                     models.Transaction.is_document == False,
                 ).all()
                 if card.status in ("На списание", "Закрыто"):
-                    card.status = _writeoff_status_for(card, left)
+                    card.status = writeoff_status_for(card, left)
                 # Сделка в «Сборке» без записи реестра пропадала бы из
                 # «Реестра оплат» до первой ручной «пинки» (В Сборку туда-обратно).
                 if card.status == "Сборка":
@@ -527,7 +396,7 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         # Пара «накладная + копия в Документах» ищется по СТАРЫМ значениям
         # (как при удалении) — поэтому до применения правок.
         invoice_fields = {"invoice_date", "invoice_number"} & update_data.keys()
-        invoice_twins = _find_invoice_twins(db, tx) if invoice_fields else []
+        invoice_twins = find_invoice_twins(db, tx) if invoice_fields else []
         # Дата оплаты: присланную дату соединяем со временем исходной записи —
         # меняется только день, порядок записей внутри дня не скачет.
         # Копии в «Документах» дата не касается: там своя, документная.
@@ -578,27 +447,6 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         return _tx_dict(tx)
     finally:
         db.close()
-
-
-def _writeoff_status_for(card, ledger):
-    """Статус списания по факту выписки.
-
-    Сделка закрыта, когда выписанными накладными покрыта вся сумма сделки
-    (остатка к выписке нет). Непомеченные «списанием со склада» накладные
-    статус не держат: выписка и складское списание — раздельные действия
-    (фидбек 04.09), а в колонке «На списание» сделке нечего делать, когда
-    выписано полностью (фидбек 09.09, «Свидеал»). Без суммы сделки эталона
-    нет — работает старое правило по складским флажкам. Нет записей —
-    «Сборка»: списывать нечего.
-    """
-    if not ledger:
-        return "Сборка"
-    if float(card.total_amount or 0) > 0:
-        issued = round(sum(float(t.amount or 0) for t in ledger
-                           if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
-        rest = round(float(card.total_amount or 0) - issued, 2)
-        return "На списание" if rest > MONEY_EPSILON else "Закрыто"
-    return "На списание" if any(not t.is_warehouse_writeoff for t in ledger) else "Закрыто"
 
 
 class WriteoffStatus(BaseModel):
@@ -669,7 +517,7 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
         # а issued_total в обоих местах суммирует все записи с номером.
         # Пустой номер пропускаем: сюда можно добавить и запись без номера.
         if (payload.invoice_number or "").strip():
-            duplicate = _find_duplicate_invoice(existing, payload.invoice_number)
+            duplicate = find_duplicate_invoice(existing, payload.invoice_number)
             if duplicate is not None:
                 raise HTTPException(
                     status_code=400,
@@ -740,7 +588,7 @@ def add_invoice(card_id: int, payload: InvoiceCreateRequest, db: Session = Depen
                 store_location=new_tx.store_location, card_id=card_id,
             ))
         if card.status in ("На списание", "Закрыто"):
-            card.status = _writeoff_status_for(card, ledger)
+            card.status = writeoff_status_for(card, ledger)
         db.commit()
         db.refresh(new_tx)
         return _tx_dict(new_tx)
@@ -828,7 +676,7 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
         # (card_id, invoice_number): правило «только цифры» средствами SQLite
         # в индекс не выражается, а индекс по сырой строке пропустил бы ровно
         # тот дубль, который встречается в жизни.
-        duplicate = _find_duplicate_invoice(txs, number)
+        duplicate = find_duplicate_invoice(txs, number)
         if duplicate is not None:
             raise HTTPException(
                 status_code=400,
@@ -1066,7 +914,7 @@ def sync_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
             models.Transaction.is_document == False
         ).all()
 
-        status = _writeoff_status_for(card, txs)
+        status = writeoff_status_for(card, txs)
 
         changed = card.status != status
         if changed:
@@ -1108,7 +956,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
         backup_path = None if dry_run else _backup_db_snapshot(db)
 
         def _norm(v):
-            return _norm_invoice_number(v)
+            return norm_invoice_number(v)
 
         all_tx = db.query(models.Transaction).filter(
             models.Transaction.card_id.isnot(None)
@@ -1195,7 +1043,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
 
             if card and live:
                 live_eff = [t for t in live if t.id not in will_delete_ids]
-                want = _writeoff_status_for(card, live_eff)
+                want = writeoff_status_for(card, live_eff)
                 # «Сборку» не трогаем: сделка с записью реестра в «Сборке» —
                 # штатное состояние (кнопка «В Сборку»), её туда поставили
                 # руками, и перекидывать в «На списание» нельзя.
