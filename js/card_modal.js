@@ -73,13 +73,20 @@ const CardSaveTracker = {
     failed: null,       // функция повтора последней неудавшейся отправки
     lastSavedAt: null,
     hideTimer: null,
+    // D10 (аудит 12.09): ненаправленный черновик (заметка, поля пунктов
+    // чек-листа, формы накладных, правка комментария). До первой отправки
+    // он нигде не хранится — закрытие карточки теряет его молча.
+    dirty: false,
 
     reset() {
         this.failed = null;
         this.lastSavedAt = null;
+        this.dirty = false;
         clearTimeout(this.hideTimer);
         this.render();
     },
+    markDirty() { this.dirty = true; },
+    clearDirty() { this.dirty = false; },
     begin() {
         this.pending++;
         this.failed = null;
@@ -96,7 +103,7 @@ const CardSaveTracker = {
         this.render();
     },
     hasUnsaved() {
-        return this.pending > 0 || !!this.failed;
+        return this.pending > 0 || !!this.failed || this.dirty;
     },
     // Повтор последней неудавшейся отправки. Возвращает true, если
     // незагруженных изменений не осталось.
@@ -187,21 +194,23 @@ function doCloseCardModal() {
 }
 
 /**
- * Трёхвариантный диалог вместо confirm(): «Сохранить» повторяет
+ * Диалог вместо confirm(). с повтором: «Сохранить» повторяет
  * отправку и закрывает только при успехе, «Не сохранять» отбрасывает,
  * «Отмена» остаётся в карточке. Разрешение: 'save' | 'discard' | 'cancel'.
+ * Для черновиков (withRetry: false) кнопки «Сохранить» нет — отправлять
+ * нечего, выбор только «уйти и потерять» или «остаться».
  */
-function unsavedChangesDialog() {
+function unsavedChangesDialog({ withRetry = true, message = 'Есть несохранённые изменения' } = {}) {
     return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.className = 'confirm-overlay';
         overlay.innerHTML = `
             <div class="confirm-box">
-                <p class="confirm-message">Есть несохранённые изменения</p>
-                <div class="confirm-actions confirm-actions-3">
-                    <button type="button" class="confirm-cancel">Не сохранять</button>
+                <p class="confirm-message">${escapeHtml(message)}</p>
+                <div class="confirm-actions ${withRetry ? 'confirm-actions-3' : ''}">
+                    <button type="button" class="confirm-cancel">${withRetry ? 'Не сохранять' : 'Уйти без сохранения'}</button>
                     <button type="button" class="confirm-neutral">Отмена</button>
-                    <button type="button" class="confirm-ok">Сохранить</button>
+                    ${withRetry ? '<button type="button" class="confirm-ok">Сохранить</button>' : ''}
                 </div>
             </div>`;
         document.body.appendChild(overlay);
@@ -215,14 +224,14 @@ function unsavedChangesDialog() {
         };
         function onKey(e) {
             if (e.key === 'Escape') close('cancel');
-            if (e.key === 'Enter') close('save');
+            if (e.key === 'Enter') close(withRetry ? 'save' : 'cancel');
         }
         overlay.querySelector('.confirm-cancel').onclick = () => close('discard');
         overlay.querySelector('.confirm-neutral').onclick = () => close('cancel');
-        overlay.querySelector('.confirm-ok').onclick = () => close('save');
+        if (withRetry) overlay.querySelector('.confirm-ok').onclick = () => close('save');
         overlay.addEventListener('click', (e) => { if (e.target === overlay) close('cancel'); });
         document.addEventListener('keydown', onKey);
-        overlay.querySelector('.confirm-ok').focus();
+        overlay.querySelector(withRetry ? '.confirm-ok' : '.confirm-neutral').focus();
     });
 }
 
@@ -244,7 +253,17 @@ async function guardCloseCardModal() {
                 if (!ok) return;             // сохранить не удалось — остаёмся в карточке
             }
             CardSaveTracker.failed = null;   // «Не сохранять» — отпускаем ошибку
+            CardSaveTracker.clearDirty();    // черновики при уходе теряем осознанно
             CardSaveTracker.render();
+        } else if (CardSaveTracker.dirty) {
+            // D10: черновик без летящих запросов — отправлять нечего,
+            // предупреждаем о потере набранного текста.
+            const choice = await unsavedChangesDialog({
+                withRetry: false,
+                message: 'Набранный текст не отправлен — закрыть карточку и потерять его?'
+            });
+            if (choice === 'cancel') return;
+            CardSaveTracker.clearDirty();    // «Уйти без сохранения»
         }
         doCloseCardModal();
     } finally {
@@ -284,6 +303,21 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     e.stopImmediatePropagation();
     guardCloseCardModal();
+}, true);
+
+// D10 (аудит 12.09): набор в черновики — заметка, поля пунктов чек-листа,
+// формы накладных, имя группы, правка комментария. До отправки они нигде
+// не хранятся, и закрытие карточки теряло их молча. Делегирование на саму
+// #card-modal: она постоянна, в отличие от перерисовываемых колонок
+// (заметка и история — в правой, чек-лист — в левой).
+document.getElementById('card-modal')?.addEventListener('input', (e) => {
+    if (e.target.matches && e.target.matches(
+        '#input-description, .checklist-note, .checklist-amount, ' +
+        '#new-inv-num, #new-inv-date, #new-inv-amount, ' +
+        '#new-group-name, #group-inv-num, .activity-edit-text'
+    )) {
+        CardSaveTracker.markDirty();
+    }
 }, true);
 
 function escapeAttrLocal(v) {
@@ -521,6 +555,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
         }
         try {
             await apiFetch(`/cards/${card.id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ description: ta.value }) });
+            CardSaveTracker.clearDirty();    // черновик ушел на сервер
             showToast('Заметка сохранена', 'success');
             // заметка ушла в ленту активности — показываем её сразу,
             // без переоткрытия карточки
@@ -845,8 +880,14 @@ async function renderModalContent(card, leftContainer, rightContainer) {
             body = { amount: num };
         }
 
+        // D10: PATCH пункта чек-листа через трекер — раньше запрос не
+        // отслеживался, и закрытие карточки во время него проходило без guard.
+        const sendChecklistPatch = () => apiFetch(`/checklists/${id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+        CardSaveTracker.begin();
         try {
-            await apiFetch(`/checklists/${id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+            await sendChecklistPatch();
+            CardSaveTracker.ok();
+            CardSaveTracker.clearDirty();    // набранное в пункте ушло на сервер
 
             // Обновляем карточку В ПАМЯТИ: раньше менялась только галочка в DOM,
             // а card.checklists оставался старым — поэтому сводка пересчитывалась
@@ -859,6 +900,7 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
             if (window.refreshCardOnBoard) refreshCardOnBoard(card.id);
         } catch (err) {
+            CardSaveTracker.fail(sendChecklistPatch);
             showToast('Не удалось сохранить: ' + err.message, 'error');
             // откатываем галочку, раз сохранить не удалось
             if (e.target.type === 'checkbox') e.target.checked = !e.target.checked;
@@ -1185,7 +1227,10 @@ function startCommentEdit(container, entryId) {
         [longEl, content.querySelector('.activity-details-toggle'), shortEl].forEach(el => { if (el) el.style.display = ''; });
         box.remove();
     };
-    box.querySelector('.activity-edit-cancel').onclick = close;
+    box.querySelector('.activity-edit-cancel').onclick = () => {
+        CardSaveTracker.clearDirty();    // правка отброшена явно
+        close();
+    };
     box.querySelector('.activity-edit-save').onclick = async () => {
         const text = ta.value.trim();
         if (!text) { showToast('Комментарий не может быть пустым', 'error'); return; }
@@ -1195,6 +1240,7 @@ function startCommentEdit(container, entryId) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ details: text })
             });
+            CardSaveTracker.clearDirty();    // правка комментария сохранена
             showToast('Комментарий обновлён', 'success');
             const cid = container.dataset.cardId ? parseInt(container.dataset.cardId) : null;
             if (cid) loadCardActivity(cid);
@@ -1591,7 +1637,9 @@ function statusClassForPayment(status) {
 }
 
 async function saveCardPayment(card, payload) {
-    try {
+    // D10: оплата через трекер — раньше летящий PATCH не останавливал
+    // закрытие карточки (guard его не видел).
+    const run = async () => {
         const updated = await apiFetch(`/cards/${card.id}/payment`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -1599,11 +1647,17 @@ async function saveCardPayment(card, payload) {
         });
         Object.assign(card, updated);
         renderModalPaymentHeader(card);
+    };
+    CardSaveTracker.begin();
+    try {
+        await run();
+        CardSaveTracker.ok();
         showToast('Оплата сохранена', 'success');
         if (typeof loadKanbanBoard === 'function') loadKanbanBoard();
         if (typeof loadPaymentsTable === 'function') loadPaymentsTable();
         if (typeof loadDocumentsTable === 'function') loadDocumentsTable();
     } catch (err) {
+        CardSaveTracker.fail(run);
         showToast('Ошибка сохранения: ' + err.message, 'error');
     }
 }
@@ -1847,6 +1901,7 @@ async function renderCardInvoices(card) {
         draft.querySelector('#btn-cancel-invoice').onclick = () => {
             numEl.value = '';
             amtEl.value = data.rest.toFixed(2);
+            CardSaveTracker.clearDirty();    // черновик накладной отброшен явно
             numEl.focus();
         };
 
@@ -1873,6 +1928,7 @@ async function renderCardInvoices(card) {
                     })
                 });
                 showToast(res.message, 'success');
+                CardSaveTracker.clearDirty();    // черновик выписан
                 if (res.card_closed) card.status = 'Закрыто';
                 await renderCardInvoices(card);
                 if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard();
