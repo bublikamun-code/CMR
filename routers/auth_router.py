@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+import logging
+from typing import List
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import List
-import logging
-import schemas
-import models
+
 import auth
+import models
+import schemas
 from database import get_db, get_tenant_db
 from limiter_config import limiter
 
@@ -166,8 +168,10 @@ def create_tenant_admin(data: schemas.UserCreate, db: Session = Depends(get_db),
     if existing:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
 
+    import os
+    import re
+
     from models_tenant import Tenant
-    import os, re
     slug = re.sub(r'[^a-zA-Z0-9_]', '', data.username.lower().replace(" ", "_"))
     if not slug or len(slug) < 3:
         raise HTTPException(status_code=400, detail="Некорректное имя пользователя")

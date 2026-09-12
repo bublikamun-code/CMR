@@ -3,8 +3,8 @@
 Добавляет: updated_at, activity_log, card_tags, due_date, suppliers,
 индексы, ON DELETE, исправляет Float -> Numeric
 """
-import sqlite3
 import os
+import sqlite3
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crm_app.db")
 

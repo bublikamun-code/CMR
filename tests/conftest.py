@@ -22,11 +22,11 @@
 Окружение выставляется ДО импорта database/main: engine, URL и create_all
 привязаны к CRM_DATA_DIR на импорте модуля (database.py:10-13, main.py:33).
 """
+import importlib.util
 import os
 import re
 import shutil
 import tempfile
-import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,14 +43,14 @@ os.environ["TELEGRAM_BOT_TOKEN"] = "test-bot-token"
 os.makedirs(os.path.join(_TMP, "uploads"), exist_ok=True)
 os.makedirs(os.path.join(_TMP, "tenants"), exist_ok=True)
 
-import pytest                                              # noqa: E402
-from fastapi.testclient import TestClient                  # noqa: E402
-from sqlalchemy import text                                # noqa: E402
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import text
 
-import database                                            # noqa: E402
-import models                                              # noqa: E402
-import models_tenant                                       # noqa: E402,F401
-import auth                                                # noqa: E402
+import auth
+import database
+import models
+import models_tenant  # noqa: F401
 
 # models_tenant импортируется ради побочного эффекта: Tenant использует тот же
 # Base, что и models, поэтому без импорта таблица `tenants` не зарегистрирована

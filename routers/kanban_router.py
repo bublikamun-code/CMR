@@ -1,13 +1,16 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, selectinload
-from auth import get_current_user, require_role
+
 import models
 import schemas
-import os
-from database import get_db, get_tenant_db
+from auth import get_current_user, require_role
+from database import get_db
+from db_utils import cap_list
+from db_utils import resolve_tenant_db as _db
 from versioning import save_version
-from db_utils import resolve_tenant_db as _db, cap_list
 
 router = APIRouter(
     prefix="/kanban",
@@ -272,8 +275,9 @@ def get_card_versions(card_id: int, db: Session = Depends(get_db), current_user:
         if tdb is not db:
             tdb.close()
 
-import io
 import csv
+import io
+
 
 @router.get("/export/csv")
 def export_cards_csv(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):

@@ -2,13 +2,15 @@ import os
 import re
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+
 import models
 import schemas
-from database import get_db, get_tenant_db
 from auth import get_current_user
+from database import get_db
 from db_utils import resolve_tenant_db as _db
 from limiter_config import limiter
 
@@ -144,7 +146,7 @@ def update_checklist_item(checklist_id: int, item_update: schemas.ChecklistUpdat
         update_data = item_update.model_dump(exclude_unset=True)
 
         # Сменили поставщика — подтягиваем актуальное название из справочника
-        if "supplier_id" in update_data and update_data["supplier_id"]:
+        if update_data.get("supplier_id"):
             sup = session.query(models.Supplier).filter(
                 models.Supplier.id == update_data["supplier_id"]
             ).first()

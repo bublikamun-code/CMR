@@ -5,7 +5,6 @@
 
 Помогает понять, почему у одних пользователей есть данные, а у других — пустые таблицы.
 """
-import os
 import sqlite3
 from pathlib import Path
 

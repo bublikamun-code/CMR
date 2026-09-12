@@ -10,12 +10,11 @@ Telegram-бот для приёма фото накладных из магаз�
 Зависимости:
     pip install python-telegram-bot openai
 """
-import os
-import json
 import asyncio
+import json
 import logging
+import os
 from io import BytesIO
-from datetime import datetime
 
 # Загрузка .env если есть (локальная разработка)
 _env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -28,10 +27,15 @@ if os.path.isfile(_env_file):
                 os.environ.setdefault(k.strip(), v.strip())
 
 try:
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.ext import (
-        Application, CommandHandler, CallbackQueryHandler,
-        MessageHandler, filters, ContextTypes, ConversationHandler,
+        Application,
+        CallbackQueryHandler,
+        CommandHandler,
+        ContextTypes,
+        ConversationHandler,
+        MessageHandler,
+        filters,
     )
 except ImportError:
     print("Установите: pip install python-telegram-bot")
@@ -338,7 +342,7 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         saved_count = sum(1 for inv in merged if not inv.get("_duplicate"))
         dup_count = sum(1 for inv in merged if inv.get("_duplicate"))
 
-        header = f"✅ *Сохранено в CRM*" if saved_count > 0 else "ℹ️ *Результат*"
+        header = "✅ *Сохранено в CRM*" if saved_count > 0 else "ℹ️ *Результат*"
         await query.edit_message_text(
             f"{header}\n\n"
             f"Склад: {store}\n"
@@ -412,8 +416,9 @@ OCR_PROMPT = (
 def compress_image(image_bytes: bytes, max_size=1024, quality=70) -> bytes:
     """Сжимает изображение для OCR."""
     try:
-        from PIL import Image
         import io
+
+        from PIL import Image
         img = Image.open(io.BytesIO(image_bytes))
         img.thumbnail((max_size, max_size), Image.LANCZOS)
         buf = io.BytesIO()

@@ -11,13 +11,12 @@
   2. Находит целевой tenant_id (по умолчанию — tenant_id пользователя ManagerY).
   3. Обновляет tenant_id у всех не-суперадминов на целевой.
 """
-import os
-import sys
+import argparse
 import shutil
 import sqlite3
-import argparse
-from pathlib import Path
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent.parent
 MAIN_DB = APP_DIR / "crm_app.db"

@@ -1,5 +1,5 @@
-import models
 import auth
+import models
 from database import SessionLocal, engine
 
 # Убеждаемся, что таблицы существуют

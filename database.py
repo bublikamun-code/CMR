@@ -1,7 +1,8 @@
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import QueuePool
 import os
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 # Where the SQLite files live. Defaults to the app directory so the existing
 # bare-metal server keeps working unchanged; Docker sets CRM_DATA_DIR=/app/data

@@ -25,12 +25,12 @@ import pathlib
 from collections import defaultdict
 
 import pytest
+from conftest import SCHEMA_PROFILE
 from sqlalchemy import inspect, text
 
 import database
 import models
 import schemas
-from conftest import SCHEMA_PROFILE
 
 pytestmark = pytest.mark.schema_parity
 

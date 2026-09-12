@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import or_
 from typing import List
-import models, schemas
-from database import get_db, get_tenant_db
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, selectinload
+
+import models
+import schemas
 from auth import get_current_user
-from db_utils import resolve_tenant_db as _db, cap_list
+from database import get_db
+from db_utils import cap_list
+from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(
     prefix="/suppliers",

@@ -1,37 +1,40 @@
 import os
+
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 import models
+
 # Импорт ради побочного эффекта: Tenant объявлен на том же Base, поэтому модуль
 # обязан быть импортирован ДО create_all ниже — иначе таблица tenants не
 # создастся. Тот же приём с пояснением есть в tests/conftest.py.
 import models_tenant  # noqa: F401
 from database import engine
 from limiter_config import limiter
-from version import __version__, __build__
-
-from routers import auth_router
-from routers import kanban_router
-from routers import card_details_router
-from routers import payments_router
-from routers import writeoffs_router
-from routers import writeoff_groups_router
-from routers import clients_router
-from routers import tags_router
-from routers import suppliers_router
-from routers import activity_router
-from routers import tasks_router
-from routers import notifications_router
-from routers import email_parser_router
-from routers import custom_objects_router
-from routers import workflows_router
-from routers import webhooks_router
-from routers import nakladnye_router
+from routers import (
+    activity_router,
+    auth_router,
+    card_details_router,
+    clients_router,
+    custom_objects_router,
+    email_parser_router,
+    kanban_router,
+    nakladnye_router,
+    notifications_router,
+    payments_router,
+    suppliers_router,
+    tags_router,
+    tasks_router,
+    webhooks_router,
+    workflows_router,
+    writeoff_groups_router,
+    writeoffs_router,
+)
+from version import __build__, __version__
 
 models.Base.metadata.create_all(bind=engine)
 

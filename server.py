@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """CRM entry point for hoster.by shared hosting."""
-import os
-import sys
 import argparse
+import os
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_SCRIPT_DIR)

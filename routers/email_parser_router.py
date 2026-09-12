@@ -1,20 +1,22 @@
-import os
-import json
-import imaplib
-import email
-import re
-import hashlib
-import logging
 import base64
-from pathlib import Path
-from email.header import decode_header, make_header
-from email.utils import collapse_rfc2231_value
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+import email
+import hashlib
+import imaplib
+import json
+import logging
+import os
+import re
 from datetime import datetime, timezone
-from typing import Optional, List
+from email.header import decode_header, make_header
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from limiter_config import limiter
+
 try:
     from cryptography.fernet import Fernet, InvalidToken
     _fernet_available = True
@@ -23,8 +25,8 @@ except ImportError:
     InvalidToken = Exception
     _fernet_available = False
 
-from auth import get_current_user, require_role, require_cron_token
-from email_cleaner import clean_email_body, html_to_text, normalize_subject
+from auth import get_current_user, require_cron_token, require_role
+from email_cleaner import clean_email_body, html_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +91,10 @@ except Exception as e:
     # падает с «неверным паролем». Раньше это молчало (пароль лежал
     # открытым текстом и не требовал расшифровки).
     logger.error(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
-from database import get_db, get_tenant_db
-from db_utils import resolve_tenant_db as _db
 import models
 import models_tenant
-import schemas
+from database import get_db, get_tenant_db
+from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(
     prefix="/email-parser",

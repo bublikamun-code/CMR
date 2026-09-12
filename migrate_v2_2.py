@@ -2,8 +2,8 @@
 Миграция v2.2 — добавление новых таблиц и индексов.
 Запуск: python migrate_v2_2.py
 """
-import sqlite3
 import os
+import sqlite3
 import sys
 from datetime import datetime, timezone
 

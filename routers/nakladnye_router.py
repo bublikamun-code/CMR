@@ -1,19 +1,20 @@
-import os
-import re
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from typing import List, Optional
+
 import models
 import schemas
-from database import get_db, get_tenant_db
 from auth import get_current_user
+from database import get_db
 from db_utils import resolve_tenant_db as _db
 
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -273,7 +274,7 @@ def update_nakladnaya(
         # дефект 11: НДС не больше суммы документа — по эффективным значениям,
         # потому что схема видит только присланные поля (см. _ensure_amounts_consistent)
         _ensure_amounts_consistent(*_effective_amounts(nak, update_data))
-        if "supplier_id" in update_data and update_data["supplier_id"]:
+        if update_data.get("supplier_id"):
             sup = session.query(models.Supplier).filter(models.Supplier.id == update_data["supplier_id"]).first()
             if sup and "supplier_name" not in update_data:
                 nak.supplier_name = sup.name
@@ -402,7 +403,7 @@ def get_nakladnaya_excel(
     """Генерирует и скачивает Excel для одной накладной."""
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font, Alignment
+        from openpyxl.styles import Alignment, Font
     except ImportError:
         raise HTTPException(status_code=500, detail="openpyxl не установлен")
 
@@ -486,7 +487,7 @@ def export_products_excel(
     """Экспорт товаров из накладных в Excel."""
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font, Alignment
+        from openpyxl.styles import Alignment, Font
     except ImportError:
         raise HTTPException(status_code=500, detail="openpyxl не установлен")
 

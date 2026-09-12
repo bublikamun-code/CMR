@@ -1,13 +1,15 @@
+import logging
 import os
 import secrets
-import logging
-import jwt
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status, Header, Request, Response
+from pathlib import Path
+
+import jwt
+from fastapi import Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
+
 import models
 from database import get_db
 

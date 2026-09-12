@@ -1,9 +1,12 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
-from typing import List
-import models, schemas
-from database import get_scoped_session
+
+import models
+import schemas
 from auth import get_current_user
+from database import get_scoped_session
 from db_utils import cap_list
 
 router = APIRouter(

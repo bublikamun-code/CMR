@@ -1,12 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import or_
 from typing import List
-import models, schemas
-from versioning import save_version
-from database import get_db, get_tenant_db
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, selectinload
+
+import models
+import schemas
 from auth import get_current_user, require_role
-from db_utils import resolve_tenant_db as _db, cap_list
+from database import get_db
+from db_utils import cap_list
+from db_utils import resolve_tenant_db as _db
+from versioning import save_version
 
 router = APIRouter(
     prefix="/clients",
@@ -88,7 +92,7 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
         except Exception: pass
         # Уведомление администраторам этого тенанта о новом клиенте
         try:
-            from notify import notify, admin_ids
+            from notify import admin_ids, notify
             admin_recipients = []
             for aid in admin_ids(db):
                 u = db.query(models.User).get(aid)

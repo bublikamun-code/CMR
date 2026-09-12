@@ -6,10 +6,10 @@
 остальные тесты бессмысленны.
 """
 import pytest
+from conftest import SCHEMA_PROFILE
 from sqlalchemy import text
 
 import database
-from conftest import SCHEMA_PROFILE
 
 
 def test_health(client):

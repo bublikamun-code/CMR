@@ -8,16 +8,17 @@
 
 Уведомления пишутся в базу получателя (см. notify.py).
 """
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import or_
-from typing import List, Optional
 from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, selectinload
 
 import models
 import schemas
-from database import get_db
 from auth import get_current_user
+from database import get_db
 from notify import notify
 
 router = APIRouter(

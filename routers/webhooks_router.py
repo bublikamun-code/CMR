@@ -1,26 +1,28 @@
 """
 Роутер для Webhooks — уведомления внешних систем при событиях.
 """
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional
-from datetime import datetime, timezone
-import json
 import hashlib
 import hmac
-import logging
-import urllib.request
-import urllib.error
-import socket
 import ipaddress
+import json
+import logging
+import socket
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 import models
 from database import SessionLocal
 
 logger = logging.getLogger(__name__)
+
 from auth import get_current_user, require_admin
 from db_utils import resolve_tenant_db_standalone as _get_db
-from urllib.parse import urlparse
 
 # Blocked host patterns for SSRF protection
 SSRF_BLOCKED = [

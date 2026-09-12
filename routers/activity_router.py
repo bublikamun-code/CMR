@@ -1,10 +1,13 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
 from pydantic import BaseModel, Field
-import models, schemas
-from database import get_db, get_tenant_db
+from sqlalchemy.orm import Session
+
+import models
+import schemas
 from auth import get_current_user
+from database import get_db
 from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(

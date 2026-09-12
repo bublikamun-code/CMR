@@ -2,9 +2,9 @@
 Миграция: создание таблицы nakladnye для накладных (ТН/ТТН/УПД).
 Запуск: python migrate_add_nakladnye.py
 """
+import glob
 import os
 import sqlite3
-import glob
 
 DATA_DIR = os.environ.get("CRM_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
 
@@ -54,6 +54,6 @@ for db_path in DB_PATHS:
         cur.execute(idx)
     conn.commit()
     conn.close()
-    print(f"  ✓ nakladnye создана")
+    print("  ✓ nakladnye создана")
 
 print("Готово.")

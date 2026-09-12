@@ -1,7 +1,24 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey, DateTime, Date, Text, UniqueConstraint, Index, event, text
-from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timezone
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    text,
+)
+from sqlalchemy.orm import backref, relationship
+
 from database import Base
+
 
 class User(Base):
     __tablename__ = "users"

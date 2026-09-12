@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session, selectinload
+
 import models
 import schemas
-from database import get_db, get_tenant_db
 from auth import get_current_user
+from database import get_db
 from db_utils import resolve_tenant_db as _db
 
 router = APIRouter(

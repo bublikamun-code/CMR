@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from datetime import date, datetime
 from typing import List, Optional
-from datetime import datetime, date
+
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 # --- СХЕМЫ ПОЛЬЗОВАТЕЛЯ ---
 

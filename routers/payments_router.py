@@ -1,17 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
-from typing import List
-from datetime import datetime, timezone
-from pydantic import BaseModel
-import models
-import schemas
-from database import get_db, get_tenant_db
-from auth import get_current_user
-from db_utils import resolve_tenant_db as _db
-
 import os
 import sqlite3
+from datetime import datetime, timezone
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
+
+import models
+import schemas
+from auth import get_current_user
+from database import get_db
+from db_utils import resolve_tenant_db as _db
 
 
 def _backup_db_snapshot(session):
@@ -240,10 +241,9 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
             d["is_invoice_issued"] = any(bool(p.is_invoice_issued) or (p.invoice_number or "").strip() for p in parts)
             d["is_written_off"] = all(bool(p.is_written_off) for p in parts)
             d["part_ids"] = [p.id for p in parts]
-            if len(invoices) == 1:
-                d["invoice_number"] = invoices[0].invoice_number
-                d["invoice_date"] = invoices[0].invoice_date
-            elif len(invoices) > 1:
+            # обе прежние ветки (len == 1 и len > 1) делали одно и то же —
+            # условие сводится к «есть хотя бы один счёт-фактура»
+            if invoices:
                 d["invoice_number"] = invoices[0].invoice_number
                 d["invoice_date"] = invoices[0].invoice_date
             result.append(d)

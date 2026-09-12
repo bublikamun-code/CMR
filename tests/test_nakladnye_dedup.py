@@ -55,7 +55,7 @@ def _ledger(db, card_id):
     """Записи реестра по сделке, без копий-документов."""
     return db.query(models.Transaction).filter(
         models.Transaction.card_id == card_id,
-        models.Transaction.is_document == False,      # noqa: E712
+        models.Transaction.is_document == False,
     ).order_by(models.Transaction.id).all()
 
 
@@ -200,7 +200,7 @@ def test_invoice_number_matching_ignores_spaces_and_prefixes(client, manager, db
     ledger = [t for t in _ledger(db, card.id) if t.invoice_number][0]
     docs_before = db.query(models.Transaction).filter(
         models.Transaction.card_id == card.id,
-        models.Transaction.is_document == True,       # noqa: E712
+        models.Transaction.is_document == True,
     ).count()
     assert docs_before == 1
 
@@ -211,7 +211,7 @@ def test_invoice_number_matching_ignores_spaces_and_prefixes(client, manager, db
     _reload(db)
     docs_after = db.query(models.Transaction).filter(
         models.Transaction.card_id == card.id,
-        models.Transaction.is_document == True,       # noqa: E712
+        models.Transaction.is_document == True,
     ).count()
     assert docs_after == 0, "копия-документ должна удаляться вместе с накладной"
 

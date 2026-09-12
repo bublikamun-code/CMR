@@ -24,7 +24,7 @@ def _set_status(client, headers, card_id, status):
 def _ledger(db, card_id):
     return db.query(models.Transaction).filter(
         models.Transaction.card_id == card_id,
-        models.Transaction.is_document == False,      # noqa: E712
+        models.Transaction.is_document == False,
     ).order_by(models.Transaction.id).all()
 
 

@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 
 import models
 import schemas
-from database import get_db, get_tenant_db
 from auth import get_current_user, require_cron_token
+from database import get_db, get_tenant_db
 from db_utils import resolve_tenant_db as _db
 from notify import notify
 
