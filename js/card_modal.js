@@ -30,6 +30,14 @@ function formatDateRU(isoDate) {
     return d.toLocaleDateString('ru-RU');
 }
 
+// YYYY-MM-DD из локальных компонент (НЕ toISOString().slice(0,10) — тот
+// отдаёт UTC-дату и на стыке суток подставляет «завтра»/«вчера» в
+// input[type=date]). Используется дефолтом даты в формах накладных.
+function localDateISO(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function dateInputHTML({ id, value, className = '' }) {
     const display = value ? formatDateRU(value) : 'дд.мм.гггг';
     return `
