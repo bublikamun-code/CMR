@@ -5460,10 +5460,12 @@ tr.task-row-done .task-title-cell { text-decoration: line-through; color: var(--
 .tasks-board {
     flex: 1;
     min-height: 0;
-    display: grid;
-    /* Колонки всегда равные: базовый .kanban-column имеет max-width 400px,
+    /* D16: flex вместо grid — схлопнутая пустая колонка (узкая drop-полоска)
+       отдаёт свою ширину непустым колонкам; grid-трек пустой колонки
+       оставался дырой. */
+    display: flex;
+    /* Колонки равные: базовый .kanban-column имеет max-width 400px,
        который на широких экранах оставлял рваные дыры между колонками */
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-lg);
     width: 100%;
     max-width: 1500px;
@@ -5476,10 +5478,26 @@ tr.task-row-done .task-title-cell { text-decoration: line-through; color: var(--
 .task-column {
     width: auto;
     max-width: none;
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
+}
+/* Пустая колонка — вертикальная полоска-заголовок, drop-зона жива */
+.task-column--empty {
+    flex: 0 0 36px;
+    min-width: 36px;
+}
+.task-column--empty h3 {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 2px;
+    white-space: nowrap;
+    align-self: center;
 }
 /* Цветовые акценты колонок — в том же стиле, что на доске сделок */
 .task-column[data-status="todo"] h3 { border-left-color: #6b7280; }
@@ -5563,7 +5581,8 @@ tr.task-row-done .task-title-cell { text-decoration: line-through; color: var(--
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     margin-top: 8px; font-size: 12px;
 }
-.task-card-actions { margin-left: auto; display: inline-flex; gap: 8px; opacity: 0; transition: opacity .12s ease; }
+/* D15 (аудит 12.09): иконки правки/удаления задачи видны всегда, но тихо */
+.task-card-actions { margin-left: auto; display: inline-flex; gap: 8px; opacity: 0.55; transition: opacity .12s ease; }
 .task-card:hover .task-card-actions { opacity: 1; }
 .task-due {
     display: inline-flex; align-items: center; gap: 4px;
@@ -5660,7 +5679,10 @@ a.task-chip:hover { background: rgba(79, 124, 245, .18); }
     font-size: 13px;
 }
 @media (max-width: 900px) {
-    .tasks-board { grid-template-columns: 1fr; overflow-y: auto; }
+    .tasks-board { flex-direction: column; overflow-y: auto; }
+    /* На мобильном колонки в столбик: пустые схлопнутые колонки прячем
+       целиком — смена статуса доступна в виде «Список» (селект статуса). */
+    .task-column--empty { display: none; }
 }
 
 /* Сетка формы задачи */
@@ -13608,17 +13630,21 @@ textarea {
     grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
 }
 
-/* Фидбек 2026-09-06: кнопки действий на плитках «Списания» (Выписать
-   накладную / Списать / Прикрепить сделку) появляются при наведении или
-   фокусе с клавиатуры — как панель переноса на канбане. Место под кнопки
-   зарезервировано (opacity, а не display), поэтому высота плиток не прыгает;
-   на тач-устройствах (hover: none) кнопки видны всегда. */
+/* D15 (аудит 12.09): кнопки действий на плитках «Списания» (Выписать
+   накладную / Списать / Прикрепить сделку) видны всегда, но тихо —
+   как крестик удаления плитки; полная непрозрачность при наведении,
+   фокусе с клавиатуры и на тач-устройствах. Место под кнопки
+   зарезервировано (opacity, а не display) — высота плиток не прыгает. */
+/* D15 (аудит 12.09): кнопки действий видны всегда, но тихо (0.6), полная
+   непрозрачность — при наведении/фокусе; на тач-устройствах (hover: none)
+   кнопки всегда полные. Место под кнопки зарезервировано (opacity, а не
+   display), поэтому высота плиток не прыгает. */
 .writeoff-tile-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 8px;
-    opacity: 0;
+    opacity: 0.6;
     transition: opacity 0.15s;
 }
 .writeoff-card:hover .writeoff-tile-actions,

@@ -208,8 +208,15 @@ function renderTasks() {
                         const db_ = b.due_date ? new Date(b.due_date).getTime() : Infinity;
                         return da - db_;
                     });
+                // D16 (аудит 12.09): пустая колонка в общем виде («Все»/
+                // «Просроченные») схлопывается в узкую drop-полоску — ширину
+                // забирают непустые, а перетащить задачу в пустой статус
+                // по-прежнему можно. Колонку выбранного чипом статуса не
+                // схлопываем никогда (иначе пустой фильтр оставит ноль колонок).
+                const collapsed = items.length === 0 && (!tasksStatus || tasksStatus === 'overdue');
+                col.classList.toggle('task-column--empty', collapsed);
                 cards.innerHTML = items.map(taskCardHtml).join('') ||
-                    '<div class="task-col-empty">—</div>';
+                    (collapsed ? '' : '<div class="task-col-empty">—</div>');
                 const counter = board.querySelector(`[data-count="${st}"]`);
                 if (counter) counter.textContent = items.length;
             });
