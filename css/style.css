@@ -770,11 +770,9 @@ a.nav-btn { text-decoration: none; }
 
 /* UI Audit (2026-08-26): таблицы не сжимаются сильнее своего min-width —
    вместо обрезания текста контейнер уходит в горизонтальный скролл.
-   UI FIX 2026-08-26: 1100/1000 вместо 1280/1160 — при фиксированных
-   ширинах колонок ниже таблицы помещаются в контейнер 1162px на 1440
-   без горизонтального скролла. */
-#payments-table { min-width: 1100px !important; }
-#documents-table { min-width: 1000px !important; }
+   D12 (аудит 12.09): правила 1100/1000 для payments/documents отсюда
+   удалены — они были мертвы (перекрыты поздними !important), реальный
+   min-width живёт в блоках 12888/12895 рядом с ширинами колонок. */
 #suppliers-table, #clients-table { min-width: 960px; }
 
 .data-table th, .data-table td {
@@ -3899,9 +3897,11 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     font-size: 13px !important;
 }
 
-/* Разрешаем перенос текста для длинных примечаний */
+/* Разрешаем перенос текста для длинных примечаний.
+   D12 (аудит 12.09): у payments «Примечание» — 10-я колонка (9-я —
+   «Печать»), перенос раньше ошибочно включался у «Печати». */
 #page-documents .data-table td:nth-child(9),
-#page-payments .data-table td:nth-child(9) {
+#page-payments .data-table td:nth-child(10) {
     white-space: normal !important;
     word-break: break-word !important;
 }
@@ -3962,7 +3962,9 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
    Примечание 92) — при развёрнутом сайдбаре (контейнер 1210px) колонка
    «Название» иначе схлопывалась до ~50px из-за Печать 190 + Оплата 150. */
 #payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 112px !important; }
-#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 150px !important; }
+/* D12: Оплата 150→124, Печать 140→112 — колонки были раздуты, из-за них
+   сумма фикс-колонок (1062px) не влезала даже в 1162px на 1440. */
+#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 124px !important; }
 #payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 92px !important; }
 /* UI FIX 2026-08-26: чекбоксы 72px и действия 96px заданы позже блоками
    «часть 10» (11252) и «колонки действий» (11902) — здесь синхронизированы
@@ -3970,7 +3972,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 #payments-table th:nth-child(6), #payments-table td:nth-child(6) { width: 72px !important; }
 #payments-table th:nth-child(7), #payments-table td:nth-child(7) { width: 72px !important; }
 #payments-table th:nth-child(8), #payments-table td:nth-child(8) { width: 72px !important; }
-#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 140px !important; }
+#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 160px !important; }
 #payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 92px !important; }
 #payments-table th:nth-child(11), #payments-table td:nth-child(11) { width: 96px !important; }
 
@@ -12329,8 +12331,10 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: va
 #suppliers-table th:nth-child(6), #suppliers-table td:nth-child(6) { width: 80px !important; }
 /* UI FIX 2026-08-29: колонка «Печать» — «Доверенность» обрезалась до «Дове…».
    Таблица table-layout:fixed — работает только width (перебивает 140px
-   из правила 4037), min-width в такой раскладке игнорируется. */
-#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 190px !important; }
+   из правила 4037), min-width в такой раскладке игнорируется.
+   D12 (аудит 12.09): 190→160 — «Доверенность» при 14px требует ~143px
+   вместе со стрелкой, 160 хватает; 190 съедали «Название». */
+#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 160px !important; }
 #payments-table td:nth-child(9) .dropdown-toggle { white-space: nowrap; }
 
 /* ============================================================
@@ -12884,18 +12888,24 @@ textarea {
 #payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 104px !important; }
 #payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 132px !important; }
 #payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 112px !important; }
-#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 112px !important; }
+/* D12: Примечание 112→100 — переносу ничего не мешает (см. правило 3903). */
+#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 100px !important; }
 /* липкая «Название» едет за новой шириной даты */
 #payments-table td:nth-child(2), #payments-table th:nth-child(2),
 #documents-table td:nth-child(2), #documents-table th:nth-child(2) { left: 104px; }
-#page-payments .data-table { min-width: 1240px !important; }
+/* D12: фикс-колонки ужаты (Оплата 124, Печать 160, Примечание 100),
+   min-width 1240→1150: на 1440 таблица входит без скролла («Название» ~118px),
+   на 1280 — честный скролл со sticky «Название» ~106px и тенью (11 читаемых
+   колонок в 993px контейнера не помещаются физически). */
+#page-payments .data-table { min-width: 1150px !important; }
 
 /* --- Документы: те же болезни (дата/сумма/магазин). --- */
 #documents-table th:nth-child(1), #documents-table td:nth-child(1) { width: 104px !important; }
-#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 132px !important; }
-#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 132px !important; }
+#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 120px !important; }
+#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 120px !important; }
 #documents-table th:nth-child(5), #documents-table td:nth-child(5) { width: 112px !important; }
-#page-documents .data-table { min-width: 1120px !important; }
+/* D12: Сумма и № ТН 132→120, min-width 1120→1060 — на 1440 без скролла. */
+#page-documents .data-table { min-width: 1060px !important; }
 
 /* --- Канбан: шапка колонки переносит сумму на вторую строку,
        если не влезает, вместо «17 из 12331 273,95 …». --- */
