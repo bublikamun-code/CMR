@@ -32,13 +32,13 @@ PY=".venv/bin/python"
 
 step() { echo ""; echo "=== [$1] $2 ==="; }
 
-step 1/6 "import main"
+step 1/7 "import main"
 $PY -c "import main; print('  роутов:', len(main.app.routes))"
 
-step 2/6 "pytest — профиль боевого DDL (prod)"
+step 2/7 "pytest — профиль боевого DDL (prod)"
 $PY -m pytest -q
 
-step 3/6 "pytest — профиль models.py"
+step 3/7 "pytest — профиль models.py"
 CRM_TEST_SCHEMA=models $PY -m pytest -q
 
 step 4/7 "кэш-бастеры ассетов"
