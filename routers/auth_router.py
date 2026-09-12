@@ -189,7 +189,8 @@ def create_tenant_admin(data: schemas.UserCreate, db: Session = Depends(get_db),
     db.commit()
     db.refresh(new_user)
 
-    from database import Base, get_tenant_db
+    # get_tenant_db импортирован на уровне модуля (строка 9); локальный
+    # re-import затенял его и тянул неиспользуемый Base.
     tdb = get_tenant_db(tenant.id)
     tdb.close()
 
