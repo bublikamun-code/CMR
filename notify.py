@@ -11,6 +11,8 @@ FIX 2026-09-03: уведомления пишутся в основную БД �
 
 Самоуведомления не создаются: recipient == actor_id пропускается.
 """
+import contextlib
+
 import models
 
 
@@ -65,10 +67,8 @@ def notify(db, recipients, *, actor_id=None, type, title, details=None,
             db.commit()
         except Exception:
             # Уведомление не должно ломать основной сценарий запроса
-            try:
+            with contextlib.suppress(Exception):
                 db.rollback()
-            except Exception:
-                pass
     return created
 
 

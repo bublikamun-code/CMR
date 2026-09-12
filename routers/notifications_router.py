@@ -11,6 +11,7 @@ sync-overdue вызывается внешним cron'ом (заголовок X
 уведомление того же типа — новое не создаётся. Повторная просрочка после
 прочтения старого снова уведомит.
 """
+import contextlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -203,10 +204,8 @@ def sync_overdue(db: Session = Depends(get_db)):
                     entity_type="card", entity_id=c.id, dedupe=True)
         except Exception:
             # Ошибка на одной базе не должна останавливать остальные
-            try:
+            with contextlib.suppress(Exception):
                 session.rollback()
-            except Exception:
-                pass
             continue
         finally:
             # FIX аудита 10.09: ретенция раньше шла только по главной базе,

@@ -37,7 +37,6 @@ def save_version(db, table_name, record_id, data, user_id=None, change_type="upd
         )
         db.add(new_version)
         db.commit()
-        return version
     except Exception as e:
         # FIX 2026-09-03 (аудит): ошибка раньше глоталась наглухо —
         # история правок терялась без следа. Теперь причина в логе.
@@ -45,6 +44,8 @@ def save_version(db, table_name, record_id, data, user_id=None, change_type="upd
                        table_name, record_id, tenant_id, e)
         db.rollback()
         return None
+    else:
+        return version
 
 
 def get_versions(db, table_name, record_id, tenant_id=None, limit=50):

@@ -65,7 +65,7 @@ def test_protected_endpoints_require_auth(client):
 
 
 def test_real_jwt_authenticates(client, manager):
-    user, headers = manager
+    _user, headers = manager
     r = client.get("/clients", headers=headers)
     assert r.status_code == 200, r.text
 

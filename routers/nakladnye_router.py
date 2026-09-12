@@ -76,8 +76,8 @@ def _ensure_amounts_consistent(amount, vat_amount):
 
 def _effective_amounts(nak: models.Nakladnaya, update_data: dict):
     """Сумма и НДС, которые получатся после применения update_data к nak."""
-    amount = update_data["amount"] if "amount" in update_data else nak.amount
-    vat = update_data["vat_amount"] if "vat_amount" in update_data else nak.vat_amount
+    amount = update_data.get("amount", nak.amount)
+    vat = update_data.get("vat_amount", nak.vat_amount)
     return amount, vat
 
 
@@ -110,7 +110,7 @@ def _commit_with_doc_key_guard(session, doc_series, doc_number):
     """
     try:
         session.commit()
-    except IntegrityError:
+    except IntegrityError as e:
         session.rollback()
         existing = _find_nakladnaya_by_doc_key(session, doc_series, doc_number)
         if existing is None:
@@ -121,7 +121,7 @@ def _commit_with_doc_key_guard(session, doc_series, doc_number):
             detail=(f"Накладная с серией «{series}» и номером {number} уже принята "
                     f"(id={existing.id}). Повторно тот же документ не создаётся — "
                     f"если это повторная отгрузка, откройте существующую запись."),
-        )
+        ) from e
 
 
 def _nak_dict(n: models.Nakladnaya) -> dict:
@@ -404,8 +404,8 @@ def get_nakladnaya_excel(
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font
-    except ImportError:
-        raise HTTPException(status_code=500, detail="openpyxl не установлен")
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail="openpyxl не установлен") from e
 
     tdb = _db(current_user, db)
     try:
@@ -488,8 +488,8 @@ def export_products_excel(
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font
-    except ImportError:
-        raise HTTPException(status_code=500, detail="openpyxl не установлен")
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail="openpyxl не установлен") from e
 
     tdb = _db(current_user, db)
     try:

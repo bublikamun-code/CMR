@@ -1,3 +1,4 @@
+import contextlib
 import os
 import re
 import uuid
@@ -473,11 +474,10 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             {"title": card.title, "status": card.status, "total_amount": float(card.total_amount or 0), "description": card.description, "priority": card.priority},
             user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
         # Webhook уведомление
-        try:
+        with contextlib.suppress(Exception):
             from routers.webhooks_router import notify_webhooks_async
             notify_webhooks_async(current_user.tenant_id, "card.updated",
                 {"id": card.id, "title": card.title, "status": card.status})
-        except Exception: pass
         return card
     finally:
         if tdb is not db:
@@ -549,11 +549,9 @@ def _sanitize_download_name(name: str) -> str:
     if not name:
         return "attachment"
     if "=?" in name:
-        try:
+        with contextlib.suppress(Exception):
             from email.header import decode_header, make_header
             name = str(make_header(decode_header(name)))
-        except Exception:
-            pass
     name = re.sub(r"[\r\n\t]+", " ", name).strip()
     return name or "attachment"
 

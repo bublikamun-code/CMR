@@ -53,7 +53,7 @@ def _snapshot_title(db: Session, model, obj_id):
     return None
 
 
-def _serialize(db: Session, task: models.Task, usernames: dict = None) -> dict:
+def _serialize(db: Session, task: models.Task, usernames: dict | None = None) -> dict:
     def username(uid):
         if not uid:
             return None
@@ -251,7 +251,7 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
                type="task_assigned", title=f"Вам поручена задача: {task.title}",
                entity_type="task", entity_id=task.id)
     if data.due_date is not None and task.due_date != old_due:
-        notify(db, [r for r in {task.assignee_id, task.creator_id}],
+        notify(db, list({task.assignee_id, task.creator_id}),
                actor_id=current_user.id,
                type="task_due", title=f"Изменён срок задачи: {task.title}",
                details=task.due_date.strftime("%d.%m.%Y %H:%M") if task.due_date else "срок снят",

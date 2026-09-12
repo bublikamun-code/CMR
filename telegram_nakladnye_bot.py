@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from io import BytesIO
 
 # Загрузка .env если есть (локальная разработка)
@@ -39,7 +40,7 @@ try:
     )
 except ImportError:
     print("Установите: pip install python-telegram-bot")
-    exit(1)
+    sys.exit(1)
 
 try:
     from openai import OpenAI
@@ -195,9 +196,9 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Собираем все фото для этой накладной
             inv_photos = []
             for p in pages:
-                for idx in p.get("_photo_indices", []):
-                    if idx < len(photos):
-                        inv_photos.append(photos[idx])
+                inv_photos.extend(
+                    photos[idx] for idx in p.get("_photo_indices", []) if idx < len(photos)
+                )
 
             if not inv_photos and len(photos) > 0:
                 inv_photos = [photos[0]]
@@ -319,14 +320,13 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Предупреждения о пропущенных страницах и расхождениях моделей
         for inv in merged:
-            if not inv.get("_duplicate"):
-                if inv.get("has_second_page") and len(inv.get("photos", [])) < 2:
-                    num = inv.get("doc_number", "?")
-                    ser = inv.get("doc_series", "")
-                    warnings.append(
-                        f"⚠️ {inv.get('doc_type','')} {ser} №{num}: "
-                        f"документ имеет 2-ю страницу, но она не отправлена"
-                    )
+            if not inv.get("_duplicate") and inv.get("has_second_page") and len(inv.get("photos", [])) < 2:
+                num = inv.get("doc_number", "?")
+                ser = inv.get("doc_series", "")
+                warnings.append(
+                    f"⚠️ {inv.get('doc_type','')} {ser} №{num}: "
+                    f"документ имеет 2-ю страницу, но она не отправлена"
+                )
 
         if not summary_lines and not dup_lines:
             summary_lines = ["• Фото сохранены, данные не распознаны — проверьте вручную"]
@@ -488,7 +488,7 @@ def _ocr_call(model: str, content: list):
                 p = p.strip()
                 if p.startswith("json"):
                     p = p[4:].strip()
-                if p.startswith("[") or p.startswith("{"):
+                if p.startswith(("[", "{")):
                     text = p
                     break
         # Ищем JSON массив или объект
@@ -513,10 +513,11 @@ def _ocr_call(model: str, content: list):
             data = [data]
         for item in data:
             _validate_ocr_item(item)
-        return data
-    except Exception as e:
-        logger.error(f"OCR error ({model}): {e}")
+    except Exception:
+        logger.exception(f"OCR error ({model})")
         return None
+    else:
+        return data
 
 
 
@@ -632,11 +633,11 @@ async def ocr_photo(image_bytes: bytes):
             ratio = amt / vat
             if ratio < 4 or ratio > 8:
                 logger.warning(f"OCR suspicious ratio: amount={amt}, vat={vat}, ratio={ratio:.1f}")
-
-        return data
-    except Exception as e:
-        logger.error(f"OCR error: {e}")
+    except Exception:
+        logger.exception("OCR error")
         return None
+    else:
+        return data
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):

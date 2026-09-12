@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -40,9 +41,10 @@ def _backup_db_snapshot(session):
             src.backup(dst)
         src.close()
         dst.close()
-        return target
     except Exception:
         return None
+    else:
+        return target
 
 # FIX 2026-08-30: предохранитель от неограниченной выборки (реестр и документы
 # раньше читали ВСЮ таблицу транзакций). Это не пагинация: сейчас в базе 188
@@ -156,11 +158,10 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             {"card_id": new_tx.card_id, "amount": float(new_tx.amount or 0), "store_location": new_tx.store_location},
             user_id=current_user.id, change_type="create", tenant_id=current_user.tenant_id)
         # Webhook уведомление
-        try:
+        with contextlib.suppress(Exception):
             from routers.webhooks_router import notify_webhooks_async
             notify_webhooks_async(current_user.tenant_id, "payment.created",
                 {"id": new_tx.id, "card_id": new_tx.card_id, "amount": float(new_tx.amount or 0)})
-        except Exception: pass
         # Уведомление владельцу сделки о новой оплате (тип card_updated:
         # card_payment зарезервирован для просрочек из sync-overdue)
         if card.owner_id and card.owner_id != current_user.id:
@@ -219,7 +220,7 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
             else:
                 seen[r.card_id]["parts"].append(r)
 
-        for card_id, grp in seen.items():
+        for grp in seen.values():
             parts = grp["parts"]
             base = grp["base"]
             total = round(sum(float(p.amount or 0) for p in parts), 2)
@@ -967,17 +968,18 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
             models.Transaction.is_document == False,
         ).order_by(models.Transaction.id.asc()).all()
 
-        issued = []
-        for t in txs:
-            if t.is_warehouse_writeoff or (t.invoice_number or "").strip():
-                issued.append({
-                    "id": t.id,
-                    "invoice_number": t.invoice_number or "",
-                    "invoice_date": t.invoice_date or "",
-                    "amount": round(float(t.amount or 0), 2),
-                    "store_location": t.store_location or "",
-                    "written_off": bool(t.is_warehouse_writeoff),
-                })
+        issued = [
+            {
+                "id": t.id,
+                "invoice_number": t.invoice_number or "",
+                "invoice_date": t.invoice_date or "",
+                "amount": round(float(t.amount or 0), 2),
+                "store_location": t.store_location or "",
+                "written_off": bool(t.is_warehouse_writeoff),
+            }
+            for t in txs
+            if t.is_warehouse_writeoff or (t.invoice_number or "").strip()
+        ]
 
         card_amount = round(float(card.total_amount or 0), 2)
         issued_sum = round(sum(i["amount"] for i in issued), 2)
@@ -1148,11 +1150,11 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                                         "invoice_number": d.invoice_number,
                                         "amount": float(d.amount or 0)})
                     continue
-                if _norm(d.invoice_number) and _norm(d.invoice_number) not in live_keys:
-                    if not any(abs(float(t.amount or 0) - float(d.amount or 0)) < 0.01 for t in live):
-                        orphan_docs.append({"id": d.id, "card_id": card_id,
-                                            "invoice_number": d.invoice_number,
-                                            "amount": float(d.amount or 0)})
+                if (_norm(d.invoice_number) and _norm(d.invoice_number) not in live_keys
+                        and not any(abs(float(t.amount or 0) - float(d.amount or 0)) < 0.01 for t in live)):
+                    orphan_docs.append({"id": d.id, "card_id": card_id,
+                                        "invoice_number": d.invoice_number,
+                                        "amount": float(d.amount or 0)})
 
             card = session.query(models.Card).filter(models.Card.id == card_id).first()
 

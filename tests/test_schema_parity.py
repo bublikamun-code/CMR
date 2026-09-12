@@ -276,7 +276,7 @@ def _dead_schemas():
     classes = {n.name: [b.id for b in n.bases if isinstance(b, ast.Name)]
                for n in tree.body if isinstance(n, ast.ClassDef)}
     used = set()
-    files = list((ROOT / "routers").glob("*.py")) + [ROOT / "main.py"]
+    files = [*list((ROOT / "routers").glob("*.py")), ROOT / "main.py"]
     for f in files:
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
@@ -366,9 +366,11 @@ def test_every_router_module_is_registered():
         if not names:
             problems.append(f"{module}: не импортирован в main.py")
             continue
-        for local in names:
-            if not any(m == local for m, _ in registered):
-                problems.append(f"{module}: импортирован как {local}, но не зарегистрирован")
+        problems.extend(
+            f"{module}: импортирован как {local}, но не зарегистрирован"
+            for local in names
+            if not any(m == local for m, _ in registered)
+        )
 
     # отдельно: все публичные APIRouter в модуле должны быть подключены
     for module_file in sorted((ROOT / "routers").glob("*_router.py")):

@@ -54,17 +54,13 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    logger.error(f"Unhandled error: {exc}")
     return JSONResponse(status_code=500, content={"detail": "Внутренняя ошибка сервера"})
 
 # CORS: the app is served same-origin, so this list only needs the hosts the
 # UI is actually reached by. Override with CRM_CORS_ORIGINS when the domain
 # changes; do not add wildcards, allow_credentials=True forbids them.
-_DEFAULT_ORIGINS = ",".join([
-    "http://87-232-64-12.nip.io",
-    "https://87-232-64-12.nip.io",
-    "http://87.232.64.12",
-])
+_DEFAULT_ORIGINS = "http://87-232-64-12.nip.io,https://87-232-64-12.nip.io,http://87.232.64.12"
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("CRM_CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
@@ -138,7 +134,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
 
-    if path.startswith("/css/") or path.startswith("/js/"):
+    if path.startswith(("/css/", "/js/")):
         # Static assets are referenced with ?v=<sha1 of content> (see
         # tools/stamp_assets.py), so a given URL can never change meaning.
         # Caching them for a year removes ~250 KB CSS + 20 JS requests from

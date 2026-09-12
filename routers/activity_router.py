@@ -68,8 +68,7 @@ def list_activity(
         user_ids = {e.user_id for e in entries if e.user_id}
         if user_ids:
             src = db if src_is_main else tdb
-            for uid, uname in src.query(models.User.id, models.User.username).filter(models.User.id.in_(user_ids)).all():
-                names[uid] = uname
+            names = dict(src.query(models.User.id, models.User.username).filter(models.User.id.in_(user_ids)).all())
         return [
             {
                 "id": e.id,

@@ -239,7 +239,7 @@ def test_delete_invoice_returns_amount_to_remainder(client, manager, db, make_ca
     assert _issue(client, h, card.id, "ТТН0006", 400.0).status_code == 200
 
     _reload(db)
-    inv = [t for t in _txs(db, card.id) if t.invoice_number == "ТТН0006"][0]
+    inv = next(t for t in _txs(db, card.id) if t.invoice_number == "ТТН0006")
     r = client.delete(f"/payments/transactions/{inv.id}", headers=h)
     assert r.status_code == 200, r.text
 
@@ -333,8 +333,8 @@ def test_delete_one_invoice_does_not_delete_the_other(client, manager, db, make_
     assert _issue(client, h, card_id, "ТТН1002", 800.0).status_code == 200
 
     _reload(db)
-    first = [t for t in _txs(db, card_id)
-             if t.invoice_number == "ТТН1001" and not t.is_document][0]
+    first = next(t for t in _txs(db, card_id)
+             if t.invoice_number == "ТТН1001" and not t.is_document)
     first_id = first.id
 
     assert client.delete(f"/payments/transactions/{first_id}", headers=h).status_code == 200
@@ -360,7 +360,7 @@ def test_delete_invoice_keeps_remainder_of_the_same_amount(client, manager, db, 
     db.commit()
 
     _reload(db)
-    inv = [t for t in _txs(db, card_id) if t.invoice_number == "ТТН2001"][0]
+    inv = next(t for t in _txs(db, card_id) if t.invoice_number == "ТТН2001")
     inv_id = inv.id
     assert client.delete(f"/payments/transactions/{inv_id}", headers=h).status_code == 200
 

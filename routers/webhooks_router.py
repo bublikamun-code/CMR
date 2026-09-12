@@ -45,13 +45,13 @@ def _validate_webhook_url(url: str) -> str:
 
     try:
         addrinfo = socket.getaddrinfo(hostname, None)
-        for family, type_, proto, canonname, sockaddr in addrinfo:
+        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
             ip = sockaddr[0]
             addr = ipaddress.ip_address(ip)
             if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
                 raise HTTPException(status_code=400, detail=f"Webhook URL resolves to a private/reserved IP: {ip}")
-    except socket.gaierror:
-        raise HTTPException(status_code=400, detail="Webhook URL hostname could not be resolved")
+    except socket.gaierror as e:
+        raise HTTPException(status_code=400, detail="Webhook URL hostname could not be resolved") from e
 
     return url
 
@@ -220,11 +220,12 @@ def test_webhook(wh_id: int, current_user=Depends(get_current_user)):
             data = json.dumps(payload).encode()
             req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
             resp = _open_webhook(req)
-            return {"status": resp.status, "success": resp.status < 400}
         except urllib.error.HTTPError as e:
             return {"status": e.code, "success": False, "error": str(e)}
         except Exception as e:
             return {"status": 0, "success": False, "error": str(e)}
+        else:
+            return {"status": resp.status, "success": resp.status < 400}
     finally:
         db.close()
 

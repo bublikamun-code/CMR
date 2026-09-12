@@ -1,3 +1,4 @@
+import contextlib
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -180,15 +181,14 @@ def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db
         save_version(tdb, "cards", card.id,
             {"title": card.title, "status": card.status, "total_amount": float(card.total_amount or 0)},
             user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
-        try:
-            from routers.webhooks_router import notify_webhooks_async
-            # Фикс аудита 10.09: `or 0` подменял None (главная база) на 0,
-            # под который вебхуки не создаются никогда, — «card.updated» с
-            # доски не уходил ни одному подписчику. Остальные роутеры
-            # передают tenant_id как есть.
+        from routers.webhooks_router import notify_webhooks_async
+        # Фикс аудита 10.09: `or 0` подменял None (главная база) на 0,
+        # под который вебхуки не создаются никогда, — «card.updated» с
+        # доски не уходил ни одному подписчику. Остальные роутеры
+        # передают tenant_id как есть.
+        with contextlib.suppress(Exception):
             notify_webhooks_async(current_user.tenant_id, "card.updated",
                 {"id": card.id, "title": card.title, "status": card.status})
-        except Exception: pass
         return card
     finally:
         if tdb is not db:

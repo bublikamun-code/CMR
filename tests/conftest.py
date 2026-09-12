@@ -123,7 +123,7 @@ def _apply_migrations():
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             if not callable(getattr(mod, "up", None)):
-                raise RuntimeError(f"{path}: нет функции up(cur)")
+                raise TypeError(f"{path}: нет функции up(cur)")
             mod.up(cur)
         raw.commit()
     finally:
@@ -263,9 +263,9 @@ def bot_headers():
 @pytest.fixture
 def make_card(db):
     def _factory(**kw):
-        defaults = dict(title="Сделка", status="Новый запрос",
-                        total_amount=0.0, paid_amount=0.0,
-                        payment_status="Не оплачен", is_deleted=False)
+        defaults = {"title": "Сделка", "status": "Новый запрос",
+                        "total_amount": 0.0, "paid_amount": 0.0,
+                        "payment_status": "Не оплачен", "is_deleted": False}
         defaults.update(kw)
         card = models.Card(**defaults)
         db.add(card)
@@ -278,9 +278,9 @@ def make_card(db):
 @pytest.fixture
 def make_transaction(db):
     def _factory(card, **kw):
-        defaults = dict(card_id=card.id, company_name=card.title,
-                        amount=0.0, is_document=False,
-                        is_warehouse_writeoff=False, invoice_number=None)
+        defaults = {"card_id": card.id, "company_name": card.title,
+                        "amount": 0.0, "is_document": False,
+                        "is_warehouse_writeoff": False, "invoice_number": None}
         defaults.update(kw)
         tx = models.Transaction(**defaults)
         db.add(tx)

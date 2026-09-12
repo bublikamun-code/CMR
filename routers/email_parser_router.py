@@ -90,7 +90,9 @@ except Exception as e:
     # Фидбек 07.09: без cryptography пароль ящика не расшифровать — синк
     # падает с «неверным паролем». Раньше это молчало (пароль лежал
     # открытым текстом и не требовал расшифровки).
-    logger.error(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
+    logger.exception(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
+import contextlib
+
 import models
 import models_tenant
 from database import get_db, get_tenant_db
@@ -111,7 +113,7 @@ cron_router = APIRouter(
     dependencies=[Depends(require_cron_token)]
 )
 
-def _get_settings_path(tenant_id: int = None) -> str:
+def _get_settings_path(tenant_id: int | None = None) -> str:
     """Locate the mailbox settings file.
 
     Resolution order, same rule as the secret keys in auth.py:
@@ -149,7 +151,7 @@ class EmailSettingsSchema(BaseModel):
     imap_server: str = ""
     target_status: str = "Новый запрос"
 
-def load_settings(tenant_id: int = None):
+def load_settings(tenant_id: int | None = None):
     settings_file = _get_settings_path(tenant_id)
     if not os.path.exists(settings_file):
         return {
@@ -210,8 +212,8 @@ def _decode_part_text(part) -> str:
         for fallback in ("windows-1251", "koi8-r", "utf-8"):
             try:
                 return payload.decode(fallback, errors="replace")
-            except Exception:
-                continue
+            except Exception as e:
+                logger.debug(f"Не удалось декодировать письмо как {fallback}: {e}")
         return payload.decode("utf-8", errors="replace")
 
 
@@ -236,7 +238,7 @@ def _decode_attachment_filename(part) -> Optional[str]:
     filename = re.sub(r"[\r\n\t]+", " ", filename).strip()
     return filename or None
 
-def save_settings(settings, tenant_id: int = None):
+def save_settings(settings, tenant_id: int | None = None):
     settings_file = _ensure_inside_data_dir(_get_settings_path(tenant_id))
     if _fernet is not None and settings.get("password"):
         settings = dict(settings)
@@ -289,6 +291,18 @@ def update_settings(data: EmailSettingsSchema, current_user: models.User = Depen
     save_settings(settings, tenant_id)
     return {"detail": "Настройки успешно сохранены"}
 
+def _search_unseen(mail, today: str) -> list:
+    """Ищет непрочитанные письма за сегодня (UTC) и возвращает их id.
+
+    Raise вынесен из try-блока синка в helper: статус != OK поднимает 500
+    здесь (TRY301), снаружи он по-прежнему ловится общим except Exception.
+    """
+    status, messages = mail.search(None, f'(UNSEEN SINCE "{today}")')
+    if status != "OK":
+        raise HTTPException(status_code=500, detail="Не удалось получить список писем с почтового сервера")
+    return messages[0].split()
+
+
 def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
     email_addr = settings.get("email")
     password = _get_smtp_password(settings)
@@ -319,11 +333,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         # уходил на сутки вперёд относительно UTC и отрезал письма последних
         # часов, то есть часть входящих не импортировалась.
         today = datetime.now(timezone.utc).strftime("%d-%b-%Y")
-        status, messages = mail.search(None, f'(UNSEEN SINCE "{today}")')
-        if status != "OK":
-            raise HTTPException(status_code=500, detail="Не удалось получить список писем с почтового сервера")
-
-        email_ids = messages[0].split()
+        email_ids = _search_unseen(mail, today)
 
         for e_id in email_ids:
             try:
@@ -348,10 +358,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                 dn_bytes, dn_enc = decoded_parts[0]
                                 if isinstance(dn_bytes, bytes):
                                     display_name = dn_bytes.decode(dn_enc if dn_enc else "utf-8", errors="ignore")
-                        if display_name:
-                            sender = display_name
-                        else:
-                            sender = sender_email_addr
+                        sender = display_name or sender_email_addr
                         if not sender_email_addr:
                             sender_email_addr = sender
 
@@ -450,8 +457,8 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                     continue
                                 try:
                                     Path(att_path).write_bytes(att_data)
-                                except Exception as e:
-                                    logger.error(f"Failed to save attachment {att_name!r} for card {new_card.id}: {e}")
+                                except Exception:
+                                    logger.exception(f"Failed to save attachment {att_name!r} for card {new_card.id}")
                                     raise
                                 attachment = models.CardAttachment(
                                     file_name=att_name,
@@ -497,25 +504,23 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
             "cards": imported_cards
         }
 
-    except imaplib.IMAP4.error as e:
+    except imaplib.IMAP4.error:
         # FIX 2026-09-06 (аудит С7): текст исключения почтового сервера раньше
         # уходил клиенту в detail (там бывают имя хоста и данные сессии) —
         # наружу только обобщённая формулировка, детали в логе выше.
-        logger.error(f"IMAP error for tenant {tenant_id}: {e}")
+        logger.exception(f"IMAP error for tenant {tenant_id}")
         return {"tenant_id": tenant_id, "success": False, "error": "Ошибка авторизации на почтовом сервере: проверьте логин и пароль ящика", "count": 0}
     except TimeoutError:
         return {"tenant_id": tenant_id, "success": False, "error": "Превышено время ожидания при подключении к почте", "count": 0}
-    except Exception as e:
-        logger.error(f"Email sync error for tenant {tenant_id}: {type(e).__name__}: {e}")
+    except Exception:
+        logger.exception(f"Email sync error for tenant {tenant_id}")
         return {"tenant_id": tenant_id, "success": False, "error": "Ошибка подключения к почтовому серверу", "count": 0}
     finally:
         # FIX 2026-09-06 (аудит): logout был только на успехе — при ошибке
         # посреди выборки соединение с IMAP оставалось висеть до таймаута.
         if mail is not None:
-            try:
+            with contextlib.suppress(Exception):
                 mail.logout()
-            except Exception:
-                pass
 
 
 @router.post("/sync")
@@ -549,7 +554,7 @@ def sync_all_tenants(db: Session = Depends(get_db)):
     try:
         results.append(_sync_tenant_emails(None, load_settings(None), db))
     except Exception as e:
-        logger.error(f"main account sync failed: {e}")
+        logger.exception("main account sync failed")
         results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
 
     tenants = db.query(models_tenant.Tenant).all()

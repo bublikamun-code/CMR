@@ -249,8 +249,8 @@ def create_record(obj_id: int, record: RecordData, current_user=Depends(get_curr
                 # ValueError'ом и уходила в глобальный 500. Отдаём 400.
                 try:
                     fv.value_date = datetime.fromisoformat(value) if value else None
-                except (TypeError, ValueError):
-                    raise HTTPException(status_code=400, detail=f"Некорректная дата в поле «{field.name}»: {value!r}")
+                except (TypeError, ValueError) as e:
+                    raise HTTPException(status_code=400, detail=f"Некорректная дата в поле «{field.name}»: {value!r}") from e
             else:
                 fv.value_text = str(value) if value is not None else None
             db.add(fv)

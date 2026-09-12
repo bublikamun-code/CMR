@@ -1,3 +1,4 @@
+import contextlib
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -85,13 +86,12 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
         # но клиент получает 500 и видит ложную ошибку.
         tdb.refresh(new_client)
         # Webhook уведомление
-        try:
+        with contextlib.suppress(Exception):
             from routers.webhooks_router import notify_webhooks_async
             notify_webhooks_async(current_user.tenant_id, "client.created",
                 {"id": new_client.id, "name": new_client.name})
-        except Exception: pass
         # Уведомление администраторам этого тенанта о новом клиенте
-        try:
+        with contextlib.suppress(Exception):
             from notify import admin_ids, notify
             admin_recipients = []
             for aid in admin_ids(db):
@@ -103,7 +103,6 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
                        type="client_created", title=f"Новый клиент: {new_client.name}",
                        details=f"Добавил: {current_user.username}",
                        entity_type="client", entity_id=new_client.id)
-        except Exception: pass
         return new_client
     finally:
         if tdb is not db:

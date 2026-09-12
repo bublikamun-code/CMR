@@ -197,7 +197,7 @@ def test_invoice_number_matching_ignores_spaces_and_prefixes(client, manager, db
     assert _issue(client, h, card.id, "ТТН4881030", 400.0).status_code == 200
 
     _reload(db)
-    ledger = [t for t in _ledger(db, card.id) if t.invoice_number][0]
+    ledger = next(t for t in _ledger(db, card.id) if t.invoice_number)
     docs_before = db.query(models.Transaction).filter(
         models.Transaction.card_id == card.id,
         models.Transaction.is_document == True,
@@ -457,7 +457,7 @@ def test_update_onto_existing_number_is_rejected(client, manager, db):
     пересчитываться при правке, иначе индекс сравнивал бы устаревшие значения.
     """
     _, h = manager
-    for i, number in enumerate(["4881040", "4881041"]):
+    for _i, number in enumerate(["4881040", "4881041"]):
         r = client.post("/nakladnye", headers=h, json={
             "doc_series": "АБ", "doc_number": number, "supplier_name": "П"})
         assert r.status_code == 200, r.text

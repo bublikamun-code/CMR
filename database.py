@@ -1,3 +1,4 @@
+import contextlib
 import os
 
 from sqlalchemy import create_engine, event
@@ -104,11 +105,9 @@ async def get_db():
         # "Token was created in a different Context", and a fresh .get() can miss
         # the sessions entirely. Holding the list object is context-independent.
         for extra in bucket:
-            try:
+            with contextlib.suppress(Exception):
                 _active_sessions["count"] -= 1
                 extra.close()
-            except Exception:
-                pass
         _deferred_sessions.set(None)
         _active_sessions["count"] -= 1
         db.close()

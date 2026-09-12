@@ -56,7 +56,7 @@ def get_password_hash(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-def create_access_token(data: dict, expires_minutes: int = None):
+def create_access_token(data: dict, expires_minutes: int | None = None):
     import uuid
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
@@ -85,10 +85,10 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
         tenant_id: int = payload.get("tenant_id")
         if username is None:
             raise credentials_exception
-    except jwt.ExpiredSignatureError:
-        raise credentials_exception
-    except jwt.PyJWTError:
-        raise credentials_exception
+    except jwt.ExpiredSignatureError as e:
+        raise credentials_exception from e
+    except jwt.PyJWTError as e:
+        raise credentials_exception from e
 
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:

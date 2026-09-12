@@ -20,9 +20,11 @@ def main():
     targets = [os.path.join(DATA_DIR, "crm_app.db")]
     tenants_dir = os.path.join(DATA_DIR, "tenants")
     if os.path.isdir(tenants_dir):
-        for name in sorted(os.listdir(tenants_dir)):
-            if name.endswith(".db"):
-                targets.append(os.path.join(tenants_dir, name))
+        targets.extend(
+            os.path.join(tenants_dir, name)
+            for name in sorted(os.listdir(tenants_dir))
+            if name.endswith(".db")
+        )
 
     for path in targets:
         if not os.path.exists(path):

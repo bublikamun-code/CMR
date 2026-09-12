@@ -164,15 +164,13 @@ def _text_summary(report: Report) -> str:
     lines = [
         f"ассетов: {len(report.hashes)}, ссылок в HTML: {len(report.refs)}",
     ]
-    for ref in report.missing:
-        lines.append(f"  НЕТ ФАЙЛА  {ref.page}: {ref.path}")
+    lines.extend(f"  НЕТ ФАЙЛА  {ref.page}: {ref.path}" for ref in report.missing)
     for ref in report.stale:
         was = ref.current if ref.current is not None else "без ?v="
         lines.append(f"  хэш устарел {ref.page}: {ref.path} ({was} -> {ref.expected})")
     if not report.missing and not report.stale:
         lines.append("  все хэши совпадают с содержимым файлов")
-    for path in report.unreferenced:
-        lines.append(f"  без ссылки  {path}")
+    lines.extend(f"  без ссылки  {path}" for path in report.unreferenced)
     return "\n".join(lines)
 
 
