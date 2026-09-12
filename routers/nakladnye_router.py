@@ -15,7 +15,6 @@ import models
 import schemas
 from auth import get_current_user
 from database import get_db
-from db_utils import resolve_tenant_db as _db
 
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPLOAD_DIR = os.path.abspath(
@@ -162,6 +161,7 @@ def _nak_dict(n: models.Nakladnaya) -> dict:
 # CRM endpoints (JWT auth)
 # ============================================================
 
+
 @router.get("", dependencies=[Depends(get_current_user)])
 def list_nakladnye(
     store: Optional[str] = None,
@@ -174,11 +174,8 @@ def list_nakladnye(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    tdb = _db(current_user, db)
     try:
-        # resolve_tenant_db уже выбирает основную БД для пользователя без
-        # tenant_id — отдельная проверка роли была мёртвым кодом.
-        query = tdb.query(models.Nakladnaya)
+        query = db.query(models.Nakladnaya)
 
         if store:
             query = query.filter(models.Nakladnaya.store == store)
@@ -212,7 +209,7 @@ def list_nakladnye(
 
         return result
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.post("", dependencies=[Depends(get_current_user)])
@@ -221,16 +218,11 @@ def create_nakladnaya(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    tdb = _db(current_user, db)
     try:
-        # resolve_tenant_db уже возвращает основную БД для пользователя без
-        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
-        # мёртвым кодом — tdb в ней и есть db.
-        session = tdb
 
         data = payload.model_dump(exclude_unset=True)
         if payload.supplier_id and not data.get("supplier_name"):
-            sup = session.query(models.Supplier).filter(models.Supplier.id == payload.supplier_id).first()
+            sup = db.query(models.Supplier).filter(models.Supplier.id == payload.supplier_id).first()
             if sup:
                 data["supplier_name"] = sup.name
 
@@ -240,15 +232,15 @@ def create_nakladnaya(
             data["products_json"] = json.dumps(products, ensure_ascii=False)
 
         nak = models.Nakladnaya(**data, tenant_id=current_user.tenant_id)
-        session.add(nak)
+        db.add(nak)
         # дефект 7: уникальность гарантирует индекс uq_nakladnye_doc_key, а не
         # проверка перед вставкой. Значения ключа читаются ДО commit — после
         # rollback объект разобран и его атрибуты недоступны.
-        _commit_with_doc_key_guard(session, nak.doc_series, nak.doc_number)
-        session.refresh(nak)
+        _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
+        db.refresh(nak)
         return _nak_dict(nak)
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.patch("/{nak_id}", dependencies=[Depends(get_current_user)])
@@ -258,13 +250,8 @@ def update_nakladnaya(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    tdb = _db(current_user, db)
     try:
-        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
-        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
-        # мёртвым кодом — tdb в ней и есть db.
-        session = tdb
-        query = session.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
 
         nak = query.first()
         if not nak:
@@ -275,7 +262,7 @@ def update_nakladnaya(
         # потому что схема видит только присланные поля (см. _ensure_amounts_consistent)
         _ensure_amounts_consistent(*_effective_amounts(nak, update_data))
         if update_data.get("supplier_id"):
-            sup = session.query(models.Supplier).filter(models.Supplier.id == update_data["supplier_id"]).first()
+            sup = db.query(models.Supplier).filter(models.Supplier.id == update_data["supplier_id"]).first()
             if sup and "supplier_name" not in update_data:
                 nak.supplier_name = sup.name
 
@@ -290,11 +277,11 @@ def update_nakladnaya(
 
         # дефект 7: правка серии/номера может увести запись на занятый ключ —
         # индекс это поймает, а guard переведёт в 400 вместо 500
-        _commit_with_doc_key_guard(session, nak.doc_series, nak.doc_number)
-        session.refresh(nak)
+        _commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number)
+        db.refresh(nak)
         return _nak_dict(nak)
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.delete("/{nak_id}", dependencies=[Depends(get_current_user)])
@@ -303,13 +290,8 @@ def delete_nakladnaya(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    tdb = _db(current_user, db)
     try:
-        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
-        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
-        # мёртвым кодом — tdb в ней и есть db.
-        session = tdb
-        query = session.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
 
         nak = query.first()
         if not nak:
@@ -325,11 +307,11 @@ def delete_nakladnaya(
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        session.delete(nak)
-        session.commit()
+        db.delete(nak)
+        db.commit()
         return {"detail": "Накладная удалена"}
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.post("/{nak_id}/photos", dependencies=[Depends(get_current_user)])
@@ -339,13 +321,8 @@ async def upload_nakladnaya_photo(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    tdb = _db(current_user, db)
     try:
-        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
-        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
-        # мёртвым кодом — tdb в ней и есть db.
-        session = tdb
-        query = session.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
 
         nak = query.first()
         if not nak:
@@ -378,11 +355,11 @@ async def upload_nakladnaya_photo(
         nak.photo_paths = json.dumps(photos)
         nak.updated_at = datetime.now(timezone.utc)
 
-        session.commit()
-        session.refresh(nak)
+        db.commit()
+        db.refresh(nak)
         return _nak_dict(nak)
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.get("/photos/{filename}", dependencies=[Depends(get_current_user)])
@@ -407,12 +384,8 @@ def get_nakladnaya_excel(
     except ImportError as e:
         raise HTTPException(status_code=500, detail="openpyxl не установлен") from e
 
-    tdb = _db(current_user, db)
     try:
-        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
-        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
-        # мёртвым кодом — tdb в ней и есть db. Эндпоинт только читает.
-        nak = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id).first()
+        nak = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id).first()
         if not nak:
             raise HTTPException(status_code=404, detail="Накладная не найдена")
 
@@ -473,7 +446,7 @@ def get_nakladnaya_excel(
             headers={"Content-Disposition": f'attachment; filename="{fname}"'},
         )
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.get("/export/products-excel", dependencies=[Depends(get_current_user)])
@@ -491,11 +464,8 @@ def export_products_excel(
     except ImportError as e:
         raise HTTPException(status_code=500, detail="openpyxl не установлен") from e
 
-    tdb = _db(current_user, db)
     try:
-        # resolve_tenant_db уже выбирает основную БД для пользователя без
-        # tenant_id — отдельная проверка роли была мёртвым кодом.
-        query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.products_json.isnot(None))
+        query = db.query(models.Nakladnaya).filter(models.Nakladnaya.products_json.isnot(None))
         if store:
             query = query.filter(models.Nakladnaya.store == store)
         rows = query.order_by(models.Nakladnaya.doc_date.desc()).all()
@@ -551,12 +521,13 @@ def export_products_excel(
             headers={"Content-Disposition": "attachment; filename=nakladnye_products.xlsx"},
         )
     finally:
-        tdb.close()
+        db.close()
 
 
 # ============================================================
 # Bot endpoints (bot token auth, no JWT)
 # ============================================================
+
 
 @router.post("/bot/create", dependencies=[Depends(_bot_auth)])
 def bot_create_nakladnaya(payload: schemas.NakladnayaCreate, db: Session = Depends(get_db)):

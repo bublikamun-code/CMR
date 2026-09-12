@@ -4,9 +4,9 @@
 несогласованность модели доступа — сама по себе дефект, и её надо видеть
 целиком, а не находить по одному случаю.
 
-Карта проверок по коду (2026-09-11):
+Карта проверок по коду (2026-09-11, обновлено 2026-09-12 — create-tenant удалён):
   require_admin()                    auth create/update/delete user, custom_objects, webhooks
-  require_superadmin()               auth create_tenant_admin
+  require_superadmin()               (нет эндпоинтов — create-tenant удалён в Фазе 4)
   require_role(admin, superadmin)    clients DELETE, kanban cards/{id}/permanent
   role not in (admin, superadmin)    payments repair-writeoffs, tasks visibility/delete
   БЕЗ проверки роли                  payments (кроме repair), nakladnye CRUD,

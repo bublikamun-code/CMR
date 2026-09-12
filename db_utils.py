@@ -1,49 +1,55 @@
 """
 Единая логика выбора сессии БД для всех роутеров.
 
-До этого модуля каждый роутер определял собственный хелпер (_db, _get_db,
-get_scoped_session), и копии расходились: одни проверяли `is None`, другие
-`not tenant_id`, третьи вовсе возвращали свежую SessionLocal() для superadmin.
-Это приводило к хрупкой изоляции тенантов — ошибка в одной из 6 копий
-нарушала бы изоляцию, а изменение контракта требовало правок везде.
+Тенант-маршрутизация ОТКЛЮЧЕНА решением владельца 2026-09-03/2026-09-11
+(баг 17 плана): таблица tenants пуста, tenant_id всех пользователей NULL,
+/auth/create-tenant недоступен. Обе resolve-функции возвращают ОСНОВНУЮ
+сессию всем пользователям; не-NULL tenant_id (нештатная ситуация) логируется
+warning — это рабочий сигнал, что кто-то пролез мимо отключения.
 
-resolve_tenant_db — единая точка: superadmin или пользователь без tenant_id
-работают на инъектированной FastAPI-сессии (db), остальные — на tenant-сессии.
-
-Семейство D (_get_db с прямым SessionLocal()) теперь также использует
-get_tenant_db, что подключает deferred-close обёртку — это устраняет
-потенциальный DetachedInstanceError, если хендлер когда-нибудь вернёт
-ORM-объект с relationship вместо dict.
+resolve_tenant_db — точка для хендлеров с Depends(get_db);
+resolve_tenant_db_standalone — для хендлеров без Depends(get_db)
+(семейство D: webhooks/custom_objects/workflows), возвращает свежую
+SessionLocal() с deferred-close обёрткой (см. database.get_tenant_db).
 """
+import logging
+
 from database import get_tenant_db
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_tenant_db(current_user, db):
     """
-    Выбирает сессию БД в зависимости от tenant_id пользователя.
+    Возвращает инъектированную основную сессию `db` для всех пользователей.
 
-    Возвращает инъектированную `db` для superadmin или пользователя без
-    tenant_id (основная БД), либо tenant-сессию для остальных.
-
-    tenant_id = 0 невозможен (FK → tenants.id, NOT NULL), поэтому `is None`
-    и `not tenant_id` практически эквивалентны — используем `is None` как
-    более точную проверку.
+    tenant-маршрутизация отключена — tenant_id, если он вдруг появится,
+    только логируется (warning), сессия всё равно основная.
     """
-    if current_user.tenant_id is None:
-        return db
-    return get_tenant_db(current_user.tenant_id)
+    if getattr(current_user, "tenant_id", None) is not None:
+        logger.warning(
+            "resolve_tenant_db: пользователь %s имеет tenant_id=%s, "
+            "но tenant-маршрутизация отключена — используется основная БД",
+            getattr(current_user, "id", "?"), current_user.tenant_id,
+        )
+    return db
 
 
 def resolve_tenant_db_standalone(current_user):
     """
     Для хендлеров БЕЗ Depends(get_db) (семейство D: webhooks/custom_objects/workflows).
 
-    get_tenant_db(None) возвращает SessionLocal() с deferred-close обёрткой,
-    что безопаснее прямого SessionLocal() — если кто-то добавит Depends(get_db)
-    в хендлер, deferred-close заработает автоматически.
+    Возвращает свежую основную сессию с deferred-close обёрткой — если кто-то
+    добавит Depends(get_db) в хендлер, deferred-close сработает автоматически.
     """
     tid = getattr(current_user, 'tenant_id', None)
-    return get_tenant_db(tid)
+    if tid is not None:
+        logger.warning(
+            "resolve_tenant_db_standalone: пользователь %s имеет tenant_id=%s, "
+            "но tenant-маршрутизация отключена — используется основная БД",
+            getattr(current_user, "id", "?"), tid,
+        )
+    return get_tenant_db(None)
 
 
 # Н11 (аудит 06.09): предохранитель для списочных эндпоинтов без пагинации.

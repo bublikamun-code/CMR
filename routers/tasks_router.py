@@ -29,27 +29,16 @@ router = APIRouter(
 
 
 def _snapshot_title(db: Session, model, obj_id):
-    """Название сделки/клиента: ищем в основной базе, затем в tenant-базах.
+    """Название сделки/клиента: ищем в основной базе.
 
-    Сделка может жить в tenant-базе, недоступной читающему задачи, —
-    поэтому храним снимок названия в самой задаче (см. migrate_task_snapshots).
+    Снимок названия хранится в самой задаче (см. migrate_task_snapshots) —
+    lookup в основной базе — фолбэк для записей, созданных до миграции.
     """
     if not obj_id:
         return None
     obj = db.get(model, obj_id)
     if obj is not None:
         return getattr(obj, "title", None) or getattr(obj, "name", None)
-    from database import get_tenant_db
-    tenant_ids = sorted({int(r[0]) for r in db.query(models.User.tenant_id)
-                         .filter(models.User.tenant_id != None).distinct().all()})
-    for tid in tenant_ids:
-        sess = get_tenant_db(tid)
-        try:
-            obj = sess.get(model, obj_id)
-            if obj is not None:
-                return getattr(obj, "title", None) or getattr(obj, "name", None)
-        finally:
-            sess.close()
     return None
 
 
@@ -179,7 +168,7 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
     db.commit()
     db.refresh(task)
 
-    # Снимки названий сделки/клиента (могут жить в tenant-базах)
+    # Снимки названий сделки/клиента (живут в основной базе)
     if task.card_id:
         task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id)
     if task.client_id:

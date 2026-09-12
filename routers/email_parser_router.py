@@ -94,9 +94,7 @@ except Exception as e:
 import contextlib
 
 import models
-import models_tenant
-from database import get_db, get_tenant_db
-from db_utils import resolve_tenant_db as _db
+from database import get_db
 
 router = APIRouter(
     prefix="/email-parser",
@@ -313,7 +311,6 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         return {"tenant_id": tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
 
     imported_cards = []
-    tdb = get_tenant_db(tenant_id) if tenant_id else db
     mail = None
 
     try:
@@ -404,11 +401,11 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                         # Раньше сравнивалось с display-name, поэтому клиент почти не находился
                         client = None
                         if sender_email_addr:
-                            client = tdb.query(models.Client).filter(
+                            client = db.query(models.Client).filter(
                                 models.Client.email == sender_email_addr
                             ).first()
                         if not client:
-                            client = tdb.query(models.Client).filter(models.Client.email == sender).first()
+                            client = db.query(models.Client).filter(models.Client.email == sender).first()
                         client_id = client.id if client else None
 
                         # Прошлые сделки того же отправителя здесь НЕ выбираются:
@@ -436,9 +433,9 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             client_id=client_id,
                             sender_email=sender_email_addr
                         )
-                        tdb.add(new_card)
-                        tdb.commit()
-                        tdb.refresh(new_card)
+                        db.add(new_card)
+                        db.commit()
+                        db.refresh(new_card)
 
                         for att_name, att_data in attachments:
                             if att_data:
@@ -465,9 +462,9 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                     file_path=os.path.join("uploads", safe_name),
                                     card_id=new_card.id
                                 )
-                                tdb.add(attachment)
+                                db.add(attachment)
                         if attachments:
-                            tdb.commit()
+                            db.commit()
 
                         sender_line = sender
                         if sender_email_addr and sender_email_addr != sender:
@@ -479,8 +476,8 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000],
                             tenant_id=tenant_id,
                         )
-                        tdb.add(log_entry)
-                        tdb.commit()
+                        db.add(log_entry)
+                        db.commit()
 
                         imported_cards.append({
                             "id": new_card.id,
@@ -557,12 +554,6 @@ def sync_all_tenants(db: Session = Depends(get_db)):
         logger.exception("main account sync failed")
         results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
 
-    tenants = db.query(models_tenant.Tenant).all()
-    for tenant in tenants:
-        settings = load_settings(tenant.id)
-        result = _sync_tenant_emails(tenant.id, settings, db)
-        results.append(result)
-
     total_count = sum(r.get("count", 0) for r in results if r.get("success"))
     errors = [r for r in results if not r.get("success")]
 
@@ -586,49 +577,42 @@ def get_related_cards(card_id: int, db: Session = Depends(get_db), current_user:
     Тему письма намеренно НЕ используем: заявки с сайта всегда приходят
     с одинаковым заголовком, но это разные клиенты и разные сделки.
     """
-    tdb = _db(current_user, db)
-    try:
-        card = tdb.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
-        if not card.sender_email:
-            return {"card_id": card_id, "sender_email": None, "related": []}
-        rows = tdb.query(models.Card).filter(
-            models.Card.sender_email == card.sender_email,
-            models.Card.id != card_id,
-            models.Card.is_deleted == False
-        ).order_by(models.Card.id.desc()).limit(10).all()
-        return {
-            "card_id": card_id,
-            "sender_email": card.sender_email,
-            "related": [
-                {"id": c.id, "title": c.title, "status": c.status,
-                 "created_at": c.created_at.isoformat() if c.created_at else None,
-                 "total_amount": float(c.total_amount or 0)}
-                for c in rows
-            ],
-        }
-    finally:
-        if tdb is not db:
-            tdb.close()
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    if not card.sender_email:
+        return {"card_id": card_id, "sender_email": None, "related": []}
+    rows = db.query(models.Card).filter(
+        models.Card.sender_email == card.sender_email,
+        models.Card.id != card_id,
+        models.Card.is_deleted == False
+    ).order_by(models.Card.id.desc()).limit(10).all()
+    return {
+        "card_id": card_id,
+        "sender_email": card.sender_email,
+        "related": [
+            {"id": c.id, "title": c.title, "status": c.status,
+             "created_at": c.created_at.isoformat() if c.created_at else None,
+             "total_amount": float(c.total_amount or 0)}
+            for c in rows
+        ],
+    }
 
 
 @router.post("/link/{card_id}")
 def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """Переносит текст письма комментарием в целевую сделку и удаляет письмо-дубль."""
-    tdb = _db(current_user, db)
-    try:
-        src = tdb.query(models.Card).filter(models.Card.id == card_id).first()
-        dst = tdb.query(models.Card).filter(models.Card.id == payload.target_card_id).first()
-        if not src or not dst:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
+    src = db.query(models.Card).filter(models.Card.id == card_id).first()
+    dst = db.query(models.Card).filter(models.Card.id == payload.target_card_id).first()
+    if not src or not dst:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
 
         stamp = src.created_at.strftime("%d.%m.%Y %H:%M") if src.created_at else ""
         addition = f"\n\n--- Письмо от {stamp} ---\n{src.title}\n{src.description or ''}"
         dst.description = (dst.description or "") + addition
         dst.updated_at = datetime.now(timezone.utc)
 
-        tdb.add(models.ActivityLog(
+        db.add(models.ActivityLog(
             user_id=current_user.id,
             card_id=dst.id,
             action="Связано письмо",
@@ -636,8 +620,5 @@ def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = 
             tenant_id=current_user.tenant_id,
         ))
         src.is_deleted = True
-        tdb.commit()
+        db.commit()
         return {"success": True, "target_card_id": dst.id, "message": f"Письмо добавлено в сделку #{dst.id}"}
-    finally:
-        if tdb is not db:
-            tdb.close()
