@@ -29,6 +29,33 @@ def test_dead_routes_removed(client):
         assert client.get(path).status_code == 404, path
 
 
+def test_manifest_and_static_logo_served(client):
+    """index.html ссылается на manifest.json, а манифест и admin.html — на /static/logo.svg.
+
+    До Фазы 3 оба отдавали 404: StaticFiles был смонтирован только на /css и /js,
+    отдельных роутов не было. Иконка манифеста оставалась битой, установка
+    приложения как PWA не работала, логотип в шапке admin.html не грузился.
+    """
+    r = client.get("/manifest.json")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/manifest+json")
+    icon_src = r.json()["icons"][0]["src"]
+
+    logo = client.get(icon_src)
+    assert logo.status_code == 200, f"{icon_src} не отдаётся"
+    assert logo.headers["content-type"].startswith("image/svg+xml")
+
+
+def test_unhashed_assets_are_not_immutable(client):
+    """/css и /js кэшируются на год именно потому, что URL несёт хэш содержимого
+    (tools/stamp_assets.py). У /static/logo.svg хэша нет, поэтому immutable
+    там закэшировал бы файл навсегда — проверяем, что его нет."""
+    assert "immutable" in client.get("/css/style.css").headers["cache-control"]
+    assert "immutable" in client.get("/js/api.js").headers["cache-control"]
+    assert "immutable" not in client.get("/static/logo.svg").headers["cache-control"]
+    assert "immutable" not in client.get("/manifest.json").headers["cache-control"]
+
+
 def test_protected_endpoints_require_auth(client):
     """Без токена — 401/403, но не 500: 500 означал бы поломку в обработчике."""
     for path in ["/kanban/cards", "/payments/transactions", "/nakladnye",

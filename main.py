@@ -108,6 +108,13 @@ def serve_frontend():
 def serve_admin():
     return FileResponse("admin.html")
 
+@app.get("/manifest.json")
+def serve_manifest():
+    # PWA-манифест, на который ссылается index.html. Отдельный роут нужен
+    # потому, что StaticFiles смонтирован только на /css и /js — без него
+    # браузер получал 404 и установка приложения не работала.
+    return FileResponse("manifest.json", media_type="application/manifest+json")
+
 # Отдельные страницы /settings.html, /workflows.html и /custom_objects.html удалены:
 # на проде этих файлов нет и роуты отдавали HTTP 500. Настройки, воркфлоу и кастомные
 # объекты живут страницами внутри index.html (js/settings.js ходит в /custom/* напрямую).
@@ -160,3 +167,7 @@ async def add_headers(request: Request, call_next):
 
 app.mount("/css", StaticFiles(directory="css"), name="css")
 app.mount("/js", StaticFiles(directory="js"), name="js")
+# /static/logo.svg нужен manifest.json (иконка) и admin.html (логотип в шапке).
+# Без маунта оба запроса отдавали 404: роутов на отдельные файлы нет, а
+# StaticFiles был смонтирован только на /css и /js.
+app.mount("/static", StaticFiles(directory="static"), name="static")
