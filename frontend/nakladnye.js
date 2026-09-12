@@ -483,3 +483,8 @@ function exportNakladnyeCsv() {
     a.click();
     URL.revokeObjectURL(a.href);
 }
+
+// Наружный контракт модуля: inline-обработчики в index.html и вызовы
+// из features.js / page-freshness.js идут через window.
+window.NakladnyeUI = NakladnyeUI;
+window.loadNakladnyeTable = loadNakladnyeTable;
