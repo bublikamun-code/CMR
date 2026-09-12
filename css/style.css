@@ -13960,3 +13960,70 @@ textarea {
     width: 32px;
     padding: 8px 4px;
 }
+
+/* === Вкладка «Контроль» (Финансы) — Фаза 5, D3 ===
+   Bento-сводка: одна плитка = одна метрика (план 5.2), спокойная
+   нейтральная палитра; цвет несёт только смысл (просрочка в таблицах). */
+.control-bento {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.control-tile {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 16px;
+}
+
+.control-tile-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.control-tile-value {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.control-tile-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.control-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin: 0 0 8px;
+}
+
+.control-updated {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-right: auto;
+}
+
+/* Панель «Контроль» скроллится целиком: bento и две таблицы не должны
+   делить высоту панели пополам, как два flex:1-контейнера. */
+.finance-panel#page-control {
+    overflow-y: auto;
+}
+
+.finance-panel#page-control .table-container {
+    flex: 0 0 auto;
+    overflow: visible !important;
+}
+
+@media (max-width: 900px) {
+    .control-bento {
+        grid-template-columns: 1fr;
+    }
+}

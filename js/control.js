@@ -30,6 +30,15 @@ async function loadControlBoard() {
     const fmtDays = (n) => (n === null || n === undefined) ? '—' : String(n);
     const esc = (s) => escapeHtml(String(s ?? ''));
 
+    // Bento-плитка: одна плитка = одна метрика (план 5.2). Отсутствие
+    // элемента не валит загрузку — плитки опциональны в разметке.
+    const setTile = (id, value, sub) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+        const subEl = document.getElementById(id + '-sub');
+        if (subEl) subEl.textContent = sub;
+    };
+
     // --- Дебиторка: сделки из «Сборки» и «Ждет оплаты» с непогашенным
     // остатком (фидбек 2026-09-04: ранние статусы — ещё не дебиторка) ---
     const DEBTOR_STATUSES = ['Сборка', 'Ждет оплаты'];
@@ -44,8 +53,18 @@ async function loadControlBoard() {
 
     const debtBody = panel.querySelector('#control-debt-table tbody');
     const debtTotal = debtors.reduce((s, x) => s + x.debt, 0);
-    document.getElementById('control-debt-summary').textContent =
-        debtors.length ? `— ${debtors.length} сделок на ${formatMoneyBYN(debtTotal)}` : '— всё оплачено';
+    setTile('control-tile-debt', formatMoneyBYN(debtTotal),
+        debtors.length ? `${debtors.length} сделок` : 'всё оплачено');
+
+    // Просрочка дебиторки: долг 30+ дней от создания сделки — сигнал
+    // «пора взыскивать», порог совпадает с age-warn в таблице ниже.
+    const overdue = debtors.filter(x => {
+        const d = daysSince(x.c.created_at);
+        return d !== null && d >= 30;
+    });
+    setTile('control-tile-overdue',
+        overdue.length ? formatMoneyBYN(overdue.reduce((s, x) => s + x.debt, 0)) : '—',
+        overdue.length ? `${overdue.length} сделок 30+ дней` : 'нет долгов 30+ дней');
 
     debtBody.innerHTML = debtors.length ? '' :
         '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Долгов нет</td></tr>';
@@ -78,8 +97,8 @@ async function loadControlBoard() {
 
     const queueBody = panel.querySelector('#control-queue-table tbody');
     const queueTotal = queue.reduce((s, x) => s + (parseFloat(x.t.amount) || 0), 0);
-    document.getElementById('control-queue-summary').textContent =
-        queue.length ? `— ${queue.length} ТН на ${formatMoneyBYN(queueTotal)}` : '— пусто';
+    setTile('control-tile-queue', formatMoneyBYN(queueTotal),
+        queue.length ? `${queue.length} ТН` : 'пусто');
 
     queueBody.innerHTML = queue.length ? '' :
         '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">Очередь пуста — всё списано</td></tr>';

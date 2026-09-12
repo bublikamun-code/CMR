@@ -28,6 +28,7 @@
         'page-finance':    () => {
             const active = document.querySelector('.finance-panel.active');
             if (!active) return;
+            if (active.id === 'page-control')   { if (typeof loadControlBoard   === 'function') loadControlBoard(); }
             if (active.id === 'page-payments')  { if (typeof loadPaymentsTable  === 'function') loadPaymentsTable(); }
             if (active.id === 'page-writeoffs') { if (typeof loadWriteoffsBoard === 'function') loadWriteoffsBoard(); }
             if (active.id === 'page-documents') { if (typeof loadDocumentsTable === 'function') loadDocumentsTable(); }

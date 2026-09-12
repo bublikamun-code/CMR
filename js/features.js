@@ -750,15 +750,16 @@ function parseMoney(value) {
     });
 })();
 
-// === FINANCE SECTION TABS (Оплаты / Списание / Документы) ===
+// === FINANCE SECTION TABS (Контроль / Оплаты / Списание / Документы / Накладные) ===
 (function initFinanceTabs() {
     const tabsWrap = document.getElementById('finance-tabs');
     if (!tabsWrap) return;
     const tabs = tabsWrap.querySelectorAll('.settings-tab');
     const panels = document.querySelectorAll('.finance-panel');
-    const FINANCE_TABS = ['payments', 'writeoffs', 'documents', 'nakladnye'];
+    const FINANCE_TABS = ['control', 'payments', 'writeoffs', 'documents', 'nakladnye'];
 
     function loaderFor(key) {
+        if (key === 'control') return typeof loadControlBoard === 'function' ? loadControlBoard : null;
         if (key === 'payments') return typeof loadPaymentsTable === 'function' ? loadPaymentsTable : null;
         if (key === 'writeoffs') return typeof loadWriteoffsBoard === 'function' ? loadWriteoffsBoard : null;
         if (key === 'documents') return typeof loadDocumentsTable === 'function' ? loadDocumentsTable : null;
