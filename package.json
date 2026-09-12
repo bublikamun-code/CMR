@@ -1,0 +1,14 @@
+{
+  "name": "cmr-svetvdome",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

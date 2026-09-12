@@ -15,8 +15,11 @@
 #      токена → 401/403), PRAGMA foreign_key_check после серий удалений
 #   3. pytest на профиле models.py (второй профиль схемы)
 #   4. stamp_assets.py --check — кэш-бастеры соответствуют содержимому
-#   5. ruff check — закреплённый набор правил (ruff.toml)
-#   6. чистый venv: pip install -r requirements.txt + хэширование пароля
+#   5. frontend-бандл свеж (Vite-пилот): npm ci → vite build →
+#      git diff бандла; расхождение = забыли пересобрать и закоммитить
+#      js/nakladnye.bundle.js (node на сервере нет — бандл коммитим)
+#   6. ruff check — закреплённый набор правил (ruff.toml)
+#   7. чистый venv: pip install -r requirements.txt + хэширование пароля
 #      на фиксированном bcrypt (страховка Фазы 0: расфиксация bcrypt
 #      молча ломает вход)
 #
@@ -38,13 +41,18 @@ $PY -m pytest -q
 step 3/6 "pytest — профиль models.py"
 CRM_TEST_SCHEMA=models $PY -m pytest -q
 
-step 4/6 "кэш-бастеры ассетов"
+step 4/7 "кэш-бастеры ассетов"
 $PY tools/stamp_assets.py --check
 
-step 5/6 "ruff"
+step 5/7 "frontend-бандл свеж"
+npm ci --no-audit --no-fund
+npm run build
+git diff --exit-code -- js/nakladnye.bundle.js
+
+step 6/7 "ruff"
 .venv/bin/ruff check .
 
-step 6/6 "чистый venv: requirements.txt + bcrypt"
+step 7/7 "чистый venv: requirements.txt + bcrypt"
 VENV_DIR=$(mktemp -d /tmp/crm-gate-venv.XXXXXX)
 trap 'rm -rf "$VENV_DIR"' EXIT
 python3.12 -m venv "$VENV_DIR"

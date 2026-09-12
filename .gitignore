@@ -14,3 +14,4 @@ tmp/
 .cron_token
 *.bak_*
 .qwen/
+node_modules/
