@@ -770,11 +770,9 @@ a.nav-btn { text-decoration: none; }
 
 /* UI Audit (2026-08-26): таблицы не сжимаются сильнее своего min-width —
    вместо обрезания текста контейнер уходит в горизонтальный скролл.
-   UI FIX 2026-08-26: 1100/1000 вместо 1280/1160 — при фиксированных
-   ширинах колонок ниже таблицы помещаются в контейнер 1162px на 1440
-   без горизонтального скролла. */
-#payments-table { min-width: 1100px !important; }
-#documents-table { min-width: 1000px !important; }
+   D12 (аудит 12.09): правила 1100/1000 для payments/documents отсюда
+   удалены — они были мертвы (перекрыты поздними !important), реальный
+   min-width живёт в блоках 12888/12895 рядом с ширинами колонок. */
 #suppliers-table, #clients-table { min-width: 960px; }
 
 .data-table th, .data-table td {
@@ -3899,9 +3897,11 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     font-size: 13px !important;
 }
 
-/* Разрешаем перенос текста для длинных примечаний */
+/* Разрешаем перенос текста для длинных примечаний.
+   D12 (аудит 12.09): у payments «Примечание» — 10-я колонка (9-я —
+   «Печать»), перенос раньше ошибочно включался у «Печати». */
 #page-documents .data-table td:nth-child(9),
-#page-payments .data-table td:nth-child(9) {
+#page-payments .data-table td:nth-child(10) {
     white-space: normal !important;
     word-break: break-word !important;
 }
@@ -3962,7 +3962,9 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
    Примечание 92) — при развёрнутом сайдбаре (контейнер 1210px) колонка
    «Название» иначе схлопывалась до ~50px из-за Печать 190 + Оплата 150. */
 #payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 112px !important; }
-#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 150px !important; }
+/* D12: Оплата 150→124, Печать 140→112 — колонки были раздуты, из-за них
+   сумма фикс-колонок (1062px) не влезала даже в 1162px на 1440. */
+#payments-table th:nth-child(4), #payments-table td:nth-child(4) { width: 124px !important; }
 #payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 92px !important; }
 /* UI FIX 2026-08-26: чекбоксы 72px и действия 96px заданы позже блоками
    «часть 10» (11252) и «колонки действий» (11902) — здесь синхронизированы
@@ -3970,7 +3972,7 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 #payments-table th:nth-child(6), #payments-table td:nth-child(6) { width: 72px !important; }
 #payments-table th:nth-child(7), #payments-table td:nth-child(7) { width: 72px !important; }
 #payments-table th:nth-child(8), #payments-table td:nth-child(8) { width: 72px !important; }
-#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 140px !important; }
+#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 160px !important; }
 #payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 92px !important; }
 #payments-table th:nth-child(11), #payments-table td:nth-child(11) { width: 96px !important; }
 
@@ -4081,7 +4083,8 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 }
 /* Индикатор тени при горизонтальном скролле */
 #page-payments .table-container::after,
-#page-documents .table-container::after {
+#page-documents .table-container::after,
+#page-nakladnye .table-container::after {
     content: '';
     position: absolute;
     top: 0;
@@ -4094,11 +4097,13 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     transition: opacity 0.2s;
 }
 #page-payments .table-container.is-scrolled::after,
-#page-documents .table-container.is-scrolled::after {
+#page-documents .table-container.is-scrolled::after,
+#page-nakladnye .table-container.is-scrolled::after {
     opacity: 1;
 }
 #page-payments .table-container,
-#page-documents .table-container {
+#page-documents .table-container,
+#page-nakladnye .table-container {
     position: relative;
 }
 
@@ -5455,10 +5460,12 @@ tr.task-row-done .task-title-cell { text-decoration: line-through; color: var(--
 .tasks-board {
     flex: 1;
     min-height: 0;
-    display: grid;
-    /* Колонки всегда равные: базовый .kanban-column имеет max-width 400px,
+    /* D16: flex вместо grid — схлопнутая пустая колонка (узкая drop-полоска)
+       отдаёт свою ширину непустым колонкам; grid-трек пустой колонки
+       оставался дырой. */
+    display: flex;
+    /* Колонки равные: базовый .kanban-column имеет max-width 400px,
        который на широких экранах оставлял рваные дыры между колонками */
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-lg);
     width: 100%;
     max-width: 1500px;
@@ -5471,10 +5478,26 @@ tr.task-row-done .task-title-cell { text-decoration: line-through; color: var(--
 .task-column {
     width: auto;
     max-width: none;
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
+}
+/* Пустая колонка — вертикальная полоска-заголовок, drop-зона жива */
+.task-column--empty {
+    flex: 0 0 36px;
+    min-width: 36px;
+}
+.task-column--empty h3 {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 2px;
+    white-space: nowrap;
+    align-self: center;
 }
 /* Цветовые акценты колонок — в том же стиле, что на доске сделок */
 .task-column[data-status="todo"] h3 { border-left-color: #6b7280; }
@@ -5558,7 +5581,8 @@ tr.task-row-done .task-title-cell { text-decoration: line-through; color: var(--
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     margin-top: 8px; font-size: 12px;
 }
-.task-card-actions { margin-left: auto; display: inline-flex; gap: 8px; opacity: 0; transition: opacity .12s ease; }
+/* D15 (аудит 12.09): иконки правки/удаления задачи видны всегда, но тихо */
+.task-card-actions { margin-left: auto; display: inline-flex; gap: 8px; opacity: 0.55; transition: opacity .12s ease; }
 .task-card:hover .task-card-actions { opacity: 1; }
 .task-due {
     display: inline-flex; align-items: center; gap: 4px;
@@ -5655,7 +5679,10 @@ a.task-chip:hover { background: rgba(79, 124, 245, .18); }
     font-size: 13px;
 }
 @media (max-width: 900px) {
-    .tasks-board { grid-template-columns: 1fr; overflow-y: auto; }
+    .tasks-board { flex-direction: column; overflow-y: auto; }
+    /* На мобильном колонки в столбик: пустые схлопнутые колонки прячем
+       целиком — смена статуса доступна в виде «Список» (селект статуса). */
+    .task-column--empty { display: none; }
 }
 
 /* Сетка формы задачи */
@@ -12326,8 +12353,10 @@ select:focus { outline: none; border-color: var(--primary-color); box-shadow: va
 #suppliers-table th:nth-child(6), #suppliers-table td:nth-child(6) { width: 80px !important; }
 /* UI FIX 2026-08-29: колонка «Печать» — «Доверенность» обрезалась до «Дове…».
    Таблица table-layout:fixed — работает только width (перебивает 140px
-   из правила 4037), min-width в такой раскладке игнорируется. */
-#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 190px !important; }
+   из правила 4037), min-width в такой раскладке игнорируется.
+   D12 (аудит 12.09): 190→160 — «Доверенность» при 14px требует ~143px
+   вместе со стрелкой, 160 хватает; 190 съедали «Название». */
+#payments-table th:nth-child(9), #payments-table td:nth-child(9) { width: 160px !important; }
 #payments-table td:nth-child(9) .dropdown-toggle { white-space: nowrap; }
 
 /* ============================================================
@@ -12881,18 +12910,24 @@ textarea {
 #payments-table th:nth-child(1), #payments-table td:nth-child(1) { width: 104px !important; }
 #payments-table th:nth-child(3), #payments-table td:nth-child(3) { width: 132px !important; }
 #payments-table th:nth-child(5), #payments-table td:nth-child(5) { width: 112px !important; }
-#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 112px !important; }
+/* D12: Примечание 112→100 — переносу ничего не мешает (см. правило 3903). */
+#payments-table th:nth-child(10), #payments-table td:nth-child(10) { width: 100px !important; }
 /* липкая «Название» едет за новой шириной даты */
 #payments-table td:nth-child(2), #payments-table th:nth-child(2),
 #documents-table td:nth-child(2), #documents-table th:nth-child(2) { left: 104px; }
-#page-payments .data-table { min-width: 1240px !important; }
+/* D12: фикс-колонки ужаты (Оплата 124, Печать 160, Примечание 100),
+   min-width 1240→1150: на 1440 таблица входит без скролла («Название» ~118px),
+   на 1280 — честный скролл со sticky «Название» ~106px и тенью (11 читаемых
+   колонок в 993px контейнера не помещаются физически). */
+#page-payments .data-table { min-width: 1150px !important; }
 
 /* --- Документы: те же болезни (дата/сумма/магазин). --- */
 #documents-table th:nth-child(1), #documents-table td:nth-child(1) { width: 104px !important; }
-#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 132px !important; }
-#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 132px !important; }
+#documents-table th:nth-child(3), #documents-table td:nth-child(3) { width: 120px !important; }
+#documents-table th:nth-child(4), #documents-table td:nth-child(4) { width: 120px !important; }
 #documents-table th:nth-child(5), #documents-table td:nth-child(5) { width: 112px !important; }
-#page-documents .data-table { min-width: 1120px !important; }
+/* D12: Сумма и № ТН 132→120, min-width 1120→1060 — на 1440 без скролла. */
+#page-documents .data-table { min-width: 1060px !important; }
 
 /* --- Канбан: шапка колонки переносит сумму на вторую строку,
        если не влезает, вместо «17 из 12331 273,95 …». --- */
@@ -13595,17 +13630,21 @@ textarea {
     grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
 }
 
-/* Фидбек 2026-09-06: кнопки действий на плитках «Списания» (Выписать
-   накладную / Списать / Прикрепить сделку) появляются при наведении или
-   фокусе с клавиатуры — как панель переноса на канбане. Место под кнопки
-   зарезервировано (opacity, а не display), поэтому высота плиток не прыгает;
-   на тач-устройствах (hover: none) кнопки видны всегда. */
+/* D15 (аудит 12.09): кнопки действий на плитках «Списания» (Выписать
+   накладную / Списать / Прикрепить сделку) видны всегда, но тихо —
+   как крестик удаления плитки; полная непрозрачность при наведении,
+   фокусе с клавиатуры и на тач-устройствах. Место под кнопки
+   зарезервировано (opacity, а не display) — высота плиток не прыгает. */
+/* D15 (аудит 12.09): кнопки действий видны всегда, но тихо (0.6), полная
+   непрозрачность — при наведении/фокусе; на тач-устройствах (hover: none)
+   кнопки всегда полные. Место под кнопки зарезервировано (opacity, а не
+   display), поэтому высота плиток не прыгает. */
 .writeoff-tile-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 8px;
-    opacity: 0;
+    opacity: 0.6;
     transition: opacity 0.15s;
 }
 .writeoff-card:hover .writeoff-tile-actions,
@@ -13903,21 +13942,20 @@ textarea {
     white-space: nowrap;
 }
 
-/* === Накладные: компактный тулбар + выравнивание таблицы === */
+/* === Накладные: тулбар + выравнивание таблицы === */
+/* D14 (UX-аудит): пилюли фильтров обрезались («Все мага…») — тулбар
+   переносится на вторую строку вместо сжатия селектов ниже контента. */
 #page-nakladnye .panel-toolbar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    flex-wrap: wrap;
     gap: 8px;
 }
-#page-nakladnye .panel-toolbar .filter-select,
-#page-nakladnye .panel-toolbar .select-dd-wrap {
-    min-width: 0;
-    flex-shrink: 1;
-    max-width: 150px;
+#page-nakladnye .panel-toolbar .filter-select {
+    flex-shrink: 0;
+    max-width: none;
 }
 #page-nakladnye .panel-toolbar .search-input {
-    min-width: 120px;
-    flex-shrink: 2;
+    min-width: 140px;
+    flex: 1 1 160px;
 }
 #page-nakladnye .panel-toolbar .btn-export,
 #page-nakladnye .panel-toolbar .btn-primary {
@@ -13931,15 +13969,25 @@ textarea {
 }
 #nakladnye-table th {
     font-size: 11px;
-    padding: 8px 6px;
+    /* !important нужен: общие .data-table th/td задают 12px !important
+       (7875/7882) — без него 14 колонок не укладываются и появляется
+       горизонтальный скролл (D13). */
+    padding: 8px 4px !important;
     text-align: center;
     letter-spacing: 0.3px;
     white-space: nowrap;
 }
 #nakladnye-table td {
-    padding: 6px 6px;
+    padding: 6px 4px !important;
     text-align: center;
     vertical-align: middle;
+}
+/* D13 (UX-аудит): дата и суммы не должны рваться по разрядам
+   («823,0 2 BYN») — auto-layout с word-break сжимал колонки ниже контента. */
+#nakladnye-table td:nth-child(1),
+#nakladnye-table td:nth-child(5),
+#nakladnye-table td:nth-child(6) {
+    white-space: nowrap;
 }
 #nakladnye-table td:nth-child(2) {
     text-align: left;
@@ -13959,4 +14007,80 @@ textarea {
 #nakladnye-table .cb-col {
     width: 32px;
     padding: 8px 4px;
+}
+
+/* === Вкладка «Контроль» (Финансы) — Фаза 5, D3 ===
+   Bento-сводка: одна плитка = одна метрика (план 5.2), спокойная
+   нейтральная палитра; цвет несёт только смысл (просрочка в таблицах). */
+.control-bento {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.control-tile {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 16px;
+}
+
+.control-tile-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.control-tile-value {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.control-tile-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.control-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin: 0 0 8px;
+}
+
+.control-updated {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-right: auto;
+}
+
+/* Панель «Контроль» скроллится целиком: bento и две таблицы не должны
+   делить высоту панели пополам, как два flex:1-контейнера. */
+.finance-panel#page-control {
+    overflow-y: auto;
+}
+
+.finance-panel#page-control .table-container {
+    flex: 0 0 auto;
+    overflow: visible !important;
+}
+
+@media (max-width: 900px) {
+    .control-bento {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* === D4 (аудит 12.09): чипы фильтра оплаты над канбаном ===
+   Стиль чипов — тот же .settings-tab, что у статусов в «Задачах». */
+#kanban-pay-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 0 0 12px;
 }

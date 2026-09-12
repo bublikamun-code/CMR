@@ -472,6 +472,20 @@ function bindTableSearch(inputId, tableId, delay = 200, onSearch = null) {
 }
 
 /**
+ * Строки набора данных, оставшиеся видимыми после DOM-фильтрации
+ * filterTableRows (тот же предикат «tr с data-id и display != none», что
+ * у экспорта CSV). Для футера: итоги должны считать то, что человек
+ * видит на экране, а не весь месяц (UX-аудит D7).
+ */
+function getVisibleTableRows(rows, tableId) {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(t => {
+        const tr = document.querySelector(`#${tableId} tbody tr[data-id="${t.id}"]`);
+        return tr && tr.style.display !== 'none';
+    });
+}
+
+/**
  * Обновить счётчик «Найдено: N» рядом с полем поиска.
  *
  * @param {string} inputId  id поля поиска (ожидается span с id "{inputId}-count")
@@ -565,6 +579,13 @@ function setupTableScrollShadow(pageId) {
     const update = () => container.classList.toggle('is-scrolled', container.scrollLeft + container.clientWidth < container.scrollWidth - 1);
     container.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
+    // Панель при инициализации скрыта (вкладка Финансов): размеры 0×0 и
+    // первый update() ложно пишет «всё видно». При показе вкладки размеры
+    // меняются — ResizeObserver перезамеряет (аудит 12.09: тень не
+    // появлялась ни у одной таблицы).
+    if (typeof ResizeObserver === 'function') {
+        new ResizeObserver(update).observe(container);
+    }
     update();
 }
 
@@ -750,15 +771,16 @@ function parseMoney(value) {
     });
 })();
 
-// === FINANCE SECTION TABS (Оплаты / Списание / Документы) ===
+// === FINANCE SECTION TABS (Контроль / Оплаты / Списание / Документы / Накладные) ===
 (function initFinanceTabs() {
     const tabsWrap = document.getElementById('finance-tabs');
     if (!tabsWrap) return;
     const tabs = tabsWrap.querySelectorAll('.settings-tab');
     const panels = document.querySelectorAll('.finance-panel');
-    const FINANCE_TABS = ['payments', 'writeoffs', 'documents', 'nakladnye'];
+    const FINANCE_TABS = ['control', 'payments', 'writeoffs', 'documents', 'nakladnye'];
 
     function loaderFor(key) {
+        if (key === 'control') return typeof loadControlBoard === 'function' ? loadControlBoard : null;
         if (key === 'payments') return typeof loadPaymentsTable === 'function' ? loadPaymentsTable : null;
         if (key === 'writeoffs') return typeof loadWriteoffsBoard === 'function' ? loadWriteoffsBoard : null;
         if (key === 'documents') return typeof loadDocumentsTable === 'function' ? loadDocumentsTable : null;

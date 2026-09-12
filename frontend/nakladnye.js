@@ -236,7 +236,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderNakladnye();
     });
 
-    bindTableSearch('nakladnye-search', 'nakladnye-table');
+    // D7 (UX-аудит): итоги футера пересчитываются по видимым строкам поиска.
+    bindTableSearch('nakladnye-search', 'nakladnye-table', 200, (value) => {
+        filterTableRows('nakladnye-table', value);
+        updateNakladnyeTotals(getVisibleTableRows(currentNakladnye, 'nakladnye-table'));
+    });
 
     document.getElementById('nak-save-btn')?.addEventListener('click', () => NakladnyeUI.save());
 
@@ -417,7 +421,20 @@ function renderNakladnye() {
     });
 
     const search = document.getElementById('nakladnye-search');
-    if (search && search.value) filterTableRows('nakladnye-table', search.value);
+    if (search && search.value) {
+        filterTableRows('nakladnye-table', search.value);
+        updateNakladnyeTotals(getVisibleTableRows(currentNakladnye, 'nakladnye-table'));
+    }
+}
+
+const CB_FLAG_LABELS = { is_verified: '«Проверена»', is_arrived: '«Пришла»', is_paid: '«Оплачена»' };
+
+function _cascadeConfirmMessage(updateData) {
+    const changes = ['is_arrived', 'is_verified', 'is_paid']
+        .filter(f => updateData[f] !== undefined)
+        .map(f => `${CB_FLAG_LABELS[f]} — ${updateData[f] ? 'отметить' : 'снять'}`);
+    if (updateData.status) changes.push(`статус — «${NAK_STATUS_LABELS[updateData.status] || updateData.status}»`);
+    return `Одно нажатие меняет сразу несколько полей: ${changes.join(', ')}. Сохранить?`;
 }
 
 async function _updateCb(cb) {
@@ -437,6 +454,19 @@ async function _updateCb(cb) {
     // Uncheck cascade: сняли проверена → снять пришла и оплачена
     if (field === 'is_verified' && !value) { updateData.is_arrived = false; updateData.is_paid = false; updateData.status = 'new'; }
     if (field === 'is_arrived' && !value) { updateData.is_paid = false; updateData.status = updateData.is_verified ? 'verified' : 'new'; }
+
+    // UX-аудит D2: каскад одним кликом переключает до 4 полей без пути назад —
+    // такие изменения подтверждаем с явным перечислением последствий.
+    // Простой флаг без каскада (например, снять «Оплачена») подтверждения не требует.
+    const cascades = ['is_arrived', 'is_verified', 'is_paid'].some(f => f !== field && updateData[f] !== undefined);
+    if (cascades) {
+        const ok = await confirmDialog(_cascadeConfirmMessage(updateData), {
+            okText: 'Сохранить',
+            cancelText: 'Отмена',
+            danger: false,
+        });
+        if (!ok) { cb.checked = !value; return; }
+    }
 
     try {
         await apiFetch(`/nakladnye/${id}`, { method: 'PATCH', body: JSON.stringify(updateData) });

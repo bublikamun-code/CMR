@@ -54,7 +54,12 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPayments();
     });
 
-    bindTableSearch('payments-search', 'payments-table');
+    // D7 (UX-аудит): итоги футера пересчитываются по видимым строкам,
+    // а не по всему месяцу — как экспорт (тот же предикат видимости).
+    bindTableSearch('payments-search', 'payments-table', 200, (value) => {
+        filterTableRows('payments-table', value);
+        updatePaymentsTotals(getVisibleTableRows(currentPayments, 'payments-table'));
+    });
 
     const exportBtn = document.getElementById('payments-export');
     // Фикс аудита 10.09: экспорт выгружал все строки месяца, игнорируя
@@ -294,7 +299,10 @@ function renderPayments() {
         setupPaymentsAutoSave();
 
         const search = document.getElementById('payments-search');
-        if (search && search.value) filterTableRows('payments-table', search.value);
+        if (search && search.value) {
+            filterTableRows('payments-table', search.value);
+            updatePaymentsTotals(getVisibleTableRows(currentPayments, 'payments-table'));
+        }
 
         if (typeof window.revealRefresh === 'function') window.revealRefresh();
     } catch (err) {
