@@ -5,12 +5,13 @@
 
 ## Текущее состояние
 
-- Ветка: `main` = `836fd12`. `fix/phase2-logic` слита fast-forward и запушена
-  2026-09-12; обе указывают на один коммит.
+- Ветка: `fix/phase3-deploy` = `0b4937c` (линтер-автофиксы `a290e65` +
+  пакет деплоя `0b4937c`). `main` = `836fd12` (Фазы 0–2).
 - `origin/main` содержит Фазу 0 (синхронизация с продом), Фазу 1 (тесты)
   и Фазу 2 (все 14 дефектов)
 - **Фаза 2 закрыта полностью: все 14 дефектов починены** (чек-лист ниже)
-- Тесты: `.venv/bin/python -m pytest -q` → **257 passed** (на 2026-09-12)
+- Тесты: `.venv/bin/python -m pytest -q` → **259 passed** (на 2026-09-12,
+  включая забытый тест `test_notifications_utc.py`, влитый в `a290e65`)
   Второй профиль: `CRM_TEST_SCHEMA=models .venv/bin/python -m pytest -q`
   → **253 passed, 4 skipped**
 - Линтер: конфиг закреплён в `ruff.toml` (до Фазы 3 его не было ни на одном
@@ -203,22 +204,33 @@ DDL уронят прогон.
 
 ### Осталось в Фазе 3
 
-1. Переписать `scripts/deploy.sh`: preflight (ssh, `.pm2.env`, `.venv/bin/python`,
-   `pm2 ls`, `/health`) → бэкап `scripts/backup_crm.sh` → штамповка ассетов и гейт
-   `stamp_assets.py --check` → `rsync` с явными exclude и БЕЗ `--delete`
-   (или с protect-списком) → `pip install` только если менялся `requirements.txt` →
-   **миграции с `CRM_DATA_DIR=/var/www/h212005/data/crm_data` через `.venv/bin/python`
-   и строго ДО рестарта** → `pm2 restart crm nakladnye-bot --update-env` + `pm2 save` →
-   health-check (`/health`, `/api/version`, три `.html`-роута 500→404, хвост
-   `crm-error.log`, дымовой `/nakladnye`). Без `|| true` на критичных шагах,
-   без интерактивного `read -p`, без git-шагов.
-2. Добавить `nakladnye-bot` в `ecosystem.config.js` (иначе resurrect после ребута
-   поднимет только `crm`).
-3. Убрать `scripts/restart_crm.sh` и привести документацию к одному механизму (pm2):
-   `HANDOFF.md` сейчас противоречит и `ecosystem.config.js`, и фактам.
-4. Бамп `version.py`, чтобы `/api/version` отличал новый процесс от старого.
-5. Смоук на проде: `curl` каждого ассета из HTML, сверка `?v=` с фактическим sha1
-   файла на сервере (или `stamp_assets.py --check` на сервере через `.venv/bin/python`).
+1. ✅ `scripts/deploy.sh` переписан (`0b4937c`): preflight → бэкап → штамповка +
+   гейт → rsync без `--delete` с protect-исключениями → pip install только при
+   смене `requirements.txt` → миграции с `CRM_DATA_DIR` через `.venv/bin/python`
+   СТРОГО до рестарта + `foreign_key_check` → `pm2 restart crm --update-env`,
+   `pm2 restart nakladnye-bot` (**без** `--update-env` — токенов бота нет
+   в `.pm2.env`) + `pm2 save` → health-check (`/health`, сверка `/api/version`
+   с версией деплоя, три `.html`-сироты 500→404, дымовой `/nakladnye`,
+   `stamp_assets.py --check` на сервере, хвост `crm-error.log`). Без `|| true`
+   на критичных шагах, без `read -p`, без git-шагов.
+2. ✅ `nakladnye-bot` добавлен в `ecosystem.config.js` (`0b4937c`) — зеркало
+   фактического процесса (script `telegram_nakladnye_bot.py`, тот же
+   interpreter/cwd); resurrect и watchdog-фолбэк теперь поднимут оба.
+3. ✅ `scripts/restart_crm.sh` удалён, `HANDOFF.md` приведён к pm2 (`0b4937c`).
+4. ✅ `version.py` → `2.2.0` / `20260912` (`0b4937c`) — `/api/version` станет
+   маркером успешности деплоя.
+5. **Осталось: запуск `bash scripts/deploy.sh`** — единственное, что меняет
+   прод. Прогонит миграцию `0005` (сама проверит дубли и упадёт, ничего не
+   удаляя, если найдёт), перезапустит оба приложения. После него — смоук:
+   `curl` каждого ассета из HTML / `stamp_assets.py --check` на сервере
+   (шаг 7 скрипта уже делает это сам).
+
+**Новый факт инспекции 2026-09-12 (важен для всех будущих рестартов):**
+`.pm2.env` содержит ТОЛЬКО `CRM_DATA_DIR`, `CRM_SECRET_KEY`, `CRM_UPLOADS_DIR`,
+`PORT`. Токены `nakladnye-bot` (`TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`)
+живут исключительно в env процесса, которым его стартовали (pm2 хранит их
+в дампе). Поэтому: рестарт бота — только `pm2 restart nakladnye-bot` без
+`--update-env`; `pm2 save` после любых изменений состава процессов.
 
 
 
