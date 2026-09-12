@@ -39,7 +39,8 @@ def _tree(tmp_path: Path, *, files: dict[str, str], pages: dict[str, str]) -> Pa
 
 
 def _sha1_10(text: str) -> str:
-    return hashlib.sha1(text.encode()).hexdigest()[:10]
+    # usedforsecurity=False — как в tools/stamp_assets.py: метка версии, не защита
+    return hashlib.sha1(text.encode(), usedforsecurity=False).hexdigest()[:10]
 
 
 # --- хэш -------------------------------------------------------------------

@@ -275,7 +275,9 @@ def update_settings(data: EmailSettingsSchema, current_user: models.User = Depen
         raise HTTPException(status_code=400, detail="IMAP-сервер не указан")
     if not data.email.strip():
         raise HTTPException(status_code=400, detail="Электронная почта не указана")
-    new_password_provided = data.password and data.password != "********"
+    # "********" — не секрет, а маска: UI присылает её вместо пароля, который
+    # не меняли, чтобы не передавать настоящий пароль туда-обратно.
+    new_password_provided = data.password and data.password != "********"  # noqa: S105
     if not new_password_provided and not settings.get("password"):
         raise HTTPException(status_code=400, detail="Пароль не указан: введите пароль почтового ящика")
     settings["email"] = data.email
@@ -432,7 +434,13 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
 
                         for att_name, att_data in attachments:
                             if att_data:
-                                safe_name = hashlib.md5(f"{new_card.id}_{att_name}".encode()).hexdigest()[:8] + "_" + re.sub(r'[^a-zA-Z0-9._-]', '_', att_name)
+                                # md5 не для защиты, а чтобы коротко и стабильно
+                                # различать одноимённые вложения разных карточек.
+                                digest = hashlib.md5(
+                                    f"{new_card.id}_{att_name}".encode(),
+                                    usedforsecurity=False,
+                                ).hexdigest()[:8]
+                                safe_name = digest + "_" + re.sub(r'[^a-zA-Z0-9._-]', '_', att_name)
                                 att_path = os.path.join(UPLOAD_DIR, safe_name)
                                 # Имя вложения приходит из внешнего письма —
                                 # сохраняем строго внутри UPLOAD_DIR.

@@ -45,8 +45,14 @@ V_RE = re.compile(r'\?v=([^"]*)')
 
 
 def hash_file(path: Path) -> str:
-    """Первые HASH_LEN символов sha1 содержимого — контракт из main.py."""
-    return hashlib.sha1(path.read_bytes()).hexdigest()[:HASH_LEN]
+    """Первые HASH_LEN символов sha1 содержимого — контракт из main.py.
+
+    `usedforsecurity=False`: хэш здесь метка версии для кэш-бастинга, а не
+    средство защиты. Флаг обязателен — без него hashlib отказывается создавать
+    sha1 на сборках Python с FIPS-политикой, хотя криптографической роли
+    алгоритм здесь не играет.
+    """
+    return hashlib.sha1(path.read_bytes(), usedforsecurity=False).hexdigest()[:HASH_LEN]
 
 
 def collect_hashes(root: Path) -> dict[str, str]:

@@ -27,7 +27,9 @@ def human_size(size_bytes):
 def count_rows(conn, table):
     try:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM {table}")
+        # S608 подавлен: имя таблицы приходит из литералов этого скрипта
+        # ("cards", "clients", "users"), внешних аргументов скрипт не принимает.
+        cur.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
         return cur.fetchone()[0]
     except sqlite3.OperationalError:
         return None

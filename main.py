@@ -7,7 +7,10 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 import models
-import models_tenant
+# Импорт ради побочного эффекта: Tenant объявлен на том же Base, поэтому модуль
+# обязан быть импортирован ДО create_all ниже — иначе таблица tenants не
+# создастся. Тот же приём с пояснением есть в tests/conftest.py.
+import models_tenant  # noqa: F401
 from database import engine
 from limiter_config import limiter
 from version import __version__, __build__
