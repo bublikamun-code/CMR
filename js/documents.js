@@ -12,7 +12,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderDocuments();
     });
 
-    bindTableSearch('documents-search', 'documents-table');
+    // D7 (UX-аудит): итоги футера — по видимым строкам, как в реестре оплат.
+    bindTableSearch('documents-search', 'documents-table', 200, (value) => {
+        filterTableRows('documents-table', value);
+        updateDocumentsTotals(getVisibleTableRows(currentDocuments, 'documents-table'));
+    });
 
     const exportBtn = document.getElementById('documents-export');
     // Фикс аудита 10.09: экспорт уважает поле поиска — как в реестре оплат.
@@ -262,7 +266,10 @@ function renderDocuments() {
     setupDocumentsAutoSave();
 
     const search = document.getElementById('documents-search');
-    if (search && search.value) filterTableRows('documents-table', search.value);
+    if (search && search.value) {
+        filterTableRows('documents-table', search.value);
+        updateDocumentsTotals(getVisibleTableRows(currentDocuments, 'documents-table'));
+    }
 }
 
 function updateDocumentsTotals(transactions) {

@@ -472,6 +472,20 @@ function bindTableSearch(inputId, tableId, delay = 200, onSearch = null) {
 }
 
 /**
+ * Строки набора данных, оставшиеся видимыми после DOM-фильтрации
+ * filterTableRows (тот же предикат «tr с data-id и display != none», что
+ * у экспорта CSV). Для футера: итоги должны считать то, что человек
+ * видит на экране, а не весь месяц (UX-аудит D7).
+ */
+function getVisibleTableRows(rows, tableId) {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter(t => {
+        const tr = document.querySelector(`#${tableId} tbody tr[data-id="${t.id}"]`);
+        return tr && tr.style.display !== 'none';
+    });
+}
+
+/**
  * Обновить счётчик «Найдено: N» рядом с полем поиска.
  *
  * @param {string} inputId  id поля поиска (ожидается span с id "{inputId}-count")

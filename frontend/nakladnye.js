@@ -236,7 +236,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderNakladnye();
     });
 
-    bindTableSearch('nakladnye-search', 'nakladnye-table');
+    // D7 (UX-аудит): итоги футера пересчитываются по видимым строкам поиска.
+    bindTableSearch('nakladnye-search', 'nakladnye-table', 200, (value) => {
+        filterTableRows('nakladnye-table', value);
+        updateNakladnyeTotals(getVisibleTableRows(currentNakladnye, 'nakladnye-table'));
+    });
 
     document.getElementById('nak-save-btn')?.addEventListener('click', () => NakladnyeUI.save());
 
@@ -417,7 +421,10 @@ function renderNakladnye() {
     });
 
     const search = document.getElementById('nakladnye-search');
-    if (search && search.value) filterTableRows('nakladnye-table', search.value);
+    if (search && search.value) {
+        filterTableRows('nakladnye-table', search.value);
+        updateNakladnyeTotals(getVisibleTableRows(currentNakladnye, 'nakladnye-table'));
+    }
 }
 
 const CB_FLAG_LABELS = { is_verified: '«Проверена»', is_arrived: '«Пришла»', is_paid: '«Оплачена»' };
