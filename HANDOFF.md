@@ -7,23 +7,30 @@
 Локальный репозиторий: /Users/yaroslav/cmr-svetvdome — источник правды.
 Ветка main, remote: git@github.com:bublikamun-code/CMR.git (пуш по SSH).
 
-ПРОД (проверено 2026-09-03)
+ПРОД (проверено 2026-09-12)
 - SSH: ssh -i ~/.ssh/crm_svetvdome_deploy -o IdentitiesOnly=yes h212005@87.232.64.12
 - Код (веб-корень): /var/www/h212005/data/www/cmr-svetvdome.online
-  ВАЖНО: git-репозитория на проде НЕТ — деплой только scp/rsync файлами.
+  ВАЖНО: git-репозитория на проде НЕТ — деплой только rsync (scripts/deploy.sh).
 - Данные: /var/www/h212005/data/crm_data/ — crm_app.db (WAL), uploads/,
   email_settings.json, .email_secret_key, .cron_token (права 600).
-- Процесс: server.py через nohup (pm2 на хостинге нет), порт 20008,
-  родитель + 2 uvicorn-воркера. Лог: $APP/logs/crm.log (без меток времени
-  у uvicorn-строк — сверять с последним «Starting CRM»).
+- Процессы: pm2 (пользовательский, через nvm), два приложения —
+  crm (server.py, порт 20008, 2 uvicorn-воркера) и nakladnye-bot
+  (telegram_nakladnye_bot.py). Описание: ecosystem.config.js.
+  Логи: pm2 logs crm / $APP/logs/crm-error.log.
 - URL: http://87-232-64-12.nip.io/
-- Рестарт ТОЛЬКО: bash scripts/restart_crm.sh — ждёт освобождения порта
-  до 20 с (воркеры отпускают сокет до ~10 с; иначе «Address already in use»
-  и сайт остаётся лежать).
+- Деплой: bash scripts/deploy.sh (локально; сам делает бэкап, rsync,
+  миграции ДО рестарта, рестарт обоих приложений и health-check).
+- Ручной рестарт: «pm2 restart crm --update-env» и «pm2 restart nakladnye-bot»
+  (БЕЗ --update-env — токены бота есть только в env процесса, см. шапку
+  ecosystem.config.js), затем «pm2 save». Автозапуска pm2 на уровне ОС нет:
+  после ребута процессы возвращает cron */5 → scripts/watchdog_crm.sh
+  (pm2 resurrect; заодно дёргает почтовый sync-all каждые 5 минут).
 
 ЖЁСТКИЕ ПРАВИЛА
-- Все правки: локально → коммит → пуш → scp на сервер → restart_crm.sh,
-  если трогал backend. Никогда не редактировать файлы напрямую на сервере.
+- Все правки: локально → коммит → пуш → bash scripts/deploy.sh.
+  Никогда не редактировать файлы напрямую на сервере.
+- На прод — только чтение (rsync, sqlite3 .backup, SELECT, curl /health)
+  и сам scripts/deploy.sh. Никаких иных перезапусков и правок на сервере.
 - Миграции данных: предбэкап (sqlite3 .backup + integrity_check, НЕ cp —
   WAL) → прогон SQL на копии локально → проде → PRAGMA foreign_key_check.
 - Скрипты на проде запускать с CRM_DATA_DIR=/var/www/h212005/data/crm_data,
@@ -36,8 +43,9 @@ tools/visual-check/ (playwright-core + системный Chrome): walk.mjs, aud
 probe.mjs; тестовый логин в .env (права 600); скриншоты в shots/.
 Пользователь работает в браузере с масштабом 75% → проверять ширины
 1920 (≈75% на мониторе 1440), 1440, 1280, 1024 + тёмную тему.
-Кэш-бастер: ?v=<первые 10 символов md5 файла> — обновлять во всех пяти
-страницах (index/admin/settings/workflows/custom_objects.html) при правке css/js.
+Кэш-бастер: ?v=<первые 10 символов sha1 файла> — пересчитывает
+tools/stamp_assets.py (запускается в deploy.sh автоматически, гейт --check);
+страниц две: index.html и admin.html.
 
 АКТУАЛЬНАЯ АРХИТЕКТУРА (решения 2026-09-03)
 - Одна БД. Tenant-БД ОТКЛЮЧЕНЫ ПОЛНОСТЬЮ: resolve_tenant_db /
@@ -64,7 +72,8 @@ probe.mjs; тестовый логин в .env (права 600); скриншо�
 дедупликация record_versions (ренумерация + индекс); отключение tenant-роутинга
 (уведомления, импорт почты в основную БД); устранение FK-нарушений (юзер 7);
 IMAP-синк в фоне; foreign_keys=ON в tenant-движке; email_settings.json → 600;
-restart_crm.sh с ожиданием порта; ежедневный бэкап (основная БД + tenant-архивы
+restart_crm.sh удалён как опасный (гонка за порт с pm2) — единственный
+механизм рестарта pm2 (см. «ПРОД»); ежедневный бэкап (основная БД + tenant-архивы
 + uploads + секреты, ротация 14, ~/backups, крон ~03:00).
 
 ПОДВОДНЫЕ КАМНИ
