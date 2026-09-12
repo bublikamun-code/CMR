@@ -11,7 +11,6 @@ import hmac
 import logging
 import urllib.request
 import urllib.error
-import ssl
 import socket
 import ipaddress
 
@@ -212,7 +211,8 @@ def test_webhook(wh_id: int, current_user=Depends(get_current_user)):
 
         try:
             _assert_public_host(h.url)
-            ctx = ssl.create_default_context()
+            # SSL-контекст вручную не создаём: _open_webhook открывает запрос
+            # через urllib, а его HTTPSHandler по умолчанию проверяет сертификаты.
             data = json.dumps(payload).encode()
             req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
             resp = _open_webhook(req)
@@ -276,7 +276,6 @@ async def notify_webhooks(tenant_id, event, data):
 
             try:
                 _assert_public_host(h.url)
-                ctx = ssl.create_default_context()
                 payload_bytes = json.dumps(payload).encode()
                 req = urllib.request.Request(h.url, data=payload_bytes, headers=headers, method='POST')
                 _open_webhook(req)

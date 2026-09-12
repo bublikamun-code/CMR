@@ -184,7 +184,6 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
     """
     tdb = _db(current_user, db)
     try:
-        session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.is_document == False)
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
@@ -287,7 +286,6 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
                   response: Response = None):
     tdb = _db(current_user, db)
     try:
-        session = tdb
         query = tdb.query(models.Transaction).filter(models.Transaction.is_document == True)
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.date.desc()

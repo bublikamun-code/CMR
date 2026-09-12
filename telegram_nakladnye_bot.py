@@ -521,7 +521,6 @@ async def ocr_photos_batch(images_bytes: list):
         return None
 
     import base64
-    import asyncio
 
     content = [{"type": "text", "text": f"Распознай все накладные на этих {len(images_bytes)} фото."}]
     for i, img_bytes in enumerate(images_bytes):
@@ -530,8 +529,10 @@ async def ocr_photos_batch(images_bytes: list):
         content.append({"type": "text", "text": f"--- Фото {i} ---"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
 
-    import asyncio
-    loop = asyncio.get_event_loop()
+    # asyncio импортирован на уровне модуля. get_running_loop вместо
+    # get_event_loop: мы внутри coroutine, а get_event_loop в Python 3.12
+    # выдаёт DeprecationWarning и в следующих версиях перестанет работать.
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, _ocr_call, OCR_MODEL, content)
 
     if not result:

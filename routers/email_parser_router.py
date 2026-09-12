@@ -398,13 +398,11 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             client = tdb.query(models.Client).filter(models.Client.email == sender).first()
                         client_id = client.id if client else None
 
-                        # Прошлые сделки того же отправителя — для предложения связать
-                        related = []
-                        if sender_email_addr:
-                            related = tdb.query(models.Card).filter(
-                                models.Card.sender_email == sender_email_addr,
-                                models.Card.is_deleted == False
-                            ).order_by(models.Card.id.desc()).limit(5).all()
+                        # Прошлые сделки того же отправителя здесь НЕ выбираются:
+                        # их отдаёт GET /email-parser/related/{card_id}, а карточка
+                        # рисует блоком renderRelatedCards. Прежний запрос
+                        # выполнялся на каждое импортированное письмо, а результат
+                        # выбрасывался — переменная related не читалась.
 
                         # Description (поле заметки) не заполняем: отправитель
                         # хранится в sender_email и в записи ленты, текст письма —
@@ -518,8 +516,8 @@ def sync_emails(request: Request, db: Session = Depends(get_db), current_user: m
     settings = load_settings(tenant_id)
     email_addr = settings.get("email")
     password = _get_smtp_password(settings)
-    imap_server = settings.get("imap_server")
-    target_status = settings.get("target_status", "Новый запрос")
+    # imap_server и target_status читает сам _sync_tenant_emails; здесь они
+    # оставались со времён до выделения этой функции и не использовались.
 
     if not email_addr or not password:
         raise HTTPException(status_code=400, detail="Настройки почты не заполнены")

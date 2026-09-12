@@ -3,7 +3,9 @@ import re
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -173,11 +175,9 @@ def list_nakladnye(
 ):
     tdb = _db(current_user, db)
     try:
-        session = tdb
+        # resolve_tenant_db уже выбирает основную БД для пользователя без
+        # tenant_id — отдельная проверка роли была мёртвым кодом.
         query = tdb.query(models.Nakladnaya)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Nakladnaya)
 
         if store:
             query = query.filter(models.Nakladnaya.store == store)
@@ -222,9 +222,10 @@ def create_nakladnaya(
 ):
     tdb = _db(current_user, db)
     try:
+        # resolve_tenant_db уже возвращает основную БД для пользователя без
+        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
+        # мёртвым кодом — tdb в ней и есть db.
         session = tdb
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
 
         data = payload.model_dump(exclude_unset=True)
         if payload.supplier_id and not data.get("supplier_name"):
@@ -258,11 +259,11 @@ def update_nakladnaya(
 ):
     tdb = _db(current_user, db)
     try:
+        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
+        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
+        # мёртвым кодом — tdb в ней и есть db.
         session = tdb
-        query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        query = session.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
 
         nak = query.first()
         if not nak:
@@ -303,11 +304,11 @@ def delete_nakladnaya(
 ):
     tdb = _db(current_user, db)
     try:
+        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
+        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
+        # мёртвым кодом — tdb в ней и есть db.
         session = tdb
-        query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        query = session.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
 
         nak = query.first()
         if not nak:
@@ -339,11 +340,11 @@ async def upload_nakladnaya_photo(
 ):
     tdb = _db(current_user, db)
     try:
+        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
+        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
+        # мёртвым кодом — tdb в ней и есть db.
         session = tdb
-        query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
+        query = session.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
 
         nak = query.first()
         if not nak:
@@ -361,8 +362,10 @@ async def upload_nakladnaya_photo(
         if len(content) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
 
-        with open(dest, "wb") as f:
-            f.write(content)
+        # Запись уводим в поток: блокирующий open() внутри async-хендлера держал
+        # весь event loop на время записи до 25 МБ, а server.py поднимает два
+        # воркера — на это время вставали бы все остальные запросы.
+        await run_in_threadpool(Path(dest).write_bytes, content)
 
         photos = []
         if nak.photo_paths:
@@ -405,12 +408,10 @@ def get_nakladnaya_excel(
 
     tdb = _db(current_user, db)
     try:
-        session = tdb
-        query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id)
-        nak = query.first()
+        # resolve_tenant_db уже возвращает основную БД (db) для пользователя без
+        # tenant_id, поэтому прежняя ветка `if superadmin: session = db` была
+        # мёртвым кодом — tdb в ней и есть db. Эндпоинт только читает.
+        nak = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id).first()
         if not nak:
             raise HTTPException(status_code=404, detail="Накладная не найдена")
 
@@ -491,11 +492,9 @@ def export_products_excel(
 
     tdb = _db(current_user, db)
     try:
-        session = tdb
+        # resolve_tenant_db уже выбирает основную БД для пользователя без
+        # tenant_id — отдельная проверка роли была мёртвым кодом.
         query = tdb.query(models.Nakladnaya).filter(models.Nakladnaya.products_json.isnot(None))
-        if current_user.role == "superadmin" and current_user.tenant_id is None:
-            session = db
-            query = db.query(models.Nakladnaya).filter(models.Nakladnaya.products_json.isnot(None))
         if store:
             query = query.filter(models.Nakladnaya.store == store)
         rows = query.order_by(models.Nakladnaya.doc_date.desc()).all()
@@ -639,8 +638,8 @@ async def bot_upload_photo(
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Файл слишком большой")
 
-    with open(dest, "wb") as f:
-        f.write(content)
+    # См. комментарий в upload_nakladnaya_photo: не блокируем event loop.
+    await run_in_threadpool(Path(dest).write_bytes, content)
 
     photos = []
     if nak.photo_paths:

@@ -474,6 +474,11 @@ def test_update_onto_existing_number_is_rejected(client, manager, db):
     fresh = db.query(models.Nakladnaya).filter(
         models.Nakladnaya.id == victim.id).first()
     assert fresh.doc_number == "4881040", "отклонённая правка всё равно записалась"
+    # target раньше вычислялся и не использовался — проверяем и его: отклонённая
+    # правка не должна задеть запись, чей номер оказался «занятым».
+    untouched = db.query(models.Nakladnaya).filter(
+        models.Nakladnaya.id == target.id).first()
+    assert untouched.doc_number == "4881041", "посторонняя запись изменилась"
 
 
 def test_update_renumbers_and_keeps_key_in_sync(client, manager, db):
