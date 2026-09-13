@@ -14278,3 +14278,116 @@ textarea {
 .btn-show-old__text {
     font-size: 13px !important;
 }
+
+/* === D5-полировка: карточка сделки доводится до утверждённого макета
+   (card-modal-d5-v1). Всё скоупится в #card-modal — вне модалки не действует. === */
+
+/* Мета-дропдауны: текст, а не поля ввода */
+#card-modal .cm-meta-field .dropdown-toggle {
+    border: none !important;
+    background: none !important;
+    padding: 2px 4px !important;
+    box-shadow: none !important;
+}
+
+/* Этап: вперёд — indigo primary (как в макете), назад — тихая */
+#card-modal .cm-stage-actions .btn-writeoff-action {
+    background: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+    color: #fff !important;
+}
+#card-modal .cm-stage-actions .btn-assembly {
+    background: none !important;
+    border: none !important;
+    color: var(--text-muted) !important;
+    font-weight: 500;
+}
+#card-modal .cm-stage-actions .btn-assembly:hover { color: var(--text-color); }
+
+/* Пилюля статуса в денежной полосе — насыщенные пары статус-цвета */
+#cm-pay-pill {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+#cm-pay-pill.pay-partial { background: #fef3c7; color: #b45309; }
+#cm-pay-pill.pay-paid { background: #d1fae5; color: #047857; }
+#cm-pay-pill.pay-unpaid { background: #fee2e2; color: #b91c1c; }
+#cm-pay-pill.pay-deferred { background: #e0f2fe; color: #0369a1; }
+[data-theme="dark"] #cm-pay-pill.pay-partial { background: rgba(251, 191, 36, 0.16); color: #fbbf24; }
+[data-theme="dark"] #cm-pay-pill.pay-paid { background: rgba(5, 150, 105, 0.18); color: #34d399; }
+[data-theme="dark"] #cm-pay-pill.pay-unpaid { background: rgba(248, 113, 113, 0.16); color: #f87171; }
+[data-theme="dark"] #cm-pay-pill.pay-deferred { background: rgba(56, 189, 248, 0.16); color: #7dd3fc; }
+
+/* Дата в денежной полосе — тихая, без коробки */
+#card-modal .cm-due .date-input-wrapper input {
+    border: none !important;
+    background: none !important;
+    box-shadow: none !important;
+    padding: 4px 2px !important;
+    color: var(--text-muted) !important;
+    font-size: 13px !important;
+}
+
+/* Чек-лист: лёгкие строки вместо коробок (как в макете) */
+#card-modal .checklist-item {
+    background: none !important;
+    border: none !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    border-radius: 0 !important;
+    padding: 8px 2px !important;
+}
+#card-modal .checklist-item:last-child { border-bottom: none !important; }
+#card-modal .checklist-item:hover { background: var(--bg-secondary) !important; }
+#card-modal .checklist-cb-text { color: var(--text-muted); font-size: 11px; }
+#card-modal .checklist-item input[type="checkbox"] { accent-color: var(--primary-color); }
+
+/* Сумма пункта: тихое табличное число, BYN — приглушённый суффикс */
+#card-modal .checklist-item .amount-field {
+    border: none !important;
+    background: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+#card-modal .checklist-amount {
+    border: none !important;
+    background: none !important;
+    text-align: right !important;
+    font-weight: 700 !important;
+    color: var(--text-color) !important;
+    padding: 2px 4px !important;
+    width: 96px !important;
+    font-variant-numeric: tabular-nums;
+}
+#card-modal .amount-cur { color: var(--text-muted); font-size: 11px; }
+
+/* Примечание: без коробки, только спокойная строка */
+#card-modal .checklist-note {
+    border: none !important;
+    background: none !important;
+    box-shadow: none !important;
+    padding: 4px 2px !important;
+    color: var(--text-secondary, var(--text-color)) !important;
+    font-size: 13px !important;
+}
+#card-modal .checklist-note::placeholder { color: var(--text-faint, var(--text-muted)); opacity: 0.55; }
+
+/* Прикреплённый счёт: тихая файловая строка вместо зелёной коробки */
+#card-modal .checklist-invoice.has-file {
+    background: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 4px 2px !important;
+}
+#card-modal .checklist-invoice-link {
+    color: var(--ok, var(--success-color)) !important;
+    font-size: 13px !important;
+    background: none !important;
+}
+#card-modal .checklist-invoice-dl,
+#card-modal .checklist-invoice-del { background: none !important; border: none !important; }
+
+/* Кнопка «Добавить» и формы — без изменений (indigo). Раскрытия — тише. */
+#card-modal .cm-details summary:hover { color: var(--text-color); }
