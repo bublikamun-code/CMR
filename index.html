@@ -28,7 +28,7 @@
 .sidebar-footer { padding: 20px; }
 .nav-btn.active { background-color: var(--primary-color); color: white; font-weight: 600; }
 </style>
-    <link rel="stylesheet" href="css/style.css?v=bc72081770">
+    <link rel="stylesheet" href="css/style.css?v=8962a1fc1f">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1f2937">
     <meta name="mobile-web-app-capable" content="yes">
@@ -793,15 +793,16 @@
     </div>
 
     <div id="card-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div class="modal-content modal-content-split">
+        <!-- D5 (Фаза 5.2, макет утверждён 13.09): одна колонка — мета, этап,
+             денежная полоса, вкладки Сделка / Оплаты и накладные / История.
+             Индикатор автосохранения — в подвале. -->
+        <div class="modal-content modal-content-cm">
             <div class="modal-split-header">
                 <h2 id="modal-title">Детали карточки</h2>
-                <div id="modal-payment-header" class="modal-payment-header"></div>
-                <div id="card-save-indicator" class="card-save-indicator" hidden aria-live="polite"></div>
                 <button class="close-btn" aria-label="Закрыть"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             </div>
-            <div class="modal-split-left" id="modal-body-left"></div>
-            <div class="modal-split-right" id="modal-body-right"></div>
+            <div id="card-modal-body" class="cm-body"></div>
+            <div class="cm-foot"><div id="card-save-indicator" class="card-save-indicator" hidden aria-live="polite"></div></div>
         </div>
     </div>
     
@@ -1032,7 +1033,7 @@
     <script defer src="js/kanban.js?v=719b42a32a"></script>
     <script defer src="js/tasks.js?v=d56422b88a"></script>
     <script defer src="js/notifications.js?v=8494223614"></script>
-    <script defer src="js/card_modal.js?v=b965b64db5"></script>
+    <script defer src="js/card_modal.js?v=26da505f48"></script>
     <script defer src="js/payments.js?v=6def4388ba"></script>
     <script defer src="js/writeoffs.js?v=20e7bca647"></script>
                     <script defer src="js/documents.js?v=9c9c4b1885"></script>

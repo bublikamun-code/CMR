@@ -14084,3 +14084,160 @@ textarea {
     gap: 2px;
     margin: 0 0 12px;
 }
+
+/* === D5 (Фаза 5.2, макет 13.09): карточка сделки — одна колонка === */
+.modal-content-cm {
+    width: min(940px, calc(100vw - 48px));
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+}
+.cm-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 22px;
+}
+.cm-foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px 22px 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Мета-строка: клиент · магазин · ответственный · теги */
+.cm-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    align-items: center;
+    padding: 14px 0 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.cm-meta-item { display: inline-flex; gap: 6px; align-items: baseline; }
+.cm-meta-label { color: var(--text-muted); }
+.cm-meta-item b, .cm-meta-field b { color: var(--text-color); }
+.cm-tags { margin-left: auto; }
+/* Дропдауны клиента/магазина в мета-строке — компактные, без рамок */
+.cm-meta-field .dropdown-toggle {
+    height: auto;
+    width: auto;
+    padding: 2px 6px;
+    font-size: 13px;
+    border: none;
+    background: none;
+    color: var(--text-color);
+    font-weight: 600;
+}
+.cm-meta-field .dropdown-toggle:hover { color: var(--primary-color); }
+
+/* Этап: чип + переходы одним тихим рядом */
+.cm-stage {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+.cm-stage-chip {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--primary-color);
+    background: var(--primary-soft);
+    padding: 3px 10px;
+    border-radius: 999px;
+}
+.cm-stage-sub { font-size: 13px; color: var(--text-muted); }
+.cm-stage-actions {
+    margin-left: auto;
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 8px;
+}
+
+/* Денежная полоса — единственный крупный акцент экрана */
+.cm-money {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+.cm-money .cm-sum {
+    font-size: 22px !important;
+    font-weight: 700 !important;
+    color: var(--text-color) !important;
+    width: 210px !important;
+    padding: 0 0 2px !important;
+    border: none !important;
+    border-bottom: 2px solid var(--border-color) !important;
+    border-radius: 0 !important;
+    background: none !important;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+}
+.cm-money .cm-sum:focus { border-bottom-color: var(--primary-color) !important; outline: none; }
+.cm-money-sub { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.cm-due { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+
+/* Вкладки карточки */
+.cm-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border-color); }
+.cm-tab {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 10px 16px 12px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+.cm-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+.cm-cnt { font-size: 11px; color: var(--text-muted); font-weight: 500; margin-left: 4px; }
+.cm-pane { display: none; padding: 16px 0 20px; }
+.cm-pane.active { display: block; }
+
+/* Раскрытия «Файлы» и «Подробнее» */
+.cm-details {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-top: 14px;
+    background: var(--card-bg);
+}
+.cm-details summary {
+    cursor: pointer;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    list-style: none;
+}
+.cm-details summary::-webkit-details-marker { display: none; }
+.cm-details summary::before { content: '▸'; margin-right: 8px; display: inline-block; transition: transform 0.15s; }
+.cm-details[open] summary::before { transform: rotate(90deg); }
+.cm-details .inner { padding: 2px 14px 12px; }
+.cm-detail-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 13px;
+}
+
+/* Платёжный блок внутри вкладки «Оплаты» */
+.cm-payment-block {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+}
+
+@media (max-width: 720px) {
+    .cm-money .cm-sum { width: 100%; }
+    .cm-due { margin-left: 0; }
+}

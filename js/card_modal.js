@@ -348,7 +348,7 @@ async function openCardModal(cardId) {
 
     const modal = document.getElementById('card-modal');
     const modalTitle = document.getElementById('modal-title');
-    const modalBody = document.getElementById('modal-body-left');
+    const modalBody = document.getElementById('card-modal-body');
 
     modal.classList.remove('hidden');
     modalBody.innerHTML = '<p>Загрузка данных...</p>';
@@ -418,7 +418,7 @@ async function openCardModal(cardId) {
         };
         renderTitleView();
 
-        renderModalContent(card, document.getElementById('modal-body-left'), document.getElementById('modal-body-right'));
+        renderModalContent(card, document.getElementById('card-modal-body'));
         renderModalPaymentHeader(card);
     } catch (error) {
         modalBody.innerHTML = `<p class="modal-error">Ошибка: ${escapeHtml(error.message)}</p>`;
@@ -427,8 +427,8 @@ async function openCardModal(cardId) {
     }
 }
 
-async function renderModalContent(card, leftContainer, rightContainer) {
-    const container = leftContainer; // backward compat
+async function renderModalContent(card, body) {
+    const container = body; // все делегированные обработчики ниже — на корне модалки
     const now = new Date();
     const dueDate = card.due_date ? new Date(card.due_date + 'T00:00:00') : null;
     // Синхронно с kanban.js: оплаченная сделка не помечается просрочкой;
@@ -437,75 +437,123 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     const dealDone = card.status === 'На списание' || card.status === 'Закрыто';
     const isOverdue = dueDate && dueDate < now && !dealDone && !isPaid;
     const dueDateStr = card.due_date || '';
+    const payStatus = card.payment_status || 'Не оплачен';
+    const ownerName = card.owner?.username || '';
+    // Позиция этапа в конвейере — для подписи «этап N из M» (D5, макет 13.09)
+    const PIPELINE = ['Новый запрос', 'В работе', 'Ждет оплаты', 'Сборка', 'На списание', 'Закрыто'];
+    const stageIdx = PIPELINE.indexOf(card.status || '');
+    const checklistCount = (card.checklists || []).length;
+    // Восстановить последнюю вкладку (в пределах сессии/браузера)
+    let savedPane = 'cm-deal';
+    try { if (['cm-deal', 'cm-pay', 'cm-hist'].includes(localStorage.getItem('crm_card_tab'))) savedPane = localStorage.getItem('crm_card_tab'); } catch (e) {}
 
-    // LEFT COLUMN: Static fields
-    leftContainer.innerHTML = `
-        <div class="modal-split-scroll">
-        <div class="modal-section card-info-section">
-            <label class="modal-label">${ICON_WALLET} Итоговая сумма сделки (BYN)</label>
-            <div class="modal-input-row">
-                <input type="text" inputmode="decimal" autocomplete="off" id="input-total-amount" class="money-input" value="${formatMoney(parseFloat(card.total_amount) || 0)}" placeholder="0,00" title="Например: 5 176,45">
+    body.innerHTML = `
+        <div class="cm-meta">
+            <span class="cm-meta-item"><span class="cm-meta-label">Клиент</span><span id="client-mount" class="cm-meta-field"></span></span>
+            <span class="cm-meta-item"><span class="cm-meta-label">Магазин</span><span id="store-mount" class="store-dropdown cm-meta-field"></span></span>
+            ${ownerName ? `<span class="cm-meta-item"><span class="cm-meta-label">Ответственный</span><b>${escapeHtml(ownerName)}</b></span>` : ''}
+            <span id="tags-mount" class="tags-container cm-tags"></span>
+        </div>
+
+        <div class="cm-stage">
+            <span class="cm-stage-chip">${escapeHtml(card.status || '')}</span>
+            ${stageIdx >= 0 ? `<span class="cm-stage-sub">этап ${stageIdx + 1} из ${PIPELINE.length}</span>` : ''}
+            <span class="modal-actions modal-actions-stacked cm-stage-actions">
+                <button id="btn-to-assembly" class="btn-action btn-assembly" title="Сделка попадёт в реестр оплат">${ICON_BOX} Передать в сборку</button>
+                <button id="btn-trigger-payment" class="btn-action btn-writeoff-action">${ICON_TRUCK} В списание</button>
+            </span>
+        </div>
+
+        <div class="cm-money">
+            <input type="text" inputmode="decimal" autocomplete="off" id="input-total-amount" class="money-input cm-sum" value="${formatMoney(parseFloat(card.total_amount) || 0)}" placeholder="0,00" title="Итоговая сумма сделки (BYN), например: 5 176,45">
+            <span id="cm-pay-pill" class="pay-pill ${statusClassForPayment(payStatus)}">${escapeHtml(payStatus)}</span>
+            <span class="cm-money-sub">оплачено <span id="cm-paid" class="tabular-nums">${formatMoneyBYN(parseFloat(card.paid_amount) || 0)}</span> · остаток <span id="cm-rest" class="tabular-nums">${formatMoneyBYN(Math.max(0, (parseFloat(card.total_amount) || 0) - (parseFloat(card.paid_amount) || 0)))}</span></span>
+            <span class="cm-due ${isOverdue ? 'cm-due-overdue' : ''}">${dateInputHTML({ id: 'input-due-date', value: dueDateStr, className: isOverdue ? 'input-overdue' : '' })}${isOverdue ? `<span class="overdue-badge">${ICON_CLOCK} Просрочено</span>` : ''}</span>
+        </div>
+
+        <div class="cm-tabs" role="tablist" aria-label="Разделы карточки">
+            <button type="button" class="cm-tab${savedPane === 'cm-deal' ? ' active' : ''}" data-pane="cm-deal" role="tab" aria-selected="${savedPane === 'cm-deal'}">Сделка <span class="cm-cnt" id="cm-cnt-deal">${checklistCount || ''}</span></button>
+            <button type="button" class="cm-tab${savedPane === 'cm-pay' ? ' active' : ''}" data-pane="cm-pay" role="tab" aria-selected="${savedPane === 'cm-pay'}">Оплаты и накладные <span class="cm-cnt" id="cm-cnt-pay"></span></button>
+            <button type="button" class="cm-tab${savedPane === 'cm-hist' ? ' active' : ''}" data-pane="cm-hist" role="tab" aria-selected="${savedPane === 'cm-hist'}">История</button>
+        </div>
+
+        <div class="cm-pane${savedPane === 'cm-deal' ? ' active' : ''}" data-pane="cm-deal">
+            <div class="modal-section">
+                <h3 class="section-title">Чек-лист поставки</h3>
+                <div id="checklist-summary" class="checklist-summary"></div>
+                <div id="checklist-container"></div>
+                <div class="modal-input-row checklist-add-row checklist-add-align">
+                    <div id="new-supplier-mount" class="input-company"></div>
+                    <input type="number" id="new-amount" placeholder="Сумма к оплате" class="input-amount">
+                    <button id="btn-add-checklist" class="btn-primary btn-sm">Добавить</button>
+                </div>
+            </div>
+            <details class="cm-details">
+                <summary>Файлы (счета и вложения)</summary>
+                <div class="inner">
+                    <div id="file-dropzone" class="dropzone dropzone-upload">
+                        <span class="dropzone-icon">${ICON_UPLOAD}</span>
+                        <span class="dropzone-text">Перетащите файлы сюда или кликните для загрузки</span>
+                        <input type="file" id="file-input" multiple>
+                    </div>
+                    <div id="attachments-container" class="attachments-container"></div>
+                </div>
+            </details>
+            <details class="cm-details">
+                <summary>Подробнее — редкие поля</summary>
+                <div class="inner">
+                    <div class="cm-detail-row"><span class="cm-meta-label">Email отправителя</span><span>${escapeHtml(card.sender_email || '—')}</span></div>
+                    <div id="related-cards-mount"></div>
+                </div>
+            </details>
+        </div>
+
+        <div class="cm-pane${savedPane === 'cm-pay' ? ' active' : ''}" data-pane="cm-pay">
+            <div class="modal-section">
+                <h3 class="section-title">Оплата</h3>
+                <div id="modal-payment-header" class="modal-payment-header cm-payment-block"></div>
+            </div>
+            <div class="modal-section" id="invoices-section" hidden>
+                <h3 class="section-title">Накладные <span id="invoices-badge" class="col-count"></span></h3>
+                <div id="invoices-container"></div>
+                <div class="invoices-summary" id="invoices-summary"></div>
+            </div>
+            <div class="modal-section" id="group-writeoff-section" hidden>
+                <h3 class="section-title">Групповое списание</h3>
+                <div id="group-writeoff-container"></div>
             </div>
         </div>
-        <div class="modal-section card-info-section">
-            <label class="modal-label">${ICON_CALENDAR} Дата окончания</label>
-            <div class="modal-input-row date-input-row">
-                ${dateInputHTML({ id: 'input-due-date', value: dueDateStr, className: isOverdue ? 'input-overdue' : '' })}
-                ${isOverdue ? `<span class="overdue-badge">${ICON_CLOCK} Просрочено</span>` : ''}
+
+        <div class="cm-pane${savedPane === 'cm-hist' ? ' active' : ''}" data-pane="cm-hist">
+            <div class="comment-input-box">
+                <textarea id="input-description" rows="2" placeholder="Заметка к сделке — уйдёт в историю (Enter — отправить)"></textarea>
+                <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку (Enter)">${ICON_CHECK}</button>
             </div>
-        </div>
-        <div class="modal-section card-info-section">
-            <label class="modal-label">Email отправителя</label>
-            <div class="modal-input-row">
-                <input type="email" id="input-sender-email" value="${escapeHtml(card.sender_email || '')}" placeholder="email@company.com" readonly>
+            <div class="timeline-header">
+                <div class="activity-filter" id="activity-filter" role="group" aria-label="Фильтр истории">
+                    <button type="button" data-af="all">Всё</button>
+                    <button type="button" data-af="comments">Комментарии</button>
+                    <button type="button" data-af="events">События</button>
+                </div>
             </div>
-        </div>
-        <div class="modal-section card-info-section">
-            <label class="modal-label">Клиент</label>
-            <div id="client-mount"></div>
-        </div>
-        <div class="modal-section card-info-section">
-            <label class="modal-label">Теги</label>
-            <div id="tags-mount" class="tags-container"></div>
-        </div>
-        <div class="modal-section card-info-section">
-            <label class="modal-label">Привязка к магазину</label>
-            <div id="store-mount" class="store-dropdown"></div>
-        </div>
-        <div class="modal-section">
-            <h3 class="section-title">${ICON_WALLET} Чек-лист к оплате</h3>
-            <div id="checklist-summary" class="checklist-summary"></div>
-            <div id="checklist-container"></div>
-            <div class="modal-input-row checklist-add-row checklist-add-align">
-                <div id="new-supplier-mount" class="input-company"></div>
-                <input type="number" id="new-amount" placeholder="Сумма к оплате" class="input-amount">
-                <button id="btn-add-checklist" class="btn-primary btn-sm">Добавить</button>
+            <div class="timeline" id="activity-container">
+                <div class="activity-loading">Загрузка...</div>
             </div>
-        </div>
-        <div class="modal-section">
-            <h3 class="section-title">${ICON_CLIP} Счета (вложения)</h3>
-            <div id="file-dropzone" class="dropzone dropzone-upload">
-                <span class="dropzone-icon">${ICON_UPLOAD}</span>
-                <span class="dropzone-text">Перетащите файлы сюда или кликните для загрузки</span>
-                <input type="file" id="file-input" multiple>
-            </div>
-            <div id="attachments-container" class="attachments-container"></div>
-        </div>
-        <div class="modal-section" id="invoices-section" hidden>
-            <h3 class="section-title">Накладные <span id="invoices-badge" class="col-count"></span></h3>
-            <div id="invoices-container"></div>
-            <div class="invoices-summary" id="invoices-summary"></div>
-        </div>
-        <div class="modal-section" id="group-writeoff-section" hidden>
-            <h3 class="section-title">Групповое списание</h3>
-            <div id="group-writeoff-container"></div>
-        </div>
-        </div>
-        <div class="modal-actions modal-actions-stacked">
-            <button id="btn-to-assembly" class="btn-action btn-assembly" title="Сделка попадёт в реестр оплат">${ICON_BOX} Передать в сборку</button>
-            <button id="btn-trigger-payment" class="btn-action btn-writeoff-action">${ICON_TRUCK} В списание</button>
         </div>
     `;
+
+    // Переключение вкладок — делегирование на тело модалки (панели постоянны)
+    body.querySelectorAll('.cm-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            body.querySelectorAll('.cm-tab').forEach(t => {
+                const on = t === tab;
+                t.classList.toggle('active', on);
+                t.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            body.querySelectorAll('.cm-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab.dataset.pane));
+            try { localStorage.setItem('crm_card_tab', tab.dataset.pane); } catch (e) {}
+        });
+    });
 
     // Кнопки этапов: «В Списание» доступна только со «Сборки» или когда счёт оплачен
     applyStageButtons(card);
@@ -513,34 +561,14 @@ async function renderModalContent(card, leftContainer, rightContainer) {
     renderCardInvoices(card);
     // Групповое списание: две карточки одного клиента под одной накладной
     renderCardGroupBlock(card);
-    // Прошлые сделки того же отправителя — предложить связать.
+    // Прошлые сделки того же отправителя — предлагаем связать.
     // (Фикс аудита 10.09: вызов перенесён НИЖЕ создания #related-cards-mount —
     // раньше banner писался в узел, которого ещё нет/уже заменён, и баннер
-    // «От этого отправителя есть сделки» никогда не появлялся.)
+    // «От этого отправителя есть сделки» никогда не появлялся. С 13.09 баннер
+    // живёт в раскрытии «Подробнее» на вкладке «Сделка».)
 
-    // RIGHT COLUMN: Timeline
-    rightContainer.innerHTML = `
-        <div id="related-cards-mount"></div>
-        <div class="timeline-header">
-            <h3 class="section-title">${ICON_COMMENT} История</h3>
-            <div class="activity-filter" id="activity-filter" role="group" aria-label="Фильтр истории">
-                <button type="button" data-af="all">Всё</button>
-                <button type="button" data-af="comments">Комментарии</button>
-                <button type="button" data-af="events">События</button>
-            </div>
-        </div>
-        <div class="timeline" id="activity-container">
-            <div class="activity-loading">Загрузка...</div>
-        </div>
-        <div class="comment-input-box">
-            <textarea id="input-description" rows="2" placeholder="Заметка к сделке..."></textarea>
-            <button id="btn-send-comment" class="btn-primary btn-sm" type="button" title="Сохранить заметку (Enter)">${ICON_CHECK}</button>
-        </div>
-    `;
-
-    // Прошлые сделки того же отправителя — предлагаем связать (контейнер
-    // related-cards-mount уже в DOM, см. комментарий выше).
-    renderRelatedCards(card);
+    // Платёжный блок (renderModalPaymentHeader) рендерит openCardModal сразу
+    // после этой функции — mount #modal-payment-header уже в вкладке «Оплаты».
 
     // Поле заметки фиксированной высоты: длинный текст скроллится внутри,
     // а не растягивает панель комментариев на полкарточки.
@@ -777,7 +805,13 @@ async function renderModalContent(card, leftContainer, rightContainer) {
 
     let allClientsList = [];
     try {
-        allClientsList = await apiFetch('/clients');
+        const cachedClients = window.CRM_STORE && CRM_STORE.get('clients');
+        if (Array.isArray(cachedClients) && cachedClients.length) {
+            allClientsList = cachedClients;
+        } else {
+            allClientsList = await apiFetch('/clients');
+            if (window.CRM_STORE) CRM_STORE.set('clients', allClientsList);
+        }
     } catch(e) {}
     const clientOptions = [{ value: '', label: '— Не привязан —' }, ...allClientsList.map(c => ({ value: String(c.id), label: c.name + (c.unp ? ' (УНП: ' + c.unp + ')' : '') }))];
     const clientDropdown = createDropdown({
@@ -1102,7 +1136,12 @@ async function loadCardTags(card) {
     if (!tagsMount) return;
 
     try {
-        const allTags = await apiFetch('/tags');
+        // D5: справочник тегов кэшируется (меняется редко); инвалидация —
+        // в точках привязки/отвязки и создания тега ниже.
+        if (!_tagsCache) {
+            try { _tagsCache = await apiFetch('/tags'); } catch (e) { _tagsCache = []; }
+        }
+        const allTags = _tagsCache;
         const cardTagIds = new Set((card.tags || []).map(t => t.id));
 
         const renderTagPills = () => {
@@ -1125,6 +1164,7 @@ async function loadCardTags(card) {
                     e.stopPropagation();
                     try {
                         await apiFetch(`/tags/cards/${card.id}/tags/${tag.id}`, { method: 'DELETE' });
+_tagsCache = null;
                         cardTagIds.delete(tag.id);
                         renderTagPills();
                         if (window.refreshCardOnBoard) refreshCardOnBoard(card.id);
@@ -1155,6 +1195,7 @@ async function loadCardTags(card) {
                         ev.stopPropagation();
                         try {
                             await apiFetch(`/tags/cards/${card.id}/tags/${tag.id}`, { method: 'POST' });
+_tagsCache = null;
                             cardTagIds.add(tag.id);
                             renderTagPills();
                             if (window.refreshCardOnBoard) refreshCardOnBoard(card.id);
@@ -1478,6 +1519,7 @@ function showTagCreateDialog(card, allTags, cardTagIds, tagsMount, renderTagPill
             const newTag = await apiFetch('/tags', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name, color: selectedColor }) });
             allTags.push(newTag);
             await apiFetch(`/tags/cards/${card.id}/tags/${newTag.id}`, { method: 'POST' });
+_tagsCache = null;
             cardTagIds.add(newTag.id);
             renderTagPills();
             if (window.refreshCardOnBoard) refreshCardOnBoard(card.id);
@@ -1682,6 +1724,15 @@ function renderModalPaymentHeader(card) {
         </div>
         <div class="payment-actions" id="modal-pay-actions"></div>
     `;
+
+    // D5: денежная полоса — пилюля статуса и оплачено/остаток обновляются
+    // тем же рендером (после оплаты полоса не остаётся устаревшей)
+    const pill = document.getElementById('cm-pay-pill');
+    if (pill) { pill.textContent = status; pill.className = 'pay-pill ' + cls; }
+    const paidEl = document.getElementById('cm-paid');
+    if (paidEl) paidEl.textContent = formatMoneyBYN(paid);
+    const restEl = document.getElementById('cm-rest');
+    if (restEl) restEl.textContent = formatMoneyBYN(Math.max(0, total - paid));
 
     const mountSel = mount.querySelector('#modal-pay-select-mount');
     const actions = mount.querySelector('#modal-pay-actions');
@@ -2388,6 +2439,7 @@ function updateChecklistItemState(input, item) {
 // мутации групп (создание/распуск/выход/выписка накладной группы —
 // здесь и в writeoffs.js). Ошибка сети не кэшируется.
 let _writeoffGroupsCache = null;
+let _tagsCache = null;
 let _writeoffGroupsInflight = null;
 let _writeoffGroupsGen = 0;
 function loadWriteoffGroups(force = false) {
