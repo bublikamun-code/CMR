@@ -449,8 +449,9 @@ async function renderModalContent(card, body) {
 
     body.innerHTML = `
         <div class="cm-meta">
-            <span class="cm-meta-item"><span class="cm-meta-label">Клиент</span><span id="client-mount" class="cm-meta-field"></span></span>
-            <span class="cm-meta-item"><span class="cm-meta-label">Магазин</span><span id="store-mount" class="store-dropdown cm-meta-field"></span></span>
+            <!-- Отзыв 13.09: без подписей — кнопка сама называет выбранное -->
+            <span id="client-mount" class="cm-meta-field"></span>
+            <span id="store-mount" class="store-dropdown cm-meta-field"></span>
             ${ownerName ? `<span class="cm-meta-item"><span class="cm-meta-label">Ответственный</span><b>${escapeHtml(ownerName)}</b></span>` : ''}
             <span id="tags-mount" class="tags-container cm-tags"></span>
         </div>

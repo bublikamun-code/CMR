@@ -14514,3 +14514,33 @@ textarea {
 /* D5-компакт: скрытое пустое примечание — авторские стили поля
    перебивают UA-правило для [hidden] */
 .checklist-note[hidden] { display: none !important; }
+
+/* === Отзыв 13.09 (карточка): мета-строка === */
+/* Меню клиента/магазина — шире кнопки: УНП и длинные имена не режутся */
+#card-modal .cm-meta-field .dropdown-menu {
+    left: 0;
+    right: auto;
+    min-width: 300px;
+    max-width: 360px;
+}
+/* Кнопки мета-строки чуть заметнее без подписи: мягкая рамка возвращена */
+#card-modal .cm-meta-field .dropdown-toggle {
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--card-bg) !important;
+    padding: 4px 10px !important;
+    max-width: 330px;
+}
+#card-modal .cm-meta-field .dropdown-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Теги — на линии мета-строки */
+#card-modal .cm-tags {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-left: 0;
+}
