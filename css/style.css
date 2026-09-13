@@ -14135,7 +14135,7 @@ textarea {
 .cm-meta-item { display: inline-flex; gap: 6px; align-items: baseline; }
 .cm-meta-label { color: var(--text-muted); }
 .cm-meta-item b, .cm-meta-field b { color: var(--text-color); }
-.cm-tags { margin-left: auto; }
+.cm-tags { margin-left: 0; }
 /* Дропдауны клиента/магазина в мета-строке — компактные, без рамок */
 .cm-meta-field .dropdown-toggle {
     height: auto;
@@ -14307,18 +14307,15 @@ textarea {
 }
 
 /* Этап: вперёд — indigo primary (как в макете), назад — тихая */
-#card-modal .cm-stage-actions .btn-writeoff-action {
+#card-modal .cm-stage-actions .btn-writeoff-action,
+#card-modal .cm-stage-actions .btn-assembly {
     background: var(--primary-color) !important;
     border-color: var(--primary-color) !important;
     color: #fff !important;
+    font-weight: 600;
 }
-#card-modal .cm-stage-actions .btn-assembly {
-    background: none !important;
-    border: none !important;
-    color: var(--text-muted) !important;
-    font-weight: 500;
-}
-#card-modal .cm-stage-actions .btn-assembly:hover { color: var(--text-color); }
+/* Фикс отзыва 13.09: на ранних этапах видна только «Передать в сборку» —
+   она выглядела мёртвым текстом (тихий стиль), а это главное действие этапа */
 
 /* Пилюля статуса в денежной полосе — насыщенные пары статус-цвета */
 #cm-pay-pill {
@@ -14337,7 +14334,14 @@ textarea {
 [data-theme="dark"] #cm-pay-pill.pay-unpaid { background: rgba(248, 113, 113, 0.16); color: #f87171; }
 [data-theme="dark"] #cm-pay-pill.pay-deferred { background: rgba(56, 189, 248, 0.16); color: #7dd3fc; }
 
-/* Дата в денежной полосе — тихая, без коробки */
+/* Дата в денежной полосе — тихая: коробку рисовал wrapper, гасим его;
+   живой input остаётся поверх для клика */
+#card-modal .cm-due .date-input-wrapper {
+    border: none !important;
+    background: none !important;
+    box-shadow: none !important;
+    padding: 4px 2px !important;
+}
 #card-modal .cm-due .date-input-wrapper input {
     border: none !important;
     background: none !important;
@@ -14346,6 +14350,13 @@ textarea {
     color: var(--text-muted) !important;
     font-size: 13px !important;
 }
+#card-modal .cm-due .date-display {
+    color: var(--text-muted) !important;
+    font-size: 13px !important;
+    background: none !important;
+    border: none !important;
+}
+#card-modal .cm-due .date-calendar-icon { color: var(--text-muted); opacity: 0.7; }
 
 /* Чек-лист: лёгкие строки вместо коробок (как в макете) */
 #card-modal .checklist-item {
