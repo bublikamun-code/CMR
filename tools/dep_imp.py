@@ -43,8 +43,12 @@ elif cmd == 'remove_offsets':
     path.write_text(src)
     print(f'снято по смещениям: {len(offs)}')
 elif cmd == 'restore_offsets':
-    # вернуть по точным смещениям (по убыванию — смещения остаются валидными)
-    offs = sorted((int(x) for x in sys.argv[2].split(',')), reverse=True)
+    # вернуть по точным смещениям раунда (файл = раунд-старт минус эти токены).
+    # Порядок — ПО ВОЗРАСТАНИЮ: вставка в позицию X валидна, только если
+    # состав байтов левее X уже восстановлен; после вставки X_0 префикс до
+    # X_1 снова совпадает с раунд-стартом, и X_1 попадает точно в токен.
+    # Убывание (как было) вставляло мимо токенов и портило CSS.
+    offs = sorted((int(x) for x in sys.argv[2].split(',')))
     for pos in offs:
         src = src[:pos] + TOKEN + src[pos:]
     path.write_text(src)

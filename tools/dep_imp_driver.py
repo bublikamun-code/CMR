@@ -50,29 +50,38 @@ def restore_offsets(offs):
         return
     sh(f'python3 tools/dep_imp.py restore_offsets {",".join(map(str, sorted(offs, reverse=True)))}')
 
-def try_range(offsets, lo, hi, depth, tag):
-    """Пытаемся снять offsets[lo:hi]. Возврат: (статус, снятые/несущие offs)."""
-    chunk = offsets[lo:hi]
+def try_range(offsets, lo, hi, depth, tag, shift=0):
+    """Пытаемся снять offsets[lo:hi]. Возврат: (разобрано, снято).
+
+    shift — байты, уже снятые ЛЕВЕЕ диапазона в этом раунде: несущие
+    возвращаются на место (сдвига не дают), а успешно снятые укорачивают
+    файл на 10 байт каждый, поэтому смещения правее надо уменьшать —
+    иначе remove/restore уедут мимо токенов и испортят CSS.
+    """
+    chunk = [o - shift for o in offsets[lo:hi]]
     if not chunk:
-        return 'empty', []
+        return [], []
     remove_offsets(chunk)
     if check():
         log(f'{tag}: снято {len(chunk)} OK')
-        return 'removed', chunk
+        return chunk, chunk
     restore_offsets(chunk)
     if hi - lo == 1:
-        log(f'{tag}: НЕСУЩИЙ !important, возвращён (offset {chunk[0]})')
-        return 'kept', chunk
+        log(f'{tag}: НЕСУЩИЙ !important, возвращён (offset {offsets[lo]})')
+        return chunk, []
     mid = (lo + hi) // 2
     log(f'{tag}: батч {hi-lo} дал расхождение — бисекция (глубина {depth})')
-    _, kept1 = try_range(offsets, lo, mid, depth + 1, tag + '.a')
-    _, kept2 = try_range(offsets, mid, hi, depth + 1, tag + '.b')
-    return 'mixed', kept1 + kept2
+    resolved1, removed1 = try_range(offsets, lo, mid, depth + 1, tag + '.a', shift)
+    # len('!important') == 10
+    resolved2, removed2 = try_range(
+        offsets, mid, hi, depth + 1, tag + '.b', shift + 10 * len(removed1))
+    return resolved1 + resolved2, removed1 + removed2
 
 log(f'=== D8-срез 2: снятие !important, чанк {CHUNK} ===')
+total0 = len(css_positions())
 total_kept = 0
 rounds = 0
-skip = 0  # ведущих позиций объявлены несущими/обработанными
+skip = 0  # несущих найдено: только они остаются в пересчитанном списке
 while True:
     offsets = css_positions()
     if skip >= len(offsets):
@@ -84,11 +93,12 @@ while True:
     rounds += 1
     lo = skip
     hi = min(skip + CHUNK, len(offsets))
-    st, kept = try_range(offsets, lo, hi, 0, f'r{rounds}')
-    skip += len(kept)
-    total_kept += len(kept)
+    resolved, removed = try_range(offsets, lo, hi, 0, f'r{rounds}')
+    skip += len(resolved) - len(removed)
+    total_kept += len(resolved) - len(removed)
     left = len(css_positions())
-    log(f'--- раунд {rounds}: снято в раунде {hi-lo-len(kept)}, несущих {len(kept)}, в файле осталось {left}')
+    log(f'--- раунд {rounds}: разобрано {hi-lo}, снято {len(removed)}, '
+        f'несущих {len(resolved) - len(removed)}, в файле осталось {left}')
 
 left = len(css_positions())
-log(f'=== ИТОГ: снято {1305 if left==0 else 1305-left} по счётчику; в файле осталось !important: {left}; несущих: {total_kept} ===')
+log(f'=== ИТОГ: снято {total0 - left}; в файле осталось !important: {left}; несущих: {total_kept} ===')
