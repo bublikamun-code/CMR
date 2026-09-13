@@ -1883,7 +1883,10 @@ a.nav-btn { text-decoration: none; }
     box-shadow: var(--shadow-sm);
     cursor: grab;
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-    border-left: 3px solid var(--primary-color);
+    /* D6: цветная полоса «у всех» — убрана (синий не нёс смысла); место
+       оставлено прозрачным, чтобы статусные полосы просрочки/роттинга
+       выделялись на ровном фоне */
+    border-left: 3px solid transparent;
     position: relative;
 }
 
@@ -1892,8 +1895,10 @@ a.nav-btn { text-decoration: none; }
 }
 
 .kanban-card.card-assembly {
-    background-color: #f0faf0;
-    border-left: 4px solid var(--success-color) !important;
+    /* D6: зелёная заливка/полоса «Сборки» убрана — стадия видна в шапке
+       колонки, дублирующий акцент на каждой карточке был шумом */
+    background-color: var(--card-bg);
+    border-left: 3px solid transparent !important;
 }
 
 .card-header {
@@ -3743,11 +3748,8 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
     gap: 4px !important;
 }
 
-/* Статусные акценты по цвету левой границы */
-.kanban-card[data-status="Новый запрос"] { border-left: 4px solid #64748b !important; }
-.kanban-card[data-status="В работе"] { border-left: 4px solid var(--primary-600) !important; }
-.kanban-card[data-status="Ждет оплаты"] { border-left: 4px solid #f59e0b !important; }
-.kanban-card[data-status="Сборка"] { border-left: 4px solid #10b981 !important; }
+/* D6: статусные полосы .kanban-card[data-status] удалены — карточки не имеют
+   data-status (только колонки), селекторы никогда не совпадали. */
 
 /* Современный дизайн старой карточки (>15 дней) */
 .kanban-card.old-card {
@@ -4818,11 +4820,10 @@ input[type="text"]:focus, input[type="number"]:focus, select:focus, textarea:foc
 /* === DEAL ROTTING === */
 .kanban-card.deal-rotting {
     border-left: 3px solid var(--warning-color);
-    background: linear-gradient(90deg, rgba(217,119,6,0.06), transparent);
+    /* D6: градиентная заливка убрана — полоса несёт статус, заливка была шумом */
 }
 .kanban-card.deal-rotting-danger {
     border-left: 3px solid var(--danger-color);
-    background: linear-gradient(90deg, rgba(203,65,84,0.06), transparent);
 }
 
 /* === SPLIT VIEW MODAL === */
@@ -6223,9 +6224,7 @@ input, select, textarea {
 [data-theme="dark"] .card-tag { background: rgba(255,255,255,0.1); }
 
 /* Priority badges */
-[data-theme="dark"] .card-priority-high { border-left-color: var(--danger-color); }
-[data-theme="dark"] .card-priority-medium { border-left-color: var(--warning-color); }
-[data-theme="dark"] .card-priority-low { border-left-color: var(--success-color); }
+/* D6: мёртвые правила .card-priority-* удалены (класс не применяется к карточкам) */
 
 /* Kanban columns */
 [data-theme="dark"] .kanban-column { background: var(--bg-color); }
@@ -6375,7 +6374,7 @@ input, select, textarea {
 [data-theme="dark"] .kanban-card { background-color: var(--table-row-hover) !important; border-color: var(--border-interactive) !important; }
 [data-theme="dark"] .kanban-card:hover { background-color: var(--border-color); transform: translateY(-3px) !important; }
 [data-theme="dark"] .kanban-card.old-card { background-color: var(--table-row-odd) !important; }
-[data-theme="dark"] .kanban-card.card-assembly { background-color: #1a2e1a !important; }
+/* D6: тёмная тема сборки — нейтраль (см. светлая) */
 
 /* Текст в карточках */
 [data-theme="dark"] .card-title { color: var(--text-color); }
@@ -6460,9 +6459,7 @@ input, select, textarea {
 [data-theme="dark"] .card-tag { background-color: rgba(255,255,255,0.1) !important; }
 
 /* Приоритет */
-[data-theme="dark"] .card-priority-high { border-left-color: var(--danger-color) !important; }
-[data-theme="dark"] .card-priority-medium { border-left-color: var(--warning-color) !important; }
-[data-theme="dark"] .card-priority-low { border-left-color: var(--success-color) !important; }
+/* D6: мёртвые правила .card-priority-* удалены (класс не применяется к карточкам) */
 
 /* Дедлайн badge */
 [data-theme="dark"] .due-badge-ok { background-color: rgba(16,185,129,0.2) !important; color: var(--success-color) !important; }
@@ -7927,16 +7924,22 @@ input::placeholder, textarea::placeholder{ color:#64748b; } /* UI FIX 2026-08-26
 [data-theme="dark"] .kanban-column [class*="count"]{ background: rgba(255,255,255,0.08) !important; }
 
 /* --- 32. Индикация горизонтального скролла канбана ---------------- */
-.kanban-board{ position: relative; }
-.kanban-board::after{
-  content: "";
-  position: absolute; top: 0; right: 0; bottom: 0;
-  width: 40px; pointer-events: none;
-  background: linear-gradient(90deg, rgba(248,250,252,0), rgba(248,250,252,.9));
+/* D9: афордантность скролла — градиент на ОБЁРТКЕ (раньше ::after жил в
+   скролл-контейнере и уезжал вместе с контентом), включается классом
+   is-scrolled из js/kanban.js по факту «есть ещё справа» */
+.kanban-board-wrap { position: relative; }
+.kanban-board-wrap::after {
+    content: "";
+    position: absolute; top: 0; right: 0; bottom: 20px;
+    width: 32px; pointer-events: none;
+    background: linear-gradient(90deg, rgba(248,250,252,0), rgba(15,23,42,0.10));
+    opacity: 0;
+    transition: opacity 0.2s;
 }
-[data-theme="dark"] .kanban-board::after{
-  background: linear-gradient(90deg, rgba(11,17,32,0), rgba(11,17,32,.9));
+[data-theme="dark"] .kanban-board-wrap::after {
+    background: linear-gradient(90deg, rgba(11,17,32,0), rgba(0,0,0,0.55));
 }
+.kanban-board-wrap.is-scrolled::after { opacity: 1; }
 
 /* --- 33. Ошибка должна выглядеть ошибкой -------------------------- */
 .tag-load-error,
@@ -11280,9 +11283,7 @@ h2, h3 {
 .kanban-column[data-status="Сборка"] .column-header { border-left-color: var(--status-success) !important; }
 
 /* ---------- Priority borders: softer ---------- */
-.card-priority-high { border-left-color: var(--status-danger) !important; }
-.card-priority-medium { border-left-color: var(--status-warning) !important; }
-.card-priority-low { border-left-color: var(--status-success) !important; }
+/* D6: мёртвые правила .card-priority-* удалены (класс не применяется к карточкам) */
 
 /* ---------- Progress bars: softer ---------- */
 .progress-fill.paid, .inv-progress-fill.fill-done { background: var(--status-success) !important; }
@@ -14240,4 +14241,40 @@ textarea {
 @media (max-width: 720px) {
     .cm-money .cm-sum { width: 100%; }
     .cm-due { margin-left: 0; }
+}
+
+/* === D6 (аудит 13.09): шкала шрифтов канбана — минимум 13px ===
+   Один блок в конце файла с осознанным !important: перебивает слои
+   13076/13105 (пилюли 11px), 2895/10214 (теги 11px), 6010 (due-badge
+   11px), 10172 (progress-meta 11px), 7919 (col-count 12px).
+   Высоты пилюль/тегов зафиксированы — карточки не вырастают. */
+/* 13px: при масштабе владельца 75% это ~9,75 физ. px — нижняя граница
+   читаемости; высоты пилюль/тегов зафиксированы (22px), плотность не едет */
+.kanban-card .card-meta .store-badge,
+.kanban-card .card-meta .card-manager,
+.kanban-card .card-meta .pay-badge-kanban,
+.kanban-card .card-meta .incomplete-badge,
+.kanban-card .card-tag,
+.kanban-card .due-badge,
+.kanban-card .progress-meta {
+    font-size: 13px !important;
+}
+#page-kanban .kanban-column .col-count {
+    font-size: 13px !important;
+}
+
+/* === D9 (аудит 13.09): брейкпоинты рабочего диапазона — только канбан ===
+   Ниже 1600 — честный горизонтальный скролл доски (колонки не жмём:
+   min-width 260 — пол читаемости). */
+@media (min-width: 1600px) {
+    #page-kanban .kanban-column { min-width: 240px; max-width: 360px; }
+}
+@media (min-width: 1920px) {
+    #page-kanban .kanban-column { min-width: 280px; max-width: 400px; }
+}
+
+/* D6: меню переноса и «N старых» — тоже минимум 13px */
+.kanban-card .card-move-btn,
+.btn-show-old__text {
+    font-size: 13px !important;
 }

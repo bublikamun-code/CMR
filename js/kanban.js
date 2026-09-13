@@ -19,6 +19,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 200);
     });
 
+    // D9 (UX-аудит): афордантность горизонтального скролла доски — тень
+    // на обёртке, пока есть колонки за правым краем (на 1280–1440 это норма)
+    const boardWrap = document.querySelector('.kanban-board-wrap');
+    const boardEl = document.getElementById('kanban-board');
+    if (boardWrap && boardEl) {
+        const updateScrollHint = () => boardWrap.classList.toggle(
+            'is-scrolled',
+            boardEl.scrollLeft + boardEl.clientWidth < boardEl.scrollWidth - 1
+        );
+        boardEl.addEventListener('scroll', updateScrollHint, { passive: true });
+        window.addEventListener('resize', updateScrollHint);
+        if (typeof ResizeObserver === 'function') new ResizeObserver(updateScrollHint).observe(boardEl);
+        updateScrollHint();
+    }
+
     // D4 (UX-аудит): чипы оплаты — по образцу чипов статусов в «Задачах»
     const payChips = document.getElementById('kanban-pay-chips');
     if (payChips) payChips.addEventListener('click', (e) => {
