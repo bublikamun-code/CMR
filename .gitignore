@@ -17,3 +17,4 @@ tmp/
 .qwen/
 node_modules/
 opencode.json
+tools/visual-check/.DS_Store
