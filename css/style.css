@@ -7926,8 +7926,24 @@ input::placeholder, textarea::placeholder{ color:#64748b; } /* UI FIX 2026-08-26
 /* --- 32. Индикация горизонтального скролла канбана ---------------- */
 /* D9: афордантность скролла — градиент на ОБЁРТКЕ (раньше ::after жил в
    скролл-контейнере и уезжал вместе с контентом), включается классом
-   is-scrolled из js/kanban.js по факту «есть ещё справа» */
-.kanban-board-wrap { position: relative; }
+   is-scrolled из js/kanban.js по факту «есть ещё справа».
+   ВАЖНО (фикс схлопывания доски до 240px): правило 13863 задаёт доске
+   «height:auto + flex:1 1 0» — это работает, только когда доска — прямой
+   flex-ребёнок секции. Обёртка перехватывает эту роль: сама растягивается
+   на остаток высоты секции, доска заполняет обёртку. */
+.kanban-board-wrap {
+    position: relative;
+    flex: 1 1 0 !important;
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.kanban-board-wrap .kanban-board {
+    height: auto !important;
+    flex: 1 1 auto !important;
+    min-height: 0;
+}
 .kanban-board-wrap::after {
     content: "";
     position: absolute; top: 0; right: 0; bottom: 20px;
