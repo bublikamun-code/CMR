@@ -14418,3 +14418,99 @@ textarea {
 
 /* Кнопка «Добавить» и формы — без изменений (indigo). Раскрытия — тише. */
 #card-modal .cm-details summary:hover { color: var(--text-color); }
+
+/* === D5-компакт v2 (идея владельца 13.09): липкая сводка слева,
+   пункты чек-листа справа одной колонкой === */
+.cm-checklist-wrap {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+.checklist-summary {
+    flex: 0 0 220px;
+    position: sticky;
+    top: 8px;
+}
+.checklist-summary:empty { display: none; }
+#card-modal .chk-sum-card {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--card-bg);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#card-modal .chk-sum-progress {
+    flex: none;
+    height: 6px;
+    border-radius: 999px;
+}
+#card-modal .chk-sum-stat {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+#card-modal .chk-sum-stat b { color: var(--text-color); }
+#card-modal .chk-sum-done {
+    color: var(--ok, var(--success-color));
+    font-weight: 600;
+    justify-content: center;
+}
+#checklist-container {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#card-modal #checklist-container .checklist-item {
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    padding: 10px 12px !important;
+    margin-bottom: 0 !important;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+#card-modal .checklist-item-header {
+    justify-content: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+#card-modal .checklist-item-header .checklist-company {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+    font-weight: 600;
+}
+#card-modal .checklist-item-header .amount-field { flex: 0 0 auto; }
+
+/* «+ прим.» — тихая аффорданс */
+.checklist-note-add {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 2px 0;
+    text-align: left;
+}
+.checklist-note-add:hover { color: var(--primary-color); }
+
+@media (max-width: 1100px) {
+    .cm-checklist-wrap { flex-direction: column-reverse; }
+    .checklist-summary { position: static; flex: none; width: 100%; }
+}
+
+/* D5-компакт: скрытое пустое примечание — авторские стили поля
+   перебивают UA-правило для [hidden] */
+.checklist-note[hidden] { display: none !important; }

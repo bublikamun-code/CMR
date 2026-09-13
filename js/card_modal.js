@@ -480,6 +480,12 @@ async function renderModalContent(card, body) {
         <div class="cm-pane${savedPane === 'cm-deal' ? ' active' : ''}" data-pane="cm-deal">
             <div class="modal-section">
                 <h3 class="section-title">Чек-лист поставки</h3>
+                <!-- D5-компакт v2 (идея владельца 13.09): сводка с прогрессом —
+                     липкая панель слева, пункты — справа одной колонкой -->
+                <div class="cm-checklist-wrap">
+                    <div id="checklist-summary" class="checklist-summary"></div>
+                    <div id="checklist-container"></div>
+                </div>
                 <div id="checklist-summary" class="checklist-summary"></div>
                 <div id="checklist-container"></div>
                 <div class="modal-input-row checklist-add-row checklist-add-align">
@@ -654,7 +660,9 @@ async function renderModalContent(card, body) {
                     <button class="delete-checklist" data-id="${item.id}" title="Удалить">${ICON_TRASH}</button>
                 </div>
                 <div class="checklist-supplier-picker" data-id="${item.id}" hidden></div>
-                <input type="text" class="checklist-note" data-id="${item.id}" value="${escapeHtml(item.note)}" placeholder="Примечание...">
+                ${item.note
+                    ? `<input type="text" class="checklist-note" data-id="${item.id}" value="${escapeHtml(item.note)}" placeholder="Примечание...">`
+                    : `<button type="button" class="checklist-note-add" data-id="${item.id}">+ прим.</button><input type="text" class="checklist-note" data-id="${item.id}" value="" placeholder="Примечание..." hidden>`}
                 ${invoiceRow}
                 <input type="file" class="checklist-invoice-input" data-id="${item.id}" hidden>
             `;
@@ -709,6 +717,13 @@ async function renderModalContent(card, body) {
         // нигде не рендерится, вложения живут только на file-chip__delete.
         if (e.target.classList.contains('file-chip__delete')) {
             deleteAttachment(parseInt(e.target.dataset.fileId), parseInt(e.target.dataset.cardId));
+        }
+        // D5-компакт: «+ прим.» раскрывает пустое поле примечания
+        if (e.target.classList.contains('checklist-note-add')) {
+            const item = e.target.closest('.checklist-item');
+            const note = item && item.querySelector('.checklist-note');
+            if (note) { note.hidden = false; note.focus(); }
+            e.target.remove();
         }
     };
     container.addEventListener('click', container._modalClickHandler);
@@ -2365,16 +2380,17 @@ function renderChecklistSummary(card) {
     const pct = total > 0 ? Math.min(100, Math.round(paid / total * 100)) : 0;
     const full = rest <= 0.01;
 
+    // D5-компакт (отзыв 13.09): сводка одной строкой — бар + статы рядом
     el.innerHTML = `
         <div class="chk-sum-card">
-            <div class="chk-sum-main">
-                <div class="chk-sum-row"><span class="chk-sum-label">Заказано</span><b class="tabular-nums">${paidItems.length} из ${items.length}</b></div>
-                <div class="chk-sum-row"><span class="chk-sum-label">Пришло</span><b class="tabular-nums">${camePaid} из ${items.length}</b></div>
-                ${full ? '' : `<div class="chk-sum-row"><span class="chk-sum-label">Осталось оплатить</span><span class="pay-badge pay-partial tabular-nums">${formatMoneyBYN(rest)}</span></div>`}
-            </div>
             <div class="chk-sum-progress" title="Оплачено ${pct}%">
                 <div class="chk-sum-progress__fill${full ? ' is-done' : ''}" style="width:${pct}%"></div>
             </div>
+            <span class="chk-sum-stat">Заказано <b class="tabular-nums">${paidItems.length}/${items.length}</b></span>
+            <span class="chk-sum-stat">Пришло <b class="tabular-nums">${camePaid}/${items.length}</b></span>
+            ${full
+                ? '<span class="chk-sum-stat chk-sum-done">оплачено полностью</span>'
+                : `<span class="chk-sum-stat">осталось <b class="tabular-nums">${formatMoneyBYN(rest)}</b></span>`}
         </div>
     `;
 }
