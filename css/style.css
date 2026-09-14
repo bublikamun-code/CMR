@@ -261,7 +261,7 @@ html {
 }
 
 body {
-    font-family: var(--font-sans) !important;
+    font-family: var(--font-sans) ;
     background-color: var(--bg-color);
     color: var(--text-color);
     height: 100vh;
@@ -283,9 +283,9 @@ body {
     border: 1px solid transparent;
     line-height: 1;
     height: 24px;
-    white-space: nowrap !important;
-    word-break: normal !important;
-    flex-shrink: 0 !important;
+    white-space: nowrap ;
+    word-break: normal ;
+    flex-shrink: 0 ;
 }
 .store-badge::before {
     content: none;
@@ -375,7 +375,7 @@ body {
     font-size: 18px;
     letter-spacing: 0.3px;
     /* UI Audit (2026-08-09): градиентный текст удалён. Перебивался финальным
-       `background:none; color:#f8fafc !important;` на строке 7034 (читаемость
+       `background:none; color:#f8fafc ;` на строке 7034 (читаемость
        на 20px хуже сплошного — это осмысленно). Удаляю мёртвый код. */
 }
 
@@ -592,9 +592,9 @@ a.nav-btn { text-decoration: none; }
     white-space: nowrap;
 }
 [data-theme="dark"] .incomplete-badge { background: rgba(254, 243, 199, 0.12); color: #fcd34d; }
-.view-toggle-btn { border: none !important; background: var(--card-bg); color: var(--text-muted); }
+.view-toggle-btn { border: none ; background: var(--card-bg); color: var(--text-muted); }
 /* FIX 2026-08-29: base .active и его дубль удалены — финальный стиль
-   (primary-soft/primary-dark !important) объявлен в конце файла. */
+   (primary-soft/primary-dark ) объявлен в конце файла. */
 [data-theme="dark"] .view-toggle { border-color: var(--border-interactive); }
 [data-theme="dark"] .view-toggle-btn { background: var(--table-row-hover); color: var(--text-muted); }
 [data-theme="dark"] .view-toggle-btn.active { background: var(--primary-hover); color: white; }
@@ -716,7 +716,7 @@ a.nav-btn { text-decoration: none; }
 }
 
 /* FIX 2026-08-29: .btn-show-old — база 687 и легаси-слой 3807 (белый фон
-   !important, ломал тёмную тему) удалены; живёт ghost-стиль 9915 + solid
+   , ломал тёмную тему) удалены; живёт ghost-стиль 9915 + solid
    финал 11261. Кнопка «Показать старые» на колонках канбана */
 .btn-show-old:hover {
     border-color: var(--warning-color);
@@ -767,7 +767,7 @@ a.nav-btn { text-decoration: none; }
 /* UI Audit (2026-08-26): таблицы не сжимаются сильнее своего min-width —
    вместо обрезания текста контейнер уходит в горизонтальный скролл.
    D12 (аудит 12.09): правила 1100/1000 для payments/documents отсюда
-   удалены — они были мертвы (перекрыты поздними !important), реальный
+   удалены — они были мертвы (перекрыты поздними ), реальный
    min-width живёт в блоках 12888/12895 рядом с ширинами колонок. */
 #suppliers-table, #clients-table { min-width: 960px; }
 
@@ -961,8 +961,8 @@ a.nav-btn { text-decoration: none; }
     color: var(--text-color);
     cursor: pointer;
     transition: var(--transition-ui);
-    white-space: nowrap !important;
-    overflow: hidden !important;
+    white-space: nowrap ;
+    overflow: hidden ;
     text-overflow: ellipsis !important;
     max-width: 180px !important;
 }
