@@ -6,15 +6,24 @@ compare (5 доп-кадров непокрытых страниц). Батч, �
 делится пополам; минимальные «несущие» !important возвращаются.
 
 Запуск: python3 tools/dep_imp_driver.py [chunk_size]
+Продолжение после смерти процесса: python3 tools/dep_imp_driver.py resume
+  (skip берётся из tmp/dep-imp-state.json; инвариант драйвера — файл css
+  всегда равен последнему ПРОВЕРЕННОМУ состоянию, поэтому для resume
+  достаточно числа решённых несущих).
 Прогресс: tmp/dep-imp-progress.md
 """
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path('.')
-CHUNK = int(sys.argv[1]) if len(sys.argv) > 1 else 50
+args = sys.argv[1:]
+RESUME = args[:1] == ['resume']
+CHUNK = (int(args[1]) if RESUME and len(args) > 1 else
+         int(args[0]) if args and args[0].isdigit() and not RESUME else 50)
 LOG = ROOT / 'tmp' / 'dep-imp-progress.md'
+STATE = ROOT / 'tmp' / 'dep-imp-state.json'
 
 def log(msg):
     with LOG.open('a', encoding='utf-8') as f:
@@ -82,6 +91,12 @@ total0 = len(css_positions())
 total_kept = 0
 rounds = 0
 skip = 0  # несущих найдено: только они остаются в пересчитанном списке
+if RESUME:
+    if not STATE.exists():
+        log('resume: state-файла нет — старт с нуля')
+    else:
+        skip = json.loads(STATE.read_text(encoding='utf-8'))['skip']
+        log(f'resume: продолжаем с skip={skip} (несущих уже решено)')
 while True:
     offsets = css_positions()
     if skip >= len(offsets):
@@ -96,6 +111,8 @@ while True:
     resolved, removed = try_range(offsets, lo, hi, 0, f'r{rounds}')
     skip += len(resolved) - len(removed)
     total_kept += len(resolved) - len(removed)
+    STATE.write_text(json.dumps({'skip': skip, 'chunk': CHUNK}),
+                     encoding='utf-8')
     left = len(css_positions())
     log(f'--- раунд {rounds}: разобрано {hi-lo}, снято {len(removed)}, '
         f'несущих {len(resolved) - len(removed)}, в файле осталось {left}')

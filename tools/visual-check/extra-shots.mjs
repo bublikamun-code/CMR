@@ -16,6 +16,11 @@ fs.mkdirSync(OUT, { recursive: true });
 const MODE = process.argv[2] || 'compare';
 const BASE = process.env.BASE || 'http://127.0.0.1:8799';
 
+// Часы заморожены так же, как в regress.mjs: чипы сроков задач
+// (.task-due-today — янтарный, пока «сегодня» = 12.09.2026) иначе дрейфуют
+// от реальной даты прогонов, и эталон расходится без всяких правок CSS.
+const FROZEN_NOW = new Date('2026-09-12T10:00:00+03:00');
+
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const shots = [];
 
@@ -55,6 +60,7 @@ const login = async (page) => {
 
 // 1. Доска списаний (вкладка Финансов, не покрыта regress)
 const p1 = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+await p1.clock.install({ time: FROZEN_NOW });
 await login(p1);
 await p1.click('.nav-btn[data-target="page-finance"]', { timeout: 10000 }).catch(() => {});
 await p1.click('button[data-finance-tab="writeoffs"]', { timeout: 8000 }).catch(() => {});
@@ -86,6 +92,7 @@ await p1.close();
 
 // 5. admin.html
 const p2 = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+await p2.clock.install({ time: FROZEN_NOW });
 await p2.goto(BASE.replace(/\/$/, '') + '/admin', { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {});
 if (await p2.$('#username')) {
     await p2.fill('#username', 'visual_admin');
