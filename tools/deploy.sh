@@ -44,13 +44,22 @@ pm2_cmd() {
 }
 
 restart_app() {
+    if [[ -n "$DRY_RUN" ]]; then
+        echo "==> Dry run: skipping restart"
+        return 0
+    fi
     echo "==> Restarting PM2 process '$PM2_APP'"
     # 2026-08-31: `pm2 restart --update-env` берёт окружение из ПУСТОГО ssh-шелла
     # и выкидывает боевые переменные (CRM_DATA_DIR!) — после одного такого
     # рестарта половина воркеров открыла пустую базу в корне сайта, и
     # пользователи перестали видеть данные. Боевое окружение сохранено
     # на сервере в $REMOTE_DIR/.pm2.env; перед рестартом оно подтягивается явно.
-    remote "export NVM_DIR=\$HOME/.nvm; [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"; cd '$REMOTE_DIR' && { [ -f .pm2.env ] && set -a && . ./.pm2.env && set +a; }; pm2 restart $PM2_APP --update-env"
+    # 2026-09-16: рестарт fail-closed. Каждое условие проверяется явно и при
+    # провале удалённая команда завершается с ненулевым кодом ДО pm2 restart:
+    # неуспешный cd, отсутствие .pm2.env или ненулевой код sourcing — рестарта
+    # не будет. SSH пробрасывает статус, локальный скрипт (set -e) падает,
+    # не доходя до sleep и pm2 list.
+    remote "export NVM_DIR=\$HOME/.nvm; [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"; cd '$REMOTE_DIR' || exit 1; [ -f .pm2.env ] || { echo 'ERROR: .pm2.env not found in $REMOTE_DIR' >&2; exit 1; }; set -a; . ./.pm2.env || exit 1; set +a; pm2 restart $PM2_APP --update-env"
     sleep 4
     pm2_cmd "list"
 }
