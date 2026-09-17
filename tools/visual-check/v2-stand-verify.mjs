@@ -83,8 +83,9 @@ try {
     await p.evaluate(() => { location.hash = '#board'; });
     await p.waitForTimeout(400);
     const moved = await p.evaluate(() => {
-        const card = window.KBData.cards.find(c => c.stage === 'new') ||
-                     window.KBData.cards.find(c => c.stage === 'work');
+        // Карточка на доске (не «Списано»/очередь): стенд живёт долго,
+        // статусы в нём уже переносили — берём любую колонку.
+        const card = window.KBData.cards.find(c => c.stage !== 'done' && c.stage !== 'writeoff');
         const from = card.stage;
         document.querySelector(`#kb-board [data-card="${card.id}"]`).click();
         const sel = document.querySelector('[data-deal-field="stage"]');
@@ -131,9 +132,41 @@ try {
     assert.equal(taskPersisted.done, true, 'отметка выполнения пережила перезагрузку');
     assert.notEqual(toggle, null);
 
+    // Запись 2.3: справочники — магазин и статус создаёт админ через админку v2
+    await p.evaluate(() => { location.hash = '#admin'; });
+    await p.waitForTimeout(300);
+    const stamp = String(Date.now()).slice(-6);
+    await p.evaluate(() => document.getElementById('mgmt-store-new').click());
+    await p.waitForTimeout(200);
+    await p.evaluate(stamp => {
+        document.getElementById('mgmt-name').value = 'Автотест-магазин ' + stamp;
+        document.getElementById('mgmt-address').value = 'ул. Тестовая, 1';
+        document.getElementById('mgmt-save').click();
+    }, stamp);
+    await p.waitForTimeout(600);
+    await p.evaluate(() => document.getElementById('mgmt-status-new').click());
+    await p.waitForTimeout(200);
+    await p.evaluate(stamp => {
+        document.getElementById('mgmt-name').value = 'Автостатус ' + stamp;
+        document.getElementById('mgmt-position').value = '9';
+        document.getElementById('mgmt-save').click();
+    }, stamp);
+    await p.waitForTimeout(600);
+
+    await p.reload({ waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(1300);
+    const dictPersisted = await p.evaluate(stamp => ({
+        storeInFilter: [...document.getElementById('kb-store-select').options].some(o => o.textContent.includes(stamp)),
+        statusColumn: window.KBData.boardStatuses().some(s => s.name.includes(stamp)),
+        userShown: document.getElementById('v2-user').textContent.includes('Admin')
+    }), stamp);
+    assert(dictPersisted.storeInFilter, 'новый магазин пережил перезагрузку (API)');
+    assert(dictPersisted.statusColumn, 'новый статус стал колонкой после перезагрузки');
+    assert(dictPersisted.userShown, 'в шапке текущий пользователь');
+
     await p.screenshot({ path: '/tmp/v2-stand-verified.png' });
     assert.deepEqual(errors, [], 'нет ошибок JS: ' + errors.join('; '));
-    console.log(`PASS v2-stand: вход, доска ${board.onBoard}+${board.queue} карточек, суммы ${board.sumKop} коп. = API, реестр ${finRows} строк, клиентов ${clients}, запись: карточка ${moved.from}→${moved.to} и задача сохранены`);
+    console.log(`PASS v2-stand: вход, доска ${board.onBoard}+${board.queue} карточек, суммы ${board.sumKop} коп. = API, реестр ${finRows} строк, клиентов ${clients}, запись: этап/задача/справочники сохранены`);
 } finally {
     await browser.close();
 }

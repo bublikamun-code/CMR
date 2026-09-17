@@ -4,6 +4,7 @@ crm_app.db*
 tools/visual-check/.env
 tools/visual-check/shots/
 tools/visual-check/shots-diff/
+tools/visual-check/shots-mockup/
 tools/visual-check/node_modules/
 __pycache__/
 .venv/

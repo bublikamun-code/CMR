@@ -730,3 +730,52 @@ class NakladnayaResponse(NakladnayaBase):
     created_at: datetime
     supplier: Optional[SupplierBrief] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- СПРАВОЧНИКИ: магазины и статусы сделок (Этап 2.3 плана замены фронта).
+# Чтение — любому авторизованному; запись — только админам (require_admin).
+
+class StoreLocationBase(BaseModel):
+    name: str
+    address: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class StoreLocationCreate(StoreLocationBase):
+    pass
+
+
+class StoreLocationUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class StoreLocationResponse(StoreLocationBase):
+    id: int
+    is_active: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DealStatusBase(BaseModel):
+    name: str
+    position: int = 0
+    color: Optional[str] = None
+
+
+class DealStatusCreate(DealStatusBase):
+    pass
+
+
+class DealStatusUpdate(BaseModel):
+    name: Optional[str] = None
+    position: Optional[int] = None
+    color: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class DealStatusResponse(DealStatusBase):
+    id: int
+    is_active: bool
+    model_config = ConfigDict(from_attributes=True)

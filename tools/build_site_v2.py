@@ -9,9 +9,9 @@
 
 Запуск: python3 tools/build_site_v2.py
 """
-from pathlib import Path
 import re
 import shutil
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MOCKUPS = ROOT / "tools" / "mockups"
@@ -140,13 +140,42 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
         const cardsRaw = payload.cards, clientsRaw = payload.clients, usersRaw = payload.users,
               suppliersRaw = payload.suppliers, tasksRaw = payload.tasks;
 
-        const statuses = STATUS_MAP.map(function (row, i) {
-            return { id: row[1], name: row[0], color: row[2], position: i, role: row[3] };
-        });
-        const stageOf = {
+        const statusesRaw = payload.statuses || [];
+        const CANON_ID = {
             'Новый запрос': 'new', 'В работе': 'work', 'Ждет оплаты': 'pay',
             'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'done'
         };
+        let statuses, stageOf;
+        if (statusesRaw.length) {
+            statuses = statusesRaw
+                .filter(function (row) { return row.is_active !== false; })
+                .sort(function (a, b) { return (a.position || 0) - (b.position || 0) || a.id - b.id; })
+                .map(function (row) {
+                    return {
+                        id: CANON_ID[row.name] || slug(row.name),
+                        name: row.name,
+                        color: row.color || 'faint',
+                        position: row.position || 0,
+                        role: row.name === 'На списание' ? 'writeoff' : 'board',
+                        serverId: row.id,
+                        // Бекенд принимает в карточках только канонические статусы
+                        // (schemas.CARD_STATUSES); новые статусы колонкой будут,
+                        // но назначать их сделкам нельзя до унификации модели.
+                        canAssign: Boolean(CANON_ID[row.name])
+                    };
+                });
+            stageOf = {};
+            statuses.forEach(function (s) { stageOf[s.name] = s.id; });
+            stageOf['Закрыто'] = 'done';
+        } else {
+            statuses = STATUS_MAP.map(function (row, i) {
+                return { id: row[1], name: row[0], color: row[2], position: i, role: row[3] };
+            });
+            stageOf = {
+                'Новый запрос': 'new', 'В работе': 'work', 'Ждет оплаты': 'pay',
+                'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'done'
+            };
+        }
 
         const users = usersRaw.map(function (u) {
             return { id: 'us-' + u.id, username: u.username, full_name: u.username, initials: initials(u.username), role: u.role };
@@ -160,13 +189,18 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
             return { id: 'sup-' + s.id, name: s.name, unp: s.unp || '', contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '', address: s.address || '' };
         });
 
-        // Магазины — из фактических значений сделок (эндпоинта справочника нет).
-        const storeNames = [];
-        cardsRaw.forEach(function (c) {
-            const name = String(c.store_location || '').trim();
-            if (name && storeNames.indexOf(name) < 0) storeNames.push(name);
-        });
-        const stores = storeNames.map(function (name) { return { id: name, name: name }; });
+        // Магазины: справочник /dictionaries/stores, если пуст — из карточек.
+        const storesRaw = payload.stores || [];
+        let stores = storesRaw.filter(function (s) { return s.is_active !== false; })
+            .map(function (s) { return { id: 'store-' + s.id, name: s.name, address: s.address || '', phone: s.phone || '' }; });
+        if (!stores.length) {
+            const storeNames = [];
+            cardsRaw.forEach(function (c) {
+                const name = String(c.store_location || '').trim();
+                if (name && storeNames.indexOf(name) < 0) storeNames.push(name);
+            });
+            stores = storeNames.map(function (name) { return { id: name, name: name }; });
+        }
 
         const userById = {};
         users.forEach(function (u) { userById['us-' + u.id.replace('us-', '')] = u; });
@@ -278,9 +312,11 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
             window.V2Api.api('/suppliers'),
             window.V2Api.api('/tasks'),
             window.V2Api.api('/payments/transactions'),
-            window.V2Api.api('/payments/documents')
+            window.V2Api.api('/payments/documents'),
+            window.V2Api.api('/dictionaries/stores'),
+            window.V2Api.api('/dictionaries/statuses')
         ]);
-        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4] });
+        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8] });
         window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6]);
         enableMutations();
         renderUser(meUser);
@@ -358,7 +394,25 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
                 } else if (kind === 'task-status') {
                     await window.V2Api.api('/tasks/' + payload.id, { method: 'PATCH', body: { status: payload.status } });
                 } else if (kind === 'task-create') {
-                    await window.V2Api.api('/tasks', { method: 'POST', body: { title: payload.title, status: 'todo', due_date: payload.due || null, assignee_id: payload.assignee || null, client_id: payload.client || null } });
+                    return await window.V2Api.api('/tasks', { method: 'POST', body: { title: payload.title, status: 'todo', due_date: payload.due || null, assignee_id: payload.assignee || null, client_id: payload.client || null } });
+                } else if (kind === 'store-save') {
+                    return await (payload.id
+                        ? window.V2Api.api('/dictionaries/stores/' + payload.id, { method: 'PATCH', body: payload.fields })
+                        : window.V2Api.api('/dictionaries/stores', { method: 'POST', body: payload.fields }));
+                } else if (kind === 'status-save') {
+                    return await (payload.id
+                        ? window.V2Api.api('/dictionaries/statuses/' + payload.id, { method: 'PATCH', body: payload.fields })
+                        : window.V2Api.api('/dictionaries/statuses', { method: 'POST', body: payload.fields }));
+                } else if (kind === 'user-create') {
+                    return await window.V2Api.api('/auth/users', { method: 'POST', body: payload.fields });
+                } else if (kind === 'supplier-save') {
+                    return await (payload.id
+                        ? window.V2Api.api('/suppliers/' + payload.id, { method: 'PATCH', body: payload.fields })
+                        : window.V2Api.api('/suppliers', { method: 'POST', body: payload.fields }));
+                } else if (kind === 'client-save') {
+                    return await (payload.id
+                        ? window.V2Api.api('/clients/' + payload.id, { method: 'PATCH', body: payload.fields })
+                        : window.V2Api.api('/clients', { method: 'POST', body: payload.fields }));
                 } else {
                     return false;
                 }
@@ -479,7 +533,7 @@ def main():
 
     # 1. Базовые стили прототипа → отдельный файл
     style_match = re.search(r"<style>\n(.*?)\n</style>", html, re.S)
-    assert style_match, "не найден <style> блок прототипа"
+    assert style_match, "не найден <style> блок прототипа"  # noqa: S101
     base_css = style_match.group(1)
 
     if OUT.exists():
@@ -499,7 +553,7 @@ def main():
 
     # 3. Фин-скрипт прототипа (inline) → модуль js/shell-v2-fin.js
     fin_start = body.find("<script>\n(function () {\n    'use strict';\n    const root = document.getElementById('view-fin');")
-    assert fin_start >= 0, "не найден inline-скрипт финансов"
+    assert fin_start >= 0, "не найден inline-скрипт финансов"  # noqa: S101
     fin_end = body.index("</script>", fin_start) + len("</script>")
     fin_js = body[fin_start + len("<script>"):fin_end - len("</script>")].strip()
     (OUT / "js" / "shell-v2-fin.js").write_text(fin_js + "\n", encoding="utf-8")
@@ -510,7 +564,7 @@ def main():
     for src in sorted(MOCKUPS.glob("shell-v2-*.css")):
         body = body.replace(f'<link rel="stylesheet" href="./{src.name}">', f'<link rel="stylesheet" href="css/{src.name}">')
     for old, new in HTML_TRANSFORMS:
-        assert old in body, "не найден фрагмент: " + old[:60]
+        assert old in body, "не найден фрагмент: " + old[:60]  # noqa: S101
         body = body.replace(old, new)
     body = re.sub(r'<script src="\./shell-v2-[^"]*" defer></script>\n?', '', body)
     body = body.replace('<title>Доска сделок — Свет в доме · Предпросмотр</title>',

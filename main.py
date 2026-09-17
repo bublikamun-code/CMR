@@ -21,6 +21,7 @@ from routers import (
     card_details_router,
     clients_router,
     custom_objects_router,
+    dictionaries_router,
     email_parser_router,
     kanban_router,
     nakladnye_router,
@@ -85,6 +86,7 @@ app.include_router(payments_router.router)
 app.include_router(writeoffs_router.router)
 app.include_router(writeoff_groups_router.router)
 app.include_router(clients_router.router)
+app.include_router(dictionaries_router.router)
 app.include_router(tags_router.router)
 app.include_router(suppliers_router.router)
 app.include_router(activity_router.router)

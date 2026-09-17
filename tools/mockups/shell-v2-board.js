@@ -555,7 +555,7 @@
             '<div class="kb-detail-summary"><dl class="kb-detail-money"><div class="kb-detail-total"><dt>Сумма сделки</dt><dd>' + money(c.amount) + ' <small>BYN</small></dd></div><div><dt>Оплачено</dt><dd>' + money(c.paidAmount) + ' <small>BYN</small></dd></div><div><dt>Выписано</dt><dd>' + money(c.issued) + ' <small>BYN</small></dd></div><div><dt>Осталось выписать</dt><dd>' + money(remaining(c)) + ' <small>BYN</small></dd></div></dl>' +
             '<div class="kb-detail-controls">' +
             dealSelect('paymentTerms', 'Условия оплаты', [['', 'Не выбраны'], ['deferred', 'Отсрочка'], ['full', 'Оплата 100%'], ['partial_deferred', 'Частичная оплата + отсрочка платежа']], c.paymentTerms) +
-            dealSelect('stage', 'Этап', stages.filter(function(st) { return st.id !== 'done' || c.stage === 'done'; }).map(function(st) { return [st.id, st.name]; }), c.stage, c.stage === 'done') +
+            dealSelect('stage', 'Этап', stages.filter(function(st) { return (st.id !== 'done' || c.stage === 'done') && st.canAssign !== false; }).map(function(st) { return [st.id, st.name]; }), c.stage, c.stage === 'done') +
             '</div></div>' +
             '<div class="kb-detail-tabs" role="tablist" aria-label="Разделы сделки">' + tabs.map(function(tab) {
                 return '<button type="button" role="tab" id="kb-tab-' + tab[0] + '" data-card-tab="' + tab[0] + '" aria-controls="kb-panel-' + tab[0] + '" aria-selected="false" tabindex="-1">' + tab[1] + '</button>';

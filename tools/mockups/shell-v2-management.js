@@ -16,13 +16,39 @@
     const roleLabels = {board: 'Колонка доски', writeoff: 'Очередь списания'};
     const fields = {
         supplier: [['name','Название','text',true],['unp','УНП'],['contact_person','Контактное лицо'],['phone','Телефон','tel'],['email','Email','email'],['address','Адрес'],['note','Примечание','textarea']],
-        user: [['username','Логин','text',true],['full_name','Полное имя'],['role','Роль','select',true]],
+        user: [['username','Логин','text',true],['full_name','Полное имя'],['password','Пароль (для создания)','password'],['role','Роль','select',true]],
         store: [['name','Название','text',true],['address','Адрес'],['phone','Телефон','tel']],
         status: [['name','Название','text',true],['color','Цвет','color'],['position','Позиция','number',true]]
     };
     const titles = {supplier:'Поставщик', user:'Пользователь', store:'Магазин', status:'Статус сделки'};
     let sequence = 10, editing, opener;
     window.KBSuppliers = {list: () => data.supplier.map(s => [s.id, s.name])};
+    function apiMutate(kind, payload) {
+        if (!KBData.mutate) return Promise.resolve(null);
+        return KBData.mutate(kind, payload);
+    }
+    function numericId(id) {
+        const str = String(id || '');
+        if (str.startsWith('local-')) return null; // ещё не сохранено на сервере
+        const m = /-(\d+)$/.exec(str);
+        return m ? Number(m[1]) : null;
+    }
+    // Сохранение в CRM (site-v2): id из ответа возвращается локальной записи,
+    // чтобы последующие правки попадали в ту же строку сервера.
+    function persist(kind, record, values) {
+        const prefix = {supplier:'sup', user:'us', store:'store', status:'st'}[kind];
+        const numeric = numericId(record && record.id);
+        const payload = { id: kind === 'status' ? (record && record.serverId) || numeric : numeric, fields: values };
+        apiMutate(kind + '-save', payload).then(function (saved) {
+            if (saved && saved.id != null && record && String(record.id).startsWith('local-')) {
+                record.id = prefix + '-' + saved.id;
+                if (saved.slug) record.id = saved.slug;
+                if (kind === 'status') record.serverId = saved.id;
+                render(kind);
+                document.dispatchEvent(new Event(kind === 'supplier' ? 'kb:suppliers-changed' : 'kb:dictionaries-changed'));
+            }
+        });
+    }
     const dialog = document.createElement('dialog');
     dialog.id = 'mgmt-dialog';
     dialog.setAttribute('aria-labelledby', 'mgmt-title');
@@ -73,8 +99,9 @@
         if (kind==='status') values.position=Number(values.position);
         const record=data[kind].find(r=>r.id===id);
         if (record) Object.assign(record,values);
-        else data[kind].push({id:'local-'+sequence++, role:'board', ...values});
+        else data[kind].push({id:'local-'+sequence++, role:'board', serverId:null, ...values});
         render(kind);
+        persist(kind, record || data[kind][data[kind].length - 1], values);
         if (kind==='supplier') document.dispatchEvent(new Event('kb:suppliers-changed'));
         // Доска, фильтры и пульт читают эти справочники — просим перерисоваться.
         if (kind==='user' || kind==='store' || kind==='status') document.dispatchEvent(new Event('kb:dictionaries-changed'));

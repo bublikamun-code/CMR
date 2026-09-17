@@ -18,12 +18,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import models  # noqa: E402
-import models_tenant  # noqa: E402  # таблица tenants нужна мапперу users.tenant_id
-import auth  # noqa: E402
-from database import SessionLocal  # noqa: E402
+import auth
+import models
+from database import SessionLocal
 
 STAND_USERS = [
+    {"username": "Admin", "password": os.environ.get("CRM_DEFAULT_PASSWORD", "stand-pass-1"), "role": "admin"},
     {"username": "ManagerY", "password": os.environ.get("CRM_DEFAULT_PASSWORD", "stand-pass-1"), "role": "manager"},
     {"username": "ManagerA", "password": os.environ.get("CRM_DEFAULT_PASSWORD", "stand-pass-1"), "role": "manager"},
 ]
