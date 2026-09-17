@@ -68,9 +68,7 @@ def main():
                 ))
         db.commit()
 
-        if db.query(models.Card).count() > 0:
-            print("В базе уже есть сделки — сид не выполняется.")
-            return
+        cards_exist = db.query(models.Card).count() > 0
 
         suppliers = {}
         for data in SUPPLIERS:
@@ -93,7 +91,7 @@ def main():
         manager = db.query(models.User).filter_by(role="manager").first()
         owner_id = manager.id if manager else None
 
-        for index, (title, status, total, paid, store, due_in) in enumerate(CARDS):
+        for index, (title, status, total, paid, store, due_in) in enumerate([] if cards_exist else CARDS):
             card = models.Card(
                 title=title,
                 status=status,
@@ -136,6 +134,33 @@ def main():
             assignee_id=owner_id,
             client_id=clients[CLIENTS[0]["name"]].id,
         ))
+
+        # Реестр оплат: по сделке запись-остаток (is_document=False) и, где была
+        # оплата/выписка, документ с номером ТН. Остаток = сумма − выписанное.
+        if db.query(models.Transaction).count() == 0:
+            for card in db.query(models.Card).all():
+                total = float(card.total_amount or 0)
+                paid = float(card.paid_amount or 0)
+                db.add(models.Transaction(
+                    company_name=card.title,
+                    amount=round(total - paid, 2),
+                    store_location=card.store_location or "",
+                    card_id=card.id,
+                    is_document=False,
+                ))
+                if paid > 0:
+                    db.add(models.Transaction(
+                        company_name=card.title,
+                        amount=paid,
+                        store_location=card.store_location or "",
+                        card_id=card.id,
+                        is_document=True,
+                        is_invoice_issued=True,
+                        invoice_number="ТН-09%02d" % card.id,
+                        invoice_date="17.09.2026",
+                        date=datetime.now(timezone.utc),
+                    ))
+
         db.commit()
         print(f"Сид готов: {len(CARDS)} сделок, {len(CLIENTS)} клиентов, {len(TASKS)} задач, {len(SUPPLIERS)} поставщиков.")
     finally:

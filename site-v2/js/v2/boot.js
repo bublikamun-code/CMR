@@ -169,7 +169,8 @@
 
     const APP_SCRIPTS = [
         'js/shell-v2-select.js', 'js/shell-v2-payment.js', 'js/shell-v2-management.js',
-        'js/shell-v2-board.js', 'js/shell-v2-insights.js', 'js/shell-v2-navigation.js'
+        'js/shell-v2-fin.js', 'js/shell-v2-board.js', 'js/shell-v2-insights.js',
+        'js/shell-v2-navigation.js'
     ];
     const DEMO_SCRIPTS = ['js/shell-v2-data.js'].concat(APP_SCRIPTS);
 
@@ -180,19 +181,80 @@
     async function bootApi() {
         setText('Подключение к CRM…');
         if (!window.V2Api.token()) { const e = new Error('unauthorized'); e.unauthorized = true; throw e; }
-        await window.V2Api.me();
+        const meUser = await window.V2Api.me();
         const results = await Promise.all([
             window.V2Api.api('/kanban/cards'),
             window.V2Api.api('/clients'),
             window.V2Api.users(),
             window.V2Api.api('/suppliers'),
-            window.V2Api.api('/tasks')
+            window.V2Api.api('/tasks'),
+            window.V2Api.api('/payments/transactions'),
+            window.V2Api.api('/payments/documents')
         ]);
         buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4] });
+        window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6]);
+        renderUser(meUser);
         setText('Источник: CRM API · изменения до перезагрузки, запись — следующий этап плана');
         await injectAll(APP_SCRIPTS);
     }
 
+    function esc(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+    function renderUser(me) {
+        const box = document.getElementById('v2-user');
+        if (!box) return;
+        box.innerHTML = '<span class="pill accent">' + esc(me.username) + ' · ' + esc(me.role || '') + '</span>' +
+            '<button type="button" class="btn btn-ghost btn-sm" id="v2-logout">Выйти</button>';
+        document.getElementById('v2-logout').addEventListener('click', async function () {
+            try { await window.V2Api.api('/auth/logout', { method: 'POST' }); } catch (e) { /* сессия уже чиста */ }
+            window.V2Api.clear();
+            location.reload();
+        });
+    }
+    // Реестр оплат v2: по каждой сделке — сумма, оплачено (итог минус остаток)
+    // и последняя выписанная ТН. Остатки приходят записями is_document=false.
+    function buildFinSource(cards, transactions, documents) {
+        const remainder = {};
+        (transactions || []).forEach(function (t) {
+            if (t.is_document || t.card_id == null) return;
+            remainder[t.card_id] = kopecks(t.amount);
+        });
+        const docsByCard = {};
+        (documents || []).forEach(function (d) {
+            if (d.card_id == null) return;
+            (docsByCard[d.card_id] = docsByCard[d.card_id] || []).push(d);
+        });
+        const outgoing = cards.map(function (card) {
+            const numeric = Number(card.id);
+            const docs = (docsByCard[numeric] || []).slice().sort(function (a, b) {
+                return new Date(b.date || 0) - new Date(a.date || 0);
+            });
+            const latest = docs[0] || null;
+            const restKop = remainder[numeric] !== undefined ? remainder[numeric] : card.amount;
+            return {
+                id: 'c' + numeric,
+                card: card.id + ' · ' + card.title,
+                date: latest ? isoToRu(latest.invoice_date || latest.date) : card.deadline,
+                client: card.client,
+                amount: card.amount,
+                paid: Math.max(0, card.amount - restKop),
+                store: card.store,
+                estimate: '',
+                tn: latest ? { number: latest.invoice_number || '', date: isoToRu(latest.invoice_date || latest.date), bill: '' } : null,
+                calculated: Boolean(latest && latest.is_calculated),
+                posted: Boolean(latest && latest.is_written_off),
+                tnHere: false,
+                billHere: false,
+                print: (latest && latest.print_status) || '',
+                authority: '',
+                note: ''
+            };
+        });
+        return { outgoing: outgoing, incoming: [] };
+    }
     function showLogin(message) {
         setText('Требуется вход');
         const overlay = document.getElementById('login-overlay');
