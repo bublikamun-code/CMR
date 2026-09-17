@@ -467,6 +467,16 @@
                 var d = parseDeadline(c.deadline);
                 if (!d || d.getMonth() !== cal.m || d.getFullYear() !== cal.y) return;
                 (events[d.getDate()] = events[d.getDate()] || []).push({ cls: 'a', text: c.client });
+                // Дата оплаты из заданных условий отсрочки (paymentDetails.due, ISO)
+                if (c.paymentDetails && c.paymentDetails.due) {
+                    var pm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(c.paymentDetails.due);
+                    if (pm) {
+                        var pd = new Date(+pm[1], +pm[2] - 1, +pm[3]);
+                        if (pd.getMonth() === cal.m && pd.getFullYear() === cal.y) {
+                            (events[pd.getDate()] = events[pd.getDate()] || []).push({ cls: 'b', text: 'Оплата · ' + c.client });
+                        }
+                    }
+                }
             });
             D.tasks.forEach(function (t) {
                 if (t.done) return;
@@ -498,7 +508,8 @@
     document.getElementById('cal-next').addEventListener('click', function () { cal.m++; if (cal.m > 11) { cal.m = 0; cal.y++; } renderCalendar(); });
     document.getElementById('cal-today').addEventListener('click', function () { cal = { y: D.today.getFullYear(), m: D.today.getMonth() }; renderCalendar(); });
 
-    document.addEventListener('kb:documents', function () { renderDay(); });
+    document.addEventListener('kb:documents', function () { renderDay(); renderCalendar(); });
+    document.addEventListener('kb:payment-saved', function () { renderCalendar(); });
     document.addEventListener('kb:dictionaries-changed', function () { renderDay(); renderClients(); renderTasks(); renderCalendar(); });
     renderDay();
     renderClients();

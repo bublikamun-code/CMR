@@ -16,8 +16,23 @@
     const title = document.getElementById('shell-title');
     const content = document.getElementById('shell-content');
     let frame;
+
+    // Тема помнится между сессиями; на file:// localStorage может быть
+    // недоступен — молча работаем без сохранения.
+    const THEME_KEY = 'kb-theme';
+    try {
+        const savedTheme = localStorage.getItem(THEME_KEY);
+        if (savedTheme === 'dark' || savedTheme === 'light') {
+            document.documentElement.dataset.theme = savedTheme;
+            document.getElementById('theme-btn').setAttribute('aria-pressed', String(savedTheme === 'dark'));
+        }
+    } catch (e) { /* нет хранилища — тема сессионная */ }
+
     function render(focus = false) {
         let key = location.hash.slice(1);
+        // Состояние доски (q/store/mode) живёт после «?» и разбирается board.js.
+        const queryAt = key.indexOf('?');
+        if (queryAt >= 0) key = key.slice(0, queryAt);
         if (Object.hasOwn(legacy, key)) {
             key = legacy[key];
             history.replaceState(null, '', '#' + key);
@@ -70,6 +85,7 @@
         const dark = document.documentElement.dataset.theme !== 'dark';
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
         theme.setAttribute('aria-pressed', String(dark));
+        try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) { /* сессионная тема */ }
     });
     render();
 })();

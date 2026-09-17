@@ -16,6 +16,34 @@
     function writeoffStatus() { return KBData.writeoffStatus(); }
     var state = { search: '', store: 'all', compact: true, queueMode: 'pending', history: [], hideFilled: false };
 
+    // Состояние доски в адресе (#board?q=…&store=…&mode=…) — ссылкой на
+    // отфильтрованный вид можно поделиться. replaceState: без мусора в истории.
+    function readBoardParams() {
+        var hash = location.hash.slice(1);
+        var q = hash.indexOf('?');
+        if (q < 0) return {};
+        var out = {};
+        hash.slice(q + 1).split('&').forEach(function (pair) {
+            if (!pair) return;
+            var kv = pair.split('=');
+            out[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+        });
+        return out;
+    }
+    function writeBoardParams(patch) {
+        var hash = location.hash.slice(1);
+        var route = hash.indexOf('?') >= 0 ? hash.slice(0, hash.indexOf('?')) : hash;
+        if (route && route !== 'board') return; // активен другой раздел — адрес не трогаем
+        var p = readBoardParams();
+        Object.keys(patch).forEach(function (k) {
+            if (patch[k]) p[k] = patch[k]; else delete p[k];
+        });
+        var qs = Object.keys(p).map(function (k) {
+            return encodeURIComponent(k) + '=' + encodeURIComponent(p[k]);
+        }).join('&');
+        history.replaceState(null, '', '#board' + (qs ? '?' + qs : ''));
+    }
+
     // ---------- утилиты ----------
     function money(cents) {
         var sign = cents < 0 ? '−' : '';
@@ -224,6 +252,7 @@
     }
     storeEl.addEventListener('change', function() {
         state.store = storeEl.value;
+        writeBoardParams({ store: state.store === 'all' ? '' : state.store });
         refresh();
     });
     var searchToggle = document.getElementById('kb-search-toggle');
@@ -233,12 +262,12 @@
         searchToggle.setAttribute('aria-expanded', String(open));
         searchToggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
         if (open) searchEl.focus();
-        else { searchEl.value = ''; state.search = ''; refresh(); searchToggle.focus(); }
+        else { searchEl.value = ''; state.search = ''; writeBoardParams({ q: '' }); refresh(); searchToggle.focus(); }
     }
     searchToggle.onclick = function() { toggleSearch(searchToggle.getAttribute('aria-expanded') !== 'true'); };
     document.getElementById('kb-search-close').onclick = function() { toggleSearch(false); };
     searchEl.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); toggleSearch(false); } });
-    searchEl.addEventListener('input', function () { state.search = searchEl.value; refresh(); });
+    searchEl.addEventListener('input', function () { state.search = searchEl.value; writeBoardParams({ q: state.search }); refresh(); });
     document.getElementById('kb-density').onclick = function() { setDensity(!state.compact); };
     function setDensity(compact) {
         state.compact = compact;
@@ -284,6 +313,7 @@
     }
     function queueMode(mode) {
         state.queueMode = mode;
+        writeBoardParams({ mode: mode === 'board' ? '' : mode });
         boardEl.hidden = mode !== 'board';
         document.getElementById('kb-queue').hidden = mode === 'board';
         document.getElementById('kb-q-board').setAttribute('aria-pressed', String(mode === 'board'));
@@ -328,6 +358,8 @@
             c.paymentDetails = { terms: d.terms, mode: result.due ? d.mode : '',
                 due: result.due, start: result.due && d.mode === 'days' ? d.start : '',
                 days: result.due && d.mode === 'days' ? Number(d.days) : null, prepay: result.prepay };
+            // Дата оплаты появилась/изменилась — календарю пульта нужно перерисоваться.
+            document.dispatchEvent(new CustomEvent('kb:payment-saved', { detail: { cardId: c.id } }));
         }
         dialog.querySelectorAll('[data-payment-field]').forEach(function(input) {
             var error = result.errors[input.dataset.paymentField] || '';
@@ -803,5 +835,9 @@
             openCard(c);
         }
     };
-    populateStores(); setDensity(true); refresh(); queueMode('board');
+    // Восстановление состояния из адреса — после наполнения справочников.
+    var bp = readBoardParams();
+    if (bp.q) { state.search = bp.q; searchEl.value = bp.q; }
+    if (bp.store && (bp.store === 'all' || KBData.stores.some(function (s) { return s.id === bp.store; }))) state.store = bp.store;
+    populateStores(); setDensity(true); refresh(); queueMode(['pending', 'history'].indexOf(bp.mode) >= 0 ? bp.mode : 'board');
 })();
