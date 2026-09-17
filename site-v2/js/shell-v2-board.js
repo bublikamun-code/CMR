@@ -502,7 +502,12 @@
             '<section id="kb-panel-procurement" role="tabpanel" aria-labelledby="kb-tab-procurement" tabindex="0" hidden>' +
             '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>' + cl.received + '/' + cl.total + '</span></h3>' +
             '<p class="kb-detail-hint">Файл до 25 МБ · до перезагрузки</p>' +
-            (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') + '</section>' +
+            (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
+            '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +
+            ((c.attachments || []).length ? c.attachments.map(function (a) {
+                return '<div class="kb-check-row"><span class="grow trunc">' + esc(a.name || '') + '</span></div>';
+            }).join('') : '<p class="kb-detail-empty">Вложений нет.</p>') +
+            '</section>' +
             '<section id="kb-panel-invoices" role="tabpanel" aria-labelledby="kb-tab-invoices" tabindex="0" hidden>' +
             '<h3 class="kb-detail-section-title">Выписанные накладные <span>' + (c.docs.length + (c.groupId ? 1 : 0)) + '</span></h3>' +
             (groupEntry + docs ? '<ul class="kb-detail-docs">' + groupEntry + docs + '</ul>' : '<div class="kb-detail-empty"><b>Накладных пока нет</b><p>Демо-выписка доступна на этапе «На списание».</p></div>') +

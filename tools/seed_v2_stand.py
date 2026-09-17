@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import auth
 import models
+import models_tenant  # noqa: F401  # таблица tenants нужна мапперу
+from sqlalchemy import text  # noqa: E402
 from database import SessionLocal
 
 STAND_USERS = [
@@ -137,6 +139,14 @@ def main():
 
         # Реестр оплат: по сделке запись-остаток (is_document=False) и, где была
         # оплата/выписка, документ с номером ТН. Остаток = сумма − выписанное.
+        if db.execute(text("SELECT COUNT(*) FROM nakladnye")).scalar() == 0:
+            supplier = suppliers[SUPPLIERS[0]["name"]]
+            db.execute(text(
+                "INSERT INTO nakladnye (supplier_id, doc_number, doc_date, amount, vat_amount,"
+                " amount_no_vat, store, is_verified, is_arrived, is_paid, status, created_by_bot)"
+                " VALUES (:sid, 'ВХ-501', '16.09.2026', 2400, 400, 2000, 'Матусевича', 1, 0, 1, 'paid', 1)"
+            ), {"sid": supplier.id})
+
         if db.query(models.Transaction).count() == 0:
             for card in db.query(models.Card).all():
                 total = float(card.total_amount or 0)
