@@ -282,6 +282,7 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
         ]);
         buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4] });
         window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6]);
+        enableMutations();
         renderUser(meUser);
         setText('Источник: CRM API · изменения до перезагрузки, запись — следующий этап плана');
         await injectAll(APP_SCRIPTS);
@@ -343,6 +344,36 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
             };
         });
         return { outgoing: outgoing, incoming: [] };
+    }
+    // Запись (Этап 2.1/2.2): статус/поля карточки и задачи уходят в CRM API.
+    // Неудача показывается тостом; локальное состояние правится отдельно
+    // и выправится следующей перезагрузкой с сервера.
+    function enableMutations() {
+        window.KBData.mutate = async function (kind, payload) {
+            try {
+                if (kind === 'card') {
+                    await window.V2Api.api('/cards/' + payload.id, { method: 'PATCH', body: payload.fields });
+                } else if (kind === 'status') {
+                    await window.V2Api.api('/kanban/cards/' + payload.id + '/status', { method: 'PATCH', body: { status: payload.status } });
+                } else if (kind === 'task-status') {
+                    await window.V2Api.api('/tasks/' + payload.id, { method: 'PATCH', body: { status: payload.status } });
+                } else if (kind === 'task-create') {
+                    await window.V2Api.api('/tasks', { method: 'POST', body: { title: payload.title, status: 'todo', due_date: payload.due || null, assignee_id: payload.assignee || null, client_id: payload.client || null } });
+                } else {
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                console.error('Изменение не сохранено в CRM:', err);
+                const toast = document.getElementById('kb-toast');
+                if (toast) {
+                    toast.hidden = false;
+                    toast.textContent = 'Не сохранено в CRM: ' + (err.detail || err.message || 'ошибка');
+                    setTimeout(function () { toast.hidden = true; }, 4000);
+                }
+                return false;
+            }
+        };
     }
     function showLogin(message) {
         setText('Требуется вход');

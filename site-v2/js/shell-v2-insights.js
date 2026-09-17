@@ -207,10 +207,12 @@
         var overdue = open.filter(function (t) { return dueDiff(t) > 0; });
         var soon = open.filter(function (t) { var d = dueDiff(t); return d <= 0 && d >= -1; });
         var week = open.filter(function (t) { var d = dueDiff(t); return d < -1 && d >= -7; });
+        var later = open.filter(function (t) { var d = dueDiff(t); return d < -7; });
         list.innerHTML =
             taskGroup('Просрочено', 'danger', overdue) +
             taskGroup('Сегодня и завтра', 'warn', soon) +
             taskGroup('На неделе', '', week) +
+            taskGroup('Позже', '', later) +
             taskGroup('Выполнено', '', done) ||
             '<p class="fin-note">Задач нет.</p>';
         var progress = document.getElementById('tasks-progress');
@@ -426,6 +428,12 @@
             var clientId = taskDialog.querySelector('#task-client').value || null;
             var seq = D.tasks.reduce(function (max, t) { var n = Number(String(t.id).replace('task-', '')); return n > max ? n : max; }, 0) + 1;
             D.tasks.push({ id: 'task-' + seq, title: title, clientId: clientId, assignee: assignee.id, due: m ? m[3] + '.' + m[2] + '.' + m[1] : due, done: false });
+            apiMutate('task-create', {
+                title: title,
+                due: due,
+                assignee: Number(String(assignee.id).replace('us-', '')) || null,
+                client: clientId ? Number(String(clientId).replace('cl-', '')) || null : null
+            });
             taskDialog.close();
             renderTasks();
             renderCalendar();
@@ -436,6 +444,8 @@
         taskDialog.querySelector('#task-title').focus();
     }
 
+    function apiMutate(kind, payload) { if (D.mutate) D.mutate(kind, payload); }
+
     // Отметка «выполнено / вернуть» делегированием по списку задач
     document.getElementById('tasks-list').addEventListener('click', function (e) {
         var box = e.target.closest('[data-task-toggle]');
@@ -443,6 +453,7 @@
         var task = D.tasks.filter(function (t) { return t.id === box.dataset.taskToggle; })[0];
         if (!task) return;
         task.done = !task.done;
+        apiMutate('task-status', { id: Number(String(task.id).replace('task-', '')), status: task.done ? 'done' : 'todo' });
         if (task.done) {
             var dd = String(D.today.getDate()).padStart(2, '0');
             var mm = String(D.today.getMonth() + 1).padStart(2, '0');

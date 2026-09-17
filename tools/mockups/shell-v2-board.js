@@ -44,6 +44,15 @@
         history.replaceState(null, '', '#board' + (qs ? '?' + qs : ''));
     }
 
+    // Запись в CRM (site-v2): в прототипе KBData.mutate нет — хук молчит.
+    function apiMutate(kind, payload) {
+        if (window.KBData.mutate) window.KBData.mutate(kind, payload);
+    }
+    function isoFromRu(value) {
+        var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value || '').trim());
+        return m ? m[3] + '-' + m[2] + '-' + m[1] : null;
+    }
+
     // ---------- утилиты ----------
     function money(cents) {
         var sign = cents < 0 ? '−' : '';
@@ -239,6 +248,7 @@
         if (!drag.column) { cleanupDrag(); return; }
         e.preventDefault();
         moveCard(drag.card, drag.column.dataset.stage, drag.beforeId);
+        apiMutate('status', { id: Number(drag.card.id), status: stageName(drag.column.dataset.stage) });
         cleanupDrag(); refresh();
     });
     document.addEventListener('dragend', cleanupDrag);
@@ -589,7 +599,7 @@
         if (!dialog.open) dialog.showModal();
         dialog.querySelector('.kb-detail-content').scrollTop = scrollTop;
         var send = document.getElementById('kb-send');
-        if (send) send.onclick = function() { c.stage = 'writeoff'; dialog.close(); refresh(); notify(c.id + ' — передана в очередь выписки.'); };
+        if (send) send.onclick = function() { c.stage = 'writeoff'; apiMutate('status', { id: Number(c.id), status: stageName('writeoff') }); dialog.close(); refresh(); notify(c.id + ' — передана в очередь выписки.'); };
         var issue = document.getElementById('kb-issue');
         if (issue) issue.onclick = function() { openIssue(c); };
     }
@@ -730,6 +740,13 @@
             input.setAttribute('aria-invalid', String(!!error));
             if (error) { input.reportValidity(); return; }
             activeCard[key] = value;
+            if (key === 'title') apiMutate('card', { id: Number(activeCard.id), fields: { title: value } });
+            else if (key === 'note') apiMutate('card', { id: Number(activeCard.id), fields: { description: value } });
+            else if (key === 'amount') apiMutate('card', { id: Number(activeCard.id), fields: { total_amount: value / 100 } });
+            else if (key === 'deadline') apiMutate('card', { id: Number(activeCard.id), fields: { due_date: isoFromRu(value) } });
+            else if (key === 'store') apiMutate('card', { id: Number(activeCard.id), fields: { store_location: KBData.storeName(value) } });
+            else if (key === 'manager') apiMutate('card', { id: Number(activeCard.id), fields: { owner_id: value ? Number(String(value.id).replace('us-', '')) || null : null } });
+            else if (key === 'stage') apiMutate('status', { id: Number(activeCard.id), status: stageName(value) });
             refresh();
             if (key === 'stage' || key === 'amount') {
                 openCard(activeCard);

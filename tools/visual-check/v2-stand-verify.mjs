@@ -79,9 +79,61 @@ try {
     const deals = Number(await p.textContent('#day-kpi-deals'));
     assert(deals > 0, 'KPI пульта считается');
 
+    // Запись 2.1: смена этапа карточки сохраняется в CRM
+    await p.evaluate(() => { location.hash = '#board'; });
+    await p.waitForTimeout(400);
+    const moved = await p.evaluate(() => {
+        const card = window.KBData.cards.find(c => c.stage === 'new') ||
+                     window.KBData.cards.find(c => c.stage === 'work');
+        const from = card.stage;
+        document.querySelector(`#kb-board [data-card="${card.id}"]`).click();
+        const sel = document.querySelector('[data-deal-field="stage"]');
+        const next = [...sel.options].map(o => o.value).find(v => v !== card.stage && v !== 'done');
+        sel.value = next;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        return { id: card.id, from, to: next };
+    });
+    await p.waitForTimeout(800);
+    await p.reload({ waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(1300);
+    const persisted = await p.evaluate(id => {
+        const card = window.KBData.cards.find(c => c.id === id);
+        return { stage: card && card.stage };
+    }, moved.id);
+    assert.equal(persisted.stage, moved.to, 'этап карточки пережил перезагрузку: ' + JSON.stringify(moved));
+
+    // Запись 2.2: создание и отметка задачи
+    await p.evaluate(() => { location.hash = '#tasks'; });
+    await p.waitForTimeout(400);
+    const taskTitle = 'Проверка записи v2 ' + Date.now();
+    await p.evaluate(t => document.getElementById('task-new').click(), taskTitle);
+    await p.waitForTimeout(200);
+    await p.evaluate(t => {
+        document.getElementById('task-title').value = t;
+        document.getElementById('task-due').value = '2026-09-30';
+        document.getElementById('task-form').requestSubmit();
+    }, taskTitle);
+    await p.waitForTimeout(600);
+    const toggle = await p.evaluate(title => {
+        const t = window.KBData.tasks.find(x => x.title === title);
+        const box = document.querySelector(`#tasks-list [data-task-toggle="${t.id}"]`);
+        box.click();
+        return { id: t.id, done: t.done };
+    }, taskTitle);
+    await p.waitForTimeout(600);
+    await p.reload({ waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(1300);
+    const taskPersisted = await p.evaluate(title => {
+        const t = window.KBData.tasks.find(x => x.title === title);
+        return t ? { done: t.done } : null;
+    }, taskTitle);
+    assert(taskPersisted, 'созданная задача есть в CRM после перезагрузки');
+    assert.equal(taskPersisted.done, true, 'отметка выполнения пережила перезагрузку');
+    assert.notEqual(toggle, null);
+
     await p.screenshot({ path: '/tmp/v2-stand-verified.png' });
     assert.deepEqual(errors, [], 'нет ошибок JS: ' + errors.join('; '));
-    console.log(`PASS v2-stand: вход, доска ${board.onBoard}+${board.queue} карточек, суммы ${board.sumKop} коп. = API, реестр ${finRows} строк, клиентов ${clients}, пульт ${deals} сделок`);
+    console.log(`PASS v2-stand: вход, доска ${board.onBoard}+${board.queue} карточек, суммы ${board.sumKop} коп. = API, реестр ${finRows} строк, клиентов ${clients}, запись: карточка ${moved.from}→${moved.to} и задача сохранены`);
 } finally {
     await browser.close();
 }
