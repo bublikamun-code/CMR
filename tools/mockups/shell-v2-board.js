@@ -46,7 +46,8 @@
 
     // Запись в CRM (site-v2): в прототипе KBData.mutate нет — хук молчит.
     function apiMutate(kind, payload) {
-        if (window.KBData.mutate) window.KBData.mutate(kind, payload);
+        if (window.KBData.mutate) return window.KBData.mutate(kind, payload);
+        return Promise.resolve(null); // прототип: записи в CRM нет
     }
     function isoFromRu(value) {
         var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value || '').trim());
@@ -368,6 +369,7 @@
             c.paymentDetails = { terms: d.terms, mode: result.due ? d.mode : '',
                 due: result.due, start: result.due && d.mode === 'days' ? d.start : '',
                 days: result.due && d.mode === 'days' ? Number(d.days) : null, prepay: result.prepay };
+            apiMutate('payment-terms', { id: Number(c.id), terms: d.terms || null, due: result.due || null });
             // Дата оплаты появилась/изменилась — календарю пульта нужно перерисоваться.
             document.dispatchEvent(new CustomEvent('kb:payment-saved', { detail: { cardId: c.id } }));
         }
@@ -561,6 +563,7 @@
                 return '<button type="button" role="tab" id="kb-tab-' + tab[0] + '" data-card-tab="' + tab[0] + '" aria-controls="kb-panel-' + tab[0] + '" aria-selected="false" tabindex="-1">' + tab[1] + '</button>';
             }).join('') + '</div><div class="kb-detail-content">' + cardTabContent(c, currentStage) + '</div>' +
             '<footer class="kb-dialog-foot"><p class="kb-detail-hint">Демо · изменения только до перезагрузки</p><div>' +
+            (c.stage !== 'done' ? '<button class="btn btn-ghost" id="kb-pay">Внести оплату</button>' : '') +
             (c.stage === 'assembly' ? '<button class="btn btn-primary" id="kb-send">В списание</button>' : '') +
             (c.stage === 'writeoff' ? '<button class="btn btn-primary" id="kb-issue">Выписать накладную</button>' : '') +
             '<button class="btn btn-ghost" data-close>Закрыть</button></div></footer></div>';
@@ -602,6 +605,35 @@
         if (send) send.onclick = function() { c.stage = 'writeoff'; apiMutate('status', { id: Number(c.id), status: stageName('writeoff') }); dialog.close(); refresh(); notify(c.id + ' — передана в очередь выписки.'); };
         var issue = document.getElementById('kb-issue');
         if (issue) issue.onclick = function() { openIssue(c); };
+        var pay = document.getElementById('kb-pay');
+        if (pay) pay.onclick = function() { openPay(c); };
+    }
+
+    // Оплата — факт денег (paid_amount + статус), отдельно от условий и выписки.
+    function openPay(c) {
+        window.KBSelect.close();
+        var debt = c.amount - c.paidAmount;
+        dialog.innerHTML = '<h2 id="kb-dialog-title">Внести оплату · ' + esc(c.id) + '</h2>' +
+            '<p class="kb-detail-hint">Долг: ' + money(debt) + ' BYN · Оплачено: ' + money(c.paidAmount) + ' BYN</p>' +
+            '<form id="kb-pay-form" class="kb-form"><div class="kb-field"><label for="kb-pay-amount">Сумма, BYN</label>' +
+            '<input id="kb-pay-amount" inputmode="decimal" value="' + money(debt) + '" required></div>' +
+            '<p class="kb-form-error" id="kb-pay-error" role="alert"></p>' +
+            '<p class="kb-form-hint">Оплата — факт денег. Условия оплаты задаются отдельным полем и на оплату не влияют.</p>' +
+            '<button class="btn btn-primary" type="submit">Провести оплату</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
+        document.getElementById('kb-pay-amount').focus();
+        var submitted = false;
+        document.getElementById('kb-pay-form').onsubmit = function (e) {
+            e.preventDefault();
+            if (submitted) return;
+            var sum = parseMoney(document.getElementById('kb-pay-amount').value);
+            var error = !Number.isSafeInteger(sum) || sum <= 0 || sum > debt ? 'Сумма должна быть больше нуля и не превышать долг.' : '';
+            if (error) { document.getElementById('kb-pay-error').textContent = error; return; }
+            submitted = true;
+            c.paidAmount += sum;
+            apiMutate('register-payment', { id: Number(c.id), paid: c.paidAmount / 100, status: c.paidAmount >= c.amount ? 'Оплачен' : 'Частично' });
+            dialog.close(); refresh();
+            notify(c.id + ' — оплата ' + money(sum) + ' BYN проведена.');
+        };
     }
 
     function openIssue(c) {
@@ -622,7 +654,11 @@
             if (error) { document.getElementById('kb-error').textContent = error; return; }
             document.getElementById('kb-error').textContent = '';
             submitted = true;
-            c.docs.push({ series: series, number: number, date: date, amount: amount, originalsReturned: false });
+            const doc = { series: series, number: number, date: date, amount: amount, originalsReturned: false };
+            c.docs.push(doc);
+            apiMutate('issue-invoice', { id: Number(c.id), number: number, date: date, amount: amount / 100 }).then(function (saved) {
+                if (saved && saved.id) doc.txId = saved.id;
+            });
             c.issued += amount;
             if (remaining(c) === 0) c.stage = 'done';
             dialog.close(); refresh();
@@ -663,6 +699,7 @@
                     var w = writeoffStatus();
                     if (remaining(card) > 0 && card.stage === 'done' && w) card.stage = w.id;
                 });
+                if (group.serverTxId) apiMutate('annul-tx', { txId: group.serverTxId });
                 KBData.groups.splice(KBData.groups.indexOf(group), 1);
                 refresh();
                 notify('Групповая ТН ' + group.series + ' ' + group.number + ' отменена. Остатки возвращены ' + group.covers.length + ' карточкам.');
@@ -676,6 +713,7 @@
             if (!doc) return;
             activeCard.docs.splice(index, 1);
             activeCard.issued = Math.max(0, activeCard.issued - doc.amount);
+            if (doc.txId) apiMutate('annul-tx', { txId: doc.txId });
             var writeoff = writeoffStatus();
             if (activeCard.stage === 'done' && remaining(activeCard) > 0 && writeoff) activeCard.stage = writeoff.id;
             refresh();
@@ -834,6 +872,12 @@
         KBData.nextGroupId++;
         KBData.groups.push(group);
         groupPick = [];
+        apiMutate('group-issue', {
+            cards: picks.map(function (c) { return Number(c.id); }),
+            name: group.name, number: number, date: date, amount: total / 100
+        }).then(function (saved) {
+            if (saved && saved.id) { group.serverId = saved.id; group.serverTxId = saved.txId; }
+        });
         dialog.close(); refresh();
         notify('Групповая ТН ' + series + ' ' + number + ' выписана на ' + picks.length + ' карточек · ' + money(total) + ' BYN.');
     }

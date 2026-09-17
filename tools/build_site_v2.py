@@ -217,6 +217,12 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
             }
         });
 
+        const docsByCard = {};
+        (payload.documents || []).forEach(function (d) {
+            if (d.card_id == null) return;
+            (docsByCard[d.card_id] = docsByCard[d.card_id] || []).push(d);
+        });
+
         const cards = cardsRaw.map(function (c) {
             const clientObj = c.client ? clientById['cl-' + c.client.id] : null;
             const manager = (c.owner_id && userById['us-' + c.owner_id]) || unassigned;
@@ -233,7 +239,8 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
                 stage: stageOf[String(c.status || '')] || 'new',
                 deadline: isoToRu(c.due_date),
                 note: c.description || '',
-                paymentTerms: '',
+                paymentTerms: c.payment_terms || '',
+                paymentDueDate: String(c.payment_due_date || '').slice(0, 10),
                 paymentDetails: null,
                 groupId: c.writeoff_group_id ? 'gr-' + c.writeoff_group_id : null,
                 checklist: (c.checklists || []).map(function (item) {
@@ -245,8 +252,25 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
                         received: false
                     };
                 }),
-                docs: []
+                docs: (docsByCard[c.id] || []).map(function (d) {
+                    return { txId: d.id, series: 'ТН', number: d.invoice_number || '', date: isoToRu(d.invoice_date || d.date), amount: kopecks(d.amount), originalsReturned: false };
+                })
             };
+        });
+        cards.forEach(function (c) {
+            c.issued = c.docs.reduce(function (a, d) { return a + d.amount; }, 0);
+            // Условия оплаты, сохранённые в CRM (payment_terms), восстанавливаются
+            // как снимок: датой оплаты из payment_due_date, предоплата — пустая.
+            if (c.paymentTerms) {
+                c.paymentDetails = {
+                    terms: c.paymentTerms,
+                    mode: c.paymentDueDate ? 'date' : '',
+                    due: c.paymentDueDate || '',
+                    start: '',
+                    days: null,
+                    prepay: null
+                };
+            }
         });
 
         const tasks = tasksRaw.map(function (t) {
@@ -316,7 +340,7 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
             window.V2Api.api('/dictionaries/stores'),
             window.V2Api.api('/dictionaries/statuses')
         ]);
-        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8] });
+        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6] });
         window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6]);
         enableMutations();
         renderUser(meUser);
@@ -413,6 +437,26 @@ BOOT_JS = r"""/* site-v2: загрузчик. Авторизация → чте�
                     return await (payload.id
                         ? window.V2Api.api('/clients/' + payload.id, { method: 'PATCH', body: payload.fields })
                         : window.V2Api.api('/clients', { method: 'POST', body: payload.fields }));
+                } else if (kind === 'payment-terms') {
+                    // payment_terms есть в CardUpdate (общий PATCH карточки),
+                    // а в CardPaymentUpdate его нет.
+                    return await window.V2Api.api('/cards/' + payload.id, { method: 'PATCH', body: { payment_terms: payload.terms || null, payment_due_date: payload.due || null } });
+                } else if (kind === 'register-payment') {
+                    return await window.V2Api.api('/cards/' + payload.id + '/payment', { method: 'PATCH', body: { paid_amount: payload.paid, payment_status: payload.status } });
+                } else if (kind === 'issue-invoice') {
+                    return await window.V2Api.api('/payments/cards/' + payload.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount, store_location: payload.store || null } });
+                } else if (kind === 'annul-tx') {
+                    return await window.V2Api.api('/payments/transactions/' + payload.txId, { method: 'DELETE' });
+                } else if (kind === 'group-issue') {
+                    const g = await window.V2Api.api('/writeoff-groups', { method: 'POST', body: { card_ids: payload.cards, name: payload.name } });
+                    const issued = await window.V2Api.api('/writeoff-groups/' + g.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount } });
+                    let txId = null;
+                    try {
+                        const docs = await window.V2Api.api('/payments/documents');
+                        const found = (docs || []).find(d => d.writeoff_group_id === g.id && (d.invoice_number || '') === payload.number);
+                        if (found) txId = found.id;
+                    } catch (e) { /* отмена группы будет локальной */ }
+                    return { id: g.id, txId: txId };
                 } else {
                     return false;
                 }

@@ -202,6 +202,7 @@ class CardBase(BaseModel):
     paid_amount: float = 0.0
     payment_status: str = "Не оплачен"
     payment_due_date: Optional[date] = None
+    payment_terms: Optional[str] = None  # условие оплаты: deferred/full/partial_deferred; None — не выбраны
     store_location: Optional[str] = None
     due_date: Optional[date] = None
     priority: Optional[int] = 0
@@ -395,6 +396,7 @@ class CardUpdate(BaseModel):
     paid_amount: Optional[float] = None
     payment_status: Optional[str] = None
     payment_due_date: Optional[date] = None
+    payment_terms: Optional[str] = None
     store_location: Optional[str] = None
     client_id: Optional[int] = None
     due_date: Optional[date] = None

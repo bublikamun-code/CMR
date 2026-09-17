@@ -102,6 +102,8 @@ class Card(Base):
     paid_amount = Column(Numeric(12, 2), default=0.0)
     payment_status = Column(String, default="Не оплачен")
     payment_due_date = Column(Date, nullable=True)
+    # Условие оплаты (не факт оплаты): deferred/full/partial_deferred. NULL — не выбраны.
+    payment_terms = Column(String(30), nullable=True)
     store_location = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

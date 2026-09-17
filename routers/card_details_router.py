@@ -427,6 +427,10 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         card.payment_status = card_update.payment_status
     if 'payment_due_date' in card_update.model_fields_set:
         card.payment_due_date = card_update.payment_due_date
+    if 'payment_terms' in card_update.model_fields_set:
+        # Условие оплаты (Этап 2.4 плана замены фронта) — не факт оплаты:
+        # paid_amount/payment_status этим полем не меняются.
+        card.payment_terms = card_update.payment_terms
     if 'tag_ids' in card_update.model_fields_set:
         tags = db.query(models.Tag).filter(models.Tag.id.in_(card_update.tag_ids)).all()
         card.tags = tags

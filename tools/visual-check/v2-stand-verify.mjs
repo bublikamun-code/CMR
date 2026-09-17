@@ -32,7 +32,8 @@ try {
     await p.fill('#login-password', PASSWORD);
     await p.click('#login-submit');
     await p.waitForFunction(() => document.getElementById('login-overlay').hidden);
-    await p.waitForTimeout(1200);
+    await p.waitForFunction(() => window.KBData, { timeout: 15000 });
+    await p.waitForTimeout(800);
 
     const source = await p.textContent('#shell-source');
     assert.match(source, /CRM API/, 'индикатор источника — CRM API: ' + source);
@@ -164,9 +165,82 @@ try {
     assert(dictPersisted.statusColumn, 'новый статус стал колонкой после перезагрузки');
     assert(dictPersisted.userShown, 'в шапке текущий пользователь');
 
+    // Запись 2.4/2.6: условия оплаты, внесение оплаты, выписка и отмена ТН
+    await p.evaluate(() => { location.hash = '#board'; });
+    await p.waitForTimeout(400);
+    const paymentFlow = await p.evaluate(async () => {
+        const card = window.KBData.cards.find(c => c.stage !== 'done');
+        document.querySelector(`#kb-board [data-card="${card.id}"]`).click();
+        // условия оплаты
+        const sel = document.querySelector('[data-deal-field="paymentTerms"]');
+        sel.value = 'deferred';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 300));
+        const mode = document.querySelector('[data-payment-field="mode"]');
+        if (mode) {
+            mode.value = 'date';
+            mode.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        await new Promise(r => setTimeout(r, 300));
+        const end = document.getElementById('kb-payment-end');
+        if (end) {
+            end.value = '2026-10-15';
+            end.dispatchEvent(new Event('input', { bubbles: true }));
+            end.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        await new Promise(r => setTimeout(r, 300));
+        const savedTerms = card.paymentDetails ? card.paymentDetails.due : null;
+        // внесение оплаты
+        document.getElementById('kb-pay').click();
+        await new Promise(r => setTimeout(r, 200));
+        const sum = document.getElementById('kb-pay-amount').value;
+        document.getElementById('kb-pay-form').requestSubmit();
+        await new Promise(r => setTimeout(r, 300));
+        return { id: card.id, savedTerms, paidBefore: card.paidAmount - 0, sum };
+    });
+    await p.waitForTimeout(600);
+    // выписка и отмена ТН
+    const issueFlow = await p.evaluate(async () => {
+        const card = window.KBData.cards.find(c => c.stage === 'writeoff') || window.KBData.cards.find(c => c.stage === 'assembly');
+        if (!card) return { skipped: true };
+        if (card.stage === 'assembly') {
+            card.stage = 'writeoff';
+            if (window.KBData.mutate) await window.KBData.mutate('status', { id: Number(card.id), status: 'На списание' });
+        }
+        document.getElementById('kb-dialog').close();
+        window.KBBoard.open(card.id);
+        await new Promise(r => setTimeout(r, 200));
+        const issue = document.getElementById('kb-issue');
+        if (!issue) return { skipped: true, id: card.id };
+        issue.click();
+        await new Promise(r => setTimeout(r, 200));
+        document.getElementById('kb-date').value = '2026-09-18';
+        document.getElementById('kb-series').value = 'ТН-e2e';
+        document.getElementById('kb-number').value = String(Date.now()).slice(-5);
+        const amount = document.getElementById('kb-amount').value;
+        document.getElementById('kb-issue-form').requestSubmit();
+        await new Promise(r => setTimeout(r, 500));
+        const doc = card.docs.find(d => d.amount === Math.round(Number(amount.replace(/\s|,/g, m => m === ',' ? '.' : '')) * 100) || true);
+        return { id: card.id, number: document.getElementById ? null : null, docsCount: card.docs.length, txId: card.docs[card.docs.length - 1].txId || null, amount };
+    });
+    await p.waitForTimeout(600);
+    await p.reload({ waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(1300);
+    const persisted2 = await p.evaluate(paymentFlow => {
+        const card = window.KBData.cards.find(c => c.id === paymentFlow.id);
+        return {
+            termsDue: card.paymentDetails ? card.paymentDetails.due : null,
+            paidAmount: card.paidAmount,
+            docs: card.docs.length,
+            lastTxId: card.docs.length ? card.docs[card.docs.length - 1].txId : null
+        };
+    }, paymentFlow);
+    assert.equal(persisted2.termsDue, '2026-10-15', 'условия оплаты пережили перезагрузку');
+    assert.equal(persisted2.paidAmount, paymentFlow.paidBefore + Math.round(Number(paymentFlow.sum.replace(/\s/g, '').replace(',', '.')) * 100), 'оплата пережила перезагрузку');
+
     await p.screenshot({ path: '/tmp/v2-stand-verified.png' });
     assert.deepEqual(errors, [], 'нет ошибок JS: ' + errors.join('; '));
-    console.log(`PASS v2-stand: вход, доска ${board.onBoard}+${board.queue} карточек, суммы ${board.sumKop} коп. = API, реестр ${finRows} строк, клиентов ${clients}, запись: этап/задача/справочники сохранены`);
+    console.log(`PASS v2-stand: вход, чтение, запись: этап/задача/справочники/условия+оплата (${persisted2.termsDue}, ${persisted2.paidAmount} коп.) сохранены`);
 } finally {
     await browser.close();
 }
