@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Доска сделок — Свет в доме · Предпросмотр</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<style>
+/* ============================================================
+   ТОКЕНЫ v2 — визуальный канон: тёплый нейтральный фон, белые
+   поверхности, ОДИН акцент (индиго бренда), семантика только
+   для данных. Превью-файл, в прод не деплоится.
+   ============================================================ */
+:root {
+    --bg: #eae8e3;
+    --surface: #ffffff;
+    --surface-2: #f5f4f1;
+    --surface-3: #efede9;
+    --text: #171a17;
+    --muted: #7c827c;
+    --faint: #9aa09a;
+    --border: #e4e2dc;
+    --border-strong: #d5d2ca;
+    --accent: #4f46e5;
+    --accent-ink: #ffffff;
+    --accent-soft: #eceafd;
+    --ok: #3e9b62;      --ok-soft: #e6f4ea;
+    --warn: #b4761f;    --warn-soft: #fbf0dc;
+    --danger: #c2474f;  --danger-soft: #fbe9ea;
+    --dark-card: #1e211e;
+    --dark-card-text: #f2f3f1;
+
+    /* Типографика: 3 шкалы (display / body / ui) */
+    --font-display: 26px;
+    --font-h1: 20px;
+    --font-h2: 15px;
+    --font-body: 13px;
+    --font-ui: 12px;
+    --font-micro: 11px;
+
+    /* 4px-сетка */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+
+    --r-xl: 20px; --r-lg: 14px; --r-md: 10px; --r-sm: 8px; --r-pill: 999px;
+    --sh-1: 0 1px 2px rgba(23, 26, 23, .05);
+    --sh-2: 0 10px 28px -16px rgba(23, 26, 23, .28);
+    --ease: cubic-bezier(.23, 1, .32, 1);
+}
+html[data-theme="dark"] {
+    --bg: #17191b;
+    --surface: #1f2224;
+    --surface-2: #191c1e;
+    --surface-3: #24272a;
+    --text: #e8eae7;
+    --muted: #8e948e;
+    --faint: #6f7570;
+    --border: #2c2f31;
+    --border-strong: #3a3e40;
+    --accent: #8e8af5;
+    --accent-ink: #14161a;
+    --accent-soft: #262447;
+    --ok: #6fc38c;      --ok-soft: #1d2b22;
+    --warn: #e0b169;    --warn-soft: #2c2718;
+    --danger: #e58b90;  --danger-soft: #2e2022;
+    --dark-card: #f2f3f1;
+    --dark-card-text: #171a17;
+    --sh-1: 0 1px 2px rgba(0, 0, 0, .3);
+    --sh-2: 0 12px 32px -18px rgba(0, 0, 0, .7);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: var(--font-body); line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+}
+.num { font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+
+/* ============ SHELL: рельс + рабочая область ============ */
+.app { display: flex; min-height: 100vh; align-items: flex-start; }
+
+.rail {
+    width: 72px; flex: 0 0 72px; background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: var(--s2);
+    padding: var(--s4) var(--s3); position: sticky; top: 0; height: 100vh;
+}
+.rail-brand {
+    width: 40px; height: 40px; border-radius: var(--r-md); background: var(--accent);
+    color: var(--accent-ink); display: grid; place-items: center;
+    font-weight: 800; font-size: var(--font-h2); letter-spacing: -.5px; margin-bottom: var(--s2);
+}
+.rail-group { padding-top: var(--s3); margin-top: var(--s1); border-top: 1px solid var(--border); }
+.rail-group:first-of-type { border-top: none; }
+.rail-item {
+    position: relative; width: 44px; height: 44px; border-radius: var(--r-md);
+    display: grid; place-items: center; color: var(--muted);
+    transition: background-color 140ms var(--ease), color 140ms var(--ease);
+}
+.rail-item:hover { background: var(--surface-2); color: var(--text); }
+.rail-item.active { background: var(--accent-soft); color: var(--accent); }
+.rail-item .badge-dot {
+    position: absolute; top: 7px; right: 7px; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--warn); border: 2px solid var(--surface);
+}
+/* flyout-подпись при ховере */
+.rail-item .flyout {
+    position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%) translateX(-4px);
+    background: var(--text); color: var(--bg); padding: 5px 10px; border-radius: var(--r-sm);
+    font-size: var(--font-ui); font-weight: 600; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 140ms var(--ease), transform 140ms var(--ease);
+    z-index: 40;
+}
+.rail-item:hover .flyout { opacity: 1; transform: translateY(-50%) translateX(0); }
+.rail-spacer { flex: 1; }
+/* ============ TOPBAR ============ */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s3) var(--s6); border-bottom: 1px solid var(--border);
+    background: var(--bg); position: sticky; top: 0; z-index: 30;
+}
+.crumbs { display: flex; align-items: center; gap: var(--s2); font-size: var(--font-ui); color: var(--muted); }
+.crumbs b { color: var(--text); font-weight: 700; font-size: var(--font-h1); letter-spacing: -.3px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+.search-pill {
+    display: flex; align-items: center; gap: var(--s2); min-width: 250px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-pill);
+    padding: 7px 8px 7px 14px; color: var(--muted); font-size: var(--font-ui);
+}
+.search-pill:hover { border-color: var(--border-strong); }
+.search-pill kbd {
+    margin-left: auto; font-family: inherit; font-size: var(--font-micro); font-weight: 700;
+    background: var(--surface-3); color: var(--muted); border-radius: var(--r-sm); padding: 2px 7px;
+}
+.icon-btn {
+    width: 34px; height: 34px; border-radius: var(--r-md); display: grid; place-items: center;
+    color: var(--muted); position: relative;
+}
+.icon-btn:hover { background: var(--surface); color: var(--text); }
+.icon-btn .dot {
+    position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px;
+    border-radius: var(--r-pill); background: var(--danger); color: #fff;
+    font-size: 9px; font-weight: 800; display: grid; place-items: center; border: 2px solid var(--bg);
+}
+.avatar {
+    width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+    display: grid; place-items: center; font-size: var(--font-ui); font-weight: 800;
+}
+.avatar.sm { width: 24px; height: 24px; font-size: var(--font-micro); }
+.avatar.neutral { background: var(--surface-3); color: var(--muted); }
+
+.viewbar { display: flex; gap: var(--s1); padding: var(--s3) var(--s6) 0; }
+.viewtab {
+    padding: 7px 14px; border-radius: var(--r-pill); font-size: var(--font-ui); font-weight: 600;
+    color: var(--muted); white-space: nowrap;
+}
+.viewtab:hover { background: var(--surface); color: var(--text); }
+.viewtab.active { background: var(--text); color: var(--bg); }
+
+.content { padding: var(--s6); display: flex; flex-direction: column; gap: var(--s4); }
+.view { display: none; flex-direction: column; gap: var(--s4); }
+.view.active { display: flex; }
+
+.card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-xl); box-shadow: var(--sh-1); padding: var(--s5);
+}
+.card-head { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s4); }
+.card-title { font-size: var(--font-h2); font-weight: 700; letter-spacing: -.2px; }
+.card-sub { font-size: var(--font-ui); color: var(--muted); font-weight: 500; }
+.card-head .right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+
+.kpi { display: flex; align-items: stretch; }
+.kpi-item { flex: 1; display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s5); min-width: 0; }
+.kpi-item + .kpi-item { border-left: 1px solid var(--border); }
+.kpi-item:first-child { padding-left: 0; }
+.kpi-item:last-child { padding-right: 0; }
+.chip-icon {
+    width: 38px; height: 38px; border-radius: var(--r-md); flex: 0 0 38px;
+    background: var(--text); color: var(--bg); display: grid; place-items: center;
+}
+html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--text); }
+.kpi-label { font-size: var(--font-ui); color: var(--muted); font-weight: 500; }
+.kpi-value { font-size: var(--font-display); font-weight: 800; letter-spacing: -.8px; line-height: 1.15; }
+.kpi-value small { font-size: var(--font-body); font-weight: 600; color: var(--faint); letter-spacing: 0; }
+.delta {
+    font-size: var(--font-micro); font-weight: 800; padding: 2px 8px; border-radius: var(--r-pill);
+    background: var(--ok-soft); color: var(--ok);
+}
+.delta.down { background: var(--danger-soft); color: var(--danger); }
+
+.pill {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px;
+    border-radius: var(--r-pill); font-size: var(--font-micro); font-weight: 700;
+    background: var(--surface-3); color: var(--muted); white-space: nowrap;
+}
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.danger { background: var(--danger-soft); color: var(--danger); }
+.pill.accent { background: var(--accent-soft); color: var(--accent); }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* Кнопки: primary-пилюля только для CTA, остальное — контур */
+.btn {
+    display: inline-flex; align-items: center; gap: var(--s2);
+    height: 34px; padding: 0 16px; border-radius: var(--r-pill);
+    font-size: var(--font-ui); font-weight: 700; white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost { border: 1px solid var(--border-strong); color: var(--text); }
+.btn-ghost:hover { background: var(--surface-2); }
+.btn-sm { height: 28px; padding: 0 12px; font-size: var(--font-micro); }
+.btn-quiet { color: var(--muted); padding: 0 8px; }
+.btn-quiet:hover { color: var(--text); }
+
+/* ============ ОЧЕРЕДЬ «ТРЕБУЕТ ВНИМАНИЯ» ============ */
+.queue { display: flex; flex-direction: column; }
+.qrow { display: flex; align-items: center; gap: var(--s4); padding: var(--s3) 0; border-top: 1px solid var(--border); }
+.qrow:first-child { border-top: none; padding-top: 0; }
+.qrow:last-child { padding-bottom: 0; }
+.qrow .lead {
+    width: 32px; height: 32px; flex: 0 0 32px; border-radius: var(--r-md);
+    display: grid; place-items: center; background: var(--surface-2); color: var(--muted);
+}
+.qrow.hot .lead { background: var(--danger-soft); color: var(--danger); }
+.qrow.wait .lead { background: var(--warn-soft); color: var(--warn); }
+.qrow.ok .lead { background: var(--ok-soft); color: var(--ok); }
+.q-main { min-width: 0; flex: 1; }
+.q-title { font-size: var(--font-body); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-meta { font-size: var(--font-ui); color: var(--muted); display: flex; gap: var(--s3); margin-top: 2px; flex-wrap: wrap; }
+.q-actions { display: flex; align-items: center; gap: var(--s2); }
+
+/* ============ СЕТКИ И ТЁМНАЯ КАРТОЧКА-АКЦЕНТ ============ */
+.grid-2 { display: grid; grid-template-columns: 1.35fr 1fr; gap: var(--s4); align-items: start; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s4); }
+.card-dark { background: var(--dark-card); border-color: var(--dark-card); color: var(--dark-card-text); }
+.card-dark .card-title { color: var(--dark-card-text); }
+.card-dark .card-sub { color: color-mix(in srgb, var(--dark-card-text) 60%, transparent); }
+.card-dark .stat-line { border-color: color-mix(in srgb, var(--dark-card-text) 15%, transparent); }
+.heat { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 26px; gap: 6px; }
+.heat i { border-radius: var(--r-sm); display: block; background: color-mix(in srgb, var(--dark-card-text) 12%, transparent); }
+.heat i.l1 { background: color-mix(in srgb, var(--accent) 34%, transparent); }
+.heat i.l2 { background: color-mix(in srgb, var(--accent) 58%, transparent); }
+.heat i.l3 { background: var(--accent); }
+.heat i.on { background: var(--ok); }
+.stat-line { display: flex; justify-content: space-between; padding: 7px 0; font-size: var(--font-body); border-top: 1px solid var(--border); }
+.stat-line:first-of-type { border-top: none; }
+
+/* Колонки канбана рендерятся из справочника статусов (shell-v2-data.js):
+   стили доски — в shell-v2-board.css. */
+
+/* ============ ИНСПЕКТОР (дровер вместо модалки) ============ */
+/* Доска и инспектор — рядом, а не друг поверх друга:
+   фильтры и кнопки колонок остаются видимыми. */
+.board-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: var(--s4); align-items: start; }
+.drawer {
+    position: static; width: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl);
+    box-shadow: var(--sh-2); display: flex; flex-direction: column; overflow: hidden;
+}
+.drawer-head { padding: var(--s5) var(--s5) var(--s3); border-bottom: 1px solid var(--border); }
+.drawer-body { padding: var(--s5); display: flex; flex-direction: column; gap: var(--s4); }
+.drawer-foot { padding: var(--s3) var(--s5); border-top: 1px solid var(--border); display: flex; align-items: center; gap: var(--s2); background: var(--surface-2); }
+.money-row { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.money-sum { font-size: var(--font-display); font-weight: 800; letter-spacing: -.8px; }
+.money-sub { font-size: var(--font-ui); color: var(--muted); }
+.steps { display: flex; align-items: center; }
+.step { display: flex; align-items: center; flex: 1; min-width: 0; }
+.step:last-child { flex: 0 0 auto; }
+.step .node { width: 9px; height: 9px; border-radius: 50%; background: var(--surface-3); flex: 0 0 9px; }
+.step.done .node { background: var(--ok); }
+.step.now .node { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.step .bar { height: 2px; flex: 1; background: var(--surface-3); }
+.step.done .bar { background: var(--ok); }
+.steps-label { display: flex; justify-content: space-between; font-size: var(--font-micro); color: var(--muted); margin-top: 6px; }
+.tabs-line { display: flex; gap: var(--s4); border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 0; font-size: var(--font-ui); font-weight: 700; color: var(--muted); border-bottom: 2px solid transparent; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: var(--font-micro); color: var(--muted); font-weight: 600; }
+.field .val { border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; font-size: var(--font-body); display: flex; align-items: center; gap: 8px; }
+.acc { border-top: 1px solid var(--border); padding: 10px 0; font-size: var(--font-body); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.acc .plus { margin-left: auto; color: var(--faint); }
+/* ============ ТАБЛИЦЫ: ОБЩИЕ УТИЛИТЫ ============ */
+.table-scroll { max-width: 100%; overflow-x: auto; }
+.table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.who { display: flex; align-items: center; gap: 10px; }
+
+/* ============ ⌘K ПАЛИТРА ============ */
+.palette { position: fixed; inset: 0; background: rgba(23, 26, 23, .38); display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 100; }
+.palette.open { display: flex; }
+.palette-box { width: 560px; max-width: 92vw; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); box-shadow: var(--sh-2); overflow: hidden; }
+.palette-input { display: flex; align-items: center; gap: 10px; padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+.palette-input input { flex: 1; border: none; outline: none; background: none; font-size: 15px; color: var(--text); font-family: inherit; }
+.palette-list { padding: var(--s2) var(--s2) var(--s3); max-height: 52vh; overflow: auto; }
+.palette-group { font-size: var(--font-micro); font-weight: 700; color: var(--faint); padding: var(--s3) var(--s3) 6px; }
+.palette-row { display: flex; align-items: center; gap: 10px; padding: 9px var(--s3); border-radius: var(--r-md); font-size: var(--font-body); }
+.palette-row:hover, .palette-row.sel { background: var(--accent-soft); color: var(--accent); }
+.palette-row .k { margin-left: auto; font-size: var(--font-micro); color: var(--faint); }
+
+/* ============ МОБИЛЬНЫЙ РЕЖИМ ============ */
+.phone { width: 292px; border: 8px solid var(--text); border-radius: 34px; padding: var(--s4) var(--s3) 0; overflow: hidden; flex: 0 0 292px; }
+.phone-hd { font-size: var(--font-h1); font-weight: 800; letter-spacing: -.4px; margin-bottom: var(--s2); }
+.phone-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s3); margin-bottom: var(--s2); }
+.tabbar { display: flex; justify-content: space-between; margin: var(--s4) calc(var(--s3) * -1) 0; padding: var(--s2) var(--s4); border-top: 1px solid var(--border); background: var(--surface); }
+.tabbar b { font-size: 9px; font-weight: 700; color: var(--faint); display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.tabbar b.active { color: var(--accent); }
+
+@media (max-width: 1280px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    .kpi { flex-wrap: wrap; gap: var(--s4) 0; }
+    .kpi-item { flex: 1 1 45%; }
+    .board-wrap { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+    .rail { display: none; }
+    .content, .topbar, .viewbar { padding-left: var(--s4); padding-right: var(--s4); }
+    .kpi-item { flex: 1 1 100%; border-left: none !important; padding: 0 !important; }
+    /* мобильные поправки: заголовок не рвётся, палитра-подсказка уходит, действия переносятся */
+    .crumbs { font-size: var(--font-micro); }
+    .crumbs b { font-size: 16px; }
+    .search-pill { min-width: 0; padding: 7px 12px; }
+    .search-pill kbd { display: none; }
+    .viewbar { overflow-x: auto; }
+    .qrow { flex-wrap: wrap; }
+    .q-main { flex: 1 1 100%; }
+    .q-actions { margin-left: 48px; }
+}
+/* ============ СПРАВОЧНИКИ: ПЛОТНАЯ ТАБЛИЦА ============ */
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+.tbl th { text-align: left; font-size: var(--font-micro); font-weight: 700; color: var(--muted); padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
+.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: var(--font-body); vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: var(--surface-2); }
+.tbl .unp { font-variant-numeric: tabular-nums; color: var(--muted); }
+.icon-action {
+    width: 30px; height: 30px; border-radius: var(--r-sm); display: grid; place-items: center;
+    color: var(--muted); border: 1px solid transparent;
+}
+.icon-action:hover { background: var(--surface-3); color: var(--text); }
+.icon-action.danger:hover { color: var(--danger); background: var(--danger-soft); }
+
+/* Пустое состояние */
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 36px 0; text-align: center; }
+.empty-state .ico {
+    width: 44px; height: 44px; border-radius: var(--r-lg); background: var(--surface-2);
+    display: grid; place-items: center; color: var(--faint);
+}
+.empty-state .t { font-weight: 700; }
+.empty-state .d { font-size: var(--font-ui); color: var(--muted); max-width: 42ch; }
+
+/* ============ ЗАДАЧИ: ПЛОТНАЯ СТРОКА ============ */
+.trow { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+.trow:first-child { border-top: none; }
+.trow .box {
+    width: 18px; height: 18px; border-radius: 6px; border: 1.5px solid var(--border-strong);
+    flex: 0 0 18px; display: grid; place-items: center; font-size: 10px; color: transparent;
+}
+.trow button.box { cursor: pointer; }
+.trow button.box:hover { border-color: var(--accent); }
+.trow button.box[aria-pressed="true"] { background: var(--ok); border-color: transparent; color: #fff; }
+.trow.done .box { background: var(--ok); border-color: transparent; color: #fff; }
+.trow .t { font-weight: 600; }
+.trow.done .t { text-decoration: line-through; color: var(--muted); }
+.trow .sub { font-size: var(--font-micro); color: var(--muted); }
+.group-hd {
+    font-size: var(--font-micro); font-weight: 800; color: var(--muted);
+    padding: var(--s4) 0 var(--s1); display: flex; align-items: center; gap: 6px;
+}
+.group-hd .cnt { background: var(--surface-3); border-radius: var(--r-pill); padding: 1px 7px; }
+
+/* ============ КАЛЕНДАРЬ ============ */
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal .wname { font-size: var(--font-micro); font-weight: 700; color: var(--muted); padding-bottom: 4px; }
+.cal .wname.we { color: var(--danger); }
+.cal .day { min-height: 78px; border-radius: var(--r-md); background: var(--surface-2); padding: 6px; }
+.cal .day.today { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--surface); }
+.cal .day .n { font-size: var(--font-micro); font-weight: 700; color: var(--muted); }
+.cal .ev {
+    font-size: 10px; font-weight: 600; border-radius: 6px; padding: 2px 5px; margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ev.a { background: var(--accent-soft); color: var(--accent); }
+.ev.b { background: var(--ok-soft); color: var(--ok); }
+.ev.c { background: var(--warn-soft); color: var(--warn); }
+.cal .more { font-size: 9.5px; color: var(--muted); margin-top: 2px; }
+
+/* ============ ВИТРИНА КОМПОНЕНТОВ ============ */
+.kit { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.kit-label {
+    font-size: var(--font-micro); font-weight: 800; color: var(--faint);
+    width: 100%; margin-top: var(--s3);
+}
+.kit-label:first-child { margin-top: 0; }
+.swatch { width: 92px; }
+.swatch i { display: block; height: 46px; border-radius: var(--r-md); border: 1px solid var(--border); }
+.swatch b { font-size: 10px; font-weight: 700; display: block; margin-top: 5px; }
+.swatch span { font-size: 9.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+.surface-demo { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); width: 100%; }
+.surface-demo > div {
+    border-radius: var(--r-lg); border: 1px solid var(--border); padding: var(--s4) var(--s3);
+    font-size: var(--font-ui); font-weight: 700;
+}
+.s1 { background: var(--bg); }
+.s2 { background: var(--surface); }
+.s3 { background: var(--surface-3); }
+
+/* Адаптивность превью: прокручиваются таблицы и вкладки, не вся страница. */
+.viewbar { overflow-x: auto; }
+.card, .drawer, .grid-2 > *, .grid-3 > * { min-width: 0; }
+.card-head, .card-head .right { flex-wrap: wrap; }
+.card-head .right { min-width: 0; }
+.avatar, .btn { flex-shrink: 0; }
+.palette-input input { min-width: 0; }
+.cal .ev { display: block; }
+.cal .day { min-width: 0; }
+@media (max-width: 1280px) {
+    .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+    .topbar { flex-wrap: wrap; position: static; }
+    .topbar-right { flex-wrap: wrap; }
+    .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); }
+    .card-head .right { margin-left: 0; }
+    .trow .grow { overflow-wrap: anywhere; }
+    .drawer-body .row, .drawer-foot, .tabs-line { flex-wrap: wrap; }
+    .drawer-body .field { flex: 1 1 150px; min-width: 0; }
+    .field .val { overflow-wrap: anywhere; }
+    .q-meta, .q-actions { flex-wrap: wrap; }
+    .surface-demo { grid-template-columns: minmax(0, 1fr); }
+    .palette-row { flex-wrap: wrap; }
+    .cal .day { padding: 3px; }
+    .cal .ev { white-space: normal; overflow-wrap: anywhere; padding: 2px; }
+    .phone { max-width: 100%; flex-shrink: 1; }
+}
+/* Финансы: независимые рабочие списки, стили изолированы от других видов. */
+#view-fin { --fin-muted: #596159; min-width: 0; }
+html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
+#view-fin [hidden] { display: none !important; }
+#view-fin .fin-tabs, #view-fin .fin-filters, #view-fin .fin-toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2);
+}
+#view-fin .fin-toolbar { margin: var(--s4) 0; gap: var(--s4); }
+#view-fin .fin-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: 1 1 280px; max-width: 540px; min-width: 0; }
+#view-fin label { font-size: var(--font-ui); }
+#view-fin input[type="search"] {
+    width: 100%; min-width: 0; padding: 10px 12px; font: inherit; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-md);
+}
+#view-fin input::placeholder { color: var(--fin-muted); opacity: 1; }
+#view-fin input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--accent); }
+#view-fin .fin-check { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+#view-fin .fin-tabs .btn, #view-fin .fin-filters .btn { min-height: 40px; white-space: normal; text-align: left; }
+#view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+#view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#view-fin .fin-demo { font-size: var(--font-ui); font-weight: 700; padding: 6px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); }
+#view-fin .fin-note { color: var(--fin-muted); font-size: var(--font-ui); margin-top: var(--s3); max-width: 85ch; }
+#view-fin .fin-table { min-width: 1140px; }
+#view-fin .fin-table-compact { min-width: 780px; }
+#view-fin .fin-table th { color: var(--fin-muted); padding-top: 8px; }
+#view-fin .fin-table td { vertical-align: top; }
+#view-fin .fin-table small { display: block; color: var(--fin-muted); margin-top: 5px; }
+#view-fin .fin-table .num { white-space: nowrap; }
+#view-fin .fin-total { padding-top: var(--s4); margin-top: var(--s3); border-top: 1px solid var(--border); font-weight: 700; }
+#view-fin summary { cursor: pointer; padding: 8px 0; font-weight: 700; }
+#view-fin details p { margin: 8px 0; }
+#view-fin .fin-table details { min-width: 150px; max-width: 290px; }
+#view-fin .fin-status { display: inline-block; padding: 4px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); white-space: nowrap; }
+
+/* ============ ИКОНКИ И УТИЛИТЫ ============ */
+svg.i { width: 20px; height: 20px; flex: 0 0 auto; }
+svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
+.muted { color: var(--muted); }
+.row { display: flex; align-items: center; gap: var(--s2); }
+.wrap { flex-wrap: wrap; }
+.mt2 { margin-top: var(--s2); }
+.grow { flex: 1; min-width: 0; }
+.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+<link rel="stylesheet" href="./shell-v2-board.css">
+<link rel="stylesheet" href="./shell-v2-controls.css">
+<link rel="stylesheet" href="./shell-v2-card.css">
+<link rel="stylesheet" href="./shell-v2-navigation.css">
+<link rel="stylesheet" href="./shell-v2-select.css">
+<link rel="stylesheet" href="./shell-v2-payment.css">
+<link rel="stylesheet" href="./shell-v2-procurement.css">
+<script src="./shell-v2-select.js" defer></script>
+<script src="./shell-v2-payment.js" defer></script>
+<link rel="stylesheet" href="./shell-v2-management.css">
+<script src="./shell-v2-data.js" defer></script>
+<script src="./shell-v2-management.js" defer></script>
+<script src="./shell-v2-board.js" defer></script>
+<script src="./shell-v2-insights.js" defer></script>
+<script src="./shell-v2-navigation.js" defer></script>
+</head>
+<body>
+<a class="shell-skip" href="#shell-content">К содержимому</a>
+<div class="app">
+
+  <!-- ============ РЕЛЬС ============ -->
+  <nav class="rail" aria-label="Основная навигация">
+    <div class="rail-brand" title="Свет в доме">СД</div>
+
+    <div class="rail-group">
+      <a class="rail-item viewtab" href="#day" data-view="day" title="Пульт дня">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-6 3 12 2.5-6H21"/></svg>
+        <span class="flyout">Пульт дня</span>
+      </a>
+      <a class="rail-item viewtab active" href="#board" data-view="board" title="Доска сделок">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg>
+        <span class="flyout">Доска сделок</span>
+      </a>
+      <a class="rail-item viewtab" href="#tasks" data-view="tasks" title="Задачи">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></svg>
+        <span class="flyout">Задачи</span>
+      </a>
+      <!-- Календарь живёт на экране «Задачи», под списком; старый адрес
+           #calendar ведёт туда же. Отдельный пункт меню убран как дубль. -->
+    </div>
+
+    <div class="rail-group">
+      <a class="rail-item viewtab" href="#fin" data-view="fin" title="Финансы">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
+        <span class="flyout">Финансы</span>
+      </a>
+      <a class="rail-item viewtab" href="#clients" data-view="clients" title="Клиенты">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        <span class="flyout">Клиенты</span>
+      </a>
+      <a class="rail-item viewtab" href="#suppliers" data-view="suppliers" title="Поставщики">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        <span class="flyout">Поставщики</span>
+      </a>
+    </div>
+
+    <div class="rail-spacer"></div>
+
+    <div class="rail-group">
+      <a class="rail-item viewtab" href="#admin" data-view="admin" title="Админ-панель">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span class="flyout">Админ-панель</span>
+      </a>
+      <button class="rail-item" id="theme-btn" type="button" aria-label="Тёмная тема" aria-pressed="false" title="Тёмная тема">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
+        <span class="flyout">Тёмная тема</span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="shell-heading">
+        <h1 id="shell-title">Доска сделок</h1>
+        <p class="shell-preview">Предпросмотр · данные не подключены</p>
+      </div>
+    </header>
+
+    <main class="content" id="shell-content" tabindex="-1" aria-labelledby="shell-title">
+
+      <!-- ============ ВИД 1: ПУЛЬТ ДНЯ ============ -->
+      <!-- Значения KPI и очередь заполняет shell-v2-insights.js из демо-данных доски. -->
+      <section class="view" id="view-day" hidden>
+        <div class="card">
+          <div class="kpi">
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span>
+              <div>
+                <div class="kpi-label">Сделки в работе</div>
+                <div class="kpi-value num" id="day-kpi-deals">—</div>
+              </div>
+            </div>
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg></span>
+              <div>
+                <div class="kpi-label">Сумма воронки</div>
+                <div class="kpi-value num" id="day-kpi-funnel">—</div>
+              </div>
+            </div>
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+              <div>
+                <div class="kpi-label">Оплачено по сделкам</div>
+                <div class="kpi-value num" id="day-kpi-paid">—</div>
+              </div>
+            </div>
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <div>
+                <div class="kpi-label">Просрочено</div>
+                <div class="kpi-value num" id="day-kpi-overdue">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <!-- ОЧЕРЕДЬ: что требует меня сегодня -->
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Требует внимания</span>
+              <span class="pill warn"><span id="day-queue-count">0</span></span>
+              <div class="right">
+                <button type="button" class="btn btn-ghost btn-sm" id="day-only-mine" aria-pressed="false">Только мои</button>
+                <button class="btn-quiet" title="В превью не работает">⋯</button>
+              </div>
+            </div>
+            <div class="queue" id="day-queue"></div>
+          </div>
+
+          <!-- ТЁМНАЯ КАРТОЧКА-АКЦЕНТ (как в Elera) + ближайшие сборки -->
+          <div style="display:flex;flex-direction:column;gap:var(--s4);min-width:0">
+            <div class="card card-dark">
+            <div class="card-head">
+              <span class="card-title">Воронка · сентябрь</span>
+              <div class="right"><span class="card-sub" id="day-funnel-sub"></span></div>
+            </div>
+            <div class="heat">
+              <i class="l1"></i><i class="l2"></i><i></i><i class="l1"></i><i class="l3"></i><i></i><i></i>
+              <i class="l2"></i><i class="l3"></i><i class="l1"></i><i></i><i class="l1"></i><i class="l2"></i><i></i>
+              <i></i><i class="l3"></i><i class="l2"></i><i class="l1"></i><i class="on"></i><i></i><i class="l1"></i>
+              <i class="l1"></i><i></i><i class="l2"></i><i class="l3"></i><i class="l1"></i><i></i><i></i>
+            </div>
+            <div style="margin-top:16px" id="day-funnel-stats"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <span class="card-title">Ближайшие отгрузки</span>
+                <div class="right"><span class="card-sub">из «Сборки»</span></div>
+              </div>
+              <div id="day-shipments"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-head"><span class="card-title">Топ клиентов</span></div>
+            <div id="day-top-clients"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">Дедлайны на неделе</span></div>
+            <div id="day-deadlines"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">Списано и очередь</span></div>
+            <div id="day-writeoff-stats"></div>
+          </div>
+        </div>
+      </section>
+      <!-- ============ ВИД 2: КАНБАН — КОМПАКТНАЯ ДОСКА ============ -->
+      <section class="view active" id="view-board">
+        <div class="kb-root kb-compact" id="kb-root">
+          <p class="kb-note"><b>Демо · изменения до перезагрузки.</b> Выписанные ТН доступны в финансовых документах.</p>
+          <div class="kb-toolbar">
+            <div class="kb-modes" role="group" aria-label="Представление сделок">
+              <button type="button" id="kb-q-board" aria-pressed="true">Доска</button>
+              <button type="button" id="kb-q-pending" aria-pressed="false">На списание <span id="kb-queue-count" class="num"></span></button>
+              <button type="button" id="kb-q-history" aria-pressed="false">Списано</button>
+            </div>
+            <div class="kb-tools">
+              <div class="kb-search" id="kb-search-wrap">
+                <button type="button" class="kb-icon" id="kb-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="kb-search-field" title="Поиск">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+                </button>
+                <div class="kb-search-field" id="kb-search-field" inert><input id="kb-search" type="search" placeholder="Клиент, сделка…" aria-label="Поиск сделок" autocomplete="off"></div>
+                <button type="button" id="kb-search-close" class="kb-icon" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+              <div class="kb-store-menu" id="kb-store-menu">
+                <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
+              </div>
+              <button type="button" class="kb-icon" id="kb-density" aria-pressed="true" aria-label="Компактные карточки" title="Компактные карточки">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="kb-board" id="kb-board"></div>
+          <section class="kb-queue" id="kb-queue" tabindex="0" aria-label="Очередь и история выписки — прокрутка списка" hidden>
+            <div id="kb-queue-body"></div>
+          </section>
+        </div>
+        <dialog id="kb-dialog" class="kb-dialog" aria-labelledby="kb-dialog-title"></dialog>
+        <div id="kb-toast" class="kb-toast" role="status" aria-live="polite" hidden></div>
+      </section>
+<!-- ============ ВИД 3: ФИНАНСЫ ============ -->
+      <section class="view" id="view-fin" hidden aria-label="Финансы">
+        <div class="card">
+          <div class="card-head">
+            <h1 class="card-title">Финансы</h1>
+            <span class="fin-demo">До перезагрузки</span>
+          </div>
+          <div class="fin-tabs" role="group" aria-label="Раздел финансов">
+            <button type="button" class="btn btn-ghost" data-fin-tab="payments" aria-pressed="true" aria-controls="fin-payments">Реестр оплат</button>
+            <button type="button" class="btn btn-ghost" data-fin-tab="documents" aria-pressed="false" aria-controls="fin-documents">Документы</button>
+            <button type="button" class="btn btn-ghost" data-fin-tab="incoming" aria-pressed="false" aria-controls="fin-incoming">Входящие накладные</button>
+          </div>
+
+        </div>
+
+        <div class="card" id="fin-payments" data-fin-panel>
+          <h2 class="card-title">Реестр оплат</h2>
+
+          <div class="fin-toolbar">
+            <div class="fin-field"><label for="fin-payment-search">Поиск по клиенту, карточке, магазину, просчёту или ТН</label><input id="fin-payment-search" type="search" placeholder="Например, РемонтСити" autocomplete="off"></div>
+            <div class="fin-filters" role="group" aria-label="Фильтр реестра">
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="debt" aria-pressed="false">Есть долг</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>
+            </div>
+          </div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Реестр оплат — горизонтальная прокрутка">
+            <table class="tbl fin-table" id="fin-payment-table">
+              <thead><tr><th scope="col">Дата записи / клиент</th><th scope="col">Сумма, BYN</th><th scope="col">Оплата / долг, BYN</th><th scope="col">Магазин / просчёт</th><th scope="col">Исходящая ТН</th><th scope="col">Просчёт</th><th scope="col">Списано</th><th scope="col">Печать / доверенность / примечание</th></tr></thead>
+              <tbody id="fin-payment-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-payment-empty" class="fin-note" hidden>Ничего не найдено. Измените поиск или выберите «Все».</p>
+          <p id="fin-payment-total" class="fin-total num" role="status" aria-live="polite"></p>
+
+        </div>
+
+        <div class="card" id="fin-documents" data-fin-panel hidden>
+          <h2 class="card-title">Документы · возврат оригиналов к нам</h2>
+
+          <div class="fin-filters fin-toolbar" role="group" aria-label="Фильтр возврата документов">
+            <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
+          </div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Возврат оригиналов — горизонтальная прокрутка">
+            <table class="tbl fin-table fin-table-compact" id="fin-document-table">
+              <thead><tr><th scope="col">Клиент / карточка</th><th scope="col">ТН / счёт</th><th scope="col">Сумма, BYN</th><th scope="col">Возврат ТН</th><th scope="col">Возврат счёта</th></tr></thead>
+              <tbody id="fin-document-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-document-empty" class="fin-note" hidden>Нет документов по этому фильтру. Выберите «Все».</p>
+          <p id="fin-document-count" class="fin-total" role="status" aria-live="polite"></p>
+
+        </div>
+
+        <div class="card" id="fin-incoming" data-fin-panel hidden>
+          <h2 class="card-title">Входящие накладные</h2>
+
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Демо входящих накладных — горизонтальная прокрутка">
+            <table class="tbl fin-table" id="fin-incoming-table">
+              <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>
+              <tbody id="fin-incoming-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <details class="card" id="fin-journal">
+          <summary>Журнал выписки <span class="fin-note">· исходящие ТН, только просмотр</span></summary>
+
+
+          <div class="fin-field fin-toolbar"><label for="fin-journal-search">Поиск по №, дате, клиенту или карточке</label><input id="fin-journal-search" type="search" placeholder="Например, ТН-0914" autocomplete="off"></div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Журнал исходящих ТН — горизонтальная прокрутка">
+            <table class="tbl fin-table fin-table-compact" id="fin-journal-table">
+              <thead><tr><th scope="col">Номер ТН</th><th scope="col">Дата ТН</th><th scope="col">Связанные карточки</th><th scope="col">Сумма ТН, BYN</th></tr></thead>
+              <tbody id="fin-journal-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-journal-empty" class="fin-note" hidden>Нет исходящих ТН по запросу. Измените поиск.</p>
+          <p id="fin-journal-total" class="fin-total num" role="status" aria-live="polite"></p>
+        </details>
+      </section>
+      <!-- ============ ВИД 4: МОБИЛЬНЫЙ РЕЖИМ ============ -->
+
+      <!-- ============ ВИД 5: СПРАВОЧНИКИ + КЛИЕНТ 360° ============ -->
+      <!-- Таблица и карточка клиента заполняются из справочника (shell-v2-data.js). -->
+      <section class="view" id="view-clients" hidden>
+        <div class="board-wrap">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Клиенты <span class="pill" id="cl-count">0</span></span>
+              <div class="right">
+                <input class="search-pill" id="cl-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск клиентов" style="min-width:210px">
+                <button class="btn btn-primary btn-sm" title="В превью не работает">+ Новый клиент</button>
+              </div>
+            </div>
+            <div class="table-scroll" role="region" aria-label="Клиенты — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th style="width:32%">Название</th>
+                  <th style="width:15%">УНП</th>
+                  <th style="width:22%">Контактное лицо</th>
+                  <th>Адрес</th>
+                  <th style="width:104px">Действия</th>
+                </tr>
+              </thead>
+              <tbody id="cl-rows"></tbody>
+            </table>
+            </div>
+            <p class="fin-note">Клик по строке — карточка клиента справа. Кнопки в строках в превью не работают.</p>
+          </div>
+
+          <aside class="drawer" id="cl-drawer" aria-live="polite"></aside>
+        </div>
+      </section>
+
+      <!-- ============ ВИД 6: ЗАДАЧИ И КАЛЕНДАРЬ ============ -->
+      <!-- Список и сводка заполняются из демо-набора задач (shell-v2-data.js). -->
+      <section class="view" id="view-tasks" hidden>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Задачи</span>
+              <span class="pill" id="tasks-progress">…</span>
+              <div class="right">
+                <span class="pill accent" title="В превью — только список">Список</span>
+                <span class="pill" title="В превью не работает">Доска</span>
+                <button class="btn btn-primary btn-sm" id="task-new" type="button">+ Задача</button>
+              </div>
+            </div>
+            <div id="tasks-list"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Сводка</span>
+              <div class="right"><span class="card-sub">открытые задачи</span></div>
+            </div>
+            <div id="tasks-summary"></div>
+            <p class="fin-note">Создание и отметка задач в превью не работают: это предложения интерфейса.</p>
+          </div>
+        </div>
+
+        <div class="card" id="shell-calendar" tabindex="-1" role="region" aria-label="Календарь">
+          <div class="card-head">
+            <span class="card-title">Календарь · <span id="cal-month">сентябрь 2026</span></span>
+            <div class="right">
+              <button class="btn btn-ghost btn-sm" id="cal-prev" type="button">← Назад</button>
+              <button class="pill accent" id="cal-today" type="button" title="Вернуться к демонстрационному месяцу">Сегодня</button>
+              <button class="btn btn-ghost btn-sm" id="cal-next" type="button">Вперёд →</button>
+            </div>
+          </div>
+          <div class="cal" id="shell-cal-grid"></div>
+          <p class="fin-note" id="cal-note" hidden>Демо-события есть только в сентябре 2026.</p>
+          <div class="row wrap mt2" style="gap:12px;font-size:11px;color:var(--muted);margin-top:14px">
+            <span class="row" style="gap:5px"><span class="pill accent" style="padding:0 6px"></span>Сделка</span>
+            <span class="row" style="gap:5px"><span class="pill ok" style="padding:0 6px"></span>Оплата</span>
+            <span class="row" style="gap:5px"><span class="pill warn" style="padding:0 6px"></span>Задача</span>
+            
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ ВИД 7: ВИТРИНА КОМПОНЕНТОВ ============ -->
+
+      <section class="view" id="view-suppliers" hidden data-mgmt>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Поставщики <span class="pill" id="mgmt-supplier-count">0</span></span>
+            <div class="right">
+              <input class="search-pill" id="mgmt-supplier-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск поставщиков" style="min-width:210px">
+              <button class="btn btn-primary btn-sm" id="mgmt-supplier-new" type="button">+ Новый поставщик</button>
+            </div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Поставщики — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-supplier-table">
+              <thead><tr><th style="width:30%">Название</th><th style="width:16%">УНП</th><th style="width:22%">Контакты</th><th>Адрес</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-supplier-rows"></tbody>
+            </table>
+          </div>
+          <p id="mgmt-supplier-empty" class="fin-note" hidden>Не найдено. Измените поиск или добавьте поставщика.</p>
+        </div>
+      </section>
+
+      <section class="view" id="view-admin" hidden data-mgmt>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Пользователи</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-user-new" type="button">+ Новый пользователь</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Пользователи — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-user-table">
+              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-user-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Магазины</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-store-new" type="button">+ Новый магазин</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Магазины — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-store-table">
+              <thead><tr><th style="width:34%">Название</th><th>Адрес</th><th style="width:18%">Телефон</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-store-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Статусы сделок</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-status-new" type="button">+ Новый статус</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Статусы сделок — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-status-table">
+              <thead><tr><th style="width:30%">Название</th><th style="width:16%">Цвет</th><th style="width:14%">Позиция</th><th>Назначение</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-status-rows"></tbody>
+            </table>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+<script>
+(function () {
+    'use strict';
+    const root = document.getElementById('view-fin');
+    const $ = (selector) => root.querySelector(selector);
+    const $$ = (selector) => Array.from(root.querySelectorAll(selector));
+    // Единый источник исходящих: одна полная ТН на карточку, суммы в копейках.
+    // Только память страницы: ни сети, ни хранилища, ни каскадов статусов.
+    const outgoing = [
+        { id: 'c104', card: 'К-104 · Освещение офиса', date: '16.09.2026', client: 'ООО «РемонтСити»', amount: 440000, paid: 440000, store: 'БН', estimate: 'ПР-104', tn: null, calculated: false, posted: false, tnHere: false, billHere: false, print: 'Печать организации при получении', authority: 'Доверенность ещё не передана', note: 'ТН не оформлена. № и дата оформляются в карточке; здесь только просмотр.' },
+        { id: 'c103', card: 'К-103 · Светильники для дома', date: '14.09.2026', client: 'ЗАО «СветлогорскДом»', amount: 890000, paid: 0, store: 'Матусевича', estimate: 'ПР-103', tn: { number: 'ТН-0914', date: '14.09.2026', bill: 'СЧ-103' }, calculated: true, posted: true, tnHere: true, billHere: true, print: 'Печать организации на оригинале', authority: 'Доверенность № 48 от 14.09.2026', note: 'Отсрочка истекла. Оригиналы у нас, долг остаётся.' },
+        { id: 'c102', card: 'К-102 · Подсветка кухни', date: '10.09.2026', client: 'ООО «РемонтСити»', amount: 310000, paid: 50000, store: 'Богдановича', estimate: 'ПР-102', tn: { number: 'ТН-0910', date: '10.09.2026', bill: 'СЧ-102' }, posted: false, tnHere: true, billHere: false, print: 'Без печати, по доверенности', authority: 'Доверенность № 36 от 10.09.2026', note: 'Оплата частичная, отгрузка полная. Ждём оригинал счёта.' },
+        { id: 'c101', card: 'К-101 · Лампы для склада', date: '05.09.2026', client: 'ООО «Веснаторг»', amount: 150000, paid: 150000, store: 'Матусевича', estimate: 'ПР-101', tn: { number: 'ТН-0905', date: '05.09.2026', bill: 'СЧ-101' }, posted: false, tnHere: false, billHere: false, print: 'Печать организации при возврате', authority: 'Получатель — директор, без доверенности', note: 'Полностью оплачено. Оба оригинала ещё у клиента.' }
+    ];
+    const incoming = [
+        { supplier: 'ООО «СветОпт»', number: 'ВХ-501', date: '16.09.2026', store: 'Матусевича', amount: 240000, vat: 40000, checked: true, arrived: false, paid: true, file: 'svetopt-501.pdf' },
+        { supplier: 'ООО «ЭлектроСнаб»', number: 'ВХ-498', date: '15.09.2026', store: 'Богдановича', amount: 180000, vat: 30000, checked: false, arrived: true, paid: false, file: 'electro-498.pdf' },
+        { supplier: 'ООО «Люмен»', number: 'ВХ-490', date: '12.09.2026', store: 'БН', amount: 96000, vat: 16000, checked: true, arrived: true, paid: false, file: 'lumen-490.pdf' }
+    ];
+    const money = (cents) => (cents / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const esc = (value) => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const normalize = (value) => String(value).toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').trim();
+    const matches = (r, query) => normalize([r.client, r.card, r.date, r.store, r.estimate, r.tn?.number || '', r.tn?.date || ''].join(' ')).includes(normalize(query));
+    const tnText = (r) => r.tn ? `${esc(r.tn.number)}<small>${esc(r.tn.date)}</small>` : 'Не оформлена';
+    const checkbox = (r, field, title) => `<label class="fin-check" for="fin-${field}-${r.id}"><input type="checkbox" id="fin-${field}-${r.id}" data-record="${r.id}" data-field="${field}" aria-label="${esc(title + ' — ' + r.card + ', ' + r.client)}" ${r[field] ? 'checked' : ''}>${title}</label>`;
+
+    // DOM строк создаётся один раз: checkbox/details и фокус не теряются.
+    $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}">
+        <td><span class="num">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
+        <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
+        <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
+        <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
+        <td>${checkbox(r, 'posted', 'Списано')}</td>
+        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><p>${esc(r.note)}</p><p>Это сведения для сверки, не команда печати.</p></details></td>
+    </tr>`).join('');
+    const issued = outgoing.filter((r) => r.tn);
+    $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
+        <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
+        <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td>
+    </tr>`).join('');
+    $('#fin-journal-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
+        <td>${esc(r.tn.number)}</td><td class="num">${r.tn.date}</td>
+        <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление №/даты — в карточке сделки. Здесь демо просмотра, редактирование не реализовано.</p></details></td>
+        <td class="num">${money(r.amount)}</td>
+    </tr>`).join('');
+    const status = (yes) => `<span class="fin-status">${yes ? 'Да' : 'Нет'}</span>`;
+    $('#fin-incoming-rows').innerHTML = incoming.map((r) => `<tr>
+        <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
+        <td class="num">${money(r.amount)}</td><td>${status(r.checked)}</td><td>${status(r.arrived)}</td><td>${status(r.paid)}</td>
+        <td><details><summary>НДС и источник</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p><p>Источник: демонстрационный пример сообщения бота; файл ${esc(r.file)} (не загружен).</p><p>Бот не подключён. Статусы независимы и не редактируются.</p></details></td>
+    </tr>`).join('');
+
+    let paymentFilter = 'all';
+    let documentFilter = 'all';
+    const byId = new Map(outgoing.map((r) => [r.id, r]));
+    // Kanban documents are session-local too; one row per partial invoice.
+    document.addEventListener('kb:documents', (event) => {
+        $$('#fin-document-rows tr[data-kanban]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
+        event.detail.forEach((card) => card.docs.forEach((doc, index) => {
+            const id = 'kb-' + card.id + '-' + index;
+            const r = { id, cardId: card.id, index, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
+            byId.set(id, r);
+            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-kanban data-record="${id}">
+                <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
+                <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
+                <td class="num">${money(doc.amount)}</td><td>${checkbox({...r, card: card.id, client: card.client}, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td>
+            </tr>`);
+        }));
+        updateDocuments();
+    });
+    // Групповые ТН: одна накладная на несколько карточек (аналог групп списаний).
+    document.addEventListener('kb:groups', (event) => {
+        $$('#fin-document-rows tr[data-group], #fin-journal-rows tr[data-group]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
+        (event.detail || []).forEach((g) => {
+            const id = 'kbg-' + g.id;
+            const cardsText = g.covers.map((cov) => cov.cardId).join(', ');
+            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, tnHere: false, billHere: false, billRequired: false };
+            byId.set(id, r);
+            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
+                <td><b>${esc(g.client)}</b><small>${esc(r.card)}: ${esc(cardsText)}</small></td>
+                <td>${esc(g.series + ' ' + g.number)}<small>${esc(g.date)}</small></td>
+                <td class="num">${money(g.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td>
+            </tr>`);
+            $('#fin-journal-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
+                <td>${esc(g.series + ' ' + g.number)}</td><td class="num">${esc(g.date)}</td>
+                <td><details><summary>${esc(r.card)}</summary><p>${esc(g.client)} · ${esc(g.store)}</p><p>Карточки: ${esc(cardsText)}.</p><p>Одна накладная на всю группу; отмена возвращает остаток каждой карточке.</p></details></td>
+                <td class="num">${money(g.amount)}</td>
+            </tr>`);
+        });
+        updateDocuments();
+        updateJournal();
+    });
+    function visibleRows(selector, predicate, keepFocused) {
+        const visible = [];
+        $$(selector + ' tr').forEach((row) => {
+            const r = byId.get(row.dataset.record);
+            // Не скрываем элемент под клавиатурным фокусом после отметки.
+            row.hidden = !(predicate(r) || (keepFocused && row.contains(document.activeElement)));
+            if (!row.hidden) visible.push(r);
+        });
+        return visible;
+    }
+    function total(rows) {
+        const sum = rows.reduce((acc, r) => ({ amount: acc.amount + r.amount, paid: acc.paid + r.paid }), { amount: 0, paid: 0 });
+        return `Итого видимых: ${rows.length} · Сумма ${money(sum.amount)} BYN · Оплачено ${money(sum.paid)} BYN · Долг ${money(sum.amount - sum.paid)} BYN`;
+    }
+    function updatePayments(keepFocused = false) {
+        const rows = visibleRows('#fin-payment-rows', (r) => matches(r, $('#fin-payment-search').value) &&
+            (paymentFilter === 'all' || (paymentFilter === 'debt' ? r.paid < r.amount : !r.posted)), keepFocused);
+        $('#fin-payment-total').textContent = total(rows);
+        $('#fin-payment-empty').hidden = rows.length !== 0;
+    }
+    function updateDocuments(keepFocused = false) {
+        const rows = visibleRows('#fin-document-rows', (r) => documentFilter === 'all' ||
+            (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false)), keepFocused);
+        $('#fin-document-count').textContent = `Видимых документов: ${rows.length} · Все оформленные оригиналы у нас: ${rows.filter((r) => r.tnHere && (r.billHere || r.billRequired === false)).length}`;
+        $('#fin-document-empty').hidden = rows.length !== 0;
+    }
+    function updateJournal() {
+        const rows = visibleRows('#fin-journal-rows', (r) => matches(r, $('#fin-journal-search').value), false);
+        $('#fin-journal-total').textContent = `Исходящих ТН: ${rows.length} · Сумма ${money(rows.reduce((sum, r) => sum + r.amount, 0))} BYN`;
+        $('#fin-journal-empty').hidden = rows.length !== 0;
+    }
+    function pressed(selector, selected) {
+        $$(selector).forEach((button) => button.setAttribute('aria-pressed', String(button === selected)));
+    }
+    $$('[data-fin-tab]').forEach((button) => button.addEventListener('click', () => {
+        pressed('[data-fin-tab]', button);
+        $$('[data-fin-panel]').forEach((panel) => { panel.hidden = panel.id !== button.getAttribute('aria-controls'); });
+        updatePayments();
+        updateDocuments();
+    }));
+    $$('[data-payment-filter]').forEach((button) => button.addEventListener('click', () => {
+        paymentFilter = button.dataset.paymentFilter;
+        pressed('[data-payment-filter]', button);
+        updatePayments();
+    }));
+    $$('[data-document-filter]').forEach((button) => button.addEventListener('click', () => {
+        documentFilter = button.dataset.documentFilter;
+        pressed('[data-document-filter]', button);
+        updateDocuments();
+    }));
+    $('#fin-payment-search').addEventListener('input', () => updatePayments());
+    $('#fin-journal-search').addEventListener('input', updateJournal);
+    root.addEventListener('change', (event) => {
+        const input = event.target;
+        if (!input.matches('input[type="checkbox"][data-field]')) return;
+        const r = byId.get(input.dataset.record);
+        if (!r || !['calculated', 'posted', 'tnHere', 'billHere'].includes(input.dataset.field)) return;
+        r[input.dataset.field] = input.checked; // Меняется ровно одно поле.
+        if (r.cardId && input.dataset.field === 'tnHere') document.dispatchEvent(new CustomEvent('fin:originals', {
+            detail: { cardId: r.cardId, index: r.index, field: 'originalsReturned', checked: input.checked }
+        }));
+        if (input.dataset.field === 'posted') updatePayments(true);
+        else updateDocuments(true);
+    });
+    // Пересчитываем фильтр после перехода фокуса, а не во время change.
+    ['#fin-payment-rows', '#fin-document-rows'].forEach((selector) => {
+        $(selector).addEventListener('focusout', () => {
+            setTimeout(() => selector === '#fin-payment-rows' ? updatePayments(true) : updateDocuments(true), 0);
+        });
+    });
+    updatePayments();
+    updateDocuments();
+    updateJournal();
+})();
+</script>
+</body>
+</html>

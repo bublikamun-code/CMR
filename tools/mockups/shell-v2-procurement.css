@@ -1,0 +1,13 @@
+
+/* Per-checklist supplier and file, using the existing neutral control tokens. */
+#kb-dialog .kb-procurement-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; margin-top: 10px; }
+#kb-dialog .kb-item-file { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; }
+#kb-dialog .kb-item-file .kb-detail-hint { margin: 0; }
+#kb-dialog .kb-item-download { overflow-wrap: anywhere; color: var(--text); text-decoration: underline; font-size: 12px; }
+#kb-dialog .kb-item-file-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#kb-dialog .kb-item-file-actions button { min-height: 34px; padding: 6px 9px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+#kb-dialog .kb-item-file-actions button:hover { background: var(--surface-2); }
+#kb-dialog .kb-item-file-actions button:focus-visible, #kb-dialog .kb-item-download:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+#kb-dialog .kb-item-file-actions button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 540px) { #kb-dialog .kb-procurement-fields { grid-template-columns: minmax(0, 1fr); } }
+@media (pointer: coarse) { #kb-dialog .kb-item-file-actions button, #kb-dialog .kb-item-download { min-height: 44px; } }

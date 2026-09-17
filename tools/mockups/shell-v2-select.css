@@ -1,0 +1,84 @@
+/* Load after shell-v2-card.css and shell-v2-controls.css. No native control is
+   hidden until JavaScript has successfully created its accessible replacement. */
+select.kb-select-native { display: none !important; }
+.kb-select-anchor { display: block; min-width: 0; max-width: 100%; }
+.kb-select-anchor.kb-select-store { width: fit-content; }
+.kb-select-label { font-size: 12px; color: var(--muted, #626962); cursor: pointer; }
+.kb-select-surface {
+    box-sizing: border-box; width: 100%; min-width: 0;
+    margin: 0; padding: 0; border: 1px solid var(--border-strong, #d5d2ca);
+    border-radius: var(--r-sm, 8px); background: var(--surface, #fff);
+    color: var(--text, #171a17); font: inherit;
+}
+.kb-select-surface:hover { border-color: var(--muted, #626962); }
+.kb-select-surface:focus-within { border-color: var(--muted, #626962); }
+.kb-select-surface .kb-select-trigger,
+#kb-store.kb-select-trigger {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    box-sizing: border-box; width: 100%; min-width: 0; min-height: 34px;
+    margin: 0; padding: 7px 9px; border: 0;
+    border-radius: var(--r-sm, 8px); background: transparent;
+    color: var(--text, #171a17); font: inherit; line-height: 1.45;
+    text-align: start; white-space: normal; cursor: pointer; box-shadow: none;
+    touch-action: manipulation;
+}
+#kb-store.kb-select-trigger { min-height: 36px; padding: 7px 10px; }
+.kb-select-value { min-width: 0; overflow-wrap: anywhere; }
+.kb-select-arrow {
+    display: block; flex: 0 0 7px; width: 7px; height: 7px; margin: -4px 3px 0;
+    border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg); color: var(--muted, #626962);
+}
+.kb-select-trigger[aria-expanded="true"] .kb-select-arrow { transform: rotate(225deg); margin-top: 3px; }
+.kb-select-surface .kb-select-trigger:focus-visible,
+#kb-store.kb-select-trigger:focus-visible,
+#kb-dialog.kb-dialog .kb-select-trigger:focus-visible {
+    outline: 2px solid var(--muted, #626962); outline-offset: 2px;
+}
+.kb-select-trigger:disabled { opacity: .6; cursor: not-allowed; }
+.kb-select-surface:has(.kb-select-trigger:disabled) { border-color: var(--border-strong, #d5d2ca); }
+.kb-select-surface:has([aria-invalid="true"]) { border-color: var(--danger, #c2474f); }
+.kb-select-surface.is-open {
+    position: fixed; inset: auto; z-index: 10000; margin: 0;
+    display: flex; flex-direction: column;
+    overflow: visible; max-width: calc(100vw - 16px);
+    border-color: var(--muted, #626962); box-shadow: var(--sh-2, 0 8px 24px #0002);
+}
+.kb-select-surface.is-open::backdrop { background: transparent; pointer-events: none; }
+.kb-select-surface.is-open > .kb-select-trigger {
+    flex: none; border-radius: var(--r-sm, 8px) var(--r-sm, 8px) 0 0;
+}
+.kb-select-list {
+    position: relative; display: block; box-sizing: border-box; min-height: 0;
+    width: 100%; margin: 0; padding: 4px; list-style: none;
+    border: 0; border-top: 1px solid var(--border, #e4e2dc);
+    border-radius: 0 0 var(--r-sm, 8px) var(--r-sm, 8px);
+    overflow: auto; overscroll-behavior: contain; scroll-behavior: auto;
+    background: var(--surface, #fff); color: var(--text, #171a17);
+    scrollbar-gutter: stable; touch-action: pan-y;
+}
+.kb-select-list[hidden], .kb-select-option[hidden] { display: none !important; }
+.kb-select-option {
+    position: relative; display: block; box-sizing: border-box;
+    min-height: 34px; margin: 0; padding: 7px 28px 7px 8px;
+    border-radius: 5px; font: inherit; line-height: 1.45;
+    white-space: normal; overflow-wrap: anywhere; cursor: pointer;
+}
+.kb-select-option[aria-selected="true"] { background: var(--surface-2, #f5f4f1); font-weight: 700; }
+.kb-select-option[aria-selected="true"]::after { content: '✓'; position: absolute; right: 9px; top: 7px; }
+.kb-select-option.is-active { background: var(--surface-3, #efede9); outline: 1px solid var(--muted, #626962); outline-offset: -1px; }
+@media (hover: hover) {
+    .kb-select-option:not([aria-disabled="true"]):hover { background: var(--surface-3, #efede9); }
+}
+.kb-select-option[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+@media (max-width: 540px) {
+    #kb-dialog .kb-select-surface { font-size: 16px; }
+}
+@media (pointer: coarse) {
+    .kb-select-surface .kb-select-trigger, #kb-store.kb-select-trigger, .kb-select-option { min-height: 44px; }
+}
+@media (forced-colors: active) {
+    .kb-select-surface { border-color: ButtonText; }
+    .kb-select-option.is-active { outline-color: Highlight; }
+    .kb-select-trigger:disabled, .kb-select-option[aria-disabled="true"] { color: GrayText; opacity: 1; }
+}
