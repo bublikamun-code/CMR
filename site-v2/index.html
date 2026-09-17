@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<!-- Сгенерировано tools/build_site_v2.py из tools/mockups — не править вручную -->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Свет в доме · CRM v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="css/shell-v2-base.css">
+<link rel="stylesheet" href="css/shell-v2-board.css">
+<link rel="stylesheet" href="css/shell-v2-controls.css">
+<link rel="stylesheet" href="css/shell-v2-card.css">
+<link rel="stylesheet" href="css/shell-v2-navigation.css">
+<link rel="stylesheet" href="css/shell-v2-select.css">
+<link rel="stylesheet" href="css/shell-v2-payment.css">
+<link rel="stylesheet" href="css/shell-v2-procurement.css">
+<script src="js/v2/api.js"></script>
+<script src="js/v2/boot.js"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css">
+</head>
+<body>
+<a class="shell-skip" href="#shell-content">К содержимому</a>
+<div class="app">
+
+  <!-- ============ РЕЛЬС ============ -->
+  <nav class="rail" aria-label="Основная навигация">
+    <div class="rail-brand" title="Свет в доме">СД</div>
+
+    <div class="rail-group">
+      <a class="rail-item viewtab" href="#day" data-view="day" title="Пульт дня">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-6 3 12 2.5-6H21"/></svg>
+        <span class="flyout">Пульт дня</span>
+      </a>
+      <a class="rail-item viewtab active" href="#board" data-view="board" title="Доска сделок">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/></svg>
+        <span class="flyout">Доска сделок</span>
+      </a>
+      <a class="rail-item viewtab" href="#tasks" data-view="tasks" title="Задачи">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="13" y2="14"/></svg>
+        <span class="flyout">Задачи</span>
+      </a>
+      <!-- Календарь живёт на экране «Задачи», под списком; старый адрес
+           #calendar ведёт туда же. Отдельный пункт меню убран как дубль. -->
+    </div>
+
+    <div class="rail-group">
+      <a class="rail-item viewtab" href="#fin" data-view="fin" title="Финансы">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>
+        <span class="flyout">Финансы</span>
+      </a>
+      <a class="rail-item viewtab" href="#clients" data-view="clients" title="Клиенты">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        <span class="flyout">Клиенты</span>
+      </a>
+      <a class="rail-item viewtab" href="#suppliers" data-view="suppliers" title="Поставщики">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        <span class="flyout">Поставщики</span>
+      </a>
+    </div>
+
+    <div class="rail-spacer"></div>
+
+    <div class="rail-group">
+      <a class="rail-item viewtab" href="#admin" data-view="admin" title="Админ-панель">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span class="flyout">Админ-панель</span>
+      </a>
+      <button class="rail-item" id="theme-btn" type="button" aria-label="Тёмная тема" aria-pressed="false" title="Тёмная тема">
+        <svg aria-hidden="true" class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
+        <span class="flyout">Тёмная тема</span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="shell-heading">
+        <h1 id="shell-title">Доска сделок</h1>
+        <p class="shell-preview" id="shell-source">Загрузка…</p>
+      </div>
+    </header>
+
+    <main class="content" id="shell-content" tabindex="-1" aria-labelledby="shell-title">
+
+      <!-- ============ ВИД 1: ПУЛЬТ ДНЯ ============ -->
+      <!-- Значения KPI и очередь заполняет shell-v2-insights.js из демо-данных доски. -->
+      <section class="view" id="view-day" hidden>
+        <div class="card">
+          <div class="kpi">
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span>
+              <div>
+                <div class="kpi-label">Сделки в работе</div>
+                <div class="kpi-value num" id="day-kpi-deals">—</div>
+              </div>
+            </div>
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg></span>
+              <div>
+                <div class="kpi-label">Сумма воронки</div>
+                <div class="kpi-value num" id="day-kpi-funnel">—</div>
+              </div>
+            </div>
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+              <div>
+                <div class="kpi-label">Оплачено по сделкам</div>
+                <div class="kpi-value num" id="day-kpi-paid">—</div>
+              </div>
+            </div>
+            <div class="kpi-item">
+              <span class="chip-icon"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <div>
+                <div class="kpi-label">Просрочено</div>
+                <div class="kpi-value num" id="day-kpi-overdue">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <!-- ОЧЕРЕДЬ: что требует меня сегодня -->
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Требует внимания</span>
+              <span class="pill warn"><span id="day-queue-count">0</span></span>
+              <div class="right">
+                <button type="button" class="btn btn-ghost btn-sm" id="day-only-mine" aria-pressed="false">Только мои</button>
+              </div>
+            </div>
+            <div class="queue" id="day-queue"></div>
+          </div>
+
+          <!-- ТЁМНАЯ КАРТОЧКА-АКЦЕНТ (как в Elera) + ближайшие сборки -->
+          <div style="display:flex;flex-direction:column;gap:var(--s4);min-width:0">
+            <div class="card card-dark">
+            <div class="card-head">
+              <span class="card-title">Воронка · сентябрь</span>
+              <div class="right"><span class="card-sub" id="day-funnel-sub"></span></div>
+            </div>
+            <div class="heat">
+              <i class="l1"></i><i class="l2"></i><i></i><i class="l1"></i><i class="l3"></i><i></i><i></i>
+              <i class="l2"></i><i class="l3"></i><i class="l1"></i><i></i><i class="l1"></i><i class="l2"></i><i></i>
+              <i></i><i class="l3"></i><i class="l2"></i><i class="l1"></i><i class="on"></i><i></i><i class="l1"></i>
+              <i class="l1"></i><i></i><i class="l2"></i><i class="l3"></i><i class="l1"></i><i></i><i></i>
+            </div>
+            <div style="margin-top:16px" id="day-funnel-stats"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <span class="card-title">Ближайшие отгрузки</span>
+                <div class="right"><span class="card-sub">из «Сборки»</span></div>
+              </div>
+              <div id="day-shipments"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-head"><span class="card-title">Топ клиентов</span></div>
+            <div id="day-top-clients"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">Дедлайны на неделе</span></div>
+            <div id="day-deadlines"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">Списано и очередь</span></div>
+            <div id="day-writeoff-stats"></div>
+          </div>
+        </div>
+      </section>
+      <!-- ============ ВИД 2: КАНБАН — КОМПАКТНАЯ ДОСКА ============ -->
+      <section class="view active" id="view-board">
+        <div class="kb-root kb-compact" id="kb-root">
+          <p class="kb-note"><b>Демо · изменения до перезагрузки.</b> Выписанные ТН доступны в финансовых документах.</p>
+          <div class="kb-toolbar">
+            <div class="kb-modes" role="group" aria-label="Представление сделок">
+              <button type="button" id="kb-q-board" aria-pressed="true">Доска</button>
+              <button type="button" id="kb-q-pending" aria-pressed="false">На списание <span id="kb-queue-count" class="num"></span></button>
+              <button type="button" id="kb-q-history" aria-pressed="false">Списано</button>
+            </div>
+            <div class="kb-tools">
+              <div class="kb-search" id="kb-search-wrap">
+                <button type="button" class="kb-icon" id="kb-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="kb-search-field" title="Поиск">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+                </button>
+                <div class="kb-search-field" id="kb-search-field" inert><input id="kb-search" type="search" placeholder="Клиент, сделка…" aria-label="Поиск сделок" autocomplete="off"></div>
+                <button type="button" id="kb-search-close" class="kb-icon" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+              <div class="kb-store-menu" id="kb-store-menu">
+                <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
+              </div>
+              <button type="button" class="kb-icon" id="kb-density" aria-pressed="true" aria-label="Компактные карточки" title="Компактные карточки">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="kb-board" id="kb-board"></div>
+          <section class="kb-queue" id="kb-queue" tabindex="0" aria-label="Очередь и история выписки — прокрутка списка" hidden>
+            <div id="kb-queue-body"></div>
+          </section>
+        </div>
+        <dialog id="kb-dialog" class="kb-dialog" aria-labelledby="kb-dialog-title"></dialog>
+        <div id="kb-toast" class="kb-toast" role="status" aria-live="polite" hidden></div>
+      </section>
+<!-- ============ ВИД 3: ФИНАНСЫ ============ -->
+      <section class="view" id="view-fin" hidden aria-label="Финансы">
+        <div class="card">
+          <div class="card-head">
+            <h1 class="card-title">Финансы</h1>
+            <span class="fin-demo">До перезагрузки</span>
+          </div>
+          <div class="fin-tabs" role="group" aria-label="Раздел финансов">
+            <button type="button" class="btn btn-ghost" data-fin-tab="payments" aria-pressed="true" aria-controls="fin-payments">Реестр оплат</button>
+            <button type="button" class="btn btn-ghost" data-fin-tab="documents" aria-pressed="false" aria-controls="fin-documents">Документы</button>
+            <button type="button" class="btn btn-ghost" data-fin-tab="incoming" aria-pressed="false" aria-controls="fin-incoming">Входящие накладные</button>
+          </div>
+
+        </div>
+
+        <div class="card" id="fin-payments" data-fin-panel>
+          <h2 class="card-title">Реестр оплат</h2>
+
+          <div class="fin-toolbar">
+            <div class="fin-field"><label for="fin-payment-search">Поиск по клиенту, карточке, магазину, просчёту или ТН</label><input id="fin-payment-search" type="search" placeholder="Например, РемонтСити" autocomplete="off"></div>
+            <div class="fin-filters" role="group" aria-label="Фильтр реестра">
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="debt" aria-pressed="false">Есть долг</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>
+            </div>
+          </div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Реестр оплат — горизонтальная прокрутка">
+            <table class="tbl fin-table" id="fin-payment-table">
+              <thead><tr><th scope="col">Дата записи / клиент</th><th scope="col">Сумма, BYN</th><th scope="col">Оплата / долг, BYN</th><th scope="col">Магазин / просчёт</th><th scope="col">Исходящая ТН</th><th scope="col">Просчёт</th><th scope="col">Списано</th><th scope="col">Печать / доверенность / примечание</th></tr></thead>
+              <tbody id="fin-payment-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-payment-empty" class="fin-note" hidden>Ничего не найдено. Измените поиск или выберите «Все».</p>
+          <p id="fin-payment-total" class="fin-total num" role="status" aria-live="polite"></p>
+
+        </div>
+
+        <div class="card" id="fin-documents" data-fin-panel hidden>
+          <h2 class="card-title">Документы · возврат оригиналов к нам</h2>
+
+          <div class="fin-filters fin-toolbar" role="group" aria-label="Фильтр возврата документов">
+            <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
+          </div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Возврат оригиналов — горизонтальная прокрутка">
+            <table class="tbl fin-table fin-table-compact" id="fin-document-table">
+              <thead><tr><th scope="col">Клиент / карточка</th><th scope="col">ТН / счёт</th><th scope="col">Сумма, BYN</th><th scope="col">Возврат ТН</th><th scope="col">Возврат счёта</th></tr></thead>
+              <tbody id="fin-document-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-document-empty" class="fin-note" hidden>Нет документов по этому фильтру. Выберите «Все».</p>
+          <p id="fin-document-count" class="fin-total" role="status" aria-live="polite"></p>
+
+        </div>
+
+        <div class="card" id="fin-incoming" data-fin-panel hidden>
+          <h2 class="card-title">Входящие накладные</h2>
+
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Демо входящих накладных — горизонтальная прокрутка">
+            <table class="tbl fin-table" id="fin-incoming-table">
+              <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>
+              <tbody id="fin-incoming-rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <details class="card" id="fin-journal">
+          <summary>Журнал выписки <span class="fin-note">· исходящие ТН, только просмотр</span></summary>
+
+
+          <div class="fin-field fin-toolbar"><label for="fin-journal-search">Поиск по №, дате, клиенту или карточке</label><input id="fin-journal-search" type="search" placeholder="Например, ТН-0914" autocomplete="off"></div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Журнал исходящих ТН — горизонтальная прокрутка">
+            <table class="tbl fin-table fin-table-compact" id="fin-journal-table">
+              <thead><tr><th scope="col">Номер ТН</th><th scope="col">Дата ТН</th><th scope="col">Связанные карточки</th><th scope="col">Сумма ТН, BYN</th></tr></thead>
+              <tbody id="fin-journal-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-journal-empty" class="fin-note" hidden>Нет исходящих ТН по запросу. Измените поиск.</p>
+          <p id="fin-journal-total" class="fin-total num" role="status" aria-live="polite"></p>
+        </details>
+      </section>
+      <!-- ============ ВИД 4: МОБИЛЬНЫЙ РЕЖИМ ============ -->
+
+      <!-- ============ ВИД 5: СПРАВОЧНИКИ + КЛИЕНТ 360° ============ -->
+      <!-- Таблица и карточка клиента заполняются из справочника (shell-v2-data.js). -->
+      <section class="view" id="view-clients" hidden>
+        <div class="board-wrap">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Клиенты <span class="pill" id="cl-count">0</span></span>
+              <div class="right">
+                <input class="search-pill" id="cl-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск клиентов" style="min-width:210px">
+                <button class="btn btn-primary btn-sm" title="В превью не работает">+ Новый клиент</button>
+              </div>
+            </div>
+            <div class="table-scroll" role="region" aria-label="Клиенты — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th style="width:32%">Название</th>
+                  <th style="width:15%">УНП</th>
+                  <th style="width:22%">Контактное лицо</th>
+                  <th>Адрес</th>
+                  <th style="width:104px">Действия</th>
+                </tr>
+              </thead>
+              <tbody id="cl-rows"></tbody>
+            </table>
+            </div>
+            <p class="fin-note">Клик по строке — карточка клиента справа. Кнопки в строках в превью не работают.</p>
+          </div>
+
+          <aside class="drawer" id="cl-drawer" aria-live="polite"></aside>
+        </div>
+      </section>
+
+      <!-- ============ ВИД 6: ЗАДАЧИ И КАЛЕНДАРЬ ============ -->
+      <!-- Список и сводка заполняются из демо-набора задач (shell-v2-data.js). -->
+      <section class="view" id="view-tasks" hidden>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Задачи</span>
+              <span class="pill" id="tasks-progress">…</span>
+              <div class="right">
+                <span class="pill accent">Список</span>
+                <button class="btn btn-primary btn-sm" id="task-new" type="button">+ Задача</button>
+              </div>
+            </div>
+            <div id="tasks-list"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Сводка</span>
+              <div class="right"><span class="card-sub">открытые задачи</span></div>
+            </div>
+            <div id="tasks-summary"></div>
+            <p class="fin-note">Создание и отметка задач в превью не работают: это предложения интерфейса.</p>
+          </div>
+        </div>
+
+        <div class="card" id="shell-calendar" tabindex="-1" role="region" aria-label="Календарь">
+          <div class="card-head">
+            <span class="card-title">Календарь · <span id="cal-month">сентябрь 2026</span></span>
+            <div class="right">
+              <button class="btn btn-ghost btn-sm" id="cal-prev" type="button">← Назад</button>
+              <button class="pill accent" id="cal-today" type="button" title="Вернуться к демонстрационному месяцу">Сегодня</button>
+              <button class="btn btn-ghost btn-sm" id="cal-next" type="button">Вперёд →</button>
+            </div>
+          </div>
+          <div class="cal" id="shell-cal-grid"></div>
+          <p class="fin-note" id="cal-note" hidden>Демо-события есть только в сентябре 2026.</p>
+          <div class="row wrap mt2" style="gap:12px;font-size:11px;color:var(--muted);margin-top:14px">
+            <span class="row" style="gap:5px"><span class="pill accent" style="padding:0 6px"></span>Сделка</span>
+            <span class="row" style="gap:5px"><span class="pill ok" style="padding:0 6px"></span>Оплата</span>
+            <span class="row" style="gap:5px"><span class="pill warn" style="padding:0 6px"></span>Задача</span>
+            
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ ВИД 7: ВИТРИНА КОМПОНЕНТОВ ============ -->
+
+      <section class="view" id="view-suppliers" hidden data-mgmt>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Поставщики <span class="pill" id="mgmt-supplier-count">0</span></span>
+            <div class="right">
+              <input class="search-pill" id="mgmt-supplier-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск поставщиков" style="min-width:210px">
+              <button class="btn btn-primary btn-sm" id="mgmt-supplier-new" type="button">+ Новый поставщик</button>
+            </div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Поставщики — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-supplier-table">
+              <thead><tr><th style="width:30%">Название</th><th style="width:16%">УНП</th><th style="width:22%">Контакты</th><th>Адрес</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-supplier-rows"></tbody>
+            </table>
+          </div>
+          <p id="mgmt-supplier-empty" class="fin-note" hidden>Не найдено. Измените поиск или добавьте поставщика.</p>
+        </div>
+      </section>
+
+      <section class="view" id="view-admin" hidden data-mgmt>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Пользователи</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-user-new" type="button">+ Новый пользователь</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Пользователи — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-user-table">
+              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-user-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Магазины</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-store-new" type="button">+ Новый магазин</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Магазины — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-store-table">
+              <thead><tr><th style="width:34%">Название</th><th>Адрес</th><th style="width:18%">Телефон</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-store-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Статусы сделок</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-status-new" type="button">+ Новый статус</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Статусы сделок — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-status-table">
+              <thead><tr><th style="width:30%">Название</th><th style="width:16%">Цвет</th><th style="width:14%">Позиция</th><th>Назначение</th><th style="width:104px">Действия</th></tr></thead>
+              <tbody id="mgmt-status-rows"></tbody>
+            </table>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+<script>
+(function () {
+    'use strict';
+    const root = document.getElementById('view-fin');
+    const $ = (selector) => root.querySelector(selector);
+    const $$ = (selector) => Array.from(root.querySelectorAll(selector));
+    // Единый источник исходящих: одна полная ТН на карточку, суммы в копейках.
+    // Только память страницы: ни сети, ни хранилища, ни каскадов статусов.
+    const outgoing = [
+        { id: 'c104', card: 'К-104 · Освещение офиса', date: '16.09.2026', client: 'ООО «РемонтСити»', amount: 440000, paid: 440000, store: 'БН', estimate: 'ПР-104', tn: null, calculated: false, posted: false, tnHere: false, billHere: false, print: 'Печать организации при получении', authority: 'Доверенность ещё не передана', note: 'ТН не оформлена. № и дата оформляются в карточке; здесь только просмотр.' },
+        { id: 'c103', card: 'К-103 · Светильники для дома', date: '14.09.2026', client: 'ЗАО «СветлогорскДом»', amount: 890000, paid: 0, store: 'Матусевича', estimate: 'ПР-103', tn: { number: 'ТН-0914', date: '14.09.2026', bill: 'СЧ-103' }, calculated: true, posted: true, tnHere: true, billHere: true, print: 'Печать организации на оригинале', authority: 'Доверенность № 48 от 14.09.2026', note: 'Отсрочка истекла. Оригиналы у нас, долг остаётся.' },
+        { id: 'c102', card: 'К-102 · Подсветка кухни', date: '10.09.2026', client: 'ООО «РемонтСити»', amount: 310000, paid: 50000, store: 'Богдановича', estimate: 'ПР-102', tn: { number: 'ТН-0910', date: '10.09.2026', bill: 'СЧ-102' }, posted: false, tnHere: true, billHere: false, print: 'Без печати, по доверенности', authority: 'Доверенность № 36 от 10.09.2026', note: 'Оплата частичная, отгрузка полная. Ждём оригинал счёта.' },
+        { id: 'c101', card: 'К-101 · Лампы для склада', date: '05.09.2026', client: 'ООО «Веснаторг»', amount: 150000, paid: 150000, store: 'Матусевича', estimate: 'ПР-101', tn: { number: 'ТН-0905', date: '05.09.2026', bill: 'СЧ-101' }, posted: false, tnHere: false, billHere: false, print: 'Печать организации при возврате', authority: 'Получатель — директор, без доверенности', note: 'Полностью оплачено. Оба оригинала ещё у клиента.' }
+    ];
+    const incoming = [
+        { supplier: 'ООО «СветОпт»', number: 'ВХ-501', date: '16.09.2026', store: 'Матусевича', amount: 240000, vat: 40000, checked: true, arrived: false, paid: true, file: 'svetopt-501.pdf' },
+        { supplier: 'ООО «ЭлектроСнаб»', number: 'ВХ-498', date: '15.09.2026', store: 'Богдановича', amount: 180000, vat: 30000, checked: false, arrived: true, paid: false, file: 'electro-498.pdf' },
+        { supplier: 'ООО «Люмен»', number: 'ВХ-490', date: '12.09.2026', store: 'БН', amount: 96000, vat: 16000, checked: true, arrived: true, paid: false, file: 'lumen-490.pdf' }
+    ];
+    const money = (cents) => (cents / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const esc = (value) => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const normalize = (value) => String(value).toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').trim();
+    const matches = (r, query) => normalize([r.client, r.card, r.date, r.store, r.estimate, r.tn?.number || '', r.tn?.date || ''].join(' ')).includes(normalize(query));
+    const tnText = (r) => r.tn ? `${esc(r.tn.number)}<small>${esc(r.tn.date)}</small>` : 'Не оформлена';
+    const checkbox = (r, field, title) => `<label class="fin-check" for="fin-${field}-${r.id}"><input type="checkbox" id="fin-${field}-${r.id}" data-record="${r.id}" data-field="${field}" aria-label="${esc(title + ' — ' + r.card + ', ' + r.client)}" ${r[field] ? 'checked' : ''}>${title}</label>`;
+
+    // DOM строк создаётся один раз: checkbox/details и фокус не теряются.
+    $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}">
+        <td><span class="num">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
+        <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
+        <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
+        <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
+        <td>${checkbox(r, 'posted', 'Списано')}</td>
+        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><p>${esc(r.note)}</p><p>Это сведения для сверки, не команда печати.</p></details></td>
+    </tr>`).join('');
+    const issued = outgoing.filter((r) => r.tn);
+    $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
+        <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
+        <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td>
+    </tr>`).join('');
+    $('#fin-journal-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
+        <td>${esc(r.tn.number)}</td><td class="num">${r.tn.date}</td>
+        <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление №/даты — в карточке сделки. Здесь демо просмотра, редактирование не реализовано.</p></details></td>
+        <td class="num">${money(r.amount)}</td>
+    </tr>`).join('');
+    const status = (yes) => `<span class="fin-status">${yes ? 'Да' : 'Нет'}</span>`;
+    $('#fin-incoming-rows').innerHTML = incoming.map((r) => `<tr>
+        <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
+        <td class="num">${money(r.amount)}</td><td>${status(r.checked)}</td><td>${status(r.arrived)}</td><td>${status(r.paid)}</td>
+        <td><details><summary>НДС и источник</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p><p>Источник: демонстрационный пример сообщения бота; файл ${esc(r.file)} (не загружен).</p><p>Бот не подключён. Статусы независимы и не редактируются.</p></details></td>
+    </tr>`).join('');
+
+    let paymentFilter = 'all';
+    let documentFilter = 'all';
+    const byId = new Map(outgoing.map((r) => [r.id, r]));
+    // Kanban documents are session-local too; one row per partial invoice.
+    document.addEventListener('kb:documents', (event) => {
+        $$('#fin-document-rows tr[data-kanban]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
+        event.detail.forEach((card) => card.docs.forEach((doc, index) => {
+            const id = 'kb-' + card.id + '-' + index;
+            const r = { id, cardId: card.id, index, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
+            byId.set(id, r);
+            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-kanban data-record="${id}">
+                <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
+                <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
+                <td class="num">${money(doc.amount)}</td><td>${checkbox({...r, card: card.id, client: card.client}, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td>
+            </tr>`);
+        }));
+        updateDocuments();
+    });
+    // Групповые ТН: одна накладная на несколько карточек (аналог групп списаний).
+    document.addEventListener('kb:groups', (event) => {
+        $$('#fin-document-rows tr[data-group], #fin-journal-rows tr[data-group]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
+        (event.detail || []).forEach((g) => {
+            const id = 'kbg-' + g.id;
+            const cardsText = g.covers.map((cov) => cov.cardId).join(', ');
+            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, tnHere: false, billHere: false, billRequired: false };
+            byId.set(id, r);
+            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
+                <td><b>${esc(g.client)}</b><small>${esc(r.card)}: ${esc(cardsText)}</small></td>
+                <td>${esc(g.series + ' ' + g.number)}<small>${esc(g.date)}</small></td>
+                <td class="num">${money(g.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td>
+            </tr>`);
+            $('#fin-journal-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
+                <td>${esc(g.series + ' ' + g.number)}</td><td class="num">${esc(g.date)}</td>
+                <td><details><summary>${esc(r.card)}</summary><p>${esc(g.client)} · ${esc(g.store)}</p><p>Карточки: ${esc(cardsText)}.</p><p>Одна накладная на всю группу; отмена возвращает остаток каждой карточке.</p></details></td>
+                <td class="num">${money(g.amount)}</td>
+            </tr>`);
+        });
+        updateDocuments();
+        updateJournal();
+    });
+    function visibleRows(selector, predicate, keepFocused) {
+        const visible = [];
+        $$(selector + ' tr').forEach((row) => {
+            const r = byId.get(row.dataset.record);
+            // Не скрываем элемент под клавиатурным фокусом после отметки.
+            row.hidden = !(predicate(r) || (keepFocused && row.contains(document.activeElement)));
+            if (!row.hidden) visible.push(r);
+        });
+        return visible;
+    }
+    function total(rows) {
+        const sum = rows.reduce((acc, r) => ({ amount: acc.amount + r.amount, paid: acc.paid + r.paid }), { amount: 0, paid: 0 });
+        return `Итого видимых: ${rows.length} · Сумма ${money(sum.amount)} BYN · Оплачено ${money(sum.paid)} BYN · Долг ${money(sum.amount - sum.paid)} BYN`;
+    }
+    function updatePayments(keepFocused = false) {
+        const rows = visibleRows('#fin-payment-rows', (r) => matches(r, $('#fin-payment-search').value) &&
+            (paymentFilter === 'all' || (paymentFilter === 'debt' ? r.paid < r.amount : !r.posted)), keepFocused);
+        $('#fin-payment-total').textContent = total(rows);
+        $('#fin-payment-empty').hidden = rows.length !== 0;
+    }
+    function updateDocuments(keepFocused = false) {
+        const rows = visibleRows('#fin-document-rows', (r) => documentFilter === 'all' ||
+            (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false)), keepFocused);
+        $('#fin-document-count').textContent = `Видимых документов: ${rows.length} · Все оформленные оригиналы у нас: ${rows.filter((r) => r.tnHere && (r.billHere || r.billRequired === false)).length}`;
+        $('#fin-document-empty').hidden = rows.length !== 0;
+    }
+    function updateJournal() {
+        const rows = visibleRows('#fin-journal-rows', (r) => matches(r, $('#fin-journal-search').value), false);
+        $('#fin-journal-total').textContent = `Исходящих ТН: ${rows.length} · Сумма ${money(rows.reduce((sum, r) => sum + r.amount, 0))} BYN`;
+        $('#fin-journal-empty').hidden = rows.length !== 0;
+    }
+    function pressed(selector, selected) {
+        $$(selector).forEach((button) => button.setAttribute('aria-pressed', String(button === selected)));
+    }
+    $$('[data-fin-tab]').forEach((button) => button.addEventListener('click', () => {
+        pressed('[data-fin-tab]', button);
+        $$('[data-fin-panel]').forEach((panel) => { panel.hidden = panel.id !== button.getAttribute('aria-controls'); });
+        updatePayments();
+        updateDocuments();
+    }));
+    $$('[data-payment-filter]').forEach((button) => button.addEventListener('click', () => {
+        paymentFilter = button.dataset.paymentFilter;
+        pressed('[data-payment-filter]', button);
+        updatePayments();
+    }));
+    $$('[data-document-filter]').forEach((button) => button.addEventListener('click', () => {
+        documentFilter = button.dataset.documentFilter;
+        pressed('[data-document-filter]', button);
+        updateDocuments();
+    }));
+    $('#fin-payment-search').addEventListener('input', () => updatePayments());
+    $('#fin-journal-search').addEventListener('input', updateJournal);
+    root.addEventListener('change', (event) => {
+        const input = event.target;
+        if (!input.matches('input[type="checkbox"][data-field]')) return;
+        const r = byId.get(input.dataset.record);
+        if (!r || !['calculated', 'posted', 'tnHere', 'billHere'].includes(input.dataset.field)) return;
+        r[input.dataset.field] = input.checked; // Меняется ровно одно поле.
+        if (r.cardId && input.dataset.field === 'tnHere') document.dispatchEvent(new CustomEvent('fin:originals', {
+            detail: { cardId: r.cardId, index: r.index, field: 'originalsReturned', checked: input.checked }
+        }));
+        if (input.dataset.field === 'posted') updatePayments(true);
+        else updateDocuments(true);
+    });
+    // Пересчитываем фильтр после перехода фокуса, а не во время change.
+    ['#fin-payment-rows', '#fin-document-rows'].forEach((selector) => {
+        $(selector).addEventListener('focusout', () => {
+            setTimeout(() => selector === '#fin-payment-rows' ? updatePayments(true) : updateDocuments(true), 0);
+        });
+    });
+    updatePayments();
+    updateDocuments();
+    updateJournal();
+})();
+</script>
+<div class="login-overlay" id="login-overlay" hidden>
+  <form class="login-box" id="login-form">
+    <h1>Свет в доме · CRM</h1>
+    <p class="login-sub">Новый интерфейс (v2) · вход в существующий аккаунт</p>
+    <label for="login-username">Логин<input id="login-username" type="text" autocomplete="username" required></label>
+    <label for="login-password">Пароль<input id="login-password" type="password" autocomplete="current-password" required></label>
+    <label class="login-remember"><input id="login-remember" type="checkbox"> Запомнить меня (30 дней)</label>
+    <p class="login-error" id="login-error" role="alert"></p>
+    <button class="btn btn-primary" id="login-submit" type="submit">Войти</button>
+  </form>
+</div>
+</body>
+</html>
