@@ -205,8 +205,6 @@
             <div id="kb-queue-body"></div>
           </section>
         </div>
-        <dialog id="kb-dialog" class="kb-dialog" aria-labelledby="kb-dialog-title"></dialog>
-        <div id="kb-toast" class="kb-toast" role="status" aria-live="polite" hidden></div>
       </section>
 <!-- ============ ВИД 3: ФИНАНСЫ ============ -->
       <section class="view" id="view-fin" hidden aria-label="Финансы">
@@ -429,6 +427,11 @@
       </section>
 
     </main>
+    <!-- Диалог карточки и тост — на уровне оболочки, ВНЕ скрытых видов:
+         карточка должна быть видна при открытии из любого раздела
+         (реестр/документы финансов), а не только из доски. -->
+    <dialog id="kb-dialog" class="kb-dialog" aria-labelledby="kb-dialog-title"></dialog>
+    <div id="kb-toast" class="kb-toast" role="status" aria-live="polite" hidden></div>
   </div>
 </div>
 
