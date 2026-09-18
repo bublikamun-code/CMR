@@ -113,6 +113,34 @@ def test_issue_invoice_partial_keeps_remainder(superadmin_client):
     assert len(remainders) == 1 and abs(float(remainders[0].amount) - 800.0) < 0.01, "остаток = 1200 − 400"
 
 
+def test_registry_reports_partial_invoiced_amount(superadmin_client):
+    # Фидбек 18.09 («Рацио Домус»): у строки реестра на всю сумму счёта
+    # стояла галочка «Выписка», хотя выписана лишь часть. Группированный
+    # реестр теперь отдаёт invoiced_amount — сколько счёта покрыто
+    # накладными/складскими списаниями.
+    card_id = _create_card(superadmin_client, "Тест частичной выписки в реестре", 1000.0)
+    assert superadmin_client.post(
+        f"/payments/trigger_from_card/{card_id}", json={"store_location": "Тестовый магазин"}
+    ).status_code == 200
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-част", "amount": 400.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+
+    rows = superadmin_client.get("/payments/transactions").json()
+    row = next(r for r in rows if r.get("card_id") == card_id)
+    assert float(row["amount"]) == 1000.0, "сумма строки — сумма счёта"
+    assert float(row["invoiced_amount"]) == 400.0
+    assert row["is_invoice_issued"] is True, "факт накладной по-прежнему отражается галочкой"
+
+    # докрываем остаток второй накладной — счёт покрыт целиком
+    assert superadmin_client.post(f"/payments/cards/{card_id}/issue-invoice", json={
+        "invoice_number": "ТН-остат", "amount": 600.0, "store_location": "Тестовый магазин",
+    }).status_code == 200
+    rows = superadmin_client.get("/payments/transactions").json()
+    row = next(r for r in rows if r.get("card_id") == card_id)
+    assert abs(float(row["invoiced_amount"]) - 1000.0) < 0.01
+
+
 # --- Правка даты оплаты в реестре (фидбек 08.09) -------------------------
 
 def test_transaction_date_edit(superadmin_client):

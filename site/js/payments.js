@@ -9,6 +9,20 @@ function renderPaymentStatusBadge(status) {
     return `<span class="pay-badge ${cls}">${escapeHtml(s)}</span>`;
 }
 
+// Фидбек 18.09 («накладная на 38 тысяч, а написано, что выписана вся
+// сумма»): галочка «Выписка» — про факт накладной, а не про покрытие
+// счёта. Частичная выписка помечается бейджем под галочкой, сумма — в
+// тултипе. invoiced_amount приходит только в grouped-реестре.
+function invoicePartialNote(tr) {
+    const invoiced = parseFloat(tr.invoiced_amount);
+    const total = parseFloat(tr.amount) || 0;
+    if (!Number.isFinite(invoiced) || invoiced <= 0.005 || invoiced >= total - 0.01) return '';
+    const title = `Выписано ${formatMoneyBYN(invoiced)} из ${formatMoneyBYN(total)} — остаток ждёт накладной (доска «Списание»)`;
+    // «част.», а не «частично»: колонка чекбоксов всего 72px, полное слово
+    // (75px у Manrope 10px) вылезало за границы ячейки — замер Playwright.
+    return `<span class="pay-badge pay-partial inv-partial-badge" title="${escapeHtml(title)}">част.</span>`;
+}
+
 function renderPaymentCell(tr) {
     const total = parseFloat(tr.amount) || 0;
     const paid = parseFloat(tr.paid_amount) || 0;
@@ -175,7 +189,16 @@ function renderPayments() {
                 const cbCalc = existing.querySelector('.cb-calc');
                 if (cbCalc) cbCalc.checked = tr.is_calculated;
                 const cbInvoice = existing.querySelector('.cb-invoice');
-                if (cbInvoice) cbInvoice.checked = tr.is_invoice_issued;
+                if (cbInvoice) {
+                    cbInvoice.checked = tr.is_invoice_issued;
+                    // бейдж «частично» пересобирается: после выписки остатка
+                    // накладной он должен исчезнуть
+                    const invCell = cbInvoice.closest('td');
+                    if (invCell) {
+                        invCell.querySelectorAll('.inv-partial-badge').forEach(b => b.remove());
+                        invCell.insertAdjacentHTML('beforeend', invoicePartialNote(tr));
+                    }
+                }
                 const cbWrittenOff = existing.querySelector('.cb-written-off');
                 if (cbWrittenOff) cbWrittenOff.checked = tr.is_written_off;
 
@@ -235,7 +258,7 @@ function renderPayments() {
                     <td class="payment-cell">${renderPaymentCell(tr)}</td>
                     <td>${escapeHtml(tr.store_location) || '—'}</td>
                     <td class="td-center cb-col"><input type="checkbox" class="cb-calc cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
-                    <td class="td-center cb-col"><input type="checkbox" class="cb-invoice cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} ${(tr.invoice_number || '').trim() ? 'disabled title="Номер ТН уже присвоен — удалите накладную в карточке сделки"' : ''} aria-label="Выписка ТН"></td>
+                    <td class="td-center cb-col"><input type="checkbox" class="cb-invoice cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} ${(tr.invoice_number || '').trim() ? 'disabled title="Номер ТН уже присвоен — удалите накладную в карточке сделки"' : ''} aria-label="Выписка ТН">${invoicePartialNote(tr)}</td>
                     <td class="td-center cb-col"><input type="checkbox" class="cb-written-off cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
                     <td class="print-cell"></td>
                     <td class="inline-edit-cell" data-field="note" data-id="${tr.id}"><span class="inline-edit">${escapeHtml(tr.note) || '<span class="text-muted">Нет данных</span>'}</span></td>

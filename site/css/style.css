@@ -2995,6 +2995,14 @@ input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus {
 }
 .pay-unpaid { background: var(--danger-soft-bg); color: var(--danger-soft-text); }
 .pay-partial { background: var(--warning-soft-bg); color: var(--warning-soft-text); }
+/* Реестр, галочка «Выписка»: крошечный бейдж «частично» под чекбоксом в
+   колонке 72px — при частично отгруженном счёте (накладная меньше суммы).
+   Цвета наследует от .pay-partial (софт-токены), меняется только размер. */
+.inv-partial-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    margin-top: 3px;
+}
 .pay-paid { background: var(--success-soft-bg); color: var(--success-soft-text); }
 .pay-deferred { background: #e0e7ff; color: #3730a3; }
 [data-theme="dark"] .pay-unpaid { background: rgba(254, 226, 226, 0.15); color: #fca5a5; }

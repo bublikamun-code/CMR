@@ -229,6 +229,15 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
             d["is_invoice_issued"] = any(bool(p.is_invoice_issued) or (p.invoice_number or "").strip() for p in parts)
             d["is_written_off"] = all(bool(p.is_written_off) for p in parts)
             d["part_ids"] = [p.id for p in parts]
+            # Сколько денег по счёту уже покрыто накладными/складскими
+            # списаниями. Критерий тот же, что в чек-листе накладных
+            # (list_card_invoices) и на доске списания: строка реестра с
+            # галочкой «Выписка» на частично отгруженном счёте читалась
+            # как «выписана вся сумма» (фидбек 18.09, «Рацио Домус»:
+            # накладная на 38 824,52 при счёте 57 046,38).
+            issued_parts = [p for p in parts
+                            if bool(p.is_warehouse_writeoff) or (p.invoice_number or "").strip()]
+            d["invoiced_amount"] = round(sum(float(p.amount or 0) for p in issued_parts), 2)
             if len(invoices) == 1:
                 d["invoice_number"] = invoices[0].invoice_number
                 d["invoice_date"] = invoices[0].invoice_date
