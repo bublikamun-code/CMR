@@ -8,18 +8,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="css/shell-v2-base.css?v=687ff465d9">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=687ff465d9">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=687ff465d9">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=687ff465d9">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=687ff465d9">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=687ff465d9">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=687ff465d9">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=687ff465d9">
-<script>window.V2_ASSET_VER="687ff465d9"</script>
-<script src="js/v2/api.js?v=687ff465d9"></script>
-<script src="js/v2/boot.js?v=687ff465d9"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=687ff465d9">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=c508034be8">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=c508034be8">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=c508034be8">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=c508034be8">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=c508034be8">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=c508034be8">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=c508034be8">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=c508034be8">
+<script>window.V2_ASSET_VER="c508034be8"</script>
+<script src="js/v2/api.js?v=c508034be8"></script>
+<script src="js/v2/boot.js?v=c508034be8"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=c508034be8">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -251,6 +251,11 @@
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
+            <select id="fin-doc-month" aria-label="Месяц выписки" style="align-self:center"></select>
+            <select id="fin-doc-sort" aria-label="Сортировка по дате выписки" style="align-self:center">
+              <option value="desc">Сначала новые</option>
+              <option value="asc">Сначала старые</option>
+            </select>
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Возврат оригиналов — горизонтальная прокрутка">
             <table class="tbl fin-table fin-table-compact" id="fin-document-table">

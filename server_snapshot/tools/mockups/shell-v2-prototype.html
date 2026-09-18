@@ -731,6 +731,11 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
+            <select id="fin-doc-month" aria-label="Месяц выписки" style="align-self:center"></select>
+            <select id="fin-doc-sort" aria-label="Сортировка по дате выписки" style="align-self:center">
+              <option value="desc">Сначала новые</option>
+              <option value="asc">Сначала старые</option>
+            </select>
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Возврат оригиналов — горизонтальная прокрутка">
             <table class="tbl fin-table fin-table-compact" id="fin-document-table">
@@ -990,6 +995,21 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" style="width:100%" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
     </tr>`).join('');
     const issued = outgoing.filter((r) => r.tn);
+    // Месяцы выписки ТН — для фильтра документов
+    const docMonths = [...new Set(issued.map((r) => r.tn.date).filter((d) => /^\d{2}\.\d{2}\.\d{4}$/.test(d)).map((d) => d.slice(6, 10) + '-' + d.slice(3, 5)))].sort().reverse();
+    const docMonthSel = document.getElementById('fin-doc-month');
+    if (docMonthSel) {
+        const names = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+        docMonthSel.innerHTML = '<option value="all">Все месяцы</option>' + docMonths.map((ym) => {
+            const parts = ym.split('-');
+            return `<option value="${ym}">${names[Number(parts[1]) - 1]} ${parts[0]}</option>`;
+        }).join('');
+        docMonthSel.value = docMonth;
+        if (docMonth !== 'all' && !docMonths.includes(docMonth)) docMonth = 'all';
+        docMonthSel.value = docMonth;
+    }
+    const docSortSel = document.getElementById('fin-doc-sort');
+    if (docSortSel) docSortSel.value = docSort;
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
         <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
         <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
@@ -1011,6 +1031,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     let paymentFilter = 'all';
     let finMonth = 'all';
     let documentFilter = 'all';
+    // Фидбек 18.09: документы — фильтр по месяцу выписки ТН и сортировка
+    // по дате выписки.
+    let docMonth = 'all';
+    let docSort = 'desc';
     const byId = new Map(outgoing.map((r) => [r.id, r]));
     // Kanban documents are session-local too; one row per partial invoice.
     document.addEventListener('kb:documents', (event) => {
@@ -1116,6 +1140,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     });
 
     // Экспорт CSV ровно видимого набора, как в рабочей версии (';' + BOM).
+    const docMonthSelEl = document.getElementById('fin-doc-month');
+    if (docMonthSelEl) docMonthSelEl.addEventListener('change', () => { docMonth = docMonthSelEl.value; updateDocuments(); });
+    const docSortSelEl = document.getElementById('fin-doc-sort');
+    if (docSortSelEl) docSortSelEl.addEventListener('change', () => { docSort = docSortSelEl.value; sortDocRows(); updateDocuments(); });
     $('#fin-payment-export').addEventListener('click', () => {
         const rows = lastVisibleRows;
         if (!rows.length) { alert('Нечего экспортировать — список пуст.'); return; }
@@ -1133,9 +1161,26 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
     });
+    function docSortKey(r) {
+        const d = r.tn ? r.tn.date : '';
+        return /^\d{2}\.\d{2}\.\d{4}$/.test(d) ? d.slice(6, 10) + '-' + d.slice(3, 5) + '-' + d.slice(0, 2) : '0000-00-00';
+    }
+    function sortDocRows() {
+        const tbody = document.getElementById('fin-document-rows');
+        if (!tbody) return;
+        const trs = [...tbody.querySelectorAll('tr')];
+        trs.sort((a, b) => {
+            const ra = byId.get(a.dataset.record), rb = byId.get(b.dataset.record);
+            const ka = docSortKey(ra), kb = docSortKey(rb);
+            return docSort === 'desc' ? kb.localeCompare(ka) : ka.localeCompare(kb);
+        });
+        trs.forEach((tr) => tbody.appendChild(tr));
+    }
     function updateDocuments(keepFocused = false) {
+        sortDocRows();
         const rows = visibleRows('#fin-document-rows', (r) => documentFilter === 'all' ||
-            (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false)), keepFocused);
+            (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false)) &&
+            (docMonth === 'all' || (r.tn && /^\d{2}\.\d{2}\.\d{4}$/.test(r.tn.date) && r.tn.date.slice(6, 10) + '-' + r.tn.date.slice(3, 5) === docMonth)), keepFocused);
         $('#fin-document-count').textContent = `Видимых документов: ${rows.length} · Все оформленные оригиналы у нас: ${rows.filter((r) => r.tnHere && (r.billHere || r.billRequired === false)).length}`;
         $('#fin-document-empty').hidden = rows.length !== 0;
     }
