@@ -131,3 +131,75 @@ def get_client_versions(client_id: int, db: Session = Depends(get_db), current_u
     from versioning import get_versions
     versions = get_versions(db, "clients", client_id, tenant_id=current_user.tenant_id)
     return versions
+
+
+# ============================================================
+# БАЛАНС КЛИЕНТА (фидбек 18.09)
+# Приход денег от клиента — client_payments; баланс = Σ приходов −
+# Σ total_amount его неудалённых карточек. Плюс — аванс (клиент может
+# «добрать»), минус — долг. Закрытие счёта из баланса не создаёт приход:
+# уменьшение баланса происходит само через рост paid_amount карточки.
+# ============================================================
+
+def _client_balance_payload(db: Session, client_id: int) -> dict:
+    payments = db.query(models.ClientPayment).filter(
+        models.ClientPayment.client_id == client_id
+    ).order_by(models.ClientPayment.created_at.desc(), models.ClientPayment.id.desc()).all()
+    payments_total = round(sum(float(p.amount or 0) for p in payments), 2)
+    cards = db.query(models.Card).filter(
+        models.Card.client_id == client_id,
+        models.Card.is_deleted == False,  # noqa: E712
+    ).all()
+    deals_total = round(sum(float(c.total_amount or 0) for c in cards), 2)
+    paid_on_cards = round(sum(float(c.paid_amount or 0) for c in cards), 2)
+    return {
+        "client_id": client_id,
+        "balance": round(payments_total - deals_total, 2),
+        "payments_total": payments_total,
+        "deals_total": deals_total,
+        "paid_on_cards": paid_on_cards,
+        "payments": payments[:50],
+    }
+
+
+@router.get("/{client_id}/balance", response_model=schemas.ClientBalanceResponse)
+def client_balance(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    return _client_balance_payload(db, client_id)
+
+
+@router.post("/{client_id}/payments", response_model=schemas.ClientPaymentResponse)
+def add_client_payment(client_id: int, payload: schemas.ClientPaymentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    if payload.card_id is not None:
+        card = db.query(models.Card).filter(
+            models.Card.id == payload.card_id, models.Card.client_id == client_id
+        ).first()
+        if not card:
+            raise HTTPException(status_code=400, detail="Сделка не принадлежит этому клиенту")
+    payment = models.ClientPayment(
+        client_id=client_id,
+        card_id=payload.card_id,
+        amount=round(payload.amount, 2),
+        note=(payload.note or "").strip() or None,
+        created_by=current_user.id,
+        tenant_id=current_user.tenant_id,
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
+@router.delete("/payments/{payment_id}")
+def delete_client_payment(payment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_role("admin", "superadmin"))):
+    payment = db.query(models.ClientPayment).filter(models.ClientPayment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Приход не найден")
+    db.delete(payment)
+    db.commit()
+    return {"detail": "Приход удалён", "id": payment_id}

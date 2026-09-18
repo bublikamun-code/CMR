@@ -46,6 +46,20 @@ class Client(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     cards = relationship("Card", back_populates="client")
 
+class ClientPayment(Base):
+    # Фидбек 18.09: приход денег от клиента (баланс клиента). Аванс без
+    # сделки — card_id NULL; оплата по сделке — card_id заполнен.
+    # Баланс клиента = Σ amount приходов − Σ total_amount его карточек.
+    __tablename__ = "client_payments"
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True, index=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    note = Column(String(500), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+
 class Supplier(Base):
     __tablename__ = "suppliers"
     id = Column(Integer, primary_key=True, index=True)

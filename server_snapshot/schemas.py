@@ -178,6 +178,40 @@ class ClientUpdate(BaseModel):
     contact_person: Optional[str] = None
     note: Optional[str] = None
 
+class ClientPaymentCreate(BaseModel):
+    amount: float
+    note: Optional[str] = None
+    card_id: Optional[int] = None
+
+    @field_validator("amount")
+    @classmethod
+    def amount_positive(cls, v):
+        if v is None or v <= 0:
+            raise ValueError("Сумма прихода должна быть больше нуля")
+        return round(v, 2)
+
+
+class ClientPaymentResponse(BaseModel):
+    id: int
+    client_id: int
+    card_id: Optional[int] = None
+    amount: float
+    note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ClientBalanceResponse(BaseModel):
+    client_id: int
+    balance: float                 # приходы − суммы сделок; плюс — аванс, минус — долг
+    payments_total: float          # Σ приходов (реальные деньги от клиента)
+    deals_total: float             # Σ total_amount неудалённых карточек
+    paid_on_cards: float           # Σ paid_amount (сколько счетов закрыто)
+    payments: List[ClientPaymentResponse] = []
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ClientResponse(ClientBase):
     id: int
     created_at: datetime
@@ -426,6 +460,9 @@ class CardPaymentUpdate(BaseModel):
     paid_amount: Optional[float] = None
     payment_status: Optional[str] = None
     payment_due_date: Optional[date] = None
+    # Фидбек 18.09: True — закрытие ИЗ БАЛАНСА клиента (деньги уже были):
+    # приход не создаётся, баланс уменьшается на поднятый paid_amount сам.
+    from_balance: Optional[bool] = None
 
     @field_validator("payment_status")
     @classmethod

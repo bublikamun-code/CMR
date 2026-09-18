@@ -489,6 +489,13 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         _pay_changes.append(f'Отсрочка до: {_fmt_date_log(_old_pay.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
     _log_card_changes(db, card, current_user, _pay_changes)
 
+    # Баланс клиента (фидбек 18.09): client_payments — КАССА (реальные
+    # деньги от клиента), карточки — счета. Баланс = Σ кассы − Σ total.
+    # paid_amount — покрытие счёта и не обязано совпадать с кассой:
+    # закрытие из баланса (from_balance) не двигает кассу вовсе.
+    if payload.from_balance and float(card.paid_amount or 0) > float(_old_pay.get("paid_amount") or 0):
+        _pay_changes.append(f'Закрыто из баланса клиента на {_fmt_money_log(card.paid_amount)} BYN')
+
     db.commit()
     db.refresh(card)
     return card
