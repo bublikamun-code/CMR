@@ -981,7 +981,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     // data-card на строке: клик по любому месту строки открывает карточку
     // (клики по галочкам и details карточку не открывают).
     $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
-        <td><span class="num fin-date-edit" data-record="${r.id}" title="Изменить дату оплаты" style="cursor:pointer;text-decoration:underline dotted">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
+        <td><span class="num fin-date-edit" data-record="${r.id}" title="Изменить дату оплаты" class="fin-date-edit-link">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
         <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>

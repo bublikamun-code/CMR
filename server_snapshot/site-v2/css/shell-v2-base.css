@@ -497,4 +497,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
 .login-remember { display: flex; align-items: center; gap: 8px; min-height: 24px; font-size: var(--font-ui); color: var(--muted); cursor: pointer; }
 .login-remember input { accent-color: var(--accent); }
 .login-error { color: var(--danger); font-size: var(--font-ui); font-weight: 600; min-height: 1em; }
+/* Фидбек 18.09: системное синее выделение текста — спокойный акцент */
+::selection { background: rgba(99, 102, 241, .18); }
+[data-theme="dark"] ::selection { background: rgba(129, 140, 248, .32); }
 [hidden] { display: none !important; }

@@ -82,3 +82,74 @@ select.kb-select-native { display: none !important; }
     .kb-select-option.is-active { outline-color: Highlight; }
     .kb-select-trigger:disabled, .kb-select-option[aria-disabled="true"] { color: GrayText; opacity: 1; }
 }
+
+/* ============================================================
+   Фидбек 18.09: «синие выделения и непонятные линии».
+   Мягкое фокус-кольцо вместо жёстких синих контуров; чекбоксам
+   контур не нужен — само состояние и есть отклик.
+   Файл подключается последним — перекрывает фокус-правила модулей.
+   ============================================================ */
+#view-fin :is(button, input, select, summary, [tabindex]):focus-visible,
+#view-board :is(button, input, select, summary, [tabindex]):focus-visible,
+#kb-dialog :is(button, input, [tabindex]):focus-visible,
+#view-admin :is(button, input, select, textarea):focus-visible,
+.rail-item:focus-visible,
+:where(button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .22);
+}
+:is(input[type="checkbox"], input[type="radio"]):focus,
+:is(input[type="checkbox"], input[type="radio"]):focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+
+select.fprint-select,
+#kb-store-select,
+#mgmt-email-status,
+[data-view] .tbl select {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px 8px;
+}
+[data-theme="dark"] select.fprint-select,
+[data-theme="dark"] #kb-store-select,
+[data-theme="dark"] #mgmt-email-status,
+[data-theme="dark"] [data-view] .tbl select {
+    background: var(--surface-2, #1a1f27);
+    color-scheme: dark;
+}
+select.fprint-select:hover,
+#kb-store-select:hover,
+[data-view] .tbl select:hover { border-color: var(--muted); }
+
+.fin-date-edit-link { cursor: pointer; }
+.fin-date-edit-link:hover { color: var(--accent); }
+
+.kb-cl-note,
+.fin-note-edit,
+[data-cl-pay-amount] {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 8px;
+    width: 100%;
+}
+.kb-cl-note:focus, .fin-note-edit:focus, [data-cl-pay-amount]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
+}
+.kb-cl-note::placeholder, .fin-note-edit::placeholder, [data-cl-pay-amount]::placeholder {
+    color: var(--muted);
+    opacity: .8;
+}
+
+.fin-check, .kb-check-row label, .pill { user-select: none; }
