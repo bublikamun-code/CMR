@@ -878,6 +878,11 @@
         if (del) del.onclick = function() {
             if (!window.confirm('Удалить карточку «' + (c.title || c.id) + '»?\nОна уйдёт в корзину — восстановление через администратора.')) return;
             apiMutate('card-delete', { id: Number(c.id) });
+            // Фидбек 19.09: карточка исчезает с доски и из реестра сразу,
+            // без перезагрузки страницы.
+            KBData.cards = KBData.cards.filter(function (x) { return x.id !== c.id; });
+            if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
+            document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
             dialog.close(); refresh();
             notify(c.id + ' — карточка удалена в корзину.');
         };
