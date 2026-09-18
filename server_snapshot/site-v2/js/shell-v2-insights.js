@@ -243,6 +243,34 @@
         var words = String(name || '').replace(/«|»/g, '').split(/\s+/).filter(Boolean);
         return (words.length > 1 ? words[0][0] + words[1][0] : String(name || '').slice(0, 2)).toUpperCase();
     }
+    // Фидбек 18.09: contact_person у клиентов из импорта писем хранит JSON
+    // [{name, role, phone, email}] — показываем человекочитаемо, а не сыром.
+    function formatContacts(raw) {
+        var s = String(raw || '').trim();
+        if (!s) return '';
+        try {
+            var arr = JSON.parse(s);
+            if (Array.isArray(arr)) {
+                return arr.map(function (c) {
+                    var bits = [];
+                    if (c.name) bits.push(c.name);
+                    if (c.role) bits.push(c.role);
+                    if (c.phone) bits.push(c.phone);
+                    if (c.email) bits.push(c.email);
+                    return bits.join(' · ');
+                }).join(';  ');
+            }
+        } catch (e) { /* не JSON — покажем как есть */ }
+        return s;
+    }
+    function contactPhone(raw) {
+        var m = String(raw || '').match(/"phone"\s*:\s*"([^"]+)"/);
+        return m ? m[1] : '';
+    }
+    function contactPhone(raw) {
+        var m = String(raw || '').match(/"phone"\s*:\s*"([^"]+)"/);
+        return m ? m[1] : '';
+    }
     function renderClients() {
         var query = (document.getElementById('cl-search').value || '').trim().toLocaleLowerCase('ru');
         var rows = D.clients.filter(function (c) {
@@ -253,7 +281,7 @@
             return '<tr tabindex="0" data-cl-id="' + esc(c.id) + '" aria-label="Открыть карточку клиента ' + esc(c.name) + '">' +
                 '<td><div class="who"><span class="avatar sm neutral">' + esc(initialsOf(c.name)) + '</span><b>' + esc(c.name) + '</b></div></td>' +
                 '<td class="unp">' + esc(c.unp || '—') + '</td>' +
-                '<td class="trunc">' + esc(c.contact_person || '—') + '</td>' +
+                '<td class="trunc">' + esc(formatContacts(c.contact_person) || '—') + '</td>' +
                 '<td class="trunc" title="' + esc(c.address || '') + '">' + esc(c.address || '—') + '</td>' +
                 '<td><div class="row" style="gap:2px">' +
                 '<button class="icon-action" data-cl-edit="' + esc(c.id) + '" title="Редактировать клиента" tabindex="-1"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h4l10-10-4-4L4 16z"/></svg></button>' +
@@ -271,6 +299,22 @@
         var drawer = document.getElementById('cl-drawer');
         if (!drawer) return;
         drawer.dataset.clientId = selectedClient || '';
+        // Баланс кассы клиента (фидбек 18.09)
+        if (client && window.V2Api && window.V2Api.token()) {
+            var clNum = parseInt(String(client.id).replace(/[^0-9]/g, ''), 10);
+            window.V2Api.api('/clients/' + clNum + '/balance').then(function (bal) {
+                var line = document.getElementById('cl-cash-line');
+                if (line) {
+                    var b = Math.round(bal.balance * 100) / 100;
+                    line.textContent = b > 0 ? b.toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' BYN — переплата клиента'
+                        : b < 0 ? b.toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' BYN — долг клиента'
+                        : '0,00 BYN';
+                }
+            }).catch(function () {
+                var line = document.getElementById('cl-cash-line');
+                if (line) line.textContent = 'недоступно';
+            });
+        }
         var client = selectedClient ? D.clientById(selectedClient) : null;
         if (!client) {
             drawer.innerHTML = '<div class="drawer-body"><p class="fin-note">Клиент не выбран.</p></div>';
@@ -294,7 +338,14 @@
                 '<span class="pill danger">Просрочено</span>' +
                 '<span class="num" style="font-weight:800">' + money(c.amount - c.paidAmount) + '</span></div>';
         }).join('');
-        var paymentsHtml = debtCards(deals).concat(deals.filter(function (c) { return c.paidAmount >= c.amount; })).slice(0, 6).map(function (c) {
+        var cashHtml = '';
+        if (window.V2Api && window.V2Api.token()) {
+            var clNum = parseInt(String(client.id).replace(/[^0-9]/g, ''), 10);
+            cashHtml = '<div class="trow" data-cl-cash><span class="grow"><span class="t">Баланс кассы клиента</span><div class="sub" id="cl-cash-line">загружается…</div></span>' +
+                '<span class="row" style="gap:6px;align-items:center"><input id="cl-cash-amount" inputmode="decimal" placeholder="Оплата, BYN" style="width:130px;font:inherit;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">' +
+                '<button type="button" class="btn btn-primary btn-sm" id="cl-cash-add">Принять</button></span></div>';
+        }
+        var paymentsHtml = (cashHtml || '') + debtCards(deals).concat(deals.filter(function (c) { return c.paidAmount >= c.amount; })).slice(0, 6).map(function (c) {
             var rest = c.amount - c.paidAmount;
             var pill = rest <= 0 ? '<span class="pill ok">Оплачено</span>' :
                 c.paidAmount > 0 ? '<span class="pill accent">Частично</span>' : '<span class="pill danger">Долг</span>';
@@ -329,7 +380,7 @@
             '<div class="row" style="margin-top:6px"><b style="font-size:17px;letter-spacing:-.3px">' + esc(client.name) + '</b>' +
             '<button class="btn-quiet" style="margin-left:auto" title="Вернуть первого клиента списка" data-cl-reset>✕</button></div>' +
             '<div class="row wrap mt2" style="gap:10px;font-size:11px;color:var(--muted)">' +
-            '<span class="unp">УНП ' + esc(client.unp || '—') + '</span><span>' + esc(client.contact_person || '—') + '</span>' +
+            '<span class="unp">УНП ' + esc(client.unp || '—') + '</span><span>' + esc(formatContacts(client.contact_person) || '—') + '</span>' +
             (client.phone ? '<span class="unp">' + esc(client.phone) + '</span>' : '') + '</div></div>' +
             '<div class="drawer-body"><div class="kpi">' +
             '<div class="kpi-item" style="padding:0 12px"><div><div class="kpi-label">Сделок</div><div class="kpi-value num" style="font-size:20px">' + deals.length + '</div></div></div>' +
@@ -569,10 +620,25 @@
     document.addEventListener('click', function (event) {
         var deal = event.target.closest('[data-cl-new-deal]');
         if (deal && window.V2Api && window.V2Api.token()) { openNewDealFor(deal.dataset.clNewDeal); return; }
+        // Приём оплаты в кассу клиента прямо из карточки клиента (фидбек 18.09)
+        var cashBtn = event.target.closest('#cl-cash-add');
+        if (cashBtn) {
+            var drawerEl = document.getElementById('cl-drawer');
+            var input = document.getElementById('cl-cash-amount');
+            var amount = parseFloat(String(input && input.value || '').replace(/\s|\u00a0/g, '').replace(',', '.'));
+            if (!isFinite(amount) || amount <= 0) { window.alert('Укажите сумму оплаты.'); return; }
+            var num = parseInt(String(drawerEl && drawerEl.dataset.clientId || '').replace(/[^0-9]/g, ''), 10);
+            if (!num) return;
+            window.V2Api.api('/clients/' + num + '/payments', { method: 'POST', body: { amount: amount, note: 'Оплата в кассу (v2)' } })
+                .then(function () { window.alert('Оплата ' + amount + ' BYN принята в кассу клиента.'); refreshAll(); })
+                .catch(function (e2) { window.alert('Не принято: ' + (e2.detail || e2.message || 'ошибка')); });
+            return;
+        }
         var call = event.target.closest('[data-cl-call]');
         if (call) {
             var cl = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === numeric(call.dataset.clCall); })[0];
-            if (cl && cl.phone) window.open('tel:' + String(cl.phone).replace(/[^+0-9]/g, ''), '_self');
+            var phone = cl && (cl.phone || contactPhone(cl.contact_person));
+            if (cl && phone) window.open('tel:' + String(phone).replace(/[^+0-9]/g, ''), '_self');
             return;
         }
         if (event.target.closest('[data-cl-print]')) window.print();
