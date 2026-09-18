@@ -12,7 +12,20 @@
         return iso(date) === value ? date : null;
     }
     function draft(c) {
-        if (!drafts.has(c)) drafts.set(c, { terms: c.paymentTerms, mode: '', end: '', start: iso(new Date()), days: '', prepay: '' });
+        if (!drafts.has(c)) {
+            // Фидбек 18.09: черновик наполняется из CRM — payment_due_date
+            // хранится на сервере, и «Детали оплаты» больше не слетают при
+            // обновлении страницы (раньше способ отсрочки обнулялся).
+            var due = c.paymentDueDate || '';
+            drafts.set(c, {
+                terms: c.paymentTerms || '',
+                mode: (c.paymentTerms === 'deferred' || c.paymentTerms === 'partial_deferred') && due ? 'date' : '',
+                end: due,
+                start: iso(new Date()),
+                days: '',
+                prepay: ''
+            });
+        }
         return drafts.get(c);
     }
     function deferred(d) { return d.terms === 'deferred' || d.terms === 'partial_deferred'; }

@@ -1180,7 +1180,24 @@
     document.getElementById('kb-q-board').onclick = function() { queueMode('board'); };
     document.getElementById('kb-q-pending').onclick = function() { queueMode('pending'); };
     document.getElementById('kb-q-history').onclick = function() { queueMode('history'); };
+    var trashBtn = document.getElementById('kb-q-trash');
+    if (trashBtn) trashBtn.onclick = function() { queueMode('trash'); };
     // Делегирование для панели группы: чекбоксы пересобираются при каждой отрисовке.
+    document.getElementById('kb-queue-body').addEventListener('click', function (e) {
+        var restore = e.target.closest('[data-trash-restore]');
+        var purge = e.target.closest('[data-trash-purge]');
+        if (restore) {
+            window.V2Api.api('/cards/' + restore.dataset.trashRestore + '/restore', { method: 'PATCH' })
+                .then(function () { trashCache = trashCache.filter(function (c) { return String(c.id) !== restore.dataset.trashRestore; }); renderTrash(); notify('Карточка восстановлена из корзины.'); })
+                .catch(function (e2) { notify('Не восстановлено: ' + (e2.detail || e2.message || 'ошибка')); });
+        } else if (purge) {
+            if (window.confirm('Удалить карточку НАВСЕГДА? Восстановить будет невозможно.')) {
+                window.V2Api.api('/kanban/cards/' + purge.dataset.trashPurge + '/permanent', { method: 'DELETE' })
+                    .then(function () { trashCache = trashCache.filter(function (c) { return String(c.id) !== purge.dataset.trashPurge; }); renderTrash(); notify('Карточка удалена навсегда.'); })
+                    .catch(function (e2) { notify('Не удалено: ' + (e2.detail || e2.message || 'ошибка')); });
+            }
+        }
+    });
     document.getElementById('kb-queue-body').addEventListener('change', function (e) {
         var pick = e.target.closest('[data-group-pick]');
         if (pick) {
