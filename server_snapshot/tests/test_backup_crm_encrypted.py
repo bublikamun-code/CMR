@@ -39,7 +39,7 @@ def sandbox(tmp_path):
     key.write_text('test key material\n')
     key.chmod(0o600)
     env = dict(os.environ, APP=str(app), DATA=str(data), DST=str(dst), BK_DIR=str(keys),
-               KEEP='2', PATH=str(bins) + os.pathsep + os.environ['PATH'])
+               KEEP='2', KEEP_UPLOADS='2', PATH=str(bins) + os.pathsep + os.environ['PATH'])
     return app, data, dst, bins, key, env
 
 

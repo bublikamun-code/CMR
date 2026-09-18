@@ -23,12 +23,17 @@ APP="${APP:-/var/www/h212005/data/www/cmr-svetvdome.online}"
 DATA="${DATA:-/var/www/h212005/data/crm_data}"
 DST="${DST:-$HOME/backups}"
 KEEP="${KEEP-14}"
+# Uploads — самые тяжёлые архивы; при квоте хостинга 14 поколений (~7 ГБ)
+# физически не помещаются, поэтому держим 7 дней (прод-uploads при этом живы).
+KEEP_UPLOADS="${KEEP_UPLOADS-7}"
 BK_DIR="${BK_DIR:-/var/www/h212005/data/keys}"
 BK_KEY="$BK_DIR/.backup_key"
-if [[ ! "$KEEP" =~ ^[1-9][0-9]{0,8}$ ]]; then
-    echo 'FAIL: KEEP must be a positive integer (1..999999999).' >&2
-    exit 1
-fi
+for value in "$KEEP" "$KEEP_UPLOADS"; do
+    if [[ ! "$value" =~ ^[1-9][0-9]{0,8}$ ]]; then
+        echo 'FAIL: KEEP/KEEP_UPLOADS must be a positive integer (1..999999999).' >&2
+        exit 1
+    fi
+done
 log() { echo "$(date '+%F %T') $*"; }
 umask 077
 mkdir -p "$DST" "$BK_DIR" && chmod 700 "$BK_DIR"
@@ -167,10 +172,12 @@ else
     log 'FAIL: tar crmdata secrets'; FAILED=1
 fi
 
-# 5) Ротация — KEEP последних завершённых архивов КАЖДОГО вида; имена строго
-# формата TS(.суффикс), чтобы мусор и открытые копии ротацию не проходили.
+# 5) Ротация — KEEP последних завершённых архивов КАЖДОГО вида (uploads —
+# KEEP_UPLOADS: самые тяжёлые); имена строго формата TS(.суффикс), чтобы
+# мусор и открытые копии ротацию не проходили.
 shopt -s nullglob
 for prefix in db code uploads crmdata_secret tenants; do
+    if [ "$prefix" = uploads ]; then limit="$KEEP_UPLOADS"; else limit="$KEEP"; fi
     group=()
     for file in "$DST"/"${prefix}"_*; do
         name=${file##*/}
@@ -182,8 +189,8 @@ for prefix in db code uploads crmdata_secret tenants; do
         fi
         group+=("$file")
     done
-    if [ "${#group[@]}" -gt "$KEEP" ]; then
-        ls -1t -- "${group[@]}" | tail -n +$((KEEP + 1)) | while IFS= read -r old; do
+    if [ "${#group[@]}" -gt "$limit" ]; then
+        ls -1t -- "${group[@]}" | tail -n +$((limit + 1)) | while IFS= read -r old; do
             rm -f -- "$old"
         done
     fi
