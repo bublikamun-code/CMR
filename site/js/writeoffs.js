@@ -420,35 +420,47 @@ function renderWriteoffsBoard() {
                 }
             });
 
+            // Фикс аудита 18.09: у полностью выписанной (done) плитки блока
+            // действий не было вовсе, поэтому последняя накладная, закрывшая
+            // остаток сделки, навсегда оставалась без складского флажка —
+            // в реестре не включалась галочка «Списание», а «Контроль» вечно
+            // держал её в «Очереди на списание». Ниже — общая кнопка «Списать»
+            // для обеих веток, чтобы не дублировать обработчик.
+            const makeWriteoffBtn = () => {
+                const btn = document.createElement('button');
+                btn.className = 'btn-writeoff';
+                btn.innerText = 'Списать';
+                btn.onclick = async (e) => {
+                    e.stopPropagation();
+                    const invNum = (pendingInvoiceTx.invoice_number || '').trim();
+                    if (await confirmDialog(`Подтвердить списание накладной ${invNum}?`, { okText: 'Списать', danger: false })) {
+                        // Фикс аудита 10.09: executeWriteoff гасит ошибки
+                        // внутри и раньше всегда возвращала ok — тост
+                        // «Списано со склада» светился даже при сбое.
+                        const ok = await executeWriteoff(pendingInvoiceTx.id, true, null, card.id);
+                        if (ok) showToast('Списано со склада', 'success');
+                    }
+                };
+                return btn;
+            };
+
             if (!isDone) {
                 // Фидбек 2026-09-06: кнопки действий плитки появляются при
                 // наведении/фокусе (как панель переноса на канбане)
                 const actions = document.createElement('div');
                 actions.className = 'writeoff-tile-actions';
-                const btn = document.createElement('button');
                 if (pendingInvoiceTx) {
-                    btn.className = 'btn-writeoff';
-                    btn.innerText = 'Списать';
-                    btn.onclick = async (e) => {
-                        e.stopPropagation();
-                        const invNum = (pendingInvoiceTx.invoice_number || '').trim();
-                        if (await confirmDialog(`Подтвердить списание накладной ${invNum}?`, { okText: 'Списать', danger: false })) {
-                            // Фикс аудита 10.09: executeWriteoff гасит ошибки
-                            // внутри и раньше всегда возвращала ok — тост
-                            // «Списано со склада» светился даже при сбое.
-                            const ok = await executeWriteoff(pendingInvoiceTx.id, true, null, card.id);
-                            if (ok) showToast('Списано со склада', 'success');
-                        }
-                    };
+                    actions.appendChild(makeWriteoffBtn());
                 } else {
+                    const btn = document.createElement('button');
                     btn.className = 'btn-secondary' + (invoiceMissing ? ' btn-invoice-missing' : '');
                     btn.innerHTML = `${invoiceMissing ? ICON_WARNING : ICON_FILE} Выписать накладную`;
                     btn.onclick = (e) => {
                         e.stopPropagation();
                         openCardModal(card.id);
                     };
+                    actions.appendChild(btn);
                 }
-                actions.appendChild(btn);
 
                 // P3-A: «Прикрепить сделку» — общая накладная на 2+ счета.
                 // Кандидаты: тот же клиент + тот же склад, статус Сборка/На
@@ -463,6 +475,13 @@ function renderWriteoffsBoard() {
                     openAttachPicker(card);
                 };
                 actions.appendChild(attach);
+                cardEl.appendChild(actions);
+            } else if (pendingInvoiceTx) {
+                // Done-плитка: только «Списать» — накладная уже выписана,
+                // «Выписать накладную» и «Прикрепить сделку» не нужны.
+                const actions = document.createElement('div');
+                actions.className = 'writeoff-tile-actions';
+                actions.appendChild(makeWriteoffBtn());
                 cardEl.appendChild(actions);
             }
 
