@@ -602,8 +602,8 @@
         window.V2Api.api('/payments/cards/' + Number(c.id) + '/invoices').then(function (info) {
             c._invFlags = {};
             c._invIds = {};
+            // эндпоинт отдаёт written_off (складское списание) и id записи
             (info.issued || []).forEach(function (i) {
-                if (i.is_warehouse_writeoff === undefined) return;
                 c._invFlags[i.invoice_number] = Boolean(i.written_off);
                 c._invIds[i.invoice_number] = i.id;
             });
