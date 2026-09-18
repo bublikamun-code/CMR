@@ -171,8 +171,18 @@
                 })
             };
         });
+        // Остаток к выписке — авторитетная запись is_document=false из CRM
+        // (учитывает и групповые накладные, у которых card_id в документах нет).
+        const remainderByCard = {};
+        (payload.transactions || []).forEach(function (t) {
+            if (t.is_document || t.card_id == null) return;
+            remainderByCard[t.card_id] = kopecks(t.amount);
+        });
         cards.forEach(function (c) {
-            c.issued = c.docs.reduce(function (a, d) { return a + d.amount; }, 0);
+            const numeric = Number(c.id);
+            c.issued = remainderByCard[numeric] !== undefined
+                ? Math.max(0, c.amount - remainderByCard[numeric])
+                : c.docs.reduce(function (a, d) { return a + d.amount; }, 0);
             // Условия оплаты, сохранённые в CRM (payment_terms), восстанавливаются
             // как снимок: датой оплаты из payment_due_date, предоплата — пустая.
             if (c.paymentTerms) {
@@ -255,7 +265,7 @@
             window.V2Api.api('/dictionaries/statuses'),
             window.V2Api.api('/nakladnye')
         ]);
-        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9] });
+        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5] });
         window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6], results[9], results[3]);
         enableMutations();
         renderUser(meUser);
@@ -292,13 +302,22 @@
             if (d.card_id == null) return;
             (docsByCard[d.card_id] = docsByCard[d.card_id] || []).push(d);
         });
-        const outgoing = cards.map(function (card) {
+        // Реестр — только сделки с финансовым следом: остаток-запись, документы
+        // или оплаты. Карточки без движения денег в реестре не значатся.
+        const financial = cards.filter(function (card) {
+            const numeric = Number(card.id);
+            return remainder[numeric] !== undefined ||
+                (docsByCard[numeric] && docsByCard[numeric].length > 0) ||
+                card.paidAmount > 0;
+        });
+        const outgoing = financial.map(function (card) {
             const numeric = Number(card.id);
             const docs = (docsByCard[numeric] || []).slice().sort(function (a, b) {
                 return new Date(b.date || 0) - new Date(a.date || 0);
             });
             const latest = docs[0] || null;
-            const restKop = remainder[numeric] !== undefined ? remainder[numeric] : card.amount;
+            const docsSum = docs.reduce(function (a, d) { return a + kopecks(d.amount); }, 0);
+            const restKop = remainder[numeric] !== undefined ? remainder[numeric] : Math.max(0, card.amount - docsSum);
             return {
                 id: 'c' + numeric,
                 card: card.id + ' · ' + card.title,
@@ -310,7 +329,11 @@
                 estimate: '',
                 tn: latest ? { number: latest.invoice_number || '', date: isoToRu(latest.invoice_date || latest.date), bill: '' } : null,
                 calculated: Boolean(latest && latest.is_calculated),
-                posted: Boolean(latest && latest.is_written_off),
+                // «Списано» — по остатку к выписке (как на проде): сделка закрыта,
+                // когда выписана полностью; флаг последнего документа не показатель.
+                posted: restKop <= 0 && (docs.length > 0 || remainder[numeric] !== undefined),
+                // Поля возврата оригиналов (ТН у нас / счёт у нас) в CRM API нет —
+                // галочки остаются локальными на сеанс.
                 tnHere: false,
                 billHere: false,
                 print: (latest && latest.print_status) || '',
