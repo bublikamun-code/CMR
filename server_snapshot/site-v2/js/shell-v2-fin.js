@@ -35,12 +35,12 @@
     // data-card на строке: клик по любому месту строки открывает карточку
     // (клики по галочкам и details карточку не открывают).
     $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
-        <td><span class="num">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
+        <td><span class="num fin-date-edit" data-record="${r.id}" title="Изменить дату оплаты" style="cursor:pointer;text-decoration:underline dotted">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
         <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
         <td>${checkbox(r, 'posted', 'Списано')}</td>
-        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><p>${esc(r.note)}</p></details></td>
+        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" style="width:100%" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
     </tr>`).join('');
     const issued = outgoing.filter((r) => r.tn);
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
@@ -121,6 +121,49 @@
         $('#fin-payment-total').textContent = total(rows);
         $('#fin-payment-empty').hidden = rows.length !== 0;
     }
+    // Правка даты оплаты и примечания — те же поля записи, что в рабочей
+    // версии (PATCH /payments/transactions/{id}); дата меняется только
+    // днем, время записи сохраняет бэкенд.
+    document.addEventListener('click', (event) => {
+        const span = event.target.closest('.fin-date-edit');
+        if (!span) return;
+        const r = byId.get(span.dataset.record);
+        if (!r) return;
+        const iso = r.date.split('.').reverse().join('-');
+        span.outerHTML = `<input type="date" class="fin-date-input" data-record="${r.id}" value="${iso}">`;
+        const input = document.querySelector(`.fin-date-input[data-record="${r.id}"]`);
+        input.focus();
+        const commit = () => {
+            const value = input.value;
+            const ru = value ? value.split('-').reverse().join('.') : r.date;
+            r.date = ru;
+            if (window.V2Api && window.V2Api.token() && value) {
+                window.V2Api.api('/payments/transactions/' + r.txId, { method: 'PATCH', body: { date: value } })
+                    .catch(() => { const t = document.getElementById('kb-toast'); if (t) { t.hidden = false; t.textContent = 'Дату не сохранить: ' + 'ошибка'; setTimeout(() => t.hidden = true, 3000); } });
+            }
+            const back = document.createElement('span');
+            back.className = 'num fin-date-edit';
+            back.dataset.record = r.id;
+            back.title = 'Изменить дату оплаты';
+            back.style.cssText = 'cursor:pointer;text-decoration:underline dotted';
+            back.textContent = ru;
+            input.replaceWith(back);
+        };
+        input.addEventListener('change', commit);
+        input.addEventListener('blur', () => setTimeout(() => { if (document.querySelector(`.fin-date-input[data-record="${r.id}"]`)) commit(); }, 0));
+    });
+    document.addEventListener('change', (event) => {
+        const area = event.target.closest('.fin-note-edit');
+        if (!area) return;
+        const r = byId.get(area.dataset.record);
+        if (!r) return;
+        r.note = area.value;
+        if (window.V2Api && window.V2Api.token()) {
+            window.V2Api.api('/payments/transactions/' + r.txId, { method: 'PATCH', body: { note: area.value } })
+                .catch(() => { const t = document.getElementById('kb-toast'); if (t) { t.hidden = false; t.textContent = 'Примечание не сохранено'; setTimeout(() => t.hidden = true, 3000); } });
+        }
+    });
+
     // Экспорт CSV ровно видимого набора, как в рабочей версии (';' + BOM).
     $('#fin-payment-export').addEventListener('click', () => {
         const rows = lastVisibleRows;

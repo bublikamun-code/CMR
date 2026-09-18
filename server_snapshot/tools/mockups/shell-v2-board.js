@@ -85,6 +85,12 @@
         return s ? s.name : id;
     }
     function remaining(card) { return card.amount - card.issued; }
+    // 'cl-22' → 22: клиентские id в v2 с префиксом, API ждёт число
+    // (фидбек 18.09: Number('cl-22') = NaN ломал баланс и кассу клиента)
+    function numericClientId(id) {
+        const n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
+        return isNaN(n) ? null : n;
+    }
     function checklistSummary(card) {
         var total = card.checklist.length;
         var done = card.checklist.filter(function (i) { return i.received; }).length;
@@ -487,7 +493,10 @@
             dealInput(c, 'deadline', 'Срок · ДД.ММ.ГГГГ') + dealInput(c, 'amount', 'Сумма, BYN') +
             dealField('note', 'Заметка', '<textarea id="kb-deal-note" data-deal-field="note" rows="2" maxlength="4000">' + esc(c.note) + '</textarea>');
         var checks = c.checklist.map(function(item, i) {
-            return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '"><b>' + esc(item.label) + '</b>' + procurementFields(c, item) + '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received || c.stage === 'done' ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
+            var rawId = String(item.id).replace(/[^0-9]/g, '');
+            return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '"><b>' + esc(item.label) + '</b>' + procurementFields(c, item) +
+                '<input class="kb-cl-note" data-cl-id="' + rawId + '" value="' + esc(item.note || '') + '" placeholder="Примечание к закупке…" maxlength="500">' +
+                '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received || c.stage === 'done' ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
         }).join('');
         var docs = c.docs.map(function(d, i) {
             // Дата накладной может храниться в ДД.ММ.ГГГГ (прототип) или ISO
@@ -700,6 +709,14 @@
         selectTab(selectedTab, false);
         bindAttachmentDownloads();
         loadCardHistory(c);
+        dialog.querySelectorAll('.kb-cl-note').forEach(function (input) {
+            input.addEventListener('change', function () {
+                var id = input.dataset.clId;
+                if (!id || !window.V2Api || !window.V2Api.token()) return;
+                window.V2Api.api('/checklists/' + id, { method: 'PATCH', body: { note: input.value } })
+                    .catch(function (e2) { notify('Примечание закупки не сохранено: ' + (e2.detail || e2.message || 'ошибка')); });
+            });
+        });
         if (!dialog.open) dialog.showModal();
         dialog.querySelector('.kb-detail-content').scrollTop = scrollTop;
         var send = document.getElementById('kb-send');
@@ -751,7 +768,7 @@
         var mode = '';
 
         if (hasClient) {
-            window.V2Api.api('/clients/' + Number(c.clientId) + '/balance').then(function (bal) {
+            window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/balance').then(function (bal) {
                 clientBalance = Math.round(bal.balance * 100);
                 var line = document.getElementById('kb-pay-client');
                 if (line) {
@@ -808,7 +825,7 @@
         }
         function createCash(amountKop) {
             // Касса: реальные деньги от клиента по этой сделке.
-            return window.V2Api.api('/clients/' + Number(c.clientId) + '/payments', {
+            return window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/payments', {
                 method: 'POST',
                 body: { amount: amountKop / 100, card_id: Number(c.id), note: 'Оплата по сделке' }
             }).catch(function (e2) {
@@ -823,7 +840,7 @@
             if (mode === 'Аванс') {
                 var adv = parseMoney(amountInput.value);
                 if (!Number.isSafeInteger(adv) || adv <= 0) { err.textContent = 'Укажите сумму аванса.'; return; }
-                window.V2Api.api('/clients/' + Number(c.clientId) + '/payments', {
+                window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/payments', {
                     method: 'POST',
                     body: { amount: adv / 100, card_id: Number(c.id), note: noteInput.value || 'Аванс клиента' }
                 }).then(function () {

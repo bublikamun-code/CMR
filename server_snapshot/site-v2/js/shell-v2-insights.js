@@ -256,8 +256,8 @@
                 '<td class="trunc">' + esc(c.contact_person || '—') + '</td>' +
                 '<td class="trunc" title="' + esc(c.address || '') + '">' + esc(c.address || '—') + '</td>' +
                 '<td><div class="row" style="gap:2px">' +
-                '<button class="icon-action" title="Редактировать (в превью не работает)" tabindex="-1"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h4l10-10-4-4L4 16z"/></svg></button>' +
-                '<button class="icon-action danger" title="Удалить (в превью не работает)" tabindex="-1"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M9 6V4h6v2M6 6l1 14h10l1-14"/></svg></button>' +
+                '<button class="icon-action" data-cl-edit="' + esc(c.id) + '" title="Редактировать клиента" tabindex="-1"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h4l10-10-4-4L4 16z"/></svg></button>' +
+                '<button class="icon-action danger" data-cl-delete="' + esc(c.id) + '" title="Удалить клиента" tabindex="-1"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M9 6V4h6v2M6 6l1 14h10l1-14"/></svg></button>' +
                 '</div></td></tr>';
         }).join('');
         var count = document.getElementById('cl-count');
@@ -270,6 +270,7 @@
     function renderDrawer() {
         var drawer = document.getElementById('cl-drawer');
         if (!drawer) return;
+        drawer.dataset.clientId = selectedClient || '';
         var client = selectedClient ? D.clientById(selectedClient) : null;
         if (!client) {
             drawer.innerHTML = '<div class="drawer-body"><p class="fin-note">Клиент не выбран.</p></div>';
@@ -526,4 +527,107 @@
     renderClients();
     renderTasks();
     renderCalendar();
+})();
+
+/* ============================================================
+   Клиенты — живой CRM-функционал v2 (фидбек 18.09):
+   создание, редактирование, удаление, баланс кассы, приём оплаты.
+   ============================================================ */
+(function () {
+    'use strict';
+    function numeric(id) {
+        var n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
+        return isNaN(n) ? null : n;
+    }
+    function fmtKop(v) {
+        return (Math.round(v) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function askFields(client) {
+        var name = window.prompt('Имя клиента*', client ? (client.name || '') : '');
+        if (name === null) return null;
+        name = name.trim();
+        if (!name) { window.alert('Имя обязательно'); return null; }
+        var phone = window.prompt('Телефон', client ? (client.phone || '') : '') || '';
+        var unp = window.prompt('УНП', client ? (client.unp || '') : '') || '';
+        var contact = window.prompt('Контактное лицо', client ? (client.contact_person || '') : '') || '';
+        var address = window.prompt('Адрес', client ? (client.address || '') : '') || '';
+        return { name: name, phone: phone.trim(), unp: unp.trim(), contact_person: contact.trim(), address: address.trim() };
+    }
+    function refreshAll() { location.reload(); }
+
+    var newBtn = document.getElementById('cl-new');
+    if (newBtn) newBtn.addEventListener('click', function () {
+        if (!window.V2Api || !window.V2Api.token()) { window.alert('Доступно только при подключении к CRM.'); return; }
+        var fields = askFields(null);
+        if (!fields) return;
+        window.V2Api.api('/clients', { method: 'POST', body: fields })
+            .then(function () { window.alert('Клиент создан.'); refreshAll(); })
+            .catch(function (e) { window.alert('Не создано: ' + (e.detail || e.message || 'ошибка')); });
+    });
+
+    document.addEventListener('click', function (event) {
+        var editBtn = event.target.closest('[data-cl-edit]');
+        if (editBtn) {
+            var num = numeric(editBtn.dataset.clEdit);
+            var client = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === num; })[0];
+            if (!client) return;
+            var fields = askFields(client);
+            if (!fields) return;
+            window.V2Api.api('/clients/' + num, { method: 'PATCH', body: fields })
+                .then(function () { window.alert('Клиент сохранён.'); refreshAll(); })
+                .catch(function (e) { window.alert('Не сохранено: ' + (e.detail || e.message || 'ошибка')); });
+            return;
+        }
+        var delBtn = event.target.closest('[data-cl-delete]');
+        if (delBtn) {
+            var num2 = numeric(delBtn.dataset.clDelete);
+            var cl = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === num2; })[0];
+            if (!cl) return;
+            if (!window.confirm('Удалить клиента «' + (cl.name || '') + '»? Сделки останутся, но отвяжутся.')) return;
+            window.V2Api.api('/clients/' + num2, { method: 'DELETE' })
+                .then(function () { window.alert('Клиент удалён.'); refreshAll(); })
+                .catch(function (e) { window.alert('Не удалено: ' + (e.detail || e.message || 'недостаточно прав')); });
+        }
+    });
+
+    // Drawer: баланс кассы + приём оплаты. Перерисовывается при смене клиента.
+    function onDrawerChange() {
+        var drawer = document.getElementById('cl-drawer');
+        if (!drawer) return;
+        var clientId = numeric(drawer.dataset.clientId);
+        var body = drawer.querySelector('.drawer-body');
+        if (!body || body.dataset.balanceDone === clientId + '') return;
+        body.dataset.balanceDone = clientId + '';
+        var old = body.querySelector('[data-cl-balance-block]');
+        if (old) old.remove();
+        if (!clientId) return;
+        var block = document.createElement('div');
+        block.setAttribute('data-cl-balance-block', '1');
+        block.innerHTML = '<p class="fin-note" data-cl-balance>Баланс кассы: загружается…</p>' +
+            '<div class="row" style="gap:6px;margin:0 0 10px">' +
+            '<input data-cl-pay-amount inputmode="decimal" placeholder="Оплата, BYN" style="width:150px">' +
+            '<button type="button" class="btn btn-primary btn-sm" data-cl-pay="' + clientId + '">Принять оплату</button></div>';
+        body.insertAdjacentElement('afterbegin', block);
+        if (!window.V2Api || !window.V2Api.token()) { block.querySelector('[data-cl-balance]').textContent = ''; return; }
+        window.V2Api.api('/clients/' + clientId + '/balance').then(function (bal) {
+            var el = block.querySelector('[data-cl-balance]');
+            el.textContent = 'Баланс кассы: ' + fmtKop(Math.round(bal.balance * 100)) + ' BYN' +
+                (bal.balance > 0 ? ' — переплата клиента' : bal.balance < 0 ? ' — долг клиента' : '');
+        }).catch(function () { block.querySelector('[data-cl-balance]').textContent = ''; });
+        block.querySelector('[data-cl-pay]').addEventListener('click', function () {
+            var input = block.querySelector('[data-cl-pay-amount]');
+            var amount = parseFloat(String(input && input.value || '').replace(/\s|\u00a0/g, '').replace(',', '.'));
+            if (!isFinite(amount) || amount <= 0) { window.alert('Укажите сумму оплаты.'); return; }
+            window.V2Api.api('/clients/' + clientId + '/payments', { method: 'POST', body: { amount: amount, note: 'Оплата в кассу (v2)' } })
+                .then(function () { window.alert('Оплата ' + amount + ' BYN принята в кассу клиента.'); refreshAll(); })
+                .catch(function (e) { window.alert('Не принято: ' + (e.detail || e.message || 'ошибка')); });
+        });
+    }
+    var drawerEl = document.getElementById('cl-drawer');
+    if (drawerEl) {
+        new MutationObserver(onDrawerChange).observe(drawerEl, { childList: true, subtree: true });
+        document.addEventListener('click', function (e) {
+            if (e.target.closest('[data-cl-id]')) setTimeout(onDrawerChange, 50);
+        });
+    }
 })();

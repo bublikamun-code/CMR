@@ -38,6 +38,11 @@
         return 'st-' + String(name).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-|-$/g, '');
     }
     function kopecks(value) { return Math.round((Number(value) || 0) * 100); }
+    // 'cl-22' → 22: клиентские id в v2 хранятся с префиксом, API ждёт число
+    function numericId(id) {
+        const n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
+        return isNaN(n) ? null : n;
+    }
     function isoToRu(value) {
         const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
         return m ? m[3] + '.' + m[2] + '.' + m[1] : '';
@@ -166,6 +171,7 @@
                         id: 'ck-' + item.id,
                         label: (item.supplier && item.supplier.name) || item.company_name || 'Позиция',
                         supplier_id: item.supplier_id ? 'sup-' + item.supplier_id : null,
+                        note: item.note || '',
                         ordered: false,
                         received: false
                     };
@@ -353,6 +359,8 @@
                 : docs.reduce(function (a, d) { return a + kopecks(d.amount); }, 0);
             return {
                 id: 't' + t.id,
+                txId: t.id,
+                txDate: t.date,
                 cardId: card ? String(card.id) : (t.card_id != null ? String(t.card_id) : null),
                 card: card ? (card.id + ' · ' + card.title) : (t.company_name || 'Сделка'),
                 date: isoToRu(t.date) || (latest ? isoToRu(latest.invoice_date || latest.date) : (card ? card.deadline : '')),
@@ -370,7 +378,7 @@
                 billHere: Boolean(latest && latest.is_bill_doc),
                 print: (latest && latest.print_status) || '',
                 authority: '',
-                note: ''
+                note: t.note || ''
             };
         });
         // Рабочий реестр показывает свежие записи сверху — так же здесь.
