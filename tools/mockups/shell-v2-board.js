@@ -53,6 +53,10 @@
         var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value || '').trim());
         return m ? m[3] + '-' + m[2] + '-' + m[1] : null;
     }
+    function ruFromIso(value) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+        return m ? m[3] + '.' + m[2] + '.' + m[1] : value;
+    }
 
     // ---------- утилиты ----------
     function money(cents) {
@@ -482,9 +486,12 @@
             return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '"><b>' + esc(item.label) + '</b>' + procurementFields(c, item) + '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received || c.stage === 'done' ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
         }).join('');
         var docs = c.docs.map(function(d, i) {
+            // Дата накладной может храниться в ДД.ММ.ГГГГ (прототип) или ISO
+            // (записи, выписанные до нормализации) — приводим к ISO для input.
+            var docIso = /^\d{4}-\d{2}-\d{2}$/.test(String(d.date)) ? d.date : (isoFromRu(d.date) || '');
             if (editingDoc === i) {
                 return '<li class="kb-detail-doc kb-doc-edit"><div>' +
-                    '<label>Дата выписки <input type="date" data-doc-field="date" value="' + esc(isoFromRu(d.date) || '') + '"></label>' +
+                    '<label>Дата выписки <input type="date" data-doc-field="date" value="' + esc(docIso) + '"></label>' +
                     '<label>Номер <input data-doc-field="number" value="' + esc(d.number) + '"></label>' +
                     '<label>Сумма, BYN <input inputmode="decimal" data-doc-field="amount" value="' + money(d.amount) + '"></label>' +
                     '<p class="kb-form-error" id="kb-doc-edit-error" role="alert"></p></div>' +
@@ -677,7 +684,7 @@
             if (error) { document.getElementById('kb-error').textContent = error; return; }
             document.getElementById('kb-error').textContent = '';
             submitted = true;
-            const doc = { series: series, number: number, date: date, amount: amount, originalsReturned: false };
+            const doc = { series: series, number: number, date: ruFromIso(date), amount: amount, originalsReturned: false };
             c.docs.push(doc);
             apiMutate('issue-invoice', { id: Number(c.id), number: number, date: date, amount: amount / 100 }).then(function (saved) {
                 if (saved && saved.id) doc.txId = saved.id;
@@ -730,23 +737,23 @@
             if (!doc) return;
             var iso = dialog.querySelector('[data-doc-field="date"]').value;
             var number = dialog.querySelector('[data-doc-field="number"]').value.trim();
-            var amountByn = parseFloat(String(dialog.querySelector('[data-doc-field="amount"]').value).replace(',', '.'));
+            var amountKop = parseMoney(dialog.querySelector('[data-doc-field="amount"]').value);
             var errorEl = document.getElementById('kb-doc-edit-error');
-            if (!iso || !number || !(amountByn > 0)) {
+            if (!iso || !number || !amountKop || amountKop <= 0) {
                 if (errorEl) errorEl.textContent = 'Заполните дату, номер и положительную сумму.';
                 return;
             }
             var applyEdit = function () {
-                doc.date = iso.split('-').reverse().join('.');
+                doc.date = ruFromIso(iso);
                 doc.number = number;
-                doc.amount = Math.round(amountByn * 100);
+                doc.amount = amountKop;
                 editingDoc = null;
                 refresh();
                 openCard(activeCard);
             };
             if (doc.txId) {
                 editSave.disabled = true;
-                apiMutate('invoice-edit', { txId: doc.txId, isoDate: iso, number: number, amountByn: amountByn }).then(function (ok) {
+                apiMutate('invoice-edit', { txId: doc.txId, isoDate: iso, number: number, amountByn: amountKop / 100 }).then(function (ok) {
                     if (ok === false) {
                         editSave.disabled = false;
                         if (errorEl) errorEl.textContent = 'CRM не приняла правку.';
