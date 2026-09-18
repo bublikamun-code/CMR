@@ -448,6 +448,10 @@
                         if (found) txId = found.id;
                     } catch (e) { /* отмена группы будет локальной */ }
                     return { id: g.id, txId: txId };
+                } else if (kind === 'card-delete') {
+                    // Удаление карточки — мягкое: карточка уходит в корзину
+                    // (is_deleted), восстановление — PATCH /cards/{id}/restore.
+                    return await window.V2Api.api('/kanban/cards/' + payload.id, { method: 'DELETE' });
                 } else if (kind === 'fin-flag') {
                     // Фидбек 18.09: «Просчет»/«Списание» реестра v2 — те же
                     // ручные поля, что в основном реестре: is_calculated /

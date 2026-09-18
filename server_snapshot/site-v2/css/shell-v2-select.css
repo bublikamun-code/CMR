@@ -308,3 +308,31 @@ select.fprint-select:hover,
     color: var(--accent-ink);
     box-shadow: none;
 }
+
+/* Админка: формы в сетке, поля на всю ширину строки */
+.mgmt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px 18px;
+    margin: 10px 0 14px;
+}
+.mgmt-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.mgmt-field input, .mgmt-field select {
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 11px;
+    width: 100%;
+}
+.mgmt-field input:focus, .mgmt-field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
+}
+
+/* Опасное действие — удаление карточки */
+.kb-card-delete { color: var(--danger, #b45309); }
+.kb-card-delete:hover { border-color: var(--danger, #b45309); }

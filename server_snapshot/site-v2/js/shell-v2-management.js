@@ -12,7 +12,7 @@
         store: KBData.stores,
         status: KBData.statuses
     };
-    const roles = {manager:'Менеджер', admin:'Администратор'};
+    const roles = {manager:'Менеджер', admin:'Администратор', superadmin:'Владелец (полный доступ)', warehouse:'Склад', documents:'Документы'};
     const roleLabels = {board: 'Колонка доски', writeoff: 'Очередь списания'};
     const fields = {
         supplier: [['name','Название','text',true],['unp','УНП'],['contact_person','Контактное лицо'],['phone','Телефон','tel'],['email','Email','email'],['address','Адрес'],['note','Примечание','textarea']],

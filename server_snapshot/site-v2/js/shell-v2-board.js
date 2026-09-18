@@ -699,6 +699,7 @@
             (c.stage !== 'done' ? '<button class="btn btn-ghost" id="kb-pay">Внести оплату</button>' : '') +
             (c.stage === 'assembly' ? '<button class="btn btn-primary" id="kb-send">В списание</button>' : '') +
             (c.stage === 'writeoff' ? '<button class="btn btn-primary" id="kb-issue">Выписать накладную</button>' : '') +
+            '<button class="btn btn-ghost btn-sm kb-card-delete" id="kb-delete">Удалить</button>' +
             '<button class="btn btn-ghost" data-close>Закрыть</button></div></footer></div>';
         renderingCard = false;
         function selectTab(name, focus) {
@@ -766,6 +767,13 @@
         if (issue) issue.onclick = function() { openIssue(c); };
         var pay = document.getElementById('kb-pay');
         if (pay) pay.onclick = function() { openPay(c); };
+        var del = document.getElementById('kb-delete');
+        if (del) del.onclick = function() {
+            if (!window.confirm('Удалить карточку «' + (c.title || c.id) + '»?\nОна уйдёт в корзину — восстановление через администратора.')) return;
+            apiMutate('card-delete', { id: Number(c.id) });
+            dialog.close(); refresh();
+            notify(c.id + ' — карточка удалена в корзину.');
+        };
     }
 
     // Оплата — логика рабочей версии (выбирается СТАТУС, деньги следуют
