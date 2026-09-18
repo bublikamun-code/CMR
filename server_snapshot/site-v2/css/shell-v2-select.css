@@ -361,3 +361,26 @@ select.fprint-select:hover,
 }
 .kb-inv-up:hover { color: var(--accent); border-color: var(--accent); }
 .kb-inv-up input { display: none; }
+
+/* Закупка: компактный пункт — поставщик/сумма/файл в строку, примечание ниже */
+.kb-check-item { padding: 8px 0 10px; gap: 6px; }
+.kb-check-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.kb-sup-combo {
+    flex: 1; min-width: 170px;
+    font: inherit; font-size: 13px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px;
+}
+.kb-sup-combo:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, .15); }
+.kb-sup-amount {
+    font: inherit; font-size: 13px; color: var(--text); text-align: right;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; width: 110px;
+}
+.kb-sup-amount:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, .15); }
+.kb-cl-note { margin-top: 8px; }
+.kb-inv-clear {
+    border: 0; background: none; color: var(--muted); cursor: pointer;
+    font-size: 12px; padding: 2px 4px;
+}
+.kb-inv-clear:hover { color: var(--danger, #b45309); }

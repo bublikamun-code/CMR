@@ -529,13 +529,21 @@
             dealField('note', 'Заметка', '<textarea id="kb-deal-note" data-deal-field="note" rows="2" maxlength="4000">' + esc(c.note) + '</textarea>');
         var checks = c.checklist.map(function(item, i) {
             var rawId = String(item.id).replace(/[^0-9]/g, '');
+            var done = c.stage === 'done' ? ' disabled' : '';
             var invFileHtml = item.invFile
-                ? '<a class="kb-inv-dl" href="#" data-inv-dl="' + rawId + '" data-inv-name="' + esc(item.invFile) + '">📎 ' + esc(item.invFile) + '</a>'
+                ? '<a class="kb-inv-dl" href="#" data-inv-dl="' + rawId + '" data-inv-name="' + esc(item.invFile) + '">📎 ' + esc(item.invFile) + '</a>' +
+                  '<button type="button" class="kb-inv-clear" data-inv-clear="' + rawId + '" title="Открепить файл">✕</button>'
                 : '<label class="kb-inv-up">Прикрепить файл<input type="file" class="kb-inv-input" data-inv-up="' + rawId + '" hidden></label>';
-            return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '"><b>' + esc(item.label) + '</b>' + procurementFields(c, item) +
+            // Компактный пункт: поставщик (с поиском) + сумма + файл в одну
+            // строку; примечание ниже. Без дублей имени и нативных селектов.
+            return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '">' +
+                '<div class="kb-check-line">' +
+                '<input class="kb-sup-combo" data-cl-id="' + rawId + '" value="' + esc(item.supplierName || item.label || '') + '" placeholder="Поставщик (выберите или впишите)" list="kb-suppliers-datalist" autocomplete="off">' +
+                '<input class="kb-sup-amount" data-cl-id="' + rawId + '" value="' + esc(item.amount || '') + '" placeholder="Сумма, BYN" inputmode="decimal" style="width:110px">' +
+                invFileHtml +
+                '</div>' +
                 '<input class="kb-cl-note" data-cl-id="' + rawId + '" value="' + esc(item.note || '') + '" placeholder="Примечание к закупке…" maxlength="500">' +
-                '<div class="kb-inv-row">' + invFileHtml + '</div>' +
-                '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received || c.stage === 'done' ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
+                '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
         }).join('');
         var docs = c.docs.map(function(d, i) {
             // Дата накладной может храниться в ДД.ММ.ГГГГ (прототип) или ISO
@@ -583,7 +591,7 @@
         return '<section id="kb-panel-overview" role="tabpanel" aria-labelledby="kb-tab-overview" tabindex="0">' + window.KBPayment.render(c) +
             '<div class="kb-overview-head"><h3 class="kb-detail-section-title">О сделке</h3><button type="button" id="kb-hide-filled" aria-pressed="false" aria-controls="kb-overview-fields">Скрыть заполненные поля</button></div><div class="kb-deal-fields" id="kb-overview-fields">' + info + '</div><p class="kb-detail-empty" id="kb-overview-empty" role="status" hidden>Все поля заполнены. Нажмите «Показать все поля», чтобы изменить их.</p></section>' +
             '<section id="kb-panel-procurement" role="tabpanel" aria-labelledby="kb-tab-procurement" tabindex="0" hidden>' +
-            '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>' + cl.received + '/' + cl.total + '</span></h3>' +
+            '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>Заказано ' + cl.ordered + ' · Получено ' + cl.received + ' (из ' + cl.total + ')</span></h3>' +
             '<p class="kb-detail-hint">Файл до 25 МБ</p>' +
             '<div class="kb-add-check">' +
             '<input id="kb-add-supplier" list="kb-suppliers-datalist" placeholder="Поставщик (выберите или впишите)" style="flex:1;min-width:170px">' +
@@ -803,6 +811,43 @@
                     .catch(function (e2) { notify('Примечание закупки не сохранено: ' + (e2.detail || e2.message || 'ошибка')); });
             });
         });
+        // Поставщик и сумма пункта закупки — сохраняются в CRM
+        dialog.querySelectorAll('.kb-sup-combo').forEach(function (input) {
+            input.addEventListener('change', function () {
+                var id = input.dataset.clId;
+                if (!id || !window.V2Api || !window.V2Api.token()) return;
+                var name = input.value.trim();
+                if (!name) return;
+                var sup = (KBData.suppliers || []).filter(function (s) { return s.name.toLowerCase() === name.toLowerCase(); })[0];
+                var body = sup ? { supplier_id: numericClientIdValue(sup.id) } : { company_name: name };
+                window.V2Api.api('/checklists/' + id, { method: 'PATCH', body: body })
+                    .catch(function (e2) { notify('Поставщик не сохранён: ' + (e2.detail || e2.message || 'ошибка')); });
+            });
+        });
+        dialog.querySelectorAll('.kb-sup-amount').forEach(function (input) {
+            input.addEventListener('change', function () {
+                var id = input.dataset.clId;
+                if (!id || !window.V2Api || !window.V2Api.token()) return;
+                var amount = parseMoney(input.value);
+                if (!Number.isSafeInteger(amount) || amount < 0) return;
+                window.V2Api.api('/checklists/' + id, { method: 'PATCH', body: { amount: amount / 100 } })
+                    .catch(function (e2) { notify('Сумма закупки не сохранена: ' + (e2.detail || e2.message || 'ошибка')); });
+            });
+        });
+        // Открепить файл счёта
+        dialog.querySelectorAll('.kb-inv-clear').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var id = btn.dataset.invClear;
+                if (!id || !window.V2Api || !window.V2Api.token()) return;
+                window.V2Api.api('/checklists/' + id + '/invoice', { method: 'DELETE' })
+                    .then(function () {
+                        var item = procurementItem('ck-' + id);
+                        if (item) { item.invFile = null; openCard(activeCard || c); }
+                        notify('Файл откреплён.');
+                    })
+                    .catch(function (e2) { notify('Не откреплено: ' + (e2.detail || e2.message || 'ошибка')); });
+            });
+        });
         // Файл счёта поставщика: скачивание и прикрепление
         dialog.querySelectorAll('.kb-inv-dl').forEach(function (a) {
             a.addEventListener('click', function (ev) {
@@ -880,7 +925,8 @@
             apiMutate('card-delete', { id: Number(c.id) });
             // Фидбек 19.09: карточка исчезает с доски и из реестра сразу,
             // без перезагрузки страницы.
-            KBData.cards = KBData.cards.filter(function (x) { return x.id !== c.id; });
+            var ci = KBData.cards.indexOf(c);
+            if (ci >= 0) KBData.cards.splice(ci, 1); // мутация на месте — все модули видят
             if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
             document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
             dialog.close(); refresh();
