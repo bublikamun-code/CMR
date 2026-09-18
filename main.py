@@ -175,3 +175,8 @@ app.mount("/js", StaticFiles(directory="js"), name="js")
 # Без маунта оба запроса отдавали 404: роутов на отдельные файлы нет, а
 # StaticFiles был смонтирован только на /css и /js.
 app.mount("/static", StaticFiles(directory="static"), name="static")
+# Новый фронт (site-v2, Этап 0/4 плана замены — design-plans/frontend-replacement-plan.md):
+# nginx проксирует всё на приложение, поэтому каталог вебрута сам по себе не
+# отдаётся — нужен маунт. html=True открывает /v2/ на index.html. Старый фронт
+# остаётся на / до переключения; откат /v2 — снятие маунта.
+app.mount("/v2", StaticFiles(directory="site-v2", html=True), name="v2")
