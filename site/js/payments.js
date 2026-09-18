@@ -218,6 +218,10 @@ function renderPayments() {
                 const row = document.createElement('tr');
                 row.setAttribute('data-id', tr.id);
                 row.className = 'reveal reveal-fast';
+                // Фикс аудита 18.09: у строки с присвоенным номером ТН галочку
+                // «Выписка» (ниже, cb-invoice) блокируем — бэкенд агрегирует
+                // флаг схлопнутой строки ещё и по номеру накладной, поэтому
+                // снятие «возвращалось» после обновления данных.
                 row.innerHTML = `
                     <td class="inline-edit-cell" data-field="date" data-id="${tr.id}" data-iso="${isoFromParts}" title="Дата оплаты — нажмите, чтобы изменить">
                         <span class="inline-edit">${escapeHtml(dateStr)}</span>
@@ -231,7 +235,7 @@ function renderPayments() {
                     <td class="payment-cell">${renderPaymentCell(tr)}</td>
                     <td>${escapeHtml(tr.store_location) || '—'}</td>
                     <td class="td-center cb-col"><input type="checkbox" class="cb-calc cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_calculated ? 'checked' : ''} aria-label="Просчет"></td>
-                    <td class="td-center cb-col"><input type="checkbox" class="cb-invoice cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} aria-label="Выписка ТН"></td>
+                    <td class="td-center cb-col"><input type="checkbox" class="cb-invoice cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_invoice_issued ? 'checked' : ''} ${(tr.invoice_number || '').trim() ? 'disabled title="Номер ТН уже присвоен — удалите накладную в карточке сделки"' : ''} aria-label="Выписка ТН"></td>
                     <td class="td-center cb-col"><input type="checkbox" class="cb-written-off cb-custom" data-id="${tr.id}" data-part-ids='${JSON.stringify(tr.part_ids || [tr.id])}' ${tr.is_written_off ? 'checked' : ''} aria-label="Списание с магазина"></td>
                     <td class="print-cell"></td>
                     <td class="inline-edit-cell" data-field="note" data-id="${tr.id}"><span class="inline-edit">${escapeHtml(tr.note) || '<span class="text-muted">Нет данных</span>'}</span></td>
