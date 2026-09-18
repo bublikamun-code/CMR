@@ -305,11 +305,17 @@
     // (аналог «групп списаний» на проде). Отмена возвращает остаток каждой.
     var groupPick = [];
     function renderQueue() {
-        var list = visibleCards().filter(function (c) { return c.stage === (state.queueMode === 'pending' ? 'writeoff' : 'done'); });
-        document.getElementById('kb-queue-count').textContent = cards.filter(function(c) { return c.stage === 'writeoff'; }).length;
+        // Очередь — по остатку к выписке (как на проде): полностью выписанная
+        // карточка не висит в «На списание», даже если статус ещё там же,
+        // а в «Списано» попадает и без смены статуса.
+        var list = visibleCards().filter(function (c) {
+            if (state.queueMode === 'pending') return c.stage === 'writeoff' && remaining(c) > 0;
+            return c.stage === 'done' || (c.stage === 'writeoff' && c.issued > 0 && remaining(c) <= 0);
+        });
+        document.getElementById('kb-queue-count').textContent = cards.filter(function(c) { return c.stage === 'writeoff' && remaining(c) > 0; }).length;
         groupPick = groupPick.filter(function (id) {
             var c = cards.find(function (x) { return x.id === id; });
-            return c && c.stage === 'writeoff';
+            return c && c.stage === 'writeoff' && remaining(c) > 0;
         });
         var pending = state.queueMode === 'pending';
         var allPicked = pending && list.length > 0 && list.every(function (c) { return groupPick.indexOf(c.id) >= 0; });
@@ -818,7 +824,7 @@
             return;
         }
         if (e.target.id === 'kb-group-all') {
-            groupPick = e.target.checked ? visibleCards().filter(function (c) { return c.stage === 'writeoff'; }).map(function (c) { return c.id; }) : [];
+            groupPick = e.target.checked ? visibleCards().filter(function (c) { return c.stage === 'writeoff' && remaining(c) > 0; }).map(function (c) { return c.id; }) : [];
             renderQueue();
         }
     });
