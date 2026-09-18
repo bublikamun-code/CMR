@@ -113,6 +113,26 @@ def main():
     (OUT / "js" / "v2" / "api.js").write_text(API_JS, encoding="utf-8")
     (OUT / "js" / "v2" / "boot.js").write_text(BOOT_JS, encoding="utf-8")
 
+    # 4a. Кэш-штампы: без них браузер держал старый boot/fin после деплоя,
+    # и правки «не применялись» (жалоба 18.09 «галочки не совпадают»).
+    # Один штамп на сборку: подставляется в статику index.html и в
+    # динамические загрузки boot.js (APP_SCRIPTS/DEMO_SCRIPTS).
+    import hashlib
+    ver = hashlib.sha1()
+    for f in sorted((OUT / "js").rglob("*.js")) + sorted((OUT / "css").glob("*.css")):
+        ver.update(f.read_bytes())
+    stamp = ver.hexdigest()[:10]
+
+    # Глобальная версия ДО штампов: тег api.js ещё без ?v= — замена сработает.
+    body = body.replace('<script src="js/v2/api.js"',
+                        f'<script>window.V2_ASSET_VER="{stamp}"</script>\n<script src="js/v2/api.js"')
+
+    def _stamp(m):
+        return f'{m.group(1)}{m.group(2)}?v={stamp}{m.group(4)}'
+
+    body = re.sub(r'((?:href|src)=")((?:css|js)/[^"?]+)(\?v=[a-f0-9]+)?(")', _stamp, body)
+    (OUT / "index.html").write_text(body, encoding="utf-8")
+
     # 5. README для каталога
     (OUT / "README.md").write_text(
         "# site-v2 — новый фронтенд (генерируется)\n\n"

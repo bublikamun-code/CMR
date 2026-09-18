@@ -13,7 +13,8 @@
     function inject(src) {
         return new Promise(function (resolve, reject) {
             const s = document.createElement('script');
-            s.src = src;
+            // Кэш-штамп сборки: после деплоя браузер не держит старый модуль
+            s.src = src + (window.V2_ASSET_VER ? '?v=' + window.V2_ASSET_VER : '');
             s.onload = resolve;
             s.onerror = function () { reject(new Error('не загрузился ' + src)); };
             document.head.appendChild(s);
@@ -322,72 +323,47 @@
     // как продовый writeoff-status: из не-документных транзакций карточки
     // выписанными частями являются только складские списания и записи
     // с номером накладной; оплаты и неоформленные остатки — нет.
+    // Реестр оплат v2 = сгруппированный реестр из рабочей версии: ОДНА
+    // строка на сделку за КАЖДОЙ группой записей. Карточка попадает в
+    // реестр сразу при переносе в «Сборку» (запись-остаток создаёт бэкенд)
+    // — фильтра «финансового следа» больше нет, из-за него строки
+    // пропадали (фидбек 18.09: «в реестре не все карточки»).
+    // «Просчет»/«Списание» — те же поля сгруппированной строки, что и в
+    // рабочем реестре (is_calculated / is_written_off, агрегат по частям),
+    // поэтому галочки в старом и новом реестре всегда совпадают.
     function buildFinSource(cards, transactions, documents) {
-        const issuedByCard = {};
-        (transactions || []).forEach(function (t) {
-            if (t.is_document || t.card_id == null) return;
-            // См. комментарий в buildKbData: сгруппированная строка несёт всю
-            // сумму сделки — выписанное берём из invoiced_amount бэкенда.
-            if (t.invoiced_amount !== undefined && t.invoiced_amount !== null) {
-                issuedByCard[t.card_id] = kopecks(t.invoiced_amount);
-                return;
-            }
-            if (!t.is_warehouse_writeoff && !(t.invoice_number || '').trim()) return;
-            issuedByCard[t.card_id] = (issuedByCard[t.card_id] || 0) + kopecks(t.amount);
-        });
-        // Фидбек 18.09: «Просчет» и «Списание» в реестре v2 — те же РУЧНЫЕ
-        // галочки, что в основном реестре оплат: is_calculated / is_written_off
-        // сгруппированной строки (бэкенд агрегирует по всем частям сделки),
-        // а не автодеривация. part_ids нужны, чтобы правка ложилась на все
-        // части сделки, как это делает основной реестр.
-        const flagsByCard = {};
-        (transactions || []).forEach(function (t) {
-            if (t.is_document || t.card_id == null) return;
-            flagsByCard[t.card_id] = {
-                calculated: Boolean(t.is_calculated),
-                posted: Boolean(t.is_written_off),
-                partIds: (Array.isArray(t.part_ids) && t.part_ids.length) ? t.part_ids : (t.id ? [t.id] : [])
-            };
-        });
+        const cardById = {};
+        (cards || []).forEach(function (c) { cardById[c.id] = c; });
         const docsByCard = {};
         (documents || []).forEach(function (d) {
             if (d.card_id == null) return;
             (docsByCard[d.card_id] = docsByCard[d.card_id] || []).push(d);
         });
-        // Реестр — только сделки с финансовым следом: выписанные части,
-        // документы или оплаты. Карточки без движения денег не значатся.
-        const financial = cards.filter(function (card) {
-            const numeric = Number(card.id);
-            return issuedByCard[numeric] !== undefined ||
-                (docsByCard[numeric] && docsByCard[numeric].length > 0) ||
-                card.paidAmount > 0;
-        });
-        const outgoing = financial.map(function (card) {
-            const numeric = Number(card.id);
-            const docs = (docsByCard[numeric] || []).slice().sort(function (a, b) {
+        const outgoing = (transactions || []).filter(function (t) { return !t.is_document; }).map(function (t) {
+            const card = t.card_id != null ? cardById[String(t.card_id)] : null;
+            const docs = (docsByCard[t.card_id] || []).slice().sort(function (a, b) {
                 return new Date(b.invoice_date || b.date || 0) - new Date(a.invoice_date || a.date || 0);
             });
             const latest = docs[0] || null;
-            const issued = issuedByCard[numeric] !== undefined ? issuedByCard[numeric]
+            // См. комментарий в buildKbData: у сгруппированной строки amount —
+            // вся сумма сделки; честная сумма выписки — invoiced_amount.
+            const issued = (t.invoiced_amount !== undefined && t.invoiced_amount !== null)
+                ? kopecks(t.invoiced_amount)
                 : docs.reduce(function (a, d) { return a + kopecks(d.amount); }, 0);
-            const flags = flagsByCard[numeric] || {};
             return {
-                id: 'c' + numeric,
-                cardId: String(card.id),
-                card: card.id + ' · ' + card.title,
-                date: latest ? isoToRu(latest.invoice_date || latest.date) : card.deadline,
-                client: card.client,
-                amount: card.amount,
-                paid: Math.min(card.amount, card.paidAmount),
-                store: window.KBData.storeName(card.store),
+                id: 't' + t.id,
+                cardId: card ? String(card.id) : (t.card_id != null ? String(t.card_id) : null),
+                card: card ? (card.id + ' · ' + card.title) : (t.company_name || 'Сделка'),
+                date: isoToRu(t.date) || (latest ? isoToRu(latest.invoice_date || latest.date) : (card ? card.deadline : '')),
+                client: card ? card.client : (t.company_name || ''),
+                amount: card ? card.amount : kopecks(t.amount),
+                paid: card ? Math.min(card.amount, card.paidAmount) : Math.min(kopecks(t.amount), kopecks(t.paid_amount || 0)),
+                store: t.store_location || (card ? window.KBData.storeName(card.store) : ''),
                 estimate: '',
                 tn: latest ? { number: latest.invoice_number || '', date: isoToRu(latest.invoice_date || latest.date), bill: '' } : null,
-                calculated: Boolean(flags.calculated),
-                posted: Boolean(flags.posted),
-                partIds: flags.partIds || [],
-                // «ТН у нас»/«Счёт у нас» — те же поля документов, что в
-                // основных «Документах» (is_invoice_doc / is_bill_doc);
-                // правка уходит PATCH-ем по id записи-документа.
+                calculated: Boolean(t.is_calculated),
+                posted: Boolean(t.is_written_off),
+                partIds: (Array.isArray(t.part_ids) && t.part_ids.length) ? t.part_ids : [t.id],
                 docTxId: latest ? latest.id : null,
                 tnHere: Boolean(latest && latest.is_invoice_doc),
                 billHere: Boolean(latest && latest.is_bill_doc),
@@ -395,6 +371,12 @@
                 authority: '',
                 note: ''
             };
+        });
+        // Рабочий реестр показывает свежие записи сверху — так же здесь.
+        outgoing.sort(function (a, b) {
+            const pa = a.date.split('.').reverse().join('-');
+            const pb = b.date.split('.').reverse().join('-');
+            return pb.localeCompare(pa);
         });
         return { outgoing: outgoing, incoming: [] };
     }
