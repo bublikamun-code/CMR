@@ -18,10 +18,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from sqlalchemy import text
+
 import auth
 import models
 import models_tenant  # noqa: F401  # таблица tenants нужна мапперу
-from sqlalchemy import text  # noqa: E402
 from database import SessionLocal
 
 STAND_USERS = [
