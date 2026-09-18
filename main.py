@@ -180,3 +180,12 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # отдаётся — нужен маунт. html=True открывает /v2/ на index.html. Старый фронт
 # остаётся на / до переключения; откат /v2 — снятие маунта.
 app.mount("/v2", StaticFiles(directory="site-v2", html=True), name="v2")
+
+# site-v2 активно правится: кэш браузера не должен переживать деплой.
+# no-cache — переvalidation по ETag/Last-Modified, не запрет кэширования.
+@app.middleware("http")
+async def no_cache_v2(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/v2"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
