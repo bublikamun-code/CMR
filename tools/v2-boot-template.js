@@ -89,7 +89,7 @@
         }
 
         const users = usersRaw.map(function (u) {
-            return { id: 'us-' + u.id, username: u.username, full_name: u.username, initials: initials(u.username), role: u.role };
+            return { id: 'us-' + u.id, username: u.username, full_name: u.full_name || u.username, initials: initials(u.full_name || u.username), role: u.role };
         });
         const unassigned = { id: 'us-none', username: '—', full_name: 'Не назначен', initials: '··', role: 'manager' };
 
@@ -100,18 +100,23 @@
             return { id: 'sup-' + s.id, name: s.name, unp: s.unp || '', contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '', address: s.address || '' };
         });
 
-        // Магазины: справочник /dictionaries/stores, если пуст — из карточек.
+        // Магазины: справочник /dictionaries/stores плюс неявные магазины из
+        // карточек. В БД store_locations пока пуст, cards.store_location хранит
+        // имя строкой — сводим имя к id справочника, а неизвестные имена
+        // становятся магазинами сами (заодно при наполнении справочника
+        // связка не сломается).
         const storesRaw = payload.stores || [];
-        let stores = storesRaw.filter(function (s) { return s.is_active !== false; })
+        const stores = storesRaw.filter(function (s) { return s.is_active !== false; })
             .map(function (s) { return { id: 'store-' + s.id, name: s.name, address: s.address || '', phone: s.phone || '' }; });
-        if (!stores.length) {
-            const storeNames = [];
-            cardsRaw.forEach(function (c) {
-                const name = String(c.store_location || '').trim();
-                if (name && storeNames.indexOf(name) < 0) storeNames.push(name);
-            });
-            stores = storeNames.map(function (name) { return { id: name, name: name }; });
-        }
+        const storeIdByName = {};
+        stores.forEach(function (s) { storeIdByName[s.name] = s.id; });
+        cardsRaw.forEach(function (c) {
+            const name = String(c.store_location || '').trim();
+            if (name && !storeIdByName[name]) {
+                storeIdByName[name] = name;
+                stores.push({ id: name, name: name });
+            }
+        });
 
         const userById = {};
         users.forEach(function (u) { userById['us-' + u.id.replace('us-', '')] = u; });
@@ -142,7 +147,7 @@
                 title: c.title || 'Сделка',
                 clientId: clientObj ? clientObj.id : null,
                 client: clientObj ? clientObj.name : (c.title || 'Без клиента'),
-                store: String(c.store_location || '').trim() || (stores[0] && stores[0].id) || '',
+                store: storeIdByName[String(c.store_location || '').trim()] || (stores[0] && stores[0].id) || '',
                 manager: manager,
                 amount: kopecks(c.total_amount),
                 paidAmount: kopecks(c.paid_amount),
@@ -171,17 +176,19 @@
                 })
             };
         });
-        // Остаток к выписке — авторитетная запись is_document=false из CRM
-        // (учитывает и групповые накладные, у которых card_id в документах нет).
-        const remainderByCard = {};
+        // «К выписке» — ровно как считает прод (writeoff-status): из
+        // не-документных транзакций карточки выписанными частями являются
+        // только складские списания и записи с номером накладной. Оплаты
+        // и неоформленные остатки в выписанное не входят.
+        const issuedByCard = {};
         (payload.transactions || []).forEach(function (t) {
             if (t.is_document || t.card_id == null) return;
-            remainderByCard[t.card_id] = kopecks(t.amount);
+            if (!t.is_warehouse_writeoff && !(t.invoice_number || '').trim()) return;
+            issuedByCard[t.card_id] = (issuedByCard[t.card_id] || 0) + kopecks(t.amount);
         });
         cards.forEach(function (c) {
-            const numeric = Number(c.id);
-            c.issued = remainderByCard[numeric] !== undefined
-                ? Math.max(0, c.amount - remainderByCard[numeric])
+            const issued = issuedByCard[Number(c.id)];
+            c.issued = issued !== undefined ? Math.min(issued, c.amount)
                 : c.docs.reduce(function (a, d) { return a + d.amount; }, 0);
             // Условия оплаты, сохранённые в CRM (payment_terms), восстанавливаются
             // как снимок: датой оплаты из payment_due_date, предоплата — пустая.
@@ -232,7 +239,10 @@
         window.KBData.writeoffStatus = function () {
             return window.KBData.statuses.filter(function (s) { return s.role === 'writeoff'; })[0] || null;
         };
-        window.KBData.storeName = function (id) { return String(id || ''); };
+        window.KBData.storeName = function (id) {
+            const s = stores.filter(function (x) { return x.id === id; })[0];
+            return s ? s.name : String(id || '');
+        };
         window.KBData.clientById = function (id) {
             return window.KBData.clients.filter(function (c) { return c.id === id; })[0] || null;
         };
@@ -246,7 +256,7 @@
     const DEMO_SCRIPTS = ['js/shell-v2-data.js'].concat(APP_SCRIPTS);
 
     async function bootDemo() {
-        setText('Предпросмотр · демо-данные (?demo=1)');
+        setText('Демо-данные');
         await injectAll(DEMO_SCRIPTS);
     }
     async function bootApi() {
@@ -269,7 +279,7 @@
         window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6], results[9], results[3]);
         enableMutations();
         renderUser(meUser);
-        setText('Источник: CRM API · изменения до перезагрузки, запись — следующий этап плана');
+        setText('CRM');
         await injectAll(APP_SCRIPTS);
     }
 
@@ -291,49 +301,55 @@
     }
     // Реестр оплат v2: по каждой сделке — сумма, оплачено (итог минус остаток)
     // и последняя выписанная ТН. Остатки приходят записями is_document=false.
+    // Реестр и документы v2 — по данным CRM. «К выписке» считается так же,
+    // как продовый writeoff-status: из не-документных транзакций карточки
+    // выписанными частями являются только складские списания и записи
+    // с номером накладной; оплаты и неоформленные остатки — нет.
     function buildFinSource(cards, transactions, documents) {
-        const remainder = {};
+        const issuedByCard = {};
         (transactions || []).forEach(function (t) {
             if (t.is_document || t.card_id == null) return;
-            remainder[t.card_id] = kopecks(t.amount);
+            if (!t.is_warehouse_writeoff && !(t.invoice_number || '').trim()) return;
+            issuedByCard[t.card_id] = (issuedByCard[t.card_id] || 0) + kopecks(t.amount);
         });
         const docsByCard = {};
         (documents || []).forEach(function (d) {
             if (d.card_id == null) return;
             (docsByCard[d.card_id] = docsByCard[d.card_id] || []).push(d);
         });
-        // Реестр — только сделки с финансовым следом: остаток-запись, документы
-        // или оплаты. Карточки без движения денег в реестре не значатся.
+        // Реестр — только сделки с финансовым следом: выписанные части,
+        // документы или оплаты. Карточки без движения денег не значатся.
         const financial = cards.filter(function (card) {
             const numeric = Number(card.id);
-            return remainder[numeric] !== undefined ||
+            return issuedByCard[numeric] !== undefined ||
                 (docsByCard[numeric] && docsByCard[numeric].length > 0) ||
                 card.paidAmount > 0;
         });
         const outgoing = financial.map(function (card) {
             const numeric = Number(card.id);
             const docs = (docsByCard[numeric] || []).slice().sort(function (a, b) {
-                return new Date(b.date || 0) - new Date(a.date || 0);
+                return new Date(b.invoice_date || b.date || 0) - new Date(a.invoice_date || a.date || 0);
             });
             const latest = docs[0] || null;
-            const docsSum = docs.reduce(function (a, d) { return a + kopecks(d.amount); }, 0);
-            const restKop = remainder[numeric] !== undefined ? remainder[numeric] : Math.max(0, card.amount - docsSum);
+            const issued = issuedByCard[numeric] !== undefined ? issuedByCard[numeric]
+                : docs.reduce(function (a, d) { return a + kopecks(d.amount); }, 0);
             return {
                 id: 'c' + numeric,
+                cardId: String(card.id),
                 card: card.id + ' · ' + card.title,
                 date: latest ? isoToRu(latest.invoice_date || latest.date) : card.deadline,
                 client: card.client,
                 amount: card.amount,
-                paid: Math.max(0, card.amount - restKop),
-                store: card.store,
+                paid: Math.min(card.amount, card.paidAmount),
+                store: window.KBData.storeName(card.store),
                 estimate: '',
                 tn: latest ? { number: latest.invoice_number || '', date: isoToRu(latest.invoice_date || latest.date), bill: '' } : null,
                 calculated: Boolean(latest && latest.is_calculated),
-                // «Списано» — по остатку к выписке (как на проде): сделка закрыта,
-                // когда выписана полностью; флаг последнего документа не показатель.
-                posted: restKop <= 0 && (docs.length > 0 || remainder[numeric] !== undefined),
-                // Поля возврата оригиналов (ТН у нас / счёт у нас) в CRM API нет —
-                // галочки остаются локальными на сеанс.
+                // «Списано» — по остатку к выписке (полностью выписанная сделка
+                // закрыта); epsilon 1 копейка — как MONEY_EPSILON на проде.
+                posted: issued > 0 && card.amount - issued <= 1,
+                // Возврат оригиналов (ТН у нас / счёт у нас) в CRM API пока
+                // не хранится — галочки остаются локальными на сеанс.
                 tnHere: false,
                 billHere: false,
                 print: (latest && latest.print_status) || '',
@@ -383,6 +399,10 @@
                     return await window.V2Api.api('/cards/' + payload.id + '/payment', { method: 'PATCH', body: { paid_amount: payload.paid, payment_status: payload.status } });
                 } else if (kind === 'issue-invoice') {
                     return await window.V2Api.api('/payments/cards/' + payload.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount, store_location: payload.store || null } });
+                } else if (kind === 'invoice-edit') {
+                    // Правка накладной: дата (ISO), номер и сумма — как на проде
+                    // (PATCH /payments/transactions/{id}).
+                    return await window.V2Api.api('/payments/transactions/' + payload.txId, { method: 'PATCH', body: { invoice_date: payload.isoDate, invoice_number: payload.number, amount: payload.amountByn } });
                 } else if (kind === 'annul-tx') {
                     return await window.V2Api.api('/payments/transactions/' + payload.txId, { method: 'DELETE' });
                 } else if (kind === 'group-issue') {
