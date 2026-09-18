@@ -717,34 +717,40 @@ async function setupCreateCardButton() {
     let clientOptions = [{ value: '', label: '— Не привязан —' }];
     let managerOptions = [];
 
-    try {
-        const me = await apiFetch('/auth/me');
-        currentUserId = String(me.id);
-        managerVal = currentUserId;
-    } catch (e) {
-        console.error('Не удалось определить текущего пользователя:', e);
-    }
+    // Фикс аудита 18.09: на экране логина (до авторизации) эти три запроса
+    // всё равно падали в 401 и засоряли консоль — гоняем их только с маркером
+    // входа. На логин-экране дропдауны монтируются с дефолтами, после входа
+    // страница перезагружается и данные подтянутся.
+    if (hasToken()) {
+        try {
+            const me = await apiFetch('/auth/me');
+            currentUserId = String(me.id);
+            managerVal = currentUserId;
+        } catch (e) {
+            console.error('Не удалось определить текущего пользователя:', e);
+        }
 
-    try {
-        const clients = await apiFetch('/clients');
-        clientOptions = [{ value: '', label: '— Не привязан —' }, ...clients.map(c => ({
-            value: String(c.id),
-            label: c.name + (c.unp ? ' (УНП: ' + c.unp + ')' : '')
-        }))];
-    } catch (e) {
-        console.error('Не удалось загрузить клиентов:', e);
-    }
+        try {
+            const clients = await apiFetch('/clients');
+            clientOptions = [{ value: '', label: '— Не привязан —' }, ...clients.map(c => ({
+                value: String(c.id),
+                label: c.name + (c.unp ? ' (УНП: ' + c.unp + ')' : '')
+            }))];
+        } catch (e) {
+            console.error('Не удалось загрузить клиентов:', e);
+        }
 
-    try {
-        const users = await apiFetch('/auth/users');
-        managerOptions = users.map(u => ({ value: String(u.id), label: u.username }));
-        // Фикс аудита 10.09: если /auth/me не ответил, currentUserId пуст и
-        // «Ответственный» раньше молча вставал на первого пользователя
-        // списка — сделки создавались от чужого имени. Теперь никого не
-        // выбираем: дропдаун покажет «— выбрать —», менеджер укажет сам.
-    } catch (e) {
-        console.error('Не удалось загрузить пользователей:', e);
-        if (currentUserId) managerOptions = [{ value: currentUserId, label: 'Я' }];
+        try {
+            const users = await apiFetch('/auth/users');
+            managerOptions = users.map(u => ({ value: String(u.id), label: u.username }));
+            // Фикс аудита 10.09: если /auth/me не ответил, currentUserId пуст и
+            // «Ответственный» раньше молча вставал на первого пользователя
+            // списка — сделки создавались от чужого имени. Теперь никого не
+            // выбираем: дропдаун покажет «— выбрать —», менеджер укажет сам.
+        } catch (e) {
+            console.error('Не удалось загрузить пользователей:', e);
+            if (currentUserId) managerOptions = [{ value: currentUserId, label: 'Я' }];
+        }
     }
 
     function mountDropdowns() {

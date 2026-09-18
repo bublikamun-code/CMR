@@ -510,8 +510,9 @@
     // UI FIX 2026-08-29: вкладка «Кастомные объекты» активна по умолчанию,
     // но loadObjs срабатывал только по клику на вкладку — при открытии
     // страницы список/пустое состояние не показывались вовсе.
+    // Фикс аудита 18.09: без маркера входа (экран логина) boot-запрос давал лишний 401 на /custom/objects.
     document.addEventListener('DOMContentLoaded', () => {
-        if (document.getElementById('stab-objects')?.classList.contains('active')) {
+        if (hasToken() && document.getElementById('stab-objects')?.classList.contains('active')) {
             SettingsUI.loadObjs();
         }
     });
