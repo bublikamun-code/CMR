@@ -511,7 +511,14 @@
                     '<div class="kb-doc-side"><button type="button" class="btn btn-primary btn-sm" data-doc-edit-save="' + i + '">Сохранить</button>' +
                     '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit-cancel>Отмена</button></div></li>';
             }
-            return '<li class="kb-detail-doc"><div><b>' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label></div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' +
+            // Фидбек 18.09: складское списание — отметка, что товар физически
+            // отгружен (is_warehouse_writeoff у записи реестра). Состояние —
+            // из лениво загруженного /payments/cards/{id}/invoices.
+            var whId = c._invIds ? c._invIds[d.number] : null;
+            var whOn = c._invFlags ? Boolean(c._invFlags[d.number]) : null;
+            var whHtml = !whId ? '' :
+                '<label class="kb-originals"><input type="checkbox" data-wh="' + esc(whId) + '"' + (whOn ? ' checked' : '') + '> Списано со склада</label>';
+            return '<li class="kb-detail-doc"><div><b>' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label>' + whHtml + '</div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' +
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit="' + i + '">Изменить</button>' +
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="' + i + '">Отменить</button></div></li>';
         }).join('');
@@ -587,6 +594,24 @@
         dialog.querySelectorAll('.kb-att-dl').forEach(function (btn) {
             btn.onclick = function () { downloadAttachment(btn.dataset.attId, btn.dataset.attName); };
         });
+    }
+    // Фидбек 18.09: флаги складского списания по накладным карточки —
+    // из эндпоинта чек-листа накладных (id записи реестра + written_off).
+    function loadWarehouseFlags(c) {
+        if (!window.V2Api || !window.V2Api.token() || !c.docs.length || c._invFlags) return;
+        window.V2Api.api('/payments/cards/' + Number(c.id) + '/invoices').then(function (info) {
+            c._invFlags = {};
+            c._invIds = {};
+            (info.issued || []).forEach(function (i) {
+                if (i.is_warehouse_writeoff === undefined) return;
+                c._invFlags[i.invoice_number] = Boolean(i.written_off);
+                c._invIds[i.invoice_number] = i.id;
+            });
+            if (dialog.open && activeCard === c) {
+                var tab = dialog.dataset.cardTab;
+                if (tab === 'invoices' || tab === 'overview') openCard(c);
+            }
+        }).catch(function () { /* тише некуда: флажки появятся после перезагрузки */ });
     }
     // Фидбек 18.09: вкладка «История» показывает журнал из CRM (та же лента,
     // что в основной версии) — включая «Импорт почты» с текстом письма.
@@ -709,6 +734,22 @@
         selectTab(selectedTab, false);
         bindAttachmentDownloads();
         loadCardHistory(c);
+        loadWarehouseFlags(c);
+        dialog.querySelectorAll('input[data-wh]').forEach(function (input) {
+            input.addEventListener('change', function () {
+                if (!input.checked) { input.checked = true; return; } // списание необратимо с плитки
+                if (!window.V2Api || !window.V2Api.token()) return;
+                window.V2Api.api('/payments/transactions/' + input.dataset.wh, {
+                    method: 'PATCH',
+                    body: { is_warehouse_writeoff: true }
+                }).then(function () {
+                    notify('Товар списан со склада.');
+                }).catch(function (e2) {
+                    input.checked = false;
+                    notify('Не списано: ' + (e2.detail || e2.message || 'ошибка'));
+                });
+            });
+        });
         dialog.querySelectorAll('.kb-cl-note').forEach(function (input) {
             input.addEventListener('change', function () {
                 var id = input.dataset.clId;

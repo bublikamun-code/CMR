@@ -153,3 +153,14 @@ select.fprint-select:hover,
 }
 
 .fin-check, .kb-check-row label, .pill { user-select: none; }
+
+/* Флайаут навигации: не перекрывает клики, всегда поверх контента */
+.flyout { pointer-events: none; z-index: 90; }
+
+/* Тёмная тема: активная вкладка раздела — читаемый акцент */
+[data-theme="dark"] [data-fin-tab][aria-pressed="true"],
+[data-theme="dark"] .btn-ghost[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}

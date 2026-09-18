@@ -53,6 +53,8 @@
         <td class="num">${money(r.amount)}</td>
     </tr>`).join('');
     const status = (yes) => `<span class="fin-status">${yes ? 'Да' : 'Нет'}</span>`;
+    const incRows = $('#fin-incoming-rows');
+    if (incRows && !incoming.length) incRows.closest('table').insertAdjacentHTML('afterend', '<p class="fin-note">Входящих накладных от поставщиков нет.</p>');
     $('#fin-incoming-rows').innerHTML = incoming.map((r) => `<tr>
         <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
         <td class="num">${money(r.amount)}</td><td>${status(r.checked)}</td><td>${status(r.arrived)}</td><td>${status(r.paid)}</td>
@@ -60,6 +62,7 @@
     </tr>`).join('');
 
     let paymentFilter = 'all';
+    let finMonth = 'all';
     let documentFilter = 'all';
     const byId = new Map(outgoing.map((r) => [r.id, r]));
     // Kanban documents are session-local too; one row per partial invoice.
@@ -116,7 +119,8 @@
     let lastVisibleRows = [];
     function updatePayments(keepFocused = false) {
         const rows = visibleRows('#fin-payment-rows', (r) => matches(r, $('#fin-payment-search').value) &&
-            (paymentFilter === 'all' || (paymentFilter === 'debt' ? r.paid < r.amount : !r.posted)), keepFocused);
+            (paymentFilter === 'all' || (paymentFilter === 'debt' ? r.paid < r.amount : !r.posted)) &&
+            (finMonth === 'all' || r.date.slice(6, 10) + '-' + r.date.slice(3, 5) === finMonth), keepFocused);
         lastVisibleRows = rows;
         $('#fin-payment-total').textContent = total(rows);
         $('#fin-payment-empty').hidden = rows.length !== 0;
@@ -252,6 +256,17 @@
             setTimeout(() => selector === '#fin-payment-rows' ? updatePayments(true) : updateDocuments(true), 0);
         });
     });
+    // Месячный фильтр — как месячный фильтр рабочей версии
+    const finMonthSel = document.getElementById('fin-month');
+    if (finMonthSel) {
+        const months = [...new Set(outgoing.filter((r) => /^\d{2}\.\d{2}\.\d{4}$/.test(r.date)).map((r) => r.date.slice(6, 10) + '-' + r.date.slice(3, 5)))].sort().reverse();
+        const names = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+        finMonthSel.innerHTML = '<option value="all">Все месяцы</option>' + months.map((ym) => {
+            const parts = ym.split('-');
+            return `<option value="${ym}">${names[Number(parts[1]) - 1]} ${parts[0]}</option>`;
+        }).join('');
+        finMonthSel.addEventListener('change', () => { finMonth = finMonthSel.value; updatePayments(); });
+    }
     updatePayments();
     updateDocuments();
     updateJournal();
