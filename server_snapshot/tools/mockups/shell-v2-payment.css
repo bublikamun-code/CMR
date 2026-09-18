@@ -1,0 +1,9 @@
+
+/* Payment drafts stay in the scrollable overview, outside hide-filled fields. */
+#kb-dialog #kb-payment-details { margin-bottom: 16px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); }
+#kb-dialog #kb-payment-status { margin-top: 10px; font-size: 12px; overflow-wrap: anywhere; }
+#kb-dialog #kb-payment-status[data-valid="false"],
+#kb-dialog .kb-field-error { color: var(--danger); }
+#kb-dialog .kb-field-error { display: block; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+#kb-dialog .kb-field-error:empty { display: none; }
+#kb-dialog #kb-payment-details input { font-variant-numeric: tabular-nums; }

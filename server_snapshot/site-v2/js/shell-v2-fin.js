@@ -65,7 +65,7 @@
         $$('#fin-document-rows tr[data-kanban]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
         event.detail.forEach((card) => card.docs.forEach((doc, index) => {
             const id = 'kb-' + card.id + '-' + index;
-            const r = { id, cardId: card.id, index, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
+            const r = { id, cardId: card.id, index, docTxId: doc.txId, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
             byId.set(id, r);
             $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
                 <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
@@ -155,6 +155,16 @@
         const r = byId.get(input.dataset.record);
         if (!r || !['calculated', 'posted', 'tnHere', 'billHere'].includes(input.dataset.field)) return;
         r[input.dataset.field] = input.checked; // Меняется ровно одно поле.
+        // Фидбек 18.09: галочки реестра и документов v2 — те же ручные поля,
+        // что в основных «Реестре оплат»/«Документах», и сохраняются в CRM
+        // (в демо-режиме KBData.mutate нет — остаётся локальное состояние).
+        if (window.KBData && typeof window.KBData.mutate === 'function') {
+            if (input.dataset.field === 'calculated' || input.dataset.field === 'posted') {
+                window.KBData.mutate('fin-flag', { field: input.dataset.field, cardId: r.cardId, partIds: r.partIds, checked: input.checked });
+            } else if ((input.dataset.field === 'tnHere' || input.dataset.field === 'billHere') && r.docTxId) {
+                window.KBData.mutate('doc-flag', { field: input.dataset.field, txId: r.docTxId, checked: input.checked });
+            }
+        }
         if (r.cardId && input.dataset.field === 'tnHere') document.dispatchEvent(new CustomEvent('fin:originals', {
             detail: { cardId: r.cardId, index: r.index, field: 'originalsReturned', checked: input.checked }
         }));

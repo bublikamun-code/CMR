@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Макет D5 — карточка сделки (Фаза 5.2)</title>
+<style>
+/* Токены — из css/style.css проекта, шкала шрифтов ужата до 4 размеров */
+:root {
+    --bg: #f1f5f9; --card: #ffffff; --text: #1e293b; --muted: #64748b;
+    --border: #e2e8f0; --primary: #4f46e5; --primary-soft: #eef2ff;
+    --danger: #dc2626; --warn: #b45309; --ok: #047857;
+    --r-lg: 16px; --r-md: 10px;
+    --shadow: 0 12px 24px -6px rgba(15, 23, 42, 0.12), 0 4px 8px -4px rgba(15, 23, 42, 0.06);
+}
+html[data-theme="dark"] {
+    --bg: #1a1d24; --card: #22262e; --text: #e2e8f0; --muted: #94a3b8;
+    --border: #2d3340; --primary-soft: #1e1b4b; --warn: #fbbf24; --ok: #059669;
+    --shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.5);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Manrope', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px; line-height: 1.45;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 28px 16px 60px;
+}
+/* 4 размера шрифта на весь экран: 22 / 14 / 13 / 11 */
+.announcement { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+.theme-toggle {
+    background: var(--card); color: var(--muted); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 6px 14px; cursor: pointer;
+    font-size: 13px; margin-bottom: 18px;
+}
+.modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg);
+    box-shadow: var(--shadow); width: 100%; max-width: 880px; overflow: hidden;
+}
+/* Шапка: название + мета одним тихим рядом + этап */
+.m-head { padding: 18px 22px 0; }
+.m-title {
+    font-size: 22px; font-weight: 700; line-height: 1.25; width: 100%;
+    border: none; background: none; color: var(--text); resize: none;
+    font-family: inherit; outline: none;
+}
+.m-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 12px; font-size: 13px; color: var(--muted); }
+.m-meta b { color: var(--text); font-weight: 600; }
+.stage-line { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.stage-chip {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    color: var(--primary); background: var(--primary-soft);
+    padding: 3px 10px; border-radius: 999px;
+}
+.stage-next { margin-left: auto; display: flex; gap: 8px; }
+/* Денежная полоса — единственный крупный акцент экрана */
+.money { display: flex; align-items: baseline; gap: 18px; padding: 16px 22px; flex-wrap: wrap; }
+.money-sum { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.money-sub { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pay-pill {
+    font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    background: #fef3c7; color: var(--warn);
+}
+html[data-theme="dark"] .pay-pill { background: rgba(251, 191, 36, 0.15); }
+.due { font-size: 13px; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+.due.overdue { color: var(--danger); font-weight: 600; }
+/* Вкладки — одна система на весь экран */
+.tabs { display: flex; gap: 2px; padding: 0 22px; border-bottom: 1px solid var(--border); }
+.tab {
+    border: none; background: none; cursor: pointer; font-family: inherit;
+    font-size: 14px; font-weight: 600; color: var(--muted);
+    padding: 10px 16px 12px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab .cnt { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+.pane { display: none; padding: 18px 22px 22px; }
+.pane.active { display: block; }
+/* Секции и раскрытия */
+.sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }
+.sec-title:first-child { margin-top: 0; }
+details { border: 1px solid var(--border); border-radius: var(--r-md); margin-top: 14px; }
+summary {
+    cursor: pointer; padding: 10px 14px; font-size: 13px; font-weight: 600;
+    color: var(--muted); list-style: none; display: flex; align-items: center; gap: 8px;
+}
+summary::before { content: '▸'; transition: transform .15s; }
+details[open] summary::before { transform: rotate(90deg); }
+details .inner { padding: 2px 14px 12px; }
+/* Чек-лист */
+.cl-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
+.cl-row:last-child { border-bottom: none; }
+.cl-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+.cl-name { flex: 1; min-width: 0; }
+.cl-name.done { text-decoration: line-through; color: var(--muted); }
+.cl-amount { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.cl-inv { font-size: 11px; color: var(--ok); white-space: nowrap; }
+.cl-inv.miss { color: var(--warn); }
+.cl-del { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+.cl-add { display: flex; gap: 8px; margin-top: 10px; }
+.cl-add input { flex: 1; border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 12px; font-size: 13px; background: var(--card); color: var(--text); font-family: inherit; }
+.cl-add input::placeholder { color: var(--muted); }
+/* Кнопки: одна primary на зону, остальные тихие */
+.btn { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: var(--r-md); padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.quiet { border: none; background: none; color: var(--muted); font-weight: 500; }
+.btn.quiet:hover { color: var(--text); }
+/* Оплаты */
+.pay-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pay-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px; }
+.pay-line { display: flex; justify-content: space-between; padding: 4px 0; font-variant-numeric: tabular-nums; }
+.pay-line b { font-variant-numeric: tabular-nums; }
+.pay-actions { display: flex; gap: 8px; margin-top: 12px; }
+/* Накладные */
+.inv-row { display: flex; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.inv-num { font-weight: 600; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; }
+.inv-row .cl-del { margin-left: auto; }
+/* История */
+.hist-row { display: flex; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--border); }
+.hist-ico { width: 26px; height: 26px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+.hist-body { flex: 1; min-width: 0; }
+.hist-meta { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.comment-box { display: flex; gap: 8px; margin-bottom: 16px; }
+.comment-box textarea {
+    flex: 1; border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 10px 12px; font-size: 13px; min-height: 44px; resize: vertical;
+    background: var(--card); color: var(--text); font-family: inherit;
+}
+.chips { display: flex; gap: 2px; margin-bottom: 14px; }
+.chip { border: none; background: none; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--muted); padding: 6px 12px; cursor: pointer; border-radius: var(--r-md); }
+.chip.active { color: var(--primary); background: var(--primary-soft); }
+/* Подвал модалки: только индикатор автосохранения */
+.m-foot { display: flex; justify-content: flex-end; padding: 10px 22px 14px; border-top: 1px solid var(--border); }
+.saved { font-size: 11px; color: var(--ok); }
+</style>
+</head>
+<body>
+    <div class="announcement">МАКЕТ D5 · карточка сделки · данные карточки №408 «Разумова групп» · кликабельно: вкладки, раскрытия, тема</div>
+    <button class="theme-toggle" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? '' : 'dark'">Светлая / тёмная тема</button>
+
+    <div class="modal">
+        <div class="m-head">
+            <textarea class="m-title" rows="1">Поставка освещения — ООО «Разумова групп»</textarea>
+            <div class="m-meta">
+                <span>Клиент: <b>ООО «Разумова групп»</b></span>
+                <span>Магазин: <b>Богдановича</b></span>
+                <span>Ответственный: <b>Иванов Иван</b></span>
+                <span class="tag">светодиоды</span>
+            </div>
+            <div class="stage-line">
+                <span class="stage-chip">Сборка</span>
+                <span class="money-sub">этап 4 из 5</span>
+                <span class="stage-next">
+                    <button class="btn primary">В списание →</button>
+                    <button class="btn quiet">В архив</button>
+                </span>
+            </div>
+        </div>
+
+        <div class="money">
+            <span class="money-sum">12 697,60 BYN</span>
+            <span class="pay-pill">Частично</span>
+            <span class="money-sub">оплачено 9 883,53 · остаток 2 814,07</span>
+            <span class="due">срок 30.09</span>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-pane="deal">Сделка <span class="cnt">3</span></button>
+            <button class="tab" data-pane="pay">Оплаты и накладные <span class="cnt">1</span></button>
+            <button class="tab" data-pane="hist">История</button>
+        </div>
+
+        <div class="pane active" data-pane="deal">
+            <div class="sec-title">Чек-лист поставки</div>
+            <div class="cl-row">
+                <input type="checkbox" checked>
+                <span class="cl-name done">Профиль алюминиевый А-34, 40 шт.</span>
+                <span class="cl-inv">ТН АБ-12345678 ✓</span>
+                <span class="cl-amount">3 200,00</span>
+                <button class="cl-del" title="Удалить">✕</button>
+            </div>
+            <div class="cl-row">
+                <input type="checkbox" checked>
+                <span class="cl-name done">Лента LED 24В, 30 м</span>
+                <span class="cl-inv miss">без счёта</span>
+                <span class="cl-amount">6 400,00</span>
+                <button class="cl-del" title="Удалить">✕</button>
+            </div>
+            <div class="cl-row">
+                <input type="checkbox">
+                <span class="cl-name">Монтажный комплект</span>
+                <span class="cl-inv miss">без счёта</span>
+                <span class="cl-amount">1 897,60</span>
+                <button class="cl-del" title="Удалить">✕</button>
+            </div>
+            <div class="cl-add">
+                <input type="text" placeholder="Добавить позицию поставки…">
+                <button class="btn">Добавить</button>
+            </div>
+
+            <details>
+                <summary>Файлы <span class="cnt">2</span> — смета.pdf, акт_расхождения.pdf</summary>
+                <div class="inner">
+                    <div class="cl-row"><span>📎 смета.pdf <span class="money-sub">214 КБ · 10.09</span></span><button class="cl-del">✕</button></div>
+                    <div class="cl-row"><span>📎 акт_расхождения.pdf <span class="money-sub">96 КБ · 11.09</span></span><button class="cl-del">✕</button></div>
+                    <div class="cl-add"><input type="text" placeholder="Перетащите файлы или выберите…"><button class="btn">Загрузить</button></div>
+                </div>
+            </details>
+
+            <details>
+                <summary>Подробнее — редкие поля</summary>
+                <div class="inner">
+                    <div class="pay-line"><span>Email отправителя заявки</span><span>zakaz@razumova-group.by</span></div>
+                    <div class="pay-line"><span>УНП клиента</span><span>193807140</span></div>
+                    <div class="pay-line"><span>Прошлые сделки отправителя</span><span>2 (открыть в «Истории»)</span></div>
+                </div>
+            </details>
+        </div>
+
+        <div class="pane" data-pane="pay">
+            <div class="sec-title">Оплата</div>
+            <div class="pay-grid">
+                <div class="pay-card">
+                    <div class="pay-line"><span>Сумма сделки</span><b>12 697,60 BYN</b></div>
+                    <div class="pay-line"><span>Оплачено</span><b>9 883,53 BYN</b></div>
+                    <div class="pay-line"><span>Остаток</span><b>2 814,07 BYN</b></div>
+                    <div class="pay-actions">
+                        <button class="btn primary">Внести оплату…</button>
+                        <button class="btn">Отсрочка</button>
+                    </div>
+                </div>
+                <div class="pay-card">
+                    <div class="sec-title" style="margin-top:0">Статус</div>
+                    <div class="pay-line"><span>Текущий</span><span class="pay-pill">Частично</span></div>
+                    <div class="money-sub" style="margin-top:8px">Статус меняется автоматически при оплатах либо вручную из «Внести оплату».</div>
+                </div>
+            </div>
+
+            <div class="sec-title">Выписанные накладные</div>
+            <div class="inv-row">
+                <span class="inv-num">АБ-12345678</span>
+                <span class="money-sub">от 12.09</span>
+                <span style="margin-left:auto; font-weight:600;">5 200,00 BYN</span>
+                <button class="btn quiet">Файл</button>
+                <button class="btn quiet">Скачать</button>
+            </div>
+            <div style="margin-top:12px"><button class="btn primary">Выписать накладную</button> <span class="money-sub">форма откроется здесь же; дата — сегодня</span></div>
+
+            <div class="sec-title">Групповое списание</div>
+            <div class="money-sub">Блок появится на этапе «На списание»: объединение с другими сделками клиента под одной накладной.</div>
+        </div>
+
+        <div class="pane" data-pane="hist">
+            <div class="comment-box">
+                <textarea placeholder="Заметка к сделке — уйдёт в историю (Enter — отправить)"></textarea>
+                <button class="btn primary">Отправить</button>
+            </div>
+            <div class="chips">
+                <button class="chip active">Всё</button>
+                <button class="chip">Комментарии</button>
+                <button class="chip">События</button>
+            </div>
+            <div class="hist-row">
+                <div class="hist-ico">💬</div>
+                <div class="hist-body">
+                    <div class="hist-meta">Иванов Иван · сегодня 14:20 · <button class="btn quiet" style="padding:0">править</button></div>
+                    <div>Клиент подтвердил остаток по счёту, оплата до 30.09.</div>
+                </div>
+            </div>
+            <div class="hist-row">
+                <div class="hist-ico">₽</div>
+                <div class="hist-body">
+                    <div class="hist-meta">событие · сегодня 11:02</div>
+                    <div>Оплата 5 000,00 BYN — статус «Частично».</div>
+                </div>
+            </div>
+            <div class="hist-row">
+                <div class="hist-ico">✓</div>
+                <div class="hist-body">
+                    <div class="hist-meta">событие · вчера 16:40</div>
+                    <div>Позиция «Лента LED 24В, 30 м» отмечена просчитанной.</div>
+                </div>
+            </div>
+            <div class="hist-row">
+                <div class="hist-ico">＋</div>
+                <div class="hist-body">
+                    <div class="hist-meta">событие · 08.09 09:15</div>
+                    <div>Сделка создана из письма zakaz@razumova-group.by.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="m-foot"><span class="saved">✓ Сохранено 14:22</span></div>
+    </div>
+
+<script>
+    // Переключение вкладок (макет — инлайн-скрипт допустим, это не приложение)
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+        document.querySelectorAll('.pane').forEach(pn => pn.classList.toggle('active', pn.dataset.pane === t.dataset.pane));
+    }));
+</script>
+</body>
+</html>
