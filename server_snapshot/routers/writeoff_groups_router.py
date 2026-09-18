@@ -182,12 +182,14 @@ def issue_group_invoice(group_id: int, payload: IssueGroupInvoiceRequest, db: Se
         )
 
     # Закрываем все отдельные записи по карточкам группы.
+    # Фидбек 18.09: is_written_off НЕ трогаем — галочка «Списание» в
+    # реестре оплат ставится только вручную менеджером и не привязана
+    # к выписке накладных (ни одиночной, ни групповой).
     card_ids = [c.id for c in group.cards]
     db.query(models.Transaction).filter(
         models.Transaction.card_id.in_(card_ids),
         models.Transaction.is_document == False
     ).update({
-        "is_written_off": True,
         "is_warehouse_writeoff": True,
         "is_invoice_issued": True,
     }, synchronize_session=False)

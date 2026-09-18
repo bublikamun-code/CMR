@@ -366,3 +366,36 @@ def test_group_invoice_closes_all_cards(client, manager, db, make_card):
 
     g = db.query(models.WriteoffGroup).filter(models.WriteoffGroup.id == group_id).first()
     assert g.written_off is True
+
+
+def test_group_invoice_does_not_touch_manual_written_off(client, manager, db, make_card):
+    """Фидбек 18.09: галочка «Списание» в реестре — ручная функция менеджера.
+
+    Групповая накладная ставит складское списание (is_warehouse_writeoff)
+    и «Выписку», но НЕ галочку «Списание» (is_written_off): та живёт
+    своей жизнью только во вкладке «Реестр оплат»."""
+    _, h = manager
+    cards = _mk_group_cards(db, make_card, n=2)
+    card_ids = [c.id for c in cards]
+    for cid in card_ids:
+        # записи реестра появляются при переносе в «Сборку»/«На списание»
+        assert client.post(f"/payments/trigger_from_card/{cid}",
+                           headers=h,
+                           json={"store_location": "Матусевича 72"}).status_code == 200
+    r = client.post("/writeoffs/groups/", headers=h,
+                    json={"card_ids": card_ids, "name": "Группа"})
+    group_id = r.json()["id"]
+
+    inv = client.post(f"/writeoffs/groups/{group_id}/issue-invoice", headers=h,
+                      json={"invoice_number": "ТТН-РУЧНАЯ", "amount": 300.0})
+    assert inv.status_code == 200, inv.text
+
+    _reload(db)
+    rows = db.query(models.Transaction).filter(
+        models.Transaction.card_id.in_(card_ids),
+        models.Transaction.is_document == False,
+    ).all()
+    assert rows, "у карточек группы должны быть записи реестра"
+    for t in rows:
+        assert t.is_warehouse_writeoff is True, "складское списание — да"
+        assert t.is_written_off is False, "ручная галочка «Списание» не тронута"
