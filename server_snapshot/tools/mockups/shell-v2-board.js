@@ -319,7 +319,29 @@
     // (аналог «групп списаний» на проде). Отмена возвращает остаток каждой.
     var groupPick = [];
     var editingDoc = null; // индекс накладной в открытой карточке, которую правят
+    // Корзина (фидбек 18.09): удалённые карточки — восстановление и
+    // удаление навсегда (последнее — только администратор на бэкенде).
+    var trashCache = [];
+    function renderTrash() {
+        var body = document.getElementById('kb-queue-body');
+        if (!body) return;
+        if (!window.V2Api || !window.V2Api.token()) {
+            body.innerHTML = '<p class="kb-note">Корзина доступна при подключении к CRM.</p>';
+            return;
+        }
+        body.innerHTML = '<p class="kb-note">Загрузка корзины…</p>';
+        window.V2Api.api('/kanban/trash').then(function (list) {
+            trashCache = list || [];
+            body.innerHTML = '<p class="kb-note">В корзине: ' + trashCache.length + '</p>' + (trashCache.length ? trashCache.map(function (c) {
+                return '<div class="kb-q-row" style="display:flex;align-items:center;gap:8px;cursor:default"><div style="min-width:0"><b>' + esc(c.id + ' · ' + (c.title || '')) + '</b><div>' + esc(c.store_location || '') + '</div></div>' +
+                    '<div class="row" style="gap:6px;margin-left:auto">' +
+                    '<button type="button" class="btn btn-ghost btn-sm" data-trash-restore="' + c.id + '">Восстановить</button>' +
+                    '<button type="button" class="btn btn-ghost btn-sm" data-trash-purge="' + c.id + '">Удалить навсегда</button></div></div>';
+            }).join('') : '<p class="kb-note">Корзина пуста.</p>');
+        }).catch(function () { body.innerHTML = '<p class="kb-note">Не удалось загрузить корзину.</p>'; });
+    }
     function renderQueue() {
+        if (state.queueMode === 'trash') { renderTrash(); return; }
         // Очередь — по остатку к выписке (как на проде): полностью выписанная
         // карточка не висит в «На списание», даже если статус ещё там же,
         // а в «Списано» попадает и без смены статуса.
@@ -1187,7 +1209,7 @@
         var restore = e.target.closest('[data-trash-restore]');
         var purge = e.target.closest('[data-trash-purge]');
         if (restore) {
-            window.V2Api.api('/cards/' + restore.dataset.trashRestore + '/restore', { method: 'PATCH' })
+            window.V2Api.api('/kanban/cards/' + restore.dataset.trashRestore + '/restore', { method: 'PATCH' })
                 .then(function () { trashCache = trashCache.filter(function (c) { return String(c.id) !== restore.dataset.trashRestore; }); renderTrash(); notify('Карточка восстановлена из корзины.'); })
                 .catch(function (e2) { notify('Не восстановлено: ' + (e2.detail || e2.message || 'ошибка')); });
         } else if (purge) {
