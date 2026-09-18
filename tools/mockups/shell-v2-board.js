@@ -498,7 +498,7 @@
                     '<div class="kb-doc-side"><button type="button" class="btn btn-primary btn-sm" data-doc-edit-save="' + i + '">Сохранить</button>' +
                     '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit-cancel>Отмена</button></div></li>';
             }
-            return '<li class="kb-detail-doc"><div><b>ТН ' + esc(d.series + ' ' + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label></div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' +
+            return '<li class="kb-detail-doc"><div><b>' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label></div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' +
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit="' + i + '">Изменить</button>' +
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="' + i + '">Отменить</button></div></li>';
         }).join('');
@@ -512,7 +512,7 @@
             }
         }
         var history = c.docs.map(function(d) {
-            return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Выписана накладная ' + esc(d.series + ' ' + d.number) + '</b><p>' + esc(d.date) + ' · ' + money(d.amount) + ' BYN</p></div></li>';
+            return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Выписана накладная ' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><p>' + esc(d.date) + ' · ' + money(d.amount) + ' BYN</p></div></li>';
         }).join('');
         if (c.groupId) {
             var hg = KBData.groups.filter(function (x) { return x.id === c.groupId; })[0];

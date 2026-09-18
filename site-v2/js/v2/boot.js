@@ -172,8 +172,9 @@
                     return { name: a.file_name, path: a.file_path };
                 }),
                 docs: (docsByCard[c.id] || []).map(function (d) {
-                    // В БД invoice_number уже содержит префикс «ТН » — не дублируем.
-                    return { txId: d.id, series: 'ТН', number: String(d.invoice_number || '').replace(/^ТН\s+/i, ''), date: isoToRu(d.invoice_date || d.date), amount: kopecks(d.amount), originalsReturned: false };
+                    // invoice_number в БД хранится целиком («ТН 0002351», «ТН ТТН4881042»,
+                    // встречаются ТТН) — показываем как записано, без склейки серии.
+                    return { txId: d.id, series: '', number: String(d.invoice_number || ''), date: isoToRu(d.invoice_date || d.date), amount: kopecks(d.amount), originalsReturned: false };
                 })
             };
         });
