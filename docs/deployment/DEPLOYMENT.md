@@ -127,6 +127,21 @@ The server has its own backup scripts under `server_snapshot/scripts/`
 (`backup_crm.sh` uses the SQLite backup API — **not** `cp`, which corrupts
 WAL databases). For Docker, see the backup section below.
 
+Since 2026-09-18 `backup_crm.sh` builds every part (db, tenants, uploads,
+code, secrets) in a private staging directory inside the backup dir, encrypts
+it (AES-256-CBC/PBKDF2), verifies the artifact by decrypting it back, and only
+then publishes the `.enc` file with `0600`. A failing part is logged with
+`FAIL` and makes the run exit non-zero; earlier archives are never removed on
+failure, and plaintext copies never leave staging. Rotation keeps `KEEP`
+(default 14) complete archives of each kind and only touches strict
+timestamped names. Deployed to the server and test-run manually on
+2026-09-18 (all parts OK). Known constraint: the hosting account has a disk
+quota (measured ceiling ≈ 7 GB; after the 2026-09-18 cleanup of truncated and
+plaintext leftovers ≈ 2.6 GB free). If uploads keep growing, raise the quota
+or lower `KEEP` for uploads before the nightly staging peak stops fitting —
+with this script such a night now fails loudly instead of publishing a
+truncated archive.
+
 > **⚠️ The legacy FTP flow (`tools/ftp_sync.py`) was removed** (2026-08-29):
 > it sent the password in cleartext and failed the security review. Use
 > `tools/deploy.sh` (SSH + rsync) instead.
