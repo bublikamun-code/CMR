@@ -997,19 +997,6 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     const issued = outgoing.filter((r) => r.tn);
     // Месяцы выписки ТН — для фильтра документов
     const docMonths = [...new Set(issued.map((r) => r.tn.date).filter((d) => /^\d{2}\.\d{2}\.\d{4}$/.test(d)).map((d) => d.slice(6, 10) + '-' + d.slice(3, 5)))].sort().reverse();
-    const docMonthSel = document.getElementById('fin-doc-month');
-    if (docMonthSel) {
-        const names = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
-        docMonthSel.innerHTML = '<option value="all">Все месяцы</option>' + docMonths.map((ym) => {
-            const parts = ym.split('-');
-            return `<option value="${ym}">${names[Number(parts[1]) - 1]} ${parts[0]}</option>`;
-        }).join('');
-        docMonthSel.value = docMonth;
-        if (docMonth !== 'all' && !docMonths.includes(docMonth)) docMonth = 'all';
-        docMonthSel.value = docMonth;
-    }
-    const docSortSel = document.getElementById('fin-doc-sort');
-    if (docSortSel) docSortSel.value = docSort;
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
         <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
         <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
@@ -1178,8 +1165,8 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     }
     function updateDocuments(keepFocused = false) {
         sortDocRows();
-        const rows = visibleRows('#fin-document-rows', (r) => documentFilter === 'all' ||
-            (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false)) &&
+        const rows = visibleRows('#fin-document-rows', (r) => (documentFilter === 'all' ||
+            (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false))) &&
             (docMonth === 'all' || (r.tn && /^\d{2}\.\d{2}\.\d{4}$/.test(r.tn.date) && r.tn.date.slice(6, 10) + '-' + r.tn.date.slice(3, 5) === docMonth)), keepFocused);
         $('#fin-document-count').textContent = `Видимых документов: ${rows.length} · Все оформленные оригиналы у нас: ${rows.filter((r) => r.tnHere && (r.billHere || r.billRequired === false)).length}`;
         $('#fin-document-empty').hidden = rows.length !== 0;
@@ -1248,6 +1235,21 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             setTimeout(() => selector === '#fin-payment-rows' ? updatePayments(true) : updateDocuments(true), 0);
         });
     });
+    // Документы: месяцы выписки и сортировка (селекты заполняются здесь —
+    // после объявления docMonth/docSort, чтобы не ловить TDZ)
+    const docMonthSel = document.getElementById('fin-doc-month');
+    if (docMonthSel) {
+        const names = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+        docMonthSel.innerHTML = '<option value="all">Все месяцы</option>' + docMonths.map((ym) => {
+            const parts = ym.split('-');
+            return `<option value="${ym}">${names[Number(parts[1]) - 1]} ${parts[0]}</option>`;
+        }).join('');
+        docMonthSel.value = docMonth;
+        if (docMonth !== 'all' && !docMonths.includes(docMonth)) docMonth = 'all';
+        docMonthSel.value = docMonth;
+    }
+    const docSortSel = document.getElementById('fin-doc-sort');
+    if (docSortSel) docSortSel.value = docSort;
     // Месячный фильтр — как месячный фильтр рабочей версии
     const finMonthSel = document.getElementById('fin-month');
     if (finMonthSel) {
