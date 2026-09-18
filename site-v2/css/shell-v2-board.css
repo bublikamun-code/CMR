@@ -129,6 +129,12 @@
 .kb-q-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s2) 16px; }
 .kb-q-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-ui); color: var(--muted); cursor: pointer; }
 .kb-q-check input, .kb-q-pick { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+/* Строка очереди открывает карточку целиком; галочка внутри строки — нет. */
+.kb-q-row[data-card] { cursor: pointer; }
+.kb-q-row[data-card]:hover { background: var(--surface-2); }
+/* Инлайн-правка накладной в карточке */
+.kb-doc-edit label { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-ui); color: var(--muted); margin-bottom: var(--s2); }
+.kb-doc-edit input { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-md); padding: 7px 9px; width: 100%; box-sizing: border-box; }
 .kb-group-kv { margin-bottom: var(--s3); max-height: 30vh; overflow: auto; }
 
 /* ---------- Диалог карточки ---------- */

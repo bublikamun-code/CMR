@@ -9,10 +9,10 @@
     // загрузчик (boot.js) кладёт сюда данные из CRM API до подключения скрипта.
     const finSource = window.KB_FIN_SOURCE || {
         outgoing: [
-        { id: 'c104', card: 'К-104 · Освещение офиса', date: '16.09.2026', client: 'ООО «РемонтСити»', amount: 440000, paid: 440000, store: 'БН', estimate: 'ПР-104', tn: null, calculated: false, posted: false, tnHere: false, billHere: false, print: 'Печать организации при получении', authority: 'Доверенность ещё не передана', note: 'ТН не оформлена. № и дата оформляются в карточке; здесь только просмотр.' },
-        { id: 'c103', card: 'К-103 · Светильники для дома', date: '14.09.2026', client: 'ЗАО «СветлогорскДом»', amount: 890000, paid: 0, store: 'Матусевича', estimate: 'ПР-103', tn: { number: 'ТН-0914', date: '14.09.2026', bill: 'СЧ-103' }, calculated: true, posted: true, tnHere: true, billHere: true, print: 'Печать организации на оригинале', authority: 'Доверенность № 48 от 14.09.2026', note: 'Отсрочка истекла. Оригиналы у нас, долг остаётся.' },
-        { id: 'c102', card: 'К-102 · Подсветка кухни', date: '10.09.2026', client: 'ООО «РемонтСити»', amount: 310000, paid: 50000, store: 'Богдановича', estimate: 'ПР-102', tn: { number: 'ТН-0910', date: '10.09.2026', bill: 'СЧ-102' }, posted: false, tnHere: true, billHere: false, print: 'Без печати, по доверенности', authority: 'Доверенность № 36 от 10.09.2026', note: 'Оплата частичная, отгрузка полная. Ждём оригинал счёта.' },
-        { id: 'c101', card: 'К-101 · Лампы для склада', date: '05.09.2026', client: 'ООО «Веснаторг»', amount: 150000, paid: 150000, store: 'Матусевича', estimate: 'ПР-101', tn: { number: 'ТН-0905', date: '05.09.2026', bill: 'СЧ-101' }, posted: false, tnHere: false, billHere: false, print: 'Печать организации при возврате', authority: 'Получатель — директор, без доверенности', note: 'Полностью оплачено. Оба оригинала ещё у клиента.' }
+        { id: 'c104', cardId: 'К-104', card: 'К-104 · Освещение офиса', date: '16.09.2026', client: 'ООО «РемонтСити»', amount: 440000, paid: 440000, store: 'БН', estimate: 'ПР-104', tn: null, calculated: false, posted: false, tnHere: false, billHere: false, print: 'Печать организации при получении', authority: 'Доверенность ещё не передана', note: 'ТН не оформлена. № и дата оформляются в карточке; здесь только просмотр.' },
+        { id: 'c103', cardId: 'К-103', card: 'К-103 · Светильники для дома', date: '14.09.2026', client: 'ЗАО «СветлогорскДом»', amount: 890000, paid: 0, store: 'Матусевича', estimate: 'ПР-103', tn: { number: 'ТН-0914', date: '14.09.2026', bill: 'СЧ-103' }, calculated: true, posted: true, tnHere: true, billHere: true, print: 'Печать организации на оригинале', authority: 'Доверенность № 48 от 14.09.2026', note: 'Отсрочка истекла. Оригиналы у нас, долг остаётся.' },
+        { id: 'c102', cardId: 'К-102', card: 'К-102 · Подсветка кухни', date: '10.09.2026', client: 'ООО «РемонтСити»', amount: 310000, paid: 50000, store: 'Богдановича', estimate: 'ПР-102', tn: { number: 'ТН-0910', date: '10.09.2026', bill: 'СЧ-102' }, posted: false, tnHere: true, billHere: false, print: 'Без печати, по доверенности', authority: 'Доверенность № 36 от 10.09.2026', note: 'Оплата частичная, отгрузка полная. Ждём оригинал счёта.' },
+        { id: 'c101', cardId: 'К-101', card: 'К-101 · Лампы для склада', date: '05.09.2026', client: 'ООО «Веснаторг»', amount: 150000, paid: 150000, store: 'Матусевича', estimate: 'ПР-101', tn: { number: 'ТН-0905', date: '05.09.2026', bill: 'СЧ-101' }, posted: false, tnHere: false, billHere: false, print: 'Печать организации при возврате', authority: 'Получатель — директор, без доверенности', note: 'Полностью оплачено. Оба оригинала ещё у клиента.' }
         ],
         incoming: [
         { supplier: 'ООО «СветОпт»', number: 'ВХ-501', date: '16.09.2026', store: 'Матусевича', amount: 240000, vat: 40000, checked: true, arrived: false, paid: true, file: 'svetopt-501.pdf' },
@@ -30,16 +30,18 @@
     const checkbox = (r, field, title) => `<label class="fin-check" for="fin-${field}-${r.id}"><input type="checkbox" id="fin-${field}-${r.id}" data-record="${r.id}" data-field="${field}" aria-label="${esc(title + ' — ' + r.card + ', ' + r.client)}" ${r[field] ? 'checked' : ''}>${title}</label>`;
 
     // DOM строк создаётся один раз: checkbox/details и фокус не теряются.
-    $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}">
+    // data-card на строке: клик по любому месту строки открывает карточку
+    // (клики по галочкам и details карточку не открывают).
+    $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
         <td><span class="num">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
         <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
         <td>${checkbox(r, 'posted', 'Списано')}</td>
-        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><p>${esc(r.note)}</p><p>Это сведения для сверки, не команда печати.</p></details></td>
+        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><p>${esc(r.note)}</p></details></td>
     </tr>`).join('');
     const issued = outgoing.filter((r) => r.tn);
-    $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
+    $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
         <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
         <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td>
     </tr>`).join('');
@@ -52,7 +54,7 @@
     $('#fin-incoming-rows').innerHTML = incoming.map((r) => `<tr>
         <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
         <td class="num">${money(r.amount)}</td><td>${status(r.checked)}</td><td>${status(r.arrived)}</td><td>${status(r.paid)}</td>
-        <td><details><summary>НДС и источник</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p><p>Источник: демонстрационный пример сообщения бота; файл ${esc(r.file)} (не загружен).</p><p>Бот не подключён. Статусы независимы и не редактируются.</p></details></td>
+        <td><details><summary>НДС и источник</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p><p>Файл: ${esc(r.file)}.</p></details></td>
     </tr>`).join('');
 
     let paymentFilter = 'all';
@@ -65,7 +67,7 @@
             const id = 'kb-' + card.id + '-' + index;
             const r = { id, cardId: card.id, index, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
             byId.set(id, r);
-            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-kanban data-record="${id}">
+            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
                 <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
                 <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
                 <td class="num">${money(doc.amount)}</td><td>${checkbox({...r, card: card.id, client: card.client}, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td>

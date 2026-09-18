@@ -439,6 +439,9 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin .fin-toolbar { margin: var(--s4) 0; gap: var(--s4); }
 #view-fin .fin-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: 1 1 280px; max-width: 540px; min-width: 0; }
 #view-fin label { font-size: var(--font-ui); }
+/* Строка с карточкой открывает её целиком; интерактив внутри строки — нет. */
+#view-fin tr[data-card] { cursor: pointer; }
+#view-fin tr[data-card]:hover { background: var(--surface-2); }
 #view-fin input[type="search"] {
     width: 100%; min-width: 0; padding: 10px 12px; font: inherit; color: var(--text);
     background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-md);
