@@ -164,3 +164,147 @@ select.fprint-select:hover,
     border-color: var(--accent);
     color: #fff;
 }
+
+/* ============================================================
+   Колокольчик и панель уведомлений — в стиле системы
+   ============================================================ */
+.v2-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+}
+.v2-bell:hover { border-color: var(--muted); background: var(--surface-2); }
+.v2-bell-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 17px;
+    text-align: center;
+}
+.v2-notif-panel {
+    position: fixed;
+    top: 58px;
+    right: 16px;
+    z-index: 130;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    max-height: 62vh;
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--sh-2);
+}
+.v2-notif-head {
+    padding: 10px 14px;
+    font-size: var(--font-ui);
+    font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+}
+.v2-notif-item { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.v2-notif-item:last-child { border-bottom: 0; }
+.v2-notif-item.unread { background: var(--surface-2); }
+.v2-notif-item-title { font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.v2-notif-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.v2-notif-item-details { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; font-size: 12px; }
+.v2-notif-item-time { margin-top: 4px; opacity: .65; font-size: 11px; }
+
+/* Единый вид кнопок-режимов оплаты: нажатая = акцентная заливка */
+.kb-pay-modes .btn[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: none;
+}
+
+/* ============================================================
+   Колокольчик и панель уведомлений — в стиле системы
+   ============================================================ */
+.v2-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+}
+.v2-bell:hover { border-color: var(--muted); background: var(--surface-2); }
+.v2-bell-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 17px;
+    text-align: center;
+}
+.v2-notif-panel {
+    position: fixed;
+    top: 58px;
+    right: 16px;
+    z-index: 130;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    max-height: 62vh;
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--sh-2);
+}
+.v2-notif-head {
+    padding: 10px 14px;
+    font-size: var(--font-ui);
+    font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+}
+.v2-notif-item { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.v2-notif-item:last-child { border-bottom: 0; }
+.v2-notif-item.unread { background: var(--surface-2); }
+.v2-notif-item-title { font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.v2-notif-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.v2-notif-item-details { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; font-size: 12px; }
+.v2-notif-item-time { margin-top: 4px; opacity: .65; font-size: 11px; }
+
+/* Единый вид кнопок-режимов оплаты: нажатая = акцентная заливка */
+.kb-pay-modes .btn[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: none;
+}

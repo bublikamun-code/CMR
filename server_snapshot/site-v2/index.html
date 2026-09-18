@@ -8,18 +8,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="css/shell-v2-base.css?v=c01f4fc43c">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=c01f4fc43c">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=c01f4fc43c">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=c01f4fc43c">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=c01f4fc43c">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=c01f4fc43c">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=c01f4fc43c">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=c01f4fc43c">
-<script>window.V2_ASSET_VER="c01f4fc43c"</script>
-<script src="js/v2/api.js?v=c01f4fc43c"></script>
-<script src="js/v2/boot.js?v=c01f4fc43c"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=c01f4fc43c">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=e7c45e488e">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=e7c45e488e">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=e7c45e488e">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=e7c45e488e">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=e7c45e488e">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=e7c45e488e">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=e7c45e488e">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=e7c45e488e">
+<script>window.V2_ASSET_VER="e7c45e488e"</script>
+<script src="js/v2/api.js?v=e7c45e488e"></script>
+<script src="js/v2/boot.js?v=e7c45e488e"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=e7c45e488e">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -81,7 +81,7 @@
         <h1 id="shell-title">Доска сделок</h1>
         <p class="shell-preview" id="shell-source"></p>
       </div>
-      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span><button type="button" class="btn btn-ghost btn-sm" id="v2-bell" title="Уведомления" aria-label="Уведомления">🔔<span id="v2-bell-count" class="pill warn" hidden></span></button><div id="v2-notif-panel" class="card" hidden style="position:fixed;top:60px;right:16px;z-index:120;width:360px;max-height:60vh;overflow:auto"></div></div>
+      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span><button type="button" class="v2-bell" id="v2-bell" title="Уведомления" aria-label="Уведомления"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="v2-bell-count" class="v2-bell-count" hidden></span></button><div id="v2-notif-panel" class="v2-notif-panel" hidden></div></div>
     </header>
 
     <main class="content" id="shell-content" tabindex="-1" aria-labelledby="shell-title">
@@ -317,7 +317,7 @@
               <tbody id="cl-rows"></tbody>
             </table>
             </div>
-            <p class="fin-note">Клик по строке — карточка клиента справа. Кнопки в строках в превью не работают.</p>
+            <p class="fin-note">Клик по строке — карточка клиента справа. Карандаш — редактировать, крестик — удалить (только администратор).</p>
           </div>
 
           <aside class="drawer" id="cl-drawer" aria-live="polite"></aside>
@@ -346,7 +346,7 @@
               <div class="right"><span class="card-sub">открытые задачи</span></div>
             </div>
             <div id="tasks-summary"></div>
-            <p class="fin-note">Создание и отметка задач в превью не работают: это предложения интерфейса.</p>
+            <p class="fin-note">Создание задач и отметка о выполнении сохраняются в CRM.</p>
           </div>
         </div>
 

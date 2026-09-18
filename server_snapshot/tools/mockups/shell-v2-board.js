@@ -1157,6 +1157,15 @@
         var item = activeCard.checklist[Number(input.dataset.check)];
         item[input.dataset.flag] = input.checked;
         var index = input.dataset.check, flag = input.dataset.flag;
+        // Фидбек 18.09: статус закупки сохраняется в CRM
+        // (ordered/received в card_checklists), а не только на экране.
+        var rawId = String(item.id).replace(/[^0-9]/g, '');
+        if (rawId && window.V2Api && window.V2Api.token()) {
+            var body = {};
+            body[input.dataset.flag] = input.checked;
+            window.V2Api.api('/checklists/' + rawId, { method: 'PATCH', body: body })
+                .catch(function (e2) { notify('Статус закупки не сохранён: ' + (e2.detail || e2.message || 'ошибка')); });
+        }
         openCard(activeCard); refresh();
         dialog.querySelector('[data-check="' + index + '"][data-flag="' + flag + '"]').focus();
     });

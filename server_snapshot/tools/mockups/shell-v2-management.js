@@ -221,27 +221,28 @@
     }
     function renderItem(n) {
         const when = n.created_at ? new Date(n.created_at).toLocaleString('ru-RU') : '';
-        return '<div class="kb-check-row" style="display:block"><b' + (n.is_read ? '' : ' style="color:var(--accent)"') + '>' + esc(n.title) + '</b>' +
-            (n.details ? '<p style="margin:2px 0 0;white-space:pre-wrap">' + esc(n.details) + '</p>' : '') +
-            '<p style="margin:2px 0 0;opacity:.7">' + esc(when) + '</p></div>';
+        return '<div class="v2-notif-item' + (n.is_read ? '' : ' unread') + '">' +
+            '<div class="v2-notif-item-title">' + esc(n.title) + (n.is_read ? '' : '<span class="v2-notif-dot"></span>') + '</div>' +
+            (n.details ? '<div class="v2-notif-item-details">' + esc(n.details) + '</div>' : '') +
+            '<div class="v2-notif-item-time">' + esc(when) + '</div></div>';
     }
     $('v2-bell').addEventListener('click', async () => {
         const panel = $('v2-notif-panel');
         if (!panel) return;
         if (!panel.hidden) { panel.hidden = true; return; }
         panel.hidden = false;
-        panel.innerHTML = '<p class="kb-detail-hint">Загрузка…</p>';
+        panel.innerHTML = '<div class="v2-notif-head">Уведомления</div><div class="v2-notif-item"><p class="kb-detail-hint">Загрузка…</p></div>';
         try {
             const list = await window.V2Api.api('/notifications');
-            panel.innerHTML = list.items.length
-                ? list.items.map(renderItem).join('<hr style="border:0;border-top:1px solid var(--border);margin:6px 0">')
-                : '<p class="kb-detail-hint">Уведомлений нет.</p>';
+            panel.innerHTML = '<div class="v2-notif-head">Уведомления</div>' + (list.items.length
+                ? list.items.map(renderItem).join('')
+                : '<div class="v2-notif-item"><p class="kb-detail-hint">Уведомлений нет.</p></div>');
             if (list.unread_count) {
                 await window.V2Api.api('/notifications/read', { method: 'POST', body: { ids: [] } });
                 const badge = $('v2-bell-count');
                 if (badge) { badge.hidden = true; badge.textContent = ''; }
             }
-        } catch (e) { panel.innerHTML = '<p class="kb-detail-hint">Не удалось загрузить уведомления.</p>'; }
+        } catch (e) { panel.innerHTML = '<div class="v2-notif-head">Уведомления</div><div class="v2-notif-item"><p class="kb-detail-hint">Не удалось загрузить уведомления.</p></div>'; }
     });
     document.addEventListener('click', (event) => {
         const panel = $('v2-notif-panel');

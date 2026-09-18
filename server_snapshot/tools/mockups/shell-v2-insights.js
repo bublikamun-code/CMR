@@ -341,9 +341,10 @@
             }).join('') + '</div>' +
             (panels[clTab] || '') +
             '</div>' +
-            '<div class="drawer-foot"><button class="btn btn-primary" title="В превью не работает">Новая сделка</button>' +
-            '<button class="btn btn-ghost" title="В превью не работает">Позвонить</button>' +
-            '<button class="btn-quiet" style="margin-left:auto" title="В превью не работает">Печать</button></div>';
+            '<div class="drawer-foot">' +
+            '<button type="button" class="btn btn-primary btn-sm" data-cl-new-deal="' + esc(selectedClient) + '">Новая сделка</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-cl-call="' + esc(selectedClient) + '"' + (client && client.phone ? '' : ' disabled title="Телефон не указан"') + '>Позвонить</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" style="margin-left:auto" data-cl-print>Печать</button></div>';
     }
 
     document.getElementById('view-day').addEventListener('click', function (e) {
@@ -554,6 +555,28 @@
         return { name: name, phone: phone.trim(), unp: unp.trim(), contact_person: contact.trim(), address: address.trim() };
     }
     function refreshAll() { location.reload(); }
+
+    function openNewDealFor(clientId) {
+        var cl = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === numeric(clientId); })[0];
+        var title = window.prompt('Название новой сделки', cl ? (cl.name || '') : '');
+        if (title === null) return;
+        title = title.trim();
+        if (!title) { window.alert('Название обязательно'); return; }
+        window.V2Api.api('/kanban/cards', { method: 'POST', body: { title: title, status: 'Новый запрос', total_amount: 0, client_id: numeric(clientId) } })
+            .then(function () { window.alert('Сделка создана в «Новый запрос».'); refreshAll(); })
+            .catch(function (e) { window.alert('Не создано: ' + (e.detail || e.message || 'ошибка')); });
+    }
+    document.addEventListener('click', function (event) {
+        var deal = event.target.closest('[data-cl-new-deal]');
+        if (deal && window.V2Api && window.V2Api.token()) { openNewDealFor(deal.dataset.clNewDeal); return; }
+        var call = event.target.closest('[data-cl-call]');
+        if (call) {
+            var cl = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === numeric(call.dataset.clCall); })[0];
+            if (cl && cl.phone) window.open('tel:' + String(cl.phone).replace(/[^+0-9]/g, ''), '_self');
+            return;
+        }
+        if (event.target.closest('[data-cl-print]')) window.print();
+    });
 
     var newBtn = document.getElementById('cl-new');
     if (newBtn) newBtn.addEventListener('click', function () {
