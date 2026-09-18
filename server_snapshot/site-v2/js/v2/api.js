@@ -62,12 +62,22 @@
         if (t) headers['Authorization'] = 'Bearer ' + t;
         return fetch(API_BASE + path, { headers: headers, credentials: 'include' });
     }
+    // Загрузка файла: multipart с авторизацией (Content-Type ставит браузер)
+    async function upload(path, file) {
+        const headers = {};
+        const t = token();
+        if (t) headers['Authorization'] = 'Bearer ' + t;
+        const fd = new FormData();
+        fd.append('file', file);
+        return fetch(API_BASE + path, { method: 'POST', headers: headers, credentials: 'include', body: fd });
+    }
     window.V2Api = {
         token: token,
         save: save,
         clear: clear,
         api: api,
         download: download,
+        upload: upload,
         login: function (username, password, remember) {
             return api('/auth/login', { method: 'POST', form: { username: username, password: password, remember: remember ? 'true' : '' } });
         },

@@ -84,6 +84,11 @@
         var s = KBData.statuses.find(function (x) { return x.id === id; });
         return s ? s.name : id;
     }
+    // 'cl-22' → 22
+    function numericClientIdValue(id) {
+        var n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
+        return isNaN(n) ? null : n;
+    }
     function remaining(card) { return card.amount - card.issued; }
     // 'cl-22' → 22: клиентские id в v2 с префиксом, API ждёт число
     // (фидбек 18.09: Number('cl-22') = NaN ломал баланс и кассу клиента)
@@ -509,15 +514,27 @@
 
     function cardTabContent(c, currentStage) {
         var cl = checklistSummary(c);
-        var info = dealInput(c, 'title', 'Название') + dealInput(c, 'client', 'Клиент') +
+        // Фидбек 18.09: клиент выбирается из справочника с поиском
+        // (datalist), а не вводится текстом; новая фамилия — предлагается создать.
+        var clientOptions = KBData.clients
+            .filter(function (cl) { return cl.id !== 'us-none' && cl.name; })
+            .map(function (cl) { return '<option value="' + esc(cl.name) + '"></option>'; }).join('');
+        var info = dealInput(c, 'title', 'Название') +
+            '<div class="kb-field"><label for="kb-deal-client">Клиент</label>' +
+            '<input id="kb-deal-client" data-deal-field="client" data-client-field="1" list="kb-clients-datalist" value="' + esc(c.client) + '" autocomplete="off" maxlength="240">' +
+            '<datalist id="kb-clients-datalist">' + clientOptions + '</datalist></div>' +
             dealSelect('store', 'Магазин', KBData.stores.map(function (s) { return [s.id, s.name]; }), c.store) +
             dealSelect('manager', 'Менеджер', KBData.users.map(function (u, i) { return [i, u.full_name]; }), KBData.users.indexOf(c.manager)) +
             dealInput(c, 'deadline', 'Срок · ДД.ММ.ГГГГ') + dealInput(c, 'amount', 'Сумма, BYN') +
             dealField('note', 'Заметка', '<textarea id="kb-deal-note" data-deal-field="note" rows="2" maxlength="4000">' + esc(c.note) + '</textarea>');
         var checks = c.checklist.map(function(item, i) {
             var rawId = String(item.id).replace(/[^0-9]/g, '');
+            var invFileHtml = item.invFile
+                ? '<a class="kb-inv-dl" href="#" data-inv-dl="' + rawId + '" data-inv-name="' + esc(item.invFile) + '">📎 ' + esc(item.invFile) + '</a>'
+                : '<label class="kb-inv-up">Прикрепить файл<input type="file" class="kb-inv-input" data-inv-up="' + rawId + '" hidden></label>';
             return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '"><b>' + esc(item.label) + '</b>' + procurementFields(c, item) +
                 '<input class="kb-cl-note" data-cl-id="' + rawId + '" value="' + esc(item.note || '') + '" placeholder="Примечание к закупке…" maxlength="500">' +
+                '<div class="kb-inv-row">' + invFileHtml + '</div>' +
                 '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received || c.stage === 'done' ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
         }).join('');
         var docs = c.docs.map(function(d, i) {
@@ -568,6 +585,11 @@
             '<section id="kb-panel-procurement" role="tabpanel" aria-labelledby="kb-tab-procurement" tabindex="0" hidden>' +
             '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>' + cl.received + '/' + cl.total + '</span></h3>' +
             '<p class="kb-detail-hint">Файл до 25 МБ</p>' +
+            '<div class="kb-add-check">' +
+            '<input id="kb-add-supplier" list="kb-suppliers-datalist" placeholder="Поставщик (выберите или впишите)" style="flex:1;min-width:170px">' +
+            '<datalist id="kb-suppliers-datalist">' + (KBData.suppliers || []).map(function (s) { return '<option value="' + esc(s.name) + '"></option>'; }).join('') + '</datalist>' +
+            '<input id="kb-add-amount" inputmode="decimal" placeholder="Сумма, BYN" style="width:120px">' +
+            '<button type="button" class="btn btn-primary btn-sm" id="kb-add-check">Добавить</button></div>' +
             (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
             '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +
             ((c.attachments || []).length ? c.attachments.map(function (a) {
@@ -780,6 +802,58 @@
                 window.V2Api.api('/checklists/' + id, { method: 'PATCH', body: { note: input.value } })
                     .catch(function (e2) { notify('Примечание закупки не сохранено: ' + (e2.detail || e2.message || 'ошибка')); });
             });
+        });
+        // Файл счёта поставщика: скачивание и прикрепление
+        dialog.querySelectorAll('.kb-inv-dl').forEach(function (a) {
+            a.addEventListener('click', function (ev) {
+                ev.preventDefault();
+                window.V2Api.download('/checklists/' + a.dataset.invDl + '/invoice/download').then(function (resp) {
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    return resp.blob();
+                }).then(function (blob) {
+                    var url = URL.createObjectURL(blob);
+                    var tmp = document.createElement('a');
+                    tmp.href = url; tmp.download = a.dataset.invName || 'invoice';
+                    document.body.appendChild(tmp); tmp.click(); tmp.remove();
+                    URL.revokeObjectURL(url);
+                }).catch(function (e2) { notify('Файл не скачался: ' + (e2.message || 'ошибка')); });
+            });
+        });
+        dialog.querySelectorAll('.kb-inv-input').forEach(function (inp) {
+            inp.addEventListener('change', function () {
+                var id = inp.dataset.invUp;
+                var file = inp.files && inp.files[0];
+                if (!id || !file) return;
+                if (file.size > 25 * 1024 * 1024) { notify('Файл больше 25 МБ.'); return; }
+                window.V2Api.upload('/checklists/' + id + '/invoice', file).then(function (resp) {
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    return resp.json();
+                }).then(function (saved) {
+                    if (saved.invoice_file_name) {
+                        c._invFiles = c._invFiles || {};
+                        c._invFiles[id] = saved.invoice_file_name;
+                        openCard(c);
+                    }
+                    notify('Файл счёта прикреплён.');
+                }).catch(function (e2) { notify('Файл не прикреплён: ' + (e2.detail || e2.message || 'ошибка')); });
+            });
+        });
+        // Добавление пункта закупки: поставщик из справочника (можно вписать
+        // нового — уйдёт текстом) + сумма.
+        var addBtn = document.getElementById('kb-add-check');
+        if (addBtn) addBtn.addEventListener('click', function () {
+            var supplier = (document.getElementById('kb-add-supplier') || {}).value || '';
+            supplier = supplier.trim();
+            var amount = parseMoney((document.getElementById('kb-add-amount') || {}).value);
+            if (!supplier) { notify('Укажите поставщика.'); return; }
+            if (!Number.isSafeInteger(amount) || amount <= 0) { notify('Укажите сумму больше нуля.'); return; }
+            var sup = (KBData.suppliers || []).filter(function (s) { return s.name.toLowerCase() === supplier.toLowerCase(); })[0];
+            var body = { amount: amount / 100 };
+            if (sup) body.supplier_id = numericClientIdValue(sup.id);
+            else body.company_name = supplier;
+            window.V2Api.api('/cards/' + Number(c.id) + '/checklists', { method: 'POST', body: body })
+                .then(function () { notify('Пункт закупки добавлен.'); openCard(c); })
+                .catch(function (e2) { notify('Не добавлено: ' + (e2.detail || e2.message || 'ошибка')); });
         });
         if (!dialog.open) dialog.showModal();
         dialog.querySelector('.kb-detail-content').scrollTop = scrollTop;
@@ -1170,6 +1244,29 @@
             input.setCustomValidity(error);
             input.setAttribute('aria-invalid', String(!!error));
             if (error) { input.reportValidity(); return; }
+            if (key === 'client') {
+                // Привязка клиента по справочнику: точное имя → client_id;
+                // нет такого — предлагаем создать клиента с этим именем.
+                var match = KBData.clients.filter(function (cl) {
+                    return cl.name && cl.name.toLowerCase() === value.trim().toLowerCase();
+                })[0];
+                var applyClient = function (clientId, name) {
+                    activeCard.clientId = clientId ? 'cl-' + clientId : null;
+                    activeCard.client = name;
+                    apiMutate('card', { id: Number(activeCard.id), fields: { client_id: clientId } });
+                };
+                if (match) { applyClient(numericClientIdValue(match.id), match.name); refresh(); }
+                else if (value.trim() && window.V2Api && window.V2Api.token() && window.confirm('Клиента «' + value.trim() + '» нет в справочнике. Создать?')) {
+                    window.V2Api.api('/clients', { method: 'POST', body: { name: value.trim() } })
+                        .then(function (created) {
+                            KBData.clients.push({ id: 'cl-' + created.id, name: created.name });
+                            applyClient(created.id, created.name);
+                            refresh();
+                        })
+                        .catch(function (e2) { notify('Клиент не создан: ' + (e2.detail || e2.message || 'ошибка')); });
+                }
+                return;
+            }
             activeCard[key] = value;
             if (key === 'title') apiMutate('card', { id: Number(activeCard.id), fields: { title: value } });
             else if (key === 'note') apiMutate('card', { id: Number(activeCard.id), fields: { description: value } });

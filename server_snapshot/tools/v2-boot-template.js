@@ -172,6 +172,7 @@
                         label: (item.supplier && item.supplier.name) || item.company_name || 'Позиция',
                         supplier_id: item.supplier_id ? 'sup-' + item.supplier_id : null,
                         note: item.note || '',
+                        invFile: item.invoice_file_name || null,
                         ordered: false,
                         received: false
                     };
