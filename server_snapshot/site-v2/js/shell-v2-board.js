@@ -520,9 +520,9 @@
             .filter(function (cl) { return cl.id !== 'us-none' && cl.name; })
             .map(function (cl) { return '<option value="' + esc(cl.name) + '"></option>'; }).join('');
         var info = dealInput(c, 'title', 'Название') +
-            '<div class="kb-field"><label for="kb-deal-client">Клиент</label>' +
-            '<input id="kb-deal-client" data-deal-field="client" data-client-field="1" list="kb-clients-datalist" value="' + esc(c.client) + '" autocomplete="off" maxlength="240">' +
-            '<datalist id="kb-clients-datalist">' + clientOptions + '</datalist></div>' +
+            dealField('client', 'Клиент (начните вводить — поиск по справочнику)',
+                '<input id="kb-deal-client" data-deal-field="client" list="kb-clients-datalist" value="' + esc(c.client) + '" autocomplete="off" maxlength="240">' +
+                '<datalist id="kb-clients-datalist">' + clientOptions + '</datalist>') +
             dealSelect('store', 'Магазин', KBData.stores.map(function (s) { return [s.id, s.name]; }), c.store) +
             dealSelect('manager', 'Менеджер', KBData.users.map(function (u, i) { return [i, u.full_name]; }), KBData.users.indexOf(c.manager)) +
             dealInput(c, 'deadline', 'Срок · ДД.ММ.ГГГГ') + dealInput(c, 'amount', 'Сумма, BYN') +
@@ -852,7 +852,18 @@
             if (sup) body.supplier_id = numericClientIdValue(sup.id);
             else body.company_name = supplier;
             window.V2Api.api('/cards/' + Number(c.id) + '/checklists', { method: 'POST', body: body })
-                .then(function () { notify('Пункт закупки добавлен.'); openCard(c); })
+                .then(function (saved) {
+                    // Пункт появляется сразу, без перезагрузки страницы
+                    c.checklist.push({
+                        id: 'ck-' + saved.id,
+                        label: supplier,
+                        supplier_id: sup ? sup.id : null,
+                        note: '', invFile: null,
+                        ordered: false, received: false
+                    });
+                    openCard(c);
+                    notify('Пункт закупки добавлен.');
+                })
                 .catch(function (e2) { notify('Не добавлено: ' + (e2.detail || e2.message || 'ошибка')); });
         });
         if (!dialog.open) dialog.showModal();
