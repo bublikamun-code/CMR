@@ -171,7 +171,7 @@
                     };
                 }),
                 attachments: (c.attachments || []).map(function (a) {
-                    return { name: a.file_name, path: a.file_path };
+                    return { id: a.id, name: a.file_name, path: a.file_path };
                 }),
                 docs: (docsByCard[c.id] || []).map(function (d) {
                     // invoice_number в БД хранится целиком («ТН 0002351», «ТН ТТН4881042»,

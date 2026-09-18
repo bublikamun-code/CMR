@@ -533,7 +533,11 @@
             (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
             '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +
             ((c.attachments || []).length ? c.attachments.map(function (a) {
-                return '<div class="kb-check-row"><span class="grow trunc">' + esc(a.name || '') + '</span></div>';
+                // Фидбек 18.09: вложение из письма должно скачиваться
+                // (GET /attachments/{id}/download, как в рабочей версии).
+                return '<button type="button" class="kb-check-row kb-att-dl" data-att-id="' + (a.id || '') + '" data-att-name="' + esc(a.name || 'attachment') + '" title="Скачать файл">' +
+                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+                    '<span class="grow trunc">' + esc(a.name || '') + '</span></button>';
             }).join('') : '<p class="kb-detail-empty">Вложений нет.</p>') +
             '</section>' +
             '<section id="kb-panel-invoices" role="tabpanel" aria-labelledby="kb-tab-invoices" tabindex="0" hidden>' +
@@ -544,6 +548,36 @@
             '<h3 class="kb-detail-section-title">История сделки</h3><div id="kb-history-real"><p class="kb-detail-empty">Журнал загружается…</p></div>' +
             '<h3 class="kb-detail-section-title">Выписки этой сессии</h3><ol class="kb-detail-history">' + history +
             '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Текущий этап: ' + esc(currentStage) + '</b><p>Состояние карточки сейчас; время перехода не записывается.</p></div></li></ol></section>';
+    }
+    // Фидбек 18.09: скачивание вложения сделки (в т.ч. файла из письма) —
+    // GET /attachments/{id}/download с авторизацией, сохранение под своим
+    // именем. Старые записи без id — подсказка, где скачать.
+    async function downloadAttachment(id, name) {
+        if (!id) { notify('У этого вложения нет id — скачайте его из рабочей версии.'); return; }
+        try {
+            const resp = await window.V2Api.download('/attachments/' + id + '/download');
+            if (!resp.ok) {
+                let detail = '';
+                try { const j = await resp.json(); if (j && j.detail) detail = String(j.detail); } catch (e) {}
+                throw new Error(detail || ('HTTP ' + resp.status));
+            }
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name || 'attachment';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            notify('Не удалось скачать файл: ' + (err.message || 'ошибка'));
+        }
+    }
+    function bindAttachmentDownloads() {
+        dialog.querySelectorAll('.kb-att-dl').forEach(function (btn) {
+            btn.onclick = function () { downloadAttachment(btn.dataset.attId, btn.dataset.attName); };
+        });
     }
     // Фидбек 18.09: вкладка «История» показывает журнал из CRM (та же лента,
     // что в основной версии) — включая «Импорт почты» с текстом письма.
@@ -664,6 +698,7 @@
             updateOverviewVisibility(null);
         };
         selectTab(selectedTab, false);
+        bindAttachmentDownloads();
         loadCardHistory(c);
         if (!dialog.open) dialog.showModal();
         dialog.querySelector('.kb-detail-content').scrollTop = scrollTop;

@@ -54,11 +54,20 @@
         }
         return response.json();
     }
+    // Скачивание файлов: сырой Response с авторизацией (токен + кука),
+    // тело читает вызывающий (blob) — api() парсит JSON и не годится.
+    async function download(path) {
+        const headers = {};
+        const t = token();
+        if (t) headers['Authorization'] = 'Bearer ' + t;
+        return fetch(API_BASE + path, { headers: headers, credentials: 'include' });
+    }
     window.V2Api = {
         token: token,
         save: save,
         clear: clear,
         api: api,
+        download: download,
         login: function (username, password, remember) {
             return api('/auth/login', { method: 'POST', form: { username: username, password: password, remember: remember ? 'true' : '' } });
         },

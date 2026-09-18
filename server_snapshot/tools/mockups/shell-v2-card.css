@@ -165,3 +165,20 @@
 .kb-history-full { max-height: 420px; overflow: auto; }
 .kb-history-date { opacity: .72; margin: 2px 0 0; }
 .kb-history-details { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }
+
+/* Вложение сделки — кнопка скачивания файла (в т.ч. из письма) */
+button.kb-att-dl {
+    width: 100%;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 8px 10px;
+    cursor: pointer;
+    color: var(--text);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font: inherit;
+}
+button.kb-att-dl:hover { border-color: var(--accent); }
