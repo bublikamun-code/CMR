@@ -54,7 +54,7 @@
             else link.removeAttribute('aria-current');
         });
         title.textContent = route.title;
-        document.title = route.title + ' — Свет в доме · Предпросмотр';
+        document.title = route.title + ' — Свет в доме';
         cancelAnimationFrame(frame);
         frame = requestAnimationFrame(() => {
             if (focus) content.focus({ preventScroll: true });

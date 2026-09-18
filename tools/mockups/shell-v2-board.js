@@ -304,6 +304,7 @@
     // Групповая выписка: выбранные в очереди карточки закрываются ОДНОЙ накладной
     // (аналог «групп списаний» на проде). Отмена возвращает остаток каждой.
     var groupPick = [];
+    var editingDoc = null; // индекс накладной в открытой карточке, которую правят
     function renderQueue() {
         // Очередь — по остатку к выписке (как на проде): полностью выписанная
         // карточка не висит в «На списание», даже если статус ещё там же,
@@ -323,9 +324,9 @@
             '<div class="kb-q-toolbar"><label class="kb-q-check"><input type="checkbox" id="kb-group-all"' + (allPicked ? ' checked' : '') + (list.length ? '' : ' disabled') + '> Выбрать все</label>' +
             '<button type="button" class="btn btn-primary btn-sm" id="kb-group-issue"' + (groupPick.length > 1 ? '' : ' disabled') + '>Накладная на группу' + (groupPick.length > 1 ? ' (' + groupPick.length + ')' : '') + '</button></div>' : '';
         document.getElementById('kb-queue-body').innerHTML = '<p class="kb-note">Поиск и магазин общие с доской. Найдено: ' + list.length + '</p>' + toolbar + list.map(function(c) {
-            return '<div class="kb-q-row">' +
+            return '<div class="kb-q-row" role="button" tabindex="0" data-card="' + esc(c.id) + '" aria-haspopup="dialog" aria-label="Открыть ' + esc(c.id + ' · ' + c.title) + '">' +
                 (pending ? '<input type="checkbox" class="kb-q-pick" data-group-pick="' + esc(c.id) + '" aria-label="Включить ' + esc(c.id) + ' в групповую накладную"' + (groupPick.indexOf(c.id) >= 0 ? ' checked' : '') + '>' : '') +
-                '<div><b>' + esc(c.id + ' · ' + c.title) + '</b><div>' + esc(KBData.storeName(c.store)) + ' · К выписке ' + money(remaining(c)) + ' BYN</div></div><div class="kb-q-actions"><button class="btn btn-ghost btn-sm" data-card="' + c.id + '">Открыть</button></div></div>';
+                '<div><b>' + esc(c.id + ' · ' + c.title) + '</b><div>' + esc(KBData.storeName(c.store)) + ' · К выписке ' + money(remaining(c)) + ' BYN</div></div></div>';
         }).join('');
     }
     function queueMode(mode) {
@@ -481,7 +482,17 @@
             return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '"><b>' + esc(item.label) + '</b>' + procurementFields(c, item) + '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received || c.stage === 'done' ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
         }).join('');
         var docs = c.docs.map(function(d, i) {
+            if (editingDoc === i) {
+                return '<li class="kb-detail-doc kb-doc-edit"><div>' +
+                    '<label>Дата выписки <input type="date" data-doc-field="date" value="' + esc(isoFromRu(d.date) || '') + '"></label>' +
+                    '<label>Номер <input data-doc-field="number" value="' + esc(d.number) + '"></label>' +
+                    '<label>Сумма, BYN <input inputmode="decimal" data-doc-field="amount" value="' + money(d.amount) + '"></label>' +
+                    '<p class="kb-form-error" id="kb-doc-edit-error" role="alert"></p></div>' +
+                    '<div class="kb-doc-side"><button type="button" class="btn btn-primary btn-sm" data-doc-edit-save="' + i + '">Сохранить</button>' +
+                    '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit-cancel>Отмена</button></div></li>';
+            }
             return '<li class="kb-detail-doc"><div><b>ТН ' + esc(d.series + ' ' + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label></div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' +
+                '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit="' + i + '">Изменить</button>' +
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="' + i + '">Отменить</button></div></li>';
         }).join('');
         var groupEntry = '';
@@ -494,7 +505,7 @@
             }
         }
         var history = c.docs.map(function(d) {
-            return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Выписана накладная ' + esc(d.series + ' ' + d.number) + '</b><p>' + esc(d.date) + ' · ' + money(d.amount) + ' BYN · демо-выписка</p></div></li>';
+            return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Выписана накладная ' + esc(d.series + ' ' + d.number) + '</b><p>' + esc(d.date) + ' · ' + money(d.amount) + ' BYN</p></div></li>';
         }).join('');
         if (c.groupId) {
             var hg = KBData.groups.filter(function (x) { return x.id === c.groupId; })[0];
@@ -507,7 +518,7 @@
             '<div class="kb-overview-head"><h3 class="kb-detail-section-title">О сделке</h3><button type="button" id="kb-hide-filled" aria-pressed="false" aria-controls="kb-overview-fields">Скрыть заполненные поля</button></div><div class="kb-deal-fields" id="kb-overview-fields">' + info + '</div><p class="kb-detail-empty" id="kb-overview-empty" role="status" hidden>Все поля заполнены. Нажмите «Показать все поля», чтобы изменить их.</p></section>' +
             '<section id="kb-panel-procurement" role="tabpanel" aria-labelledby="kb-tab-procurement" tabindex="0" hidden>' +
             '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>' + cl.received + '/' + cl.total + '</span></h3>' +
-            '<p class="kb-detail-hint">Файл до 25 МБ · до перезагрузки</p>' +
+            '<p class="kb-detail-hint">Файл до 25 МБ</p>' +
             (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
             '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +
             ((c.attachments || []).length ? c.attachments.map(function (a) {
@@ -547,6 +558,7 @@
     function openCard(c) {
         window.KBSelect.close();
         window.KBPayment.draft(c);
+        if (!activeCard || activeCard.id !== c.id) editingDoc = null;
         var preserved = null;
         if (dialog.open && activeCard === c && dialog.querySelector('#kb-overview-fields')) {
             preserved = {};
@@ -573,7 +585,7 @@
             '<div class="kb-detail-tabs" role="tablist" aria-label="Разделы сделки">' + tabs.map(function(tab) {
                 return '<button type="button" role="tab" id="kb-tab-' + tab[0] + '" data-card-tab="' + tab[0] + '" aria-controls="kb-panel-' + tab[0] + '" aria-selected="false" tabindex="-1">' + tab[1] + '</button>';
             }).join('') + '</div><div class="kb-detail-content">' + cardTabContent(c, currentStage) + '</div>' +
-            '<footer class="kb-dialog-foot"><p class="kb-detail-hint">Демо · изменения только до перезагрузки</p><div>' +
+            '<footer class="kb-dialog-foot"><div>' +
             (c.stage !== 'done' ? '<button class="btn btn-ghost" id="kb-pay">Внести оплату</button>' : '') +
             (c.stage === 'assembly' ? '<button class="btn btn-primary" id="kb-send">В списание</button>' : '') +
             (c.stage === 'writeoff' ? '<button class="btn btn-primary" id="kb-issue">Выписать накладную</button>' : '') +
@@ -678,12 +690,75 @@
             notify(c.id + (c.stage === 'done' ? ' — выписана полностью. Перенесена в «Списано».' : ' — частичная выписка. Осталось ' + money(remaining(c)) + ' BYN.'));
         };
     }
-    rootEl.addEventListener('click', function(e) {
+    // Карточка открывается из любого места: клик по элементу с data-card
+    // (плита доски, строка очереди, строка реестра или документов в
+    // финансах). Клик по интерактивному элементу внутри строки (галочка,
+    // кнопка, ссылка) карточку не открывает.
+    document.addEventListener('click', function(e) {
         if (suppressCardClick) return;
-        var button = e.target.closest('[data-card]');
-        if (button) openCard(cards.find(function(c) { return c.id === button.dataset.card; }));
+        var cardEl = e.target.closest('[data-card]');
+        if (!cardEl) return;
+        var interactive = e.target.closest('input, select, textarea, button, label, a, summary');
+        if (interactive && interactive !== cardEl && cardEl.contains(interactive)) return;
+        var card = cards.find(function(c) { return c.id === cardEl.dataset.card; });
+        if (card) openCard(card);
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var cardEl = e.target.closest ? e.target.closest('[data-card][role="button"]') : null;
+        if (!cardEl) return;
+        e.preventDefault();
+        var card = cards.find(function(c) { return c.id === cardEl.dataset.card; });
+        if (card) openCard(card);
     });
     dialog.addEventListener('click', function(e) {
+        var editStart = e.target.closest('[data-doc-edit]');
+        if (editStart && activeCard) {
+            editingDoc = Number(editStart.dataset.docEdit);
+            openCard(activeCard);
+            return;
+        }
+        if (e.target.closest('[data-doc-edit-cancel]') && activeCard) {
+            editingDoc = null;
+            openCard(activeCard);
+            return;
+        }
+        var editSave = e.target.closest('[data-doc-edit-save]');
+        if (editSave && activeCard) {
+            var docIndex = Number(editSave.dataset.docEditSave);
+            var doc = activeCard.docs[docIndex];
+            if (!doc) return;
+            var iso = dialog.querySelector('[data-doc-field="date"]').value;
+            var number = dialog.querySelector('[data-doc-field="number"]').value.trim();
+            var amountByn = parseFloat(String(dialog.querySelector('[data-doc-field="amount"]').value).replace(',', '.'));
+            var errorEl = document.getElementById('kb-doc-edit-error');
+            if (!iso || !number || !(amountByn > 0)) {
+                if (errorEl) errorEl.textContent = 'Заполните дату, номер и положительную сумму.';
+                return;
+            }
+            var applyEdit = function () {
+                doc.date = iso.split('-').reverse().join('.');
+                doc.number = number;
+                doc.amount = Math.round(amountByn * 100);
+                editingDoc = null;
+                refresh();
+                openCard(activeCard);
+            };
+            if (doc.txId) {
+                editSave.disabled = true;
+                apiMutate('invoice-edit', { txId: doc.txId, isoDate: iso, number: number, amountByn: amountByn }).then(function (ok) {
+                    if (ok === false) {
+                        editSave.disabled = false;
+                        if (errorEl) errorEl.textContent = 'CRM не приняла правку.';
+                        return;
+                    }
+                    applyEdit();
+                });
+            } else {
+                applyEdit();
+            }
+            return;
+        }
         var cancel = e.target.closest('[data-doc-cancel]');
         if (cancel && activeCard) {
             // Как на проде: отмена документа возвращает остаток; «Списано»

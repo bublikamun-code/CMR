@@ -49,7 +49,6 @@ HTML_TRANSFORMS = [
     # Демо-модуль данных и остальные скрипты подключает boot.js (см. regex ниже);
     # select.js меняем на пару адаптер+загрузчик
     ('<script src="./shell-v2-select.js" defer></script>', '<script src="js/v2/api.js"></script>\n<script src="js/v2/boot.js"></script>'),
-    ('<p class="shell-preview">Предпросмотр · данные не подключены</p>', '<p class="shell-preview" id="shell-source">Загрузка…</p>'),
     ('    </header>', '      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span></div>\n    </header>'),
     # Оверлей входа перед закрытием body
     ('</body>', """<div class="login-overlay" id="login-overlay" hidden>
