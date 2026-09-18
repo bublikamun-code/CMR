@@ -158,6 +158,7 @@
                 note: c.description || '',
                 paymentTerms: c.payment_terms || '',
                 paymentDueDate: String(c.payment_due_date || '').slice(0, 10),
+                payment_status: c.payment_status || '',
                 paymentDetails: null,
                 groupId: c.writeoff_group_id ? 'gr-' + c.writeoff_group_id : null,
                 checklist: (c.checklists || []).map(function (item) {
@@ -417,7 +418,10 @@
                     // а в CardPaymentUpdate его нет.
                     return await window.V2Api.api('/cards/' + payload.id, { method: 'PATCH', body: { payment_terms: payload.terms || null, payment_due_date: payload.due || null } });
                 } else if (kind === 'register-payment') {
-                    return await window.V2Api.api('/cards/' + payload.id + '/payment', { method: 'PATCH', body: { paid_amount: payload.paid, payment_status: payload.status } });
+                    // Как в рабочей версии: PATCH /cards/{id}/payment полями
+                    // статуса (Оплачен/Частично/Отсрочка/Не оплачен) —
+                    // выбор статуса определяет деньги, а не наоборот.
+                    return await window.V2Api.api('/cards/' + payload.id + '/payment', { method: 'PATCH', body: payload.fields });
                 } else if (kind === 'issue-invoice') {
                     return await window.V2Api.api('/payments/cards/' + payload.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount, store_location: payload.store || null } });
                 } else if (kind === 'invoice-edit') {

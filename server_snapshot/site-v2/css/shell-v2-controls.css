@@ -75,3 +75,7 @@ html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
   .kb-q-row { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .kb-search-field { transition: none; } }
+
+/* Оплата как в рабочей версии: сначала статус, деньги следуют за ним */
+.kb-pay-modes { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.kb-pay-modes .btn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--accent); }

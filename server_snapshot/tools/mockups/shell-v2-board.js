@@ -115,7 +115,11 @@
         var chips = '<span class="pill">' + esc(KBData.storeName(c.store)) + '</span>' +
             '<span class="pill"><span class="avatar sm">' + esc(c.manager.initials || '··') + '</span>' + esc(c.manager.full_name || c.manager.username || '') + '</span>';
         chips += counterHTML('ordered', 'Заказано', cl.ordered) + counterHTML('received', 'Получено', cl.received);
-        if (c.paidAmount >= c.amount && c.amount > 0) chips += '<span class="pill ok">оплачено полностью</span>';
+        // Статус оплаты — из CRM (payment_status); для демо-карточек —
+        // вывод из сумм, как раньше.
+        var payStatus = c.payment_status || (c.paidAmount >= c.amount && c.amount > 0 ? 'Оплачен' : (c.paidAmount > 0 ? 'Частично' : 'Не оплачен'));
+        if (payStatus === 'Оплачен') chips += '<span class="pill ok">оплачено полностью</span>';
+        else if (payStatus === 'Отсрочка') chips += '<span class="pill warn">отсрочка' + (c.paidAmount > 0 ? ' · ' + money(c.paidAmount) : '') + '</span>';
         else if (c.paidAmount > 0) chips += '<span class="pill ok">оплачено ' + money(c.paidAmount) + '</span>';
         if (c.issued > 0 && c.issued < c.amount) chips += '<span class="pill warn">остаток ' + money(remaining(c)) + '</span>';
         return '<button type="button" class="kb-card" draggable="true" data-card="' + esc(c.id) + '" aria-haspopup="dialog">' +
@@ -671,44 +675,122 @@
         if (pay) pay.onclick = function() { openPay(c); };
     }
 
-    // Оплата — факт денег (paid_amount + статус), отдельно от условий и выписки.
+    // Оплата — РОВНО как в рабочей версии (карточка сделки): выбирается
+    // СТАТУС, деньги следуют за ним. «Оплачен» одним кликом отмечает 100%
+    // суммы сделки; «Частично» — сумма (закрывающая сделку сумма сама
+    // становится «Оплачен»); «Отсрочка» — сумма и дата; «Не оплачен» —
+    // обнуление внесённой оплаты через подтверждение (фидбек 18.09).
     function openPay(c) {
         window.KBSelect.close();
-        var debt = c.amount - c.paidAmount;
-        // Фидбек 18.09: статус оплаты выбирается осознанно («Оплачен» при
-        // 100%, а не просто «долг 0»); при вводе суммы подставляется сам,
-        // остаётся возможным переопределить вручную.
-        var statusOptions = [['Оплачен', 'Оплачен (100%)'], ['Частично', 'Частично'], ['Не оплачен', 'Не оплачен']];
+        var total = c.amount, paid = c.paidAmount;
+        // Фидбек 18.09: оплата ведётся НА КЛИЕНТА — бывает переплата и
+        // допбор. Баланс = (оплачено по всем сделкам) − (суммы сделок);
+        // плюс — переплата клиента, минус — его долг. Проекция показывается
+        // при вводе суммы, превышающей сделку, уходит «в минус» баланса.
+        var clientBalance = 0, clientName = '';
+        if (c.clientId) {
+            const cl = window.KBData.clientById(c.clientId);
+            clientName = cl ? cl.name : '';
+            window.KBData.cards.forEach(function (x) {
+                if (x.clientId === c.clientId) clientBalance += x.paidAmount - x.amount;
+            });
+        }
         dialog.innerHTML = '<h2 id="kb-dialog-title">Внести оплату · ' + esc(c.id) + '</h2>' +
-            '<p class="kb-detail-hint">Долг: ' + money(debt) + ' BYN · Оплачено: ' + money(c.paidAmount) + ' BYN</p>' +
-            '<form id="kb-pay-form" class="kb-form"><div class="kb-field"><label for="kb-pay-amount">Сумма, BYN</label>' +
-            '<input id="kb-pay-amount" inputmode="decimal" value="' + money(debt) + '" required></div>' +
-            '<div class="kb-field"><label for="kb-pay-status">Статус оплаты</label><select id="kb-pay-status">' +
-            statusOptions.map(function (pair) { return '<option value="' + pair[0] + '"' + (debt <= 0 && pair[0] === 'Оплачен' ? ' selected' : '') + '>' + pair[1] + '</option>'; }).join('') +
-            '</select></div>' +
+            '<p class="kb-detail-hint">Сумма сделки: ' + money(total) + ' BYN · Оплачено: ' + money(paid) + ' BYN · Долг: ' + money(total - paid) + ' BYN</p>' +
+            (clientName ? '<p class="kb-detail-hint" id="kb-pay-client">Клиент «' + esc(clientName) + '» · баланс по клиенту (оплачено − счета): <b>' + money(clientBalance) + ' BYN</b></p>' : '') +
+            '<div class="kb-pay-modes">' +
+            [['Оплачен', 'Оплачен (100%)'], ['Частично', 'Частично'], ['Отсрочка', 'Отсрочка'], ['Не оплачен', 'Не оплачен']].map(function (pair) {
+                return '<button type="button" class="btn btn-ghost kb-pay-mode" data-mode="' + pair[0] + '">' + pair[1] + '</button>';
+            }).join('') + '</div>' +
+            '<form id="kb-pay-form" class="kb-form" hidden>' +
+            '<div class="kb-field" id="kb-pay-amount-wrap"><label for="kb-pay-amount">Оплачено, BYN</label>' +
+            '<input id="kb-pay-amount" inputmode="decimal" placeholder="0,00"></div>' +
+            '<div class="kb-field" id="kb-pay-due-wrap" hidden><label for="kb-pay-due">Оплатить до</label>' +
+            '<input id="kb-pay-due" type="date"></div>' +
             '<p class="kb-form-error" id="kb-pay-error" role="alert"></p>' +
-            '<p class="kb-form-hint">Оплата — факт денег. Статус подставляется по сумме и при необходимости меняется вручную; условия оплаты задаются отдельно.</p>' +
-            '<button class="btn btn-primary" type="submit">Провести оплату</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
+            '<p class="kb-form-hint" id="kb-pay-hint"></p>' +
+            '<button class="btn btn-primary" type="submit">Провести</button>' +
+            '<button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
+        var form = document.getElementById('kb-pay-form');
+        var amountWrap = document.getElementById('kb-pay-amount-wrap');
+        var dueWrap = document.getElementById('kb-pay-due-wrap');
         var amountInput = document.getElementById('kb-pay-amount');
-        var statusSelect = document.getElementById('kb-pay-status');
-        amountInput.focus();
-        amountInput.addEventListener('input', function () {
-            var sum = parseMoney(amountInput.value);
-            if (!Number.isSafeInteger(sum)) return;
-            statusSelect.value = c.paidAmount + sum >= c.amount ? 'Оплачен' : (sum > 0 ? 'Частично' : 'Не оплачен');
+        var dueInput = document.getElementById('kb-pay-due');
+        var mode = '';
+        dialog.querySelectorAll('.kb-pay-mode').forEach(function (b) {
+            b.onclick = function () {
+                mode = b.dataset.mode;
+                dialog.querySelectorAll('.kb-pay-mode').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+                form.hidden = false;
+                amountWrap.hidden = mode === 'Оплачен';
+                dueWrap.hidden = mode !== 'Отсрочка';
+                document.getElementById('kb-pay-hint').textContent =
+                    mode === 'Оплачен' ? 'Будет отмечено: оплачено 100% — ' + money(total) + ' BYN.' :
+                    mode === 'Частично' ? 'Укажите оплаченную часть; сумма, закрывающая сделку, отмечается как «Оплачен».' :
+                    mode === 'Отсрочка' ? 'Укажите оплаченную сейчас часть (можно 0) и дату, до которой ждём остаток.' :
+                    'Будет обнулена внесённая оплата и снята отсрочка.';
+                if (mode === 'Отсрочка') {
+                    amountInput.value = paid > 0 ? money(paid) : '';
+                    amountInput.focus();
+                    updateClientProjection();
+                } else if (mode !== 'Оплачен') {
+                    amountInput.value = (paid > 0 && paid < total) ? money(paid) : '';
+                    amountInput.focus();
+                    updateClientProjection();
+                }
+            };
         });
-        var submitted = false;
-        document.getElementById('kb-pay-form').onsubmit = function (e) {
-            e.preventDefault();
-            if (submitted) return;
-            var sum = parseMoney(amountInput.value);
-            var error = !Number.isSafeInteger(sum) || sum <= 0 || sum > debt ? 'Сумма должна быть больше нуля и не превышать долг.' : '';
-            if (error) { document.getElementById('kb-pay-error').textContent = error; return; }
-            submitted = true;
-            c.paidAmount += sum;
-            apiMutate('register-payment', { id: Number(c.id), paid: c.paidAmount / 100, status: statusSelect.value });
+        function updateClientProjection() {
+            var box = document.getElementById('kb-pay-client');
+            if (!box || !c.clientId) return;
+            var amount = parseMoney(amountInput.value);
+            var projected = clientBalance + (Number.isSafeInteger(amount) ? amount - paid : 0);
+            var tail = projected > 0 ? ' · переплата +' + money(projected) + ' BYN (зачтётся при доборе)'
+                     : projected < 0 ? ' · долг ' + money(-projected) + ' BYN' : '';
+            box.innerHTML = 'Клиент «' + esc(clientName) + '» · баланс по клиенту после оплаты: <b>' + money(projected) + ' BYN</b>' + tail;
+        }
+        amountInput.addEventListener('input', updateClientProjection);
+
+        function finish(fields, message) {
+            apiMutate('register-payment', { id: Number(c.id), fields: fields });
+            if (fields.paid_amount !== undefined) c.paidAmount = Math.round(fields.paid_amount * 100);
+            if (fields.payment_due_date !== undefined) c.paymentDueDate = fields.payment_due_date || '';
+            if (fields.payment_status !== undefined) c.payment_status = fields.payment_status;
             dialog.close(); refresh();
-            notify(c.id + ' — оплата ' + money(sum) + ' BYN проведена, статус «' + statusSelect.value + '».');
+            notify(c.id + ' — ' + message);
+        }
+        form.onsubmit = function (e) {
+            e.preventDefault();
+            var err = document.getElementById('kb-pay-error');
+            err.textContent = '';
+            if (mode === 'Оплачен') {
+                if (total <= 0) { err.textContent = 'Укажите сумму сделки.'; return; }
+                return finish({ paid_amount: total / 100, payment_status: 'Оплачен' }, 'оплачено 100% — ' + money(total) + ' BYN.');
+            }
+            var amount = parseMoney(amountInput.value);
+            if (mode === 'Частично') {
+                if (!Number.isSafeInteger(amount) || amount <= 0) { err.textContent = 'Укажите сумму оплаты.'; return; }
+                // Переплата сверх суммы сделки допустима — она ляжет в баланс
+                // клиента и зачтётся при доборе (фидбек 18.09).
+                var newStatus = amount >= total - 1 ? 'Оплачен' : 'Частично';
+                var extra = amount > total ? ' (переплата ' + money(amount - total) + ' BYN в баланс клиента)' : '';
+                return finish({ paid_amount: amount / 100, payment_status: newStatus }, 'оплата ' + money(amount) + ' BYN' + extra + ', статус «' + newStatus + '».');
+            }
+            if (mode === 'Отсрочка') {
+                // Как в рабочей версии: без верхнего предела (бывает
+                // переплата), важна дата.
+                if (!Number.isSafeInteger(amount) || amount < 0) { err.textContent = 'Укажите оплаченную сумму (0 и более).'; return; }
+                if (!dueInput.value) { err.textContent = 'Укажите дату отсрочки.'; return; }
+                return finish({ paid_amount: amount / 100, payment_status: 'Отсрочка', payment_due_date: dueInput.value }, 'отсрочка до ' + dueInput.value + ', оплачено ' + money(amount) + ' BYN.');
+            }
+            if (mode === 'Не оплачен') {
+                var doReset = function () {
+                    finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'оплата обнулена.');
+                };
+                if (paid > 0) {
+                    if (window.confirm('Обнулить внесённую оплату (' + money(paid) + ' BYN)?')) doReset();
+                } else doReset();
+            }
         };
     }
 
