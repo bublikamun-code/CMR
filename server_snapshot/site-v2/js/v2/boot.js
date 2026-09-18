@@ -185,6 +185,15 @@
         const issuedByCard = {};
         (payload.transactions || []).forEach(function (t) {
             if (t.is_document || t.card_id == null) return;
+            // Фидбек 18.09 («Рацио Домус»): сгруппированная строка реестра
+            // агрегирует номер первой накладной и несёт ВСЮ сумму сделки —
+            // брать её amount нельзя, выписано считалось полной суммой
+            // (57 046,38 вместо 38 824,52). Честная сумма — invoiced_amount
+            // из бэкенда; старый разбор частей оставлен как запасной путь.
+            if (t.invoiced_amount !== undefined && t.invoiced_amount !== null) {
+                issuedByCard[t.card_id] = kopecks(t.invoiced_amount);
+                return;
+            }
             if (!t.is_warehouse_writeoff && !(t.invoice_number || '').trim()) return;
             issuedByCard[t.card_id] = (issuedByCard[t.card_id] || 0) + kopecks(t.amount);
         });
@@ -279,6 +288,12 @@
         ]);
         buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5] });
         window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6], results[9], results[3]);
+        // Фидбек 18.09: журнал сделки в v2 — из CRM (GET /activity?card_id),
+        // включая «Импорт почты» с текстом письма. В демо-режиме загрузчика
+        // нет — вкладка остаётся на локальных событиях.
+        window.KBData.loadCardActivity = async function (cardId) {
+            return await window.V2Api.api('/activity?card_id=' + encodeURIComponent(cardId) + '&limit=100');
+        };
         enableMutations();
         renderUser(meUser);
         setText('CRM');
@@ -311,6 +326,12 @@
         const issuedByCard = {};
         (transactions || []).forEach(function (t) {
             if (t.is_document || t.card_id == null) return;
+            // См. комментарий в buildKbData: сгруппированная строка несёт всю
+            // сумму сделки — выписанное берём из invoiced_amount бэкенда.
+            if (t.invoiced_amount !== undefined && t.invoiced_amount !== null) {
+                issuedByCard[t.card_id] = kopecks(t.invoiced_amount);
+                return;
+            }
             if (!t.is_warehouse_writeoff && !(t.invoice_number || '').trim()) return;
             issuedByCard[t.card_id] = (issuedByCard[t.card_id] || 0) + kopecks(t.amount);
         });

@@ -160,3 +160,8 @@
     #kb-dialog .kb-dialog-foot { position: sticky; bottom: -12px; background: var(--surface); padding-bottom: 8px; }
 }
 
+
+/* История сделки: журнал из CRM; текст письма из «Импорт почты» — с переносами */
+.kb-history-full { max-height: 420px; overflow: auto; }
+.kb-history-date { opacity: .72; margin: 2px 0 0; }
+.kb-history-details { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }

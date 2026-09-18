@@ -537,9 +537,40 @@
             (groupEntry + docs ? '<ul class="kb-detail-docs">' + groupEntry + docs + '</ul>' : '<div class="kb-detail-empty"><b>Накладных пока нет</b><p>Демо-выписка доступна на этапе «На списание».</p></div>') +
             '<p class="kb-detail-hint">Выписанные ТН доступны в «Финансы → Документы». Оплата учитывается отдельно.</p></section>' +
             '<section id="kb-panel-history" role="tabpanel" aria-labelledby="kb-tab-history" tabindex="0" hidden>' +
-            '<h3 class="kb-detail-section-title">История в этом демо</h3><ol class="kb-detail-history">' + history +
-            '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Текущий этап: ' + esc(currentStage) + '</b><p>Состояние карточки сейчас; время перехода не записывается.</p></div></li></ol>' +
-            '<p class="kb-detail-hint">Показаны выписки текущей сессии, не полный журнал изменений.</p></section>';
+            '<h3 class="kb-detail-section-title">История сделки</h3><div id="kb-history-real"><p class="kb-detail-empty">Журнал загружается…</p></div>' +
+            '<h3 class="kb-detail-section-title">Выписки этой сессии</h3><ol class="kb-detail-history">' + history +
+            '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Текущий этап: ' + esc(currentStage) + '</b><p>Состояние карточки сейчас; время перехода не записывается.</p></div></li></ol></section>';
+    }
+    // Фидбек 18.09: вкладка «История» показывает журнал из CRM (та же лента,
+    // что в основной версии) — включая «Импорт почты» с текстом письма.
+    // Текст письма содержит переносы — выводится как есть (pre-wrap).
+    function loadCardHistory(c) {
+        var box = document.getElementById('kb-history-real');
+        if (!box) return;
+        if (!window.KBData.loadCardActivity) {
+            box.innerHTML = '<p class="kb-detail-empty">Журнал доступен при подключении к CRM.</p>';
+            return;
+        }
+        if (c.historyLoaded) { box.innerHTML = c.historyHtml; return; }
+        window.KBData.loadCardActivity(Number(c.id)).then(function (items) {
+            if (!items || !items.length) {
+                box.innerHTML = '<p class="kb-detail-empty">Журнал пуст.</p>';
+                return;
+            }
+            var rows = items.map(function (e) {
+                var d = new Date(e.created_at);
+                var when = isNaN(d) ? String(e.created_at || '') : d.toLocaleString('ru-RU');
+                var who = e.user_name ? ' · ' + esc(e.user_name) : '';
+                var details = e.details ? '<p class="kb-history-details">' + esc(e.details) + '</p>' : '';
+                return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>' + esc(e.action) + '</b>' + who +
+                    '<p class="kb-history-date">' + esc(when) + '</p>' + details + '</div></li>';
+            }).join('');
+            c.historyHtml = '<ol class="kb-detail-history kb-history-full">' + rows + '</ol>';
+            c.historyLoaded = true;
+            box.innerHTML = c.historyHtml;
+        }).catch(function () {
+            box.innerHTML = '<p class="kb-detail-empty">Не удалось загрузить журнал. Попробуйте открыть карточку снова.</p>';
+        });
     }
     // Recalculate only on an explicit toggle or a fresh open, never during edits.
     function updateOverviewVisibility(preserved) {
@@ -629,6 +660,7 @@
             updateOverviewVisibility(null);
         };
         selectTab(selectedTab, false);
+        loadCardHistory(c);
         if (!dialog.open) dialog.showModal();
         dialog.querySelector('.kb-detail-content').scrollTop = scrollTop;
         var send = document.getElementById('kb-send');
@@ -643,26 +675,40 @@
     function openPay(c) {
         window.KBSelect.close();
         var debt = c.amount - c.paidAmount;
+        // Фидбек 18.09: статус оплаты выбирается осознанно («Оплачен» при
+        // 100%, а не просто «долг 0»); при вводе суммы подставляется сам,
+        // остаётся возможным переопределить вручную.
+        var statusOptions = [['Оплачен', 'Оплачен (100%)'], ['Частично', 'Частично'], ['Не оплачен', 'Не оплачен']];
         dialog.innerHTML = '<h2 id="kb-dialog-title">Внести оплату · ' + esc(c.id) + '</h2>' +
             '<p class="kb-detail-hint">Долг: ' + money(debt) + ' BYN · Оплачено: ' + money(c.paidAmount) + ' BYN</p>' +
             '<form id="kb-pay-form" class="kb-form"><div class="kb-field"><label for="kb-pay-amount">Сумма, BYN</label>' +
             '<input id="kb-pay-amount" inputmode="decimal" value="' + money(debt) + '" required></div>' +
+            '<div class="kb-field"><label for="kb-pay-status">Статус оплаты</label><select id="kb-pay-status">' +
+            statusOptions.map(function (pair) { return '<option value="' + pair[0] + '"' + (debt <= 0 && pair[0] === 'Оплачен' ? ' selected' : '') + '>' + pair[1] + '</option>'; }).join('') +
+            '</select></div>' +
             '<p class="kb-form-error" id="kb-pay-error" role="alert"></p>' +
-            '<p class="kb-form-hint">Оплата — факт денег. Условия оплаты задаются отдельным полем и на оплату не влияют.</p>' +
+            '<p class="kb-form-hint">Оплата — факт денег. Статус подставляется по сумме и при необходимости меняется вручную; условия оплаты задаются отдельно.</p>' +
             '<button class="btn btn-primary" type="submit">Провести оплату</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
-        document.getElementById('kb-pay-amount').focus();
+        var amountInput = document.getElementById('kb-pay-amount');
+        var statusSelect = document.getElementById('kb-pay-status');
+        amountInput.focus();
+        amountInput.addEventListener('input', function () {
+            var sum = parseMoney(amountInput.value);
+            if (!Number.isSafeInteger(sum)) return;
+            statusSelect.value = c.paidAmount + sum >= c.amount ? 'Оплачен' : (sum > 0 ? 'Частично' : 'Не оплачен');
+        });
         var submitted = false;
         document.getElementById('kb-pay-form').onsubmit = function (e) {
             e.preventDefault();
             if (submitted) return;
-            var sum = parseMoney(document.getElementById('kb-pay-amount').value);
+            var sum = parseMoney(amountInput.value);
             var error = !Number.isSafeInteger(sum) || sum <= 0 || sum > debt ? 'Сумма должна быть больше нуля и не превышать долг.' : '';
             if (error) { document.getElementById('kb-pay-error').textContent = error; return; }
             submitted = true;
             c.paidAmount += sum;
-            apiMutate('register-payment', { id: Number(c.id), paid: c.paidAmount / 100, status: c.paidAmount >= c.amount ? 'Оплачен' : 'Частично' });
+            apiMutate('register-payment', { id: Number(c.id), paid: c.paidAmount / 100, status: statusSelect.value });
             dialog.close(); refresh();
-            notify(c.id + ' — оплата ' + money(sum) + ' BYN проведена.');
+            notify(c.id + ' — оплата ' + money(sum) + ' BYN проведена, статус «' + statusSelect.value + '».');
         };
     }
 
