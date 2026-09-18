@@ -1,4 +1,4 @@
-"""0005: колонки writeoff_group_id в cards и transactions (аудит 18.09).
+"""0007: колонки writeoff_group_id в cards и transactions (аудит 18.09).
 
 В моделях cards.writeoff_group_id и transactions.writeoff_group_id уже
 давно есть (FK на writeoff_groups.id ON DELETE SET NULL, index=True), но
