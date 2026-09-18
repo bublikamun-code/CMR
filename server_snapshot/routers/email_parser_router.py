@@ -115,9 +115,13 @@ def _get_settings_path(tenant_id: int | None = None) -> str:
     """Locate the mailbox settings file.
 
     Resolution order, same rule as the secret keys in auth.py:
-      1. an existing file next to the code (legacy bare-metal layout) wins, so a
-         running server keeps its current settings;
-      2. otherwise CRM_DATA_DIR, which in Docker is a persistent volume.
+      1. when CRM_DATA_DIR is explicitly configured — the data dir always wins
+         (FIX 18.09: a legacy file next to the code used to shadow it for
+         reads while save_settings was guard-blocked from writing there,
+         so every sync crashed AFTER importing mail and last_sync froze);
+      2. otherwise (bare-metal without data dir) an existing file next to the
+         code keeps a running server on its current settings;
+      3. otherwise CRM_DATA_DIR / default dir.
 
     This file holds the mailbox password and is excluded from the image, so under
     Docker it can only live in the data volume. Resolving it relative to the code
@@ -130,16 +134,18 @@ def _get_settings_path(tenant_id: int | None = None) -> str:
 
     if tenant_id:
         filename = f"email_settings_{tenant_id}.json"
-        legacy = os.path.join(app_dir, "tenants", filename)
-        if os.path.exists(legacy):
-            return legacy
         tenants_dir = os.path.join(DATA_DIR, "tenants")
+        if not os.environ.get("CRM_DATA_DIR"):
+            legacy = os.path.join(app_dir, "tenants", filename)
+            if os.path.exists(legacy):
+                return legacy
         os.makedirs(tenants_dir, exist_ok=True)
         return os.path.join(tenants_dir, filename)
 
-    legacy = os.path.join(app_dir, "email_settings.json")
-    if os.path.exists(legacy):
-        return legacy
+    if not os.environ.get("CRM_DATA_DIR"):
+        legacy = os.path.join(app_dir, "email_settings.json")
+        if os.path.exists(legacy):
+            return legacy
     os.makedirs(DATA_DIR, exist_ok=True)
     return os.path.join(DATA_DIR, "email_settings.json")
 
@@ -492,7 +498,14 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                 continue
 
         settings["last_sync"] = datetime.now(timezone.utc).isoformat()
-        save_settings(settings, tenant_id)
+        try:
+            save_settings(settings, tenant_id)
+        except Exception:
+            # FIX 18.09: сбой записи настроек (last_sync) — бухгалтерия, а не
+            # импорт. Раньше он перечёркивал успешный синк: письма уже
+            # обработаны, а ответ уходил «Ошибка подключения к почтовому
+            # серверу» каждую итерацию watchdog.
+            logger.exception(f"Не удалось сохранить last_sync (tenant {tenant_id}) — импорт выполнен")
 
         return {
             "tenant_id": tenant_id,
