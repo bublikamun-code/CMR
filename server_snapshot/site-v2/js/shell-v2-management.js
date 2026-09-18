@@ -115,3 +115,145 @@
     });
     $('mgmt-supplier-search').addEventListener('input',()=>render('supplier'));
 })();
+
+/* ============================================================
+   Почта, профиль и уведомления — живой CRM-функционал v2
+   (фидбек 18.09: без этого старую систему не снять).
+   ============================================================ */
+(function () {
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    function toast(text, isError) {
+        const t = $('kb-toast');
+        if (!t) return;
+        t.hidden = false;
+        t.textContent = text;
+        t.classList.toggle('toast-error', Boolean(isError));
+        setTimeout(() => { t.hidden = true; t.classList.remove('toast-error'); }, 4000);
+    }
+
+    /* --- Почта: настройки + ручная синхронизация --- */
+    function fillStatusOptions() {
+        const sel = $('mgmt-email-status');
+        if (!sel || sel.options.length) return;
+        const names = (window.KBData && window.KBData.statuses || []).map((s) => s.name);
+        if (!names.includes('Новый запрос')) names.unshift('Новый запрос');
+        sel.innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    }
+    async function loadMail() {
+        if (!window.V2Api.token()) return;
+        try {
+            const s = await window.V2Api.api('/email-parser/settings');
+            const body = $('mgmt-email-body');
+            if (!body) return;
+            body.hidden = false;
+            fillStatusOptions();
+            $('mgmt-email-email').value = s.email || '';
+            $('mgmt-email-imap').value = s.imap_server || '';
+            $('mgmt-email-status').value = s.target_status || 'Новый запрос';
+            $('mgmt-email-last').textContent = s.last_sync
+                ? 'Последняя синхронизация: ' + new Date(s.last_sync).toLocaleString('ru-RU')
+                : 'Синхронизаций ещё не было';
+        } catch (e) { /* настройки недоступны — карточка остаётся свёрнутой */ }
+    }
+    $('mgmt-email-save').addEventListener('click', async () => {
+        const password = $('mgmt-email-pass').value.trim();
+        try {
+            await window.V2Api.api('/email-parser/settings', {
+                method: 'POST',
+                body: {
+                    email: $('mgmt-email-email').value.trim(),
+                    imap_server: $('mgmt-email-imap').value.trim(),
+                    password: password || '********',
+                    target_status: $('mgmt-email-status').value || 'Новый запрос'
+                }
+            });
+            $('mgmt-email-pass').value = '';
+            toast('Настройки почты сохранены');
+            loadMail();
+        } catch (e) { toast('Не сохранено: ' + (e.detail || e.message || 'ошибка'), true); }
+    });
+    $('mgmt-email-sync').addEventListener('click', async () => {
+        const btn = $('mgmt-email-sync');
+        btn.disabled = true;
+        try {
+            const res = await window.V2Api.api('/email-parser/sync', { method: 'POST' });
+            const first = (res.results || [])[0] || {};
+            if (first.success) toast('Синхронизация выполнена: новых писем ' + (res.total_count || 0));
+            else toast('Синхронизация не прошла: ' + (first.error || 'ошибка'), true);
+            loadMail();
+        } catch (e) { toast('Синхронизация не прошла: ' + (e.detail || e.message || 'ошибка'), true); }
+        finally { btn.disabled = false; }
+    });
+
+    /* --- Профиль: смена пароля --- */
+    $('mgmt-pass-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const err = $('mgmt-pass-error');
+        err.textContent = '';
+        const oldPassword = $('mgmt-pass-old').value;
+        const newPassword = $('mgmt-pass-new').value;
+        if (newPassword !== $('mgmt-pass-new2').value) { err.textContent = 'Новые пароли не совпадают.'; return; }
+        if (newPassword.length < 6) { err.textContent = 'Пароль от 6 символов.'; return; }
+        try {
+            const res = await window.V2Api.api('/auth/me/password', {
+                method: 'PUT',
+                body: { old_password: oldPassword, new_password: newPassword }
+            });
+            window.alert((res && res.detail || 'Пароль изменён.') + ' Войдите с новым паролем.');
+            await window.V2Api.api('/auth/logout', { method: 'POST' }).catch(() => {});
+            window.V2Api.clear();
+            location.reload();
+        } catch (e) { err.textContent = e.detail || e.message || 'Не удалось сменить пароль.'; }
+    });
+
+    /* --- Уведомления: колокольчик --- */
+    async function refreshBellCount() {
+        if (!window.V2Api.token()) return;
+        try {
+            const list = await window.V2Api.api('/notifications');
+            const badge = $('v2-bell-count');
+            if (!badge) return;
+            badge.hidden = !list.unread_count;
+            badge.textContent = list.unread_count > 99 ? '99+' : String(list.unread_count);
+        } catch (e) { /* тихо: колокольчик не критичен */ }
+    }
+    function renderItem(n) {
+        const when = n.created_at ? new Date(n.created_at).toLocaleString('ru-RU') : '';
+        return '<div class="kb-check-row" style="display:block"><b' + (n.is_read ? '' : ' style="color:var(--accent)"') + '>' + esc(n.title) + '</b>' +
+            (n.details ? '<p style="margin:2px 0 0;white-space:pre-wrap">' + esc(n.details) + '</p>' : '') +
+            '<p style="margin:2px 0 0;opacity:.7">' + esc(when) + '</p></div>';
+    }
+    $('v2-bell').addEventListener('click', async () => {
+        const panel = $('v2-notif-panel');
+        if (!panel) return;
+        if (!panel.hidden) { panel.hidden = true; return; }
+        panel.hidden = false;
+        panel.innerHTML = '<p class="kb-detail-hint">Загрузка…</p>';
+        try {
+            const list = await window.V2Api.api('/notifications');
+            panel.innerHTML = list.items.length
+                ? list.items.map(renderItem).join('<hr style="border:0;border-top:1px solid var(--border);margin:6px 0">')
+                : '<p class="kb-detail-hint">Уведомлений нет.</p>';
+            if (list.unread_count) {
+                await window.V2Api.api('/notifications/read', { method: 'POST', body: { ids: [] } });
+                const badge = $('v2-bell-count');
+                if (badge) { badge.hidden = true; badge.textContent = ''; }
+            }
+        } catch (e) { panel.innerHTML = '<p class="kb-detail-hint">Не удалось загрузить уведомления.</p>'; }
+    });
+    document.addEventListener('click', (event) => {
+        const panel = $('v2-notif-panel');
+        if (panel && !panel.hidden && !panel.contains(event.target) && event.target.closest('#v2-bell') === null) panel.hidden = true;
+    });
+
+    // Первичная загрузка: колокольчик сразу, карточка почты — при входе в Admin.
+    refreshBellCount();
+    setInterval(refreshBellCount, 60000);
+    document.addEventListener('click', (event) => {
+        const adminLink = event.target.closest('[data-view="admin"]');
+        if (adminLink) setTimeout(loadMail, 300);
+    });
+    window.addEventListener('hashchange', () => { if (location.hash.includes('admin')) setTimeout(loadMail, 300); });
+})();

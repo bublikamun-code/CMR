@@ -8,18 +8,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="css/shell-v2-base.css?v=e41ce2baf4">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=e41ce2baf4">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=e41ce2baf4">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=e41ce2baf4">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=e41ce2baf4">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=e41ce2baf4">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=e41ce2baf4">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=e41ce2baf4">
-<script>window.V2_ASSET_VER="e41ce2baf4"</script>
-<script src="js/v2/api.js?v=e41ce2baf4"></script>
-<script src="js/v2/boot.js?v=e41ce2baf4"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=e41ce2baf4">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=baf1ef6eb0">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=baf1ef6eb0">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=baf1ef6eb0">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=baf1ef6eb0">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=baf1ef6eb0">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=baf1ef6eb0">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=baf1ef6eb0">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=baf1ef6eb0">
+<script>window.V2_ASSET_VER="baf1ef6eb0"</script>
+<script src="js/v2/api.js?v=baf1ef6eb0"></script>
+<script src="js/v2/boot.js?v=baf1ef6eb0"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=baf1ef6eb0">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -81,7 +81,7 @@
         <h1 id="shell-title">Доска сделок</h1>
         <p class="shell-preview" id="shell-source"></p>
       </div>
-      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span></div>
+      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span><button type="button" class="btn btn-ghost btn-sm" id="v2-bell" title="Уведомления" aria-label="Уведомления">🔔<span id="v2-bell-count" class="pill warn" hidden></span></button><div id="v2-notif-panel" class="card" hidden style="position:fixed;top:60px;right:16px;z-index:120;width:360px;max-height:60vh;overflow:auto"></div></div>
     </header>
 
     <main class="content" id="shell-content" tabindex="-1" aria-labelledby="shell-title">
@@ -229,7 +229,7 @@
             <div class="fin-filters" role="group" aria-label="Фильтр реестра">
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="debt" aria-pressed="false">Есть долг</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>                <button type="button" class="btn btn-ghost btn-sm" id="fin-payment-export">Экспорт CSV</button>
             </div>
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Реестр оплат — горизонтальная прокрутка">
@@ -253,7 +253,7 @@
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Возврат оригиналов — горизонтальная прокрутка">
             <table class="tbl fin-table fin-table-compact" id="fin-document-table">
-              <thead><tr><th scope="col">Клиент / карточка</th><th scope="col">ТН / счёт</th><th scope="col">Сумма, BYN</th><th scope="col">Возврат ТН</th><th scope="col">Возврат счёта</th></tr></thead>
+              <thead><tr><th scope="col">Клиент / карточка</th><th scope="col">ТН / счёт</th><th scope="col">Сумма, BYN</th><th scope="col">Возврат ТН</th><th scope="col">Возврат счёта</th><th scope="col">Печать</th></tr></thead>
               <tbody id="fin-document-rows"></tbody>
             </table>
           </div>
@@ -391,6 +391,34 @@
       </section>
 
       <section class="view" id="view-admin" hidden data-mgmt>
+        <div class="card" id="mgmt-mail-card">
+          <div class="card-head"><span class="card-title">Почта — синхронизация заказов</span>
+            <div class="right"><button class="btn btn-ghost btn-sm" id="mgmt-email-sync" type="button">Синхронизировать сейчас</button>
+            <button class="btn btn-primary btn-sm" id="mgmt-email-save" type="button">Сохранить</button></div>
+          </div>
+          <div class="card-body" id="mgmt-email-body" hidden>
+            <p class="kb-detail-hint" id="mgmt-email-last"></p>
+            <div class="kb-deal-fields">
+              <label class="kb-edit-field" for="mgmt-email-email"><span>Электронная почта</span><input id="mgmt-email-email" type="email" autocomplete="off"></label>
+              <label class="kb-edit-field" for="mgmt-email-pass"><span>Пароль ящика (оставьте пустым, чтобы не менять)</span><input id="mgmt-email-pass" type="password" autocomplete="new-password" placeholder="••••••"></label>
+              <label class="kb-edit-field" for="mgmt-email-imap"><span>IMAP-сервер</span><input id="mgmt-email-imap" type="text" autocomplete="off"></label>
+              <label class="kb-edit-field" for="mgmt-email-status"><span>Статус новых карточек из писем</span><select id="mgmt-email-status"></select></label>
+            </div>
+          </div>
+        </div>
+        <div class="card" id="mgmt-profile-card">
+          <div class="card-head"><span class="card-title">Профиль — смена пароля</span></div>
+          <form class="card-body" id="mgmt-pass-form">
+            <div class="kb-deal-fields">
+              <label class="kb-edit-field" for="mgmt-pass-old"><span>Текущий пароль</span><input id="mgmt-pass-old" type="password" autocomplete="current-password" required></label>
+              <label class="kb-edit-field" for="mgmt-pass-new"><span>Новый пароль</span><input id="mgmt-pass-new" type="password" autocomplete="new-password" required></label>
+              <label class="kb-edit-field" for="mgmt-pass-new2"><span>Новый пароль ещё раз</span><input id="mgmt-pass-new2" type="password" autocomplete="new-password" required></label>
+            </div>
+            <p class="kb-form-error" id="mgmt-pass-error" role="alert"></p>
+            <p class="kb-detail-hint">После смены пароля потребуется войти заново на всех устройствах.</p>
+            <button class="btn btn-primary btn-sm" type="submit">Сменить пароль</button>
+          </form>
+        </div>
         <div class="card">
           <div class="card-head"><span class="card-title">Пользователи</span>
             <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-user-new" type="button">+ Новый пользователь</button></div>

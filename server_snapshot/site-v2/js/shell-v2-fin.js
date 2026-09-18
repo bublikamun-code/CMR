@@ -28,6 +28,8 @@
     const matches = (r, query) => normalize([r.client, r.card, r.date, r.store, r.estimate, r.tn?.number || '', r.tn?.date || ''].join(' ')).includes(normalize(query));
     const tnText = (r) => r.tn ? `${esc(r.tn.number)}<small>${esc(r.tn.date)}</small>` : 'Не оформлена';
     const checkbox = (r, field, title) => `<label class="fin-check" for="fin-${field}-${r.id}"><input type="checkbox" id="fin-${field}-${r.id}" data-record="${r.id}" data-field="${field}" aria-label="${esc(title + ' — ' + r.card + ', ' + r.client)}" ${r[field] ? 'checked' : ''}>${title}</label>`;
+    const PRINT_OPTIONS = [['', '—'], ['Печать', 'Печать'], ['Доверенность', 'Доверенность'], ['БН', 'Безнал (БН)']];
+    const printCell = (r) => `<select class="fprint-select" data-record="${r.id}" aria-label="Печать — ${esc(r.card)}">${PRINT_OPTIONS.map(([v, l]) => `<option value="${v}"${(r.print || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
 
     // DOM строк создаётся один раз: checkbox/details и фокус не теряются.
     // data-card на строке: клик по любому месту строки открывает карточку
@@ -43,7 +45,7 @@
     const issued = outgoing.filter((r) => r.tn);
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
         <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
-        <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td>
+        <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
     </tr>`).join('');
     $('#fin-journal-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
         <td>${esc(r.tn.number)}</td><td class="num">${r.tn.date}</td>
@@ -70,7 +72,7 @@
             $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
                 <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
                 <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
-                <td class="num">${money(doc.amount)}</td><td>${checkbox({...r, card: card.id, client: card.client}, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td>
+                <td class="num">${money(doc.amount)}</td><td>${checkbox({...r, card: card.id, client: card.client}, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
             </tr>`);
         }));
         updateDocuments();
@@ -86,7 +88,7 @@
             $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
                 <td><b>${esc(g.client)}</b><small>${esc(r.card)}: ${esc(cardsText)}</small></td>
                 <td>${esc(g.series + ' ' + g.number)}<small>${esc(g.date)}</small></td>
-                <td class="num">${money(g.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td>
+                <td class="num">${money(g.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
             </tr>`);
             $('#fin-journal-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
                 <td>${esc(g.series + ' ' + g.number)}</td><td class="num">${esc(g.date)}</td>
@@ -111,12 +113,32 @@
         const sum = rows.reduce((acc, r) => ({ amount: acc.amount + r.amount, paid: acc.paid + r.paid }), { amount: 0, paid: 0 });
         return `Итого видимых: ${rows.length} · Сумма ${money(sum.amount)} BYN · Оплачено ${money(sum.paid)} BYN · Долг ${money(sum.amount - sum.paid)} BYN`;
     }
+    let lastVisibleRows = [];
     function updatePayments(keepFocused = false) {
         const rows = visibleRows('#fin-payment-rows', (r) => matches(r, $('#fin-payment-search').value) &&
             (paymentFilter === 'all' || (paymentFilter === 'debt' ? r.paid < r.amount : !r.posted)), keepFocused);
+        lastVisibleRows = rows;
         $('#fin-payment-total').textContent = total(rows);
         $('#fin-payment-empty').hidden = rows.length !== 0;
     }
+    // Экспорт CSV ровно видимого набора, как в рабочей версии (';' + BOM).
+    $('#fin-payment-export').addEventListener('click', () => {
+        const rows = lastVisibleRows;
+        if (!rows.length) { alert('Нечего экспортировать — список пуст.'); return; }
+        const headers = ['Дата', 'Клиент', 'Карточка', 'Сумма (BYN)', 'Оплачено (BYN)', 'Долг (BYN)', 'Магазин', '№ ТН', 'Дата ТН', 'Просчёт', 'Списано', 'Печать/доверенность', 'Примечание'];
+        const escCsv = (v) => { const s = (v === null || v === undefined) ? '' : String(v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+        const lines = [headers.join(';')].concat(rows.map((r) => [
+            r.date, r.client, r.card, money(r.amount), money(r.paid), money(r.amount - r.paid),
+            r.store, r.tn ? r.tn.number : '', r.tn ? r.tn.date : '',
+            r.calculated ? 'да' : 'нет', r.posted ? 'да' : 'нет', r.print || '', r.note || ''
+        ].map(escCsv).join(';')));
+        const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'reestr_oplat.csv';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    });
     function updateDocuments(keepFocused = false) {
         const rows = visibleRows('#fin-document-rows', (r) => documentFilter === 'all' ||
             (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false)), keepFocused);
@@ -150,6 +172,16 @@
     $('#fin-payment-search').addEventListener('input', () => updatePayments());
     $('#fin-journal-search').addEventListener('input', updateJournal);
     root.addEventListener('change', (event) => {
+        const target = event.target;
+        if (target.matches('select.fprint-select')) {
+            const r = byId.get(target.dataset.record);
+            if (!r) return;
+            r.print = target.value; // Печать/Доверенность/БН — поле документа
+            if (r.docTxId && window.V2Api && window.V2Api.token()) {
+                window.V2Api.api('/payments/transactions/' + r.docTxId, { method: 'PATCH', body: { print_status: target.value || null } })
+                    .catch(() => { const t = document.getElementById('kb-toast'); if (t) { t.hidden = false; t.textContent = 'Печать не сохранена'; setTimeout(() => t.hidden = true, 3000); } });
+            }
+        }
         const input = event.target;
         if (!input.matches('input[type="checkbox"][data-field]')) return;
         const r = byId.get(input.dataset.record);

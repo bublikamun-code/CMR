@@ -49,7 +49,7 @@ HTML_TRANSFORMS = [
     # Демо-модуль данных и остальные скрипты подключает boot.js (см. regex ниже);
     # select.js меняем на пару адаптер+загрузчик
     ('<script src="./shell-v2-select.js" defer></script>', '<script src="js/v2/api.js"></script>\n<script src="js/v2/boot.js"></script>'),
-    ('    </header>', '      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span></div>\n    </header>'),
+    ('    </header>', '      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span><button type="button" class="btn btn-ghost btn-sm" id="v2-bell" title="Уведомления" aria-label="Уведомления">🔔<span id="v2-bell-count" class="pill warn" hidden></span></button><div id="v2-notif-panel" class="card" hidden style="position:fixed;top:60px;right:16px;z-index:120;width:360px;max-height:60vh;overflow:auto"></div></div>\n    </header>'),
     # Оверлей входа перед закрытием body
     ('</body>', """<div class="login-overlay" id="login-overlay" hidden>
   <form class="login-box" id="login-form">
