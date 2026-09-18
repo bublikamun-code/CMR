@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """CRM entry point for hoster.by shared hosting."""
-import os
-import sys
 import argparse
+import os
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_SCRIPT_DIR)
@@ -22,7 +21,11 @@ if os.path.isfile(_env_file):
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-from main import app
+# Импорт ради побочного эффекта и ради порядка: main.py на импорте создаёт
+# uploads/tenants и вызывает create_all. Это должно произойти один раз в
+# родительском процессе и ПОСЛЕ загрузки .pm2.env выше (database.py читает
+# CRM_DATA_DIR на импорте), а не одновременно в двух воркерах uvicorn.
+from main import app  # noqa: F401
 
 if __name__ == "__main__":
     import uvicorn
@@ -30,7 +33,9 @@ if __name__ == "__main__":
     # Parse port from env, args, or default
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=None)
-    parser.add_argument("--host", type=str, default="0.0.0.0")
+    # 0.0.0.0 намеренно: приложение на общем хостинге слушает порт, который
+    # проксирует веб-сервер, и bind только на loopback сломал бы доступ.
+    parser.add_argument("--host", type=str, default="0.0.0.0")  # noqa: S104
     args, _ = parser.parse_known_args()
 
     port = args.port or int(os.environ.get("PORT", os.environ.get("APPS_PORT", "8000")))

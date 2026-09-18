@@ -3,17 +3,25 @@
 Сохраняет историю изменений для карточек, клиентов и других объектов.
 """
 import json
+import logging
+
 from models import RecordVersion
+
+logger = logging.getLogger(__name__)
 
 
 def save_version(db, table_name, record_id, data, user_id=None, change_type="update", tenant_id=None):
     """Сохранить версию записи."""
     try:
-        # Получаем текущую версию
+        # Получаем текущую версию.
+        # FIX 2026-09-03: фильтр по tenant_id убран — номер версии теперь
+        # глобален на (table_name, record_id), иначе у одной записи появлялось
+        # по «версии 1» на каждый тенант (дубли в истории карточек 277, 339...).
+        # За уникальность отвечает индекс ux_record_versions_t_r_v; при гонке
+        # двух писателей вставка второго упадёт в IntegrityError — поймаем ниже.
         last = db.query(RecordVersion).filter(
             RecordVersion.table_name == table_name,
             RecordVersion.record_id == record_id,
-            RecordVersion.tenant_id == tenant_id
         ).order_by(RecordVersion.version.desc()).first()
 
         version = (last.version + 1) if last else 1
@@ -29,10 +37,15 @@ def save_version(db, table_name, record_id, data, user_id=None, change_type="upd
         )
         db.add(new_version)
         db.commit()
-        return version
-    except Exception:
+    except Exception as e:
+        # FIX 2026-09-03 (аудит): ошибка раньше глоталась наглухо —
+        # история правок терялась без следа. Теперь причина в логе.
+        logger.warning("save_version failed (%s/%s, tenant=%s): %s",
+                       table_name, record_id, tenant_id, e)
         db.rollback()
         return None
+    else:
+        return version
 
 
 def get_versions(db, table_name, record_id, tenant_id=None, limit=50):

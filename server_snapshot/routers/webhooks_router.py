@@ -1,27 +1,28 @@
 """
 Роутер для Webhooks — уведомления внешних систем при событиях.
 """
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional
-from datetime import datetime
-import json
 import hashlib
 import hmac
-import logging
-import urllib.request
-import urllib.error
-import ssl
-import socket
 import ipaddress
+import json
+import logging
+import socket
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 import models
-from database import SessionLocal
+from database import SessionLocal, get_db
 
 logger = logging.getLogger(__name__)
+
 from auth import get_current_user, require_admin
-from db_utils import resolve_tenant_db_standalone as _get_db
-from urllib.parse import urlparse
 
 # Blocked host patterns for SSRF protection
 SSRF_BLOCKED = [
@@ -44,16 +45,15 @@ def _validate_webhook_url(url: str) -> str:
 
     try:
         addrinfo = socket.getaddrinfo(hostname, None)
-        for family, type_, proto, canonname, sockaddr in addrinfo:
+        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
             ip = sockaddr[0]
             addr = ipaddress.ip_address(ip)
             if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
                 raise HTTPException(status_code=400, detail=f"Webhook URL resolves to a private/reserved IP: {ip}")
-    except socket.gaierror:
-        raise HTTPException(status_code=400, detail="Webhook URL hostname could not be resolved")
+    except socket.gaierror as e:
+        raise HTTPException(status_code=400, detail="Webhook URL hostname could not be resolved") from e
 
     return url
-
 
 def _assert_public_host(url: str) -> None:
     """FIX 2026-08-29 (SSRF): повторная проверка хоста непосредственно перед
@@ -69,12 +69,10 @@ def _assert_public_host(url: str) -> None:
         if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
             raise ValueError(f"Ходится в непубличный адрес: {addr}")
 
-
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """FIX 2026-08-29 (SSRF): редиректы запрещены — ими обходят проверку хоста."""
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
-
 
 def _open_webhook(req: urllib.request.Request):
     opener = urllib.request.build_opener(_NoRedirect)
@@ -90,7 +88,6 @@ router = APIRouter(
     dependencies=[Depends(require_admin())]
 )
 
-
 class WebhookCreate(BaseModel):
     url: str
     secret: Optional[str] = None
@@ -102,7 +99,6 @@ class WebhookUpdate(BaseModel):
     events: Optional[list] = None
     is_active: Optional[bool] = None
 
-
 AVAILABLE_EVENTS = [
     "card.created", "card.updated", "card.deleted",
     "client.created", "client.updated", "client.deleted",
@@ -111,128 +107,109 @@ AVAILABLE_EVENTS = [
     "document.created", "document.updated",
 ]
 
-
 @router.get("/events")
 def list_events():
     return AVAILABLE_EVENTS
 
-
 @router.get("/")
-def list_webhooks(current_user=Depends(get_current_user)):
-    db = _get_db(current_user)
-    try:
-        hooks = db.query(models.Webhook).filter(
-            models.Webhook.tenant_id == current_user.tenant_id
-        ).all()
-        return [{"id": h.id, "url": h.url, "events": json.loads(h.events) if h.events else [],
-                 "is_active": h.is_active, "created_at": h.created_at.isoformat()} for h in hooks]
-    finally:
-        db.close()
+def list_webhooks(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
 
+    hooks = db.query(models.Webhook).filter(
+        models.Webhook.tenant_id == current_user.tenant_id
+    ).all()
+    return [{"id": h.id, "url": h.url, "events": json.loads(h.events) if h.events else [],
+             "is_active": h.is_active, "created_at": h.created_at.isoformat()} for h in hooks]
 
 @router.post("/")
-def create_webhook(wh: WebhookCreate, current_user=Depends(get_current_user)):
+def create_webhook(wh: WebhookCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     _validate_webhook_url(wh.url)
-    db = _get_db(current_user)
-    try:
-        new_wh = models.Webhook(
-            url=wh.url,
-            secret=wh.secret,
-            events=json.dumps(wh.events),
-            tenant_id=current_user.tenant_id
-        )
-        db.add(new_wh)
-        db.commit()
-        db.refresh(new_wh)
-        return {"id": new_wh.id, "url": new_wh.url, "message": "Webhook создан"}
-    finally:
-        db.close()
 
+    new_wh = models.Webhook(
+        url=wh.url,
+        secret=wh.secret,
+        events=json.dumps(wh.events),
+        tenant_id=current_user.tenant_id
+    )
+    db.add(new_wh)
+    db.commit()
+    db.refresh(new_wh)
+    return {"id": new_wh.id, "url": new_wh.url, "message": "Webhook создан"}
 
 @router.patch("/{wh_id}")
-def update_webhook(wh_id: int, wh: WebhookUpdate, current_user=Depends(get_current_user)):
+def update_webhook(wh_id: int, wh: WebhookUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     if wh.url is not None:
         _validate_webhook_url(wh.url)
-    db = _get_db(current_user)
-    try:
-        h = db.query(models.Webhook).filter(
-            models.Webhook.id == wh_id,
-            models.Webhook.tenant_id == current_user.tenant_id
-        ).first()
-        if not h:
-            raise HTTPException(status_code=404, detail="Webhook не найден")
-        if wh.url is not None: h.url = wh.url
-        if wh.secret is not None: h.secret = wh.secret
-        if wh.events is not None: h.events = json.dumps(wh.events)
-        if wh.is_active is not None: h.is_active = wh.is_active
-        db.commit()
-        return {"message": "Обновлено"}
-    finally:
-        db.close()
 
+    h = db.query(models.Webhook).filter(
+        models.Webhook.id == wh_id,
+        models.Webhook.tenant_id == current_user.tenant_id
+    ).first()
+    if not h:
+        raise HTTPException(status_code=404, detail="Webhook не найден")
+    if wh.url is not None: h.url = wh.url
+    if wh.secret is not None: h.secret = wh.secret
+    if wh.events is not None: h.events = json.dumps(wh.events)
+    if wh.is_active is not None: h.is_active = wh.is_active
+    db.commit()
+    return {"message": "Обновлено"}
 
 @router.delete("/{wh_id}")
-def delete_webhook(wh_id: int, current_user=Depends(get_current_user)):
-    db = _get_db(current_user)
-    try:
-        h = db.query(models.Webhook).filter(
-            models.Webhook.id == wh_id,
-            models.Webhook.tenant_id == current_user.tenant_id
-        ).first()
-        if not h:
-            raise HTTPException(status_code=404, detail="Webhook не найден")
-        db.delete(h)
-        db.commit()
-        return {"message": "Удалено"}
-    finally:
-        db.close()
+def delete_webhook(wh_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
 
+    h = db.query(models.Webhook).filter(
+        models.Webhook.id == wh_id,
+        models.Webhook.tenant_id == current_user.tenant_id
+    ).first()
+    if not h:
+        raise HTTPException(status_code=404, detail="Webhook не найден")
+    db.delete(h)
+    db.commit()
+    return {"message": "Удалено"}
 
 @router.post("/{wh_id}/test")
-def test_webhook(wh_id: int, current_user=Depends(get_current_user)):
-    db = _get_db(current_user)
+def test_webhook(wh_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+
+    h = db.query(models.Webhook).filter(
+        models.Webhook.id == wh_id,
+        models.Webhook.tenant_id == current_user.tenant_id
+    ).first()
+    if not h:
+        raise HTTPException(status_code=404, detail="Webhook не найден")
+
+    payload = {
+        "event": "test",
+        "data": {"message": "Тестовый webhook от CRM"},
+        # tz-aware UTC: получатель видит однозначный момент времени
+        # (+00:00), а не «локальное время неизвестного сервера».
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    headers = {"Content-Type": "application/json"}
+    if h.secret:
+        sig = hmac.new(h.secret.encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
+        headers["X-Webhook-Signature"] = sig
+
     try:
-        h = db.query(models.Webhook).filter(
-            models.Webhook.id == wh_id,
-            models.Webhook.tenant_id == current_user.tenant_id
-        ).first()
-        if not h:
-            raise HTTPException(status_code=404, detail="Webhook не найден")
-
-        payload = {
-            "event": "test",
-            "data": {"message": "Тестовый webhook от CRM"},
-            "timestamp": datetime.now().isoformat()
-        }
-
-        headers = {"Content-Type": "application/json"}
-        if h.secret:
-            sig = hmac.new(h.secret.encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
-            headers["X-Webhook-Signature"] = sig
-
-        try:
-            _assert_public_host(h.url)
-            ctx = ssl.create_default_context()
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
-            resp = _open_webhook(req)
-            return {"status": resp.status, "success": resp.status < 400}
-        except urllib.error.HTTPError as e:
-            return {"status": e.code, "success": False, "error": str(e)}
-        except Exception as e:
-            return {"status": 0, "success": False, "error": str(e)}
-    finally:
-        db.close()
-
+        _assert_public_host(h.url)
+        # SSL-контекст вручную не создаём: _open_webhook открывает запрос
+        # через urllib, а его HTTPSHandler по умолчанию проверяет сертификаты.
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
+        resp = _open_webhook(req)
+    except urllib.error.HTTPError as e:
+        return {"status": e.code, "success": False, "error": str(e)}
+    except Exception as e:
+        return {"status": 0, "success": False, "error": str(e)}
+    else:
+        return {"status": resp.status, "success": resp.status < 400}
 
 # === Функция отправки webhook (вызывается из других роутеров) ===
 
 async def notify_webhooks(tenant_id, event, data):
     """Отправляет webhook всем активным подписчикам для данного tenant."""
     try:
-        # Фикс аудита 10.09: вебхуки тенанта живут в его tenant-базе, а поиск
-        # шёл только по основной — подписчики-тенанты молча не получали
-        # ничего. Теперь ищем в обеих базах (в основной — NULL-подписчики).
+        # Подписчики ищутся в основной базе: tenant-маршрутизация отключена
+        # (решение 2026-09), у всех пользователей tenant_id = NULL.
         db = SessionLocal()
         hooks = []
         try:
@@ -244,20 +221,6 @@ async def notify_webhooks(tenant_id, event, data):
             hooks.extend(q.all())
         finally:
             db.close()
-        if tenant_id is not None:
-            try:
-                from database import get_tenant_db
-                tdb = get_tenant_db(tenant_id)
-                try:
-                    hooks.extend(tdb.query(models.Webhook).filter(
-                        models.Webhook.tenant_id == tenant_id,
-                        models.Webhook.is_active == True
-                    ).all())
-                finally:
-                    tdb.close()
-            except Exception:
-                logger.warning("Tenant webhook lookup failed for tenant %s", tenant_id, exc_info=True)
-
         for h in hooks:
             events = json.loads(h.events) if h.events else []
             if event not in events:
@@ -266,7 +229,7 @@ async def notify_webhooks(tenant_id, event, data):
             payload = {
                 "event": event,
                 "data": data,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             headers = {"Content-Type": "application/json"}
@@ -276,15 +239,13 @@ async def notify_webhooks(tenant_id, event, data):
 
             try:
                 _assert_public_host(h.url)
-                ctx = ssl.create_default_context()
-                data = json.dumps(payload).encode()
-                req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
+                payload_bytes = json.dumps(payload).encode()
+                req = urllib.request.Request(h.url, data=payload_bytes, headers=headers, method='POST')
                 _open_webhook(req)
             except Exception as e:
                 logger.warning("Webhook %s delivery failed: %s", h.url, e)
     except Exception:
         logger.warning("Webhook dispatch failed for event %s", event, exc_info=True)
-
 
 def notify_webhooks_async(tenant_id, event, data):
     """FIX 2026-08-29: фоновая отправка вебхуков в отдельном потоке.

@@ -61,7 +61,7 @@ def _load(path):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     if not callable(getattr(mod, "up", None)):
-        raise RuntimeError(f"{path}: нет функции up(cur)")
+        raise TypeError(f"{path}: нет функции up(cur)")
     return mod
 
 

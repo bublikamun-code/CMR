@@ -1,7 +1,24 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey, DateTime, Date, Text, UniqueConstraint
-from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    text,
+)
+from sqlalchemy.orm import backref, relationship
+
 from database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -85,6 +102,8 @@ class Card(Base):
     paid_amount = Column(Numeric(12, 2), default=0.0)
     payment_status = Column(String, default="Не оплачен")
     payment_due_date = Column(Date, nullable=True)
+    # Условие оплаты (не факт оплаты): deferred/full/partial_deferred. NULL — не выбраны.
+    payment_terms = Column(String(30), nullable=True)
     store_location = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -397,12 +416,127 @@ class TaskChecklistItem(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    task = relationship("Task", backref="checklist_items")
+    # FIX 2026-09-11 (Фаза 2): passive_deletes=True — удаление подзадач отдаём
+    # базе, в DDL есть FOREIGN KEY(task_id) ... ON DELETE CASCADE. Без этого ORM
+    # сначала выполнял UPDATE task_checklist_items SET task_id=NULL, а колонка
+    # NOT NULL, поэтому удаление задачи с подзадачами падало в IntegrityError (500).
+    task = relationship("Task", backref=backref("checklist_items", passive_deletes=True))
 
 
 # ============================================================
 # Лента уведомлений
 # ============================================================
+
+# ============================================================
+# Накладные (ТН / ТТН / УПД) — приём от магазинов через бот
+# ============================================================
+
+def nakladnaya_doc_key(doc_series, doc_number):
+    """Нормализованный ключ документа: (серия strip+upper, номер только цифры).
+
+    FIX 2026-09-12 (Фаза 2, дефект 7): по этому ключу накладные сравниваются
+    на дубль. Сырые строки не годятся — в боевых данных соседствуют
+    «ТТН 4881030» и «ТТН4881030», а telegram-бот присылает серию в другом
+    регистре и с пробелами (tests/test_nakladnye_dedup.py::
+    test_bot_check_duplicate_normalizes). Правило совпадает с тем, что уже
+    применял bot_check_duplicate, но теперь оно выражено в колонках и
+    защищено уникальным индексом, а не только проверкой в коде.
+
+    Возвращает (series, number):
+      - series — ВСЕГДА строка, пустая при отсутствии серии. В уникальном
+        индексе SQLite NULL не равен NULL, поэтому две записи без серии
+        с одним номером дублями бы не считались;
+      - number — None, если цифр в номере нет вовсе. Такие записи (ботский
+        fallback «Не распознано», документы без номера) под индекс не попадают
+        и могут повторяться: блокировать их означало бы терять приём документа.
+    """
+    series = (doc_series or "").strip().upper()
+    number = "".join(ch for ch in (doc_number or "") if ch.isdigit())
+    return series, (number or None)
+
+
+class Nakladnaya(Base):
+    __tablename__ = "nakladnye"
+    # FIX 2026-09-12 (Фаза 2, дефект 7): уникальность накладной на уровне БД.
+    #
+    # Приём шёл через check-then-insert двумя отдельными запросами
+    # (бот: GET /nakladnye/bot/check-duplicate, затем POST /nakladnye/bot/create),
+    # а CRM-создание не проверяло дубли вовсе. Между проверкой и вставкой
+    # любая параллельная отправка того же документа плодила вторую запись.
+    # Код эту гонку закрыть не может в принципе — нужен индекс.
+    #
+    # Индекс частичный: строки без номера (doc_number_norm IS NULL) исключены,
+    # иначе ботский fallback «Не распознано» можно было бы принять ровно один раз.
+    # На боевой БД нарушений нет (14 записей, дублей по номеру ноль — см.
+    # PROGRESS.md), поэтому миграция 0005 безопасна; она всё равно проверяет
+    # дубли перед созданием индекса и отказывается их чистить молча.
+    __table_args__ = (
+        Index(
+            "uq_nakladnye_doc_key",
+            "doc_series_norm", "doc_number_norm",
+            unique=True,
+            sqlite_where=text("doc_number_norm IS NOT NULL AND doc_number_norm <> ''"),
+        ),
+    )
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True)
+    supplier_name = Column(String, index=True)
+    doc_type = Column(String(20), nullable=True)  # ТН, ТТН, УПД
+    doc_series = Column(String(50), nullable=True)
+    doc_number = Column(String(50), nullable=True, index=True)
+    # Производные ключи для уникального индекса (см. nakladnaya_doc_key).
+    # Заполняются слушателем _nakladnaya_sync_doc_key при каждой вставке и
+    # правке, поэтому отдельного внимания в роутерах не требуют. Клиенту они
+    # не отдаются и не принимаются от него (SERVER_MANAGED в метатестах паритета).
+    doc_series_norm = Column(String(50), nullable=True)
+    doc_number_norm = Column(String(50), nullable=True)
+    doc_date = Column(String(20), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=True)  # с НДС
+    vat_amount = Column(Numeric(12, 2), nullable=True)  # сумма НДС
+    # FIX 2026-09-12 (Фаза 2, дефект 14): колонка есть в боевом DDL (добавлена
+    # migrate_add_nakladnye.py), но в модели отсутствовала — клиент не мог её
+    # ни прочитать, ни заполнить. Сумма без НДС нужна для сверки с поставщиком
+    # и для Excel-выгрузки, где товары идут в ценах без НДС (price_no_vat).
+    amount_no_vat = Column(Numeric(12, 2), nullable=True)  # без НДС
+    unload_address = Column(String(255), nullable=True)
+    store = Column(String(100), nullable=True, index=True)
+    is_verified = Column(Boolean, default=False)
+    is_arrived = Column(Boolean, default=False)
+    is_paid = Column(Boolean, default=False)
+    status = Column(String(20), default="new", index=True)  # new, verified, arrived, paid
+    photo_paths = Column(Text, nullable=True)  # JSON array of file paths
+    products_json = Column(Text, nullable=True)  # JSON array of product line items
+    excel_path = Column(String(255), nullable=True)  # generated Excel filename
+    created_by_bot = Column(Boolean, default=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    supplier = relationship("Supplier", lazy="joined")
+
+
+@event.listens_for(Nakladnaya, "before_insert")
+@event.listens_for(Nakladnaya, "before_update")
+def _nakladnaya_sync_doc_key(mapper, connection, target):
+    """Держит производные ключи документа в синхроне с сырыми полями.
+
+    Слушатель, а не явный пересчёт в роутерах: накладную пишут четыре
+    эндпоинта (CRM/bot × create/update), и ещё могут писать напрямую через ORM
+    (миграции данных, скрипты, тесты). Одна точка, которую нельзя забыть.
+
+    Ограничения, о которых надо помнить (проверены на копии боевой схемы):
+      - пакетные UPDATE вида session.query(Nakladnaya).update({...}) события
+        ORM НЕ вызывают. Сейчас так меняется только supplier_name
+        (suppliers_router), поэтому ключи не затрагиваются; при добавлении
+        пакетной правки doc_series/doc_number колонки *_norm придётся
+        пересчитать в том же запросе;
+      - вставка сырым SQL мимо ORM оставит ключи пустыми, и такая строка под
+        частичный индекс не попадёт. В приложении nakladnye создаются только
+        через ORM (create_nakladnaya и bot_create_nakladnaya), других мест нет.
+    """
+    target.doc_series_norm, target.doc_number_norm = nakladnaya_doc_key(
+        target.doc_series, target.doc_number)
+
 
 class Notification(Base):
     __tablename__ = "notifications"

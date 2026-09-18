@@ -1,20 +1,22 @@
-import os
-import json
-import imaplib
-import email
-import re
-import hashlib
-import logging
 import base64
-from pathlib import Path
-from email.header import decode_header, make_header
-from email.utils import collapse_rfc2231_value
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+import email
+import hashlib
+import imaplib
+import json
+import logging
+import os
+import re
 from datetime import datetime, timezone
-from typing import Optional, List
+from email.header import decode_header, make_header
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from limiter_config import limiter
+
 try:
     from cryptography.fernet import Fernet, InvalidToken
     _fernet_available = True
@@ -23,8 +25,8 @@ except ImportError:
     InvalidToken = Exception
     _fernet_available = False
 
-from auth import get_current_user, require_role, require_cron_token
-from email_cleaner import clean_email_body, html_to_text, normalize_subject
+from auth import get_current_user, require_cron_token, require_role
+from email_cleaner import clean_email_body, html_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +90,11 @@ except Exception as e:
     # Фидбек 07.09: без cryptography пароль ящика не расшифровать — синк
     # падает с «неверным паролем». Раньше это молчало (пароль лежал
     # открытым текстом и не требовал расшифровки).
-    logger.error(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
-from database import get_db, get_tenant_db
-from db_utils import resolve_tenant_db as _db
+    logger.exception(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
+import contextlib
+
 import models
-import models_tenant
-import schemas
+from database import get_db
 
 router = APIRouter(
     prefix="/email-parser",
@@ -110,7 +111,7 @@ cron_router = APIRouter(
     dependencies=[Depends(require_cron_token)]
 )
 
-def _get_settings_path(tenant_id: int = None) -> str:
+def _get_settings_path(tenant_id: int | None = None) -> str:
     """Locate the mailbox settings file.
 
     Resolution order, same rule as the secret keys in auth.py:
@@ -148,7 +149,7 @@ class EmailSettingsSchema(BaseModel):
     imap_server: str = ""
     target_status: str = "Новый запрос"
 
-def load_settings(tenant_id: int = None):
+def load_settings(tenant_id: int | None = None):
     settings_file = _get_settings_path(tenant_id)
     if not os.path.exists(settings_file):
         return {
@@ -209,8 +210,8 @@ def _decode_part_text(part) -> str:
         for fallback in ("windows-1251", "koi8-r", "utf-8"):
             try:
                 return payload.decode(fallback, errors="replace")
-            except Exception:
-                continue
+            except Exception as e:
+                logger.debug(f"Не удалось декодировать письмо как {fallback}: {e}")
         return payload.decode("utf-8", errors="replace")
 
 
@@ -235,7 +236,7 @@ def _decode_attachment_filename(part) -> Optional[str]:
     filename = re.sub(r"[\r\n\t]+", " ", filename).strip()
     return filename or None
 
-def save_settings(settings, tenant_id: int = None):
+def save_settings(settings, tenant_id: int | None = None):
     settings_file = _ensure_inside_data_dir(_get_settings_path(tenant_id))
     if _fernet is not None and settings.get("password"):
         settings = dict(settings)
@@ -275,7 +276,9 @@ def update_settings(data: EmailSettingsSchema, current_user: models.User = Depen
         raise HTTPException(status_code=400, detail="IMAP-сервер не указан")
     if not data.email.strip():
         raise HTTPException(status_code=400, detail="Электронная почта не указана")
-    new_password_provided = data.password and data.password != "********"
+    # "********" — не секрет, а маска: UI присылает её вместо пароля, который
+    # не меняли, чтобы не передавать настоящий пароль туда-обратно.
+    new_password_provided = data.password and data.password != "********"  # noqa: S105
     if not new_password_provided and not settings.get("password"):
         raise HTTPException(status_code=400, detail="Пароль не указан: введите пароль почтового ящика")
     settings["email"] = data.email
@@ -285,6 +288,18 @@ def update_settings(data: EmailSettingsSchema, current_user: models.User = Depen
     settings["target_status"] = data.target_status
     save_settings(settings, tenant_id)
     return {"detail": "Настройки успешно сохранены"}
+
+def _search_unseen(mail, today: str) -> list:
+    """Ищет непрочитанные письма за сегодня (UTC) и возвращает их id.
+
+    Raise вынесен из try-блока синка в helper: статус != OK поднимает 500
+    здесь (TRY301), снаружи он по-прежнему ловится общим except Exception.
+    """
+    status, messages = mail.search(None, f'(UNSEEN SINCE "{today}")')
+    if status != "OK":
+        raise HTTPException(status_code=500, detail="Не удалось получить список писем с почтового сервера")
+    return messages[0].split()
+
 
 def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
     email_addr = settings.get("email")
@@ -296,7 +311,6 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         return {"tenant_id": tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
 
     imported_cards = []
-    tdb = get_tenant_db(tenant_id) if tenant_id else db
     mail = None
 
     try:
@@ -311,13 +325,12 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         mail.login(email_addr, password)
         mail.select("inbox")
 
-        from datetime import date as _date
-        today = _date.today().strftime("%d-%b-%Y")
-        status, messages = mail.search(None, f'(UNSEEN SINCE "{today}")')
-        if status != "OK":
-            raise HTTPException(status_code=500, detail="Не удалось получить список писем с почтового сервера")
-
-        email_ids = messages[0].split()
+        # Дата для IMAP SINCE — в UTC, как и всё остальное в проекте (миграция
+        # 0003). date.today() давал локальную дату сервера: ночью фильтр
+        # уходил на сутки вперёд относительно UTC и отрезал письма последних
+        # часов, то есть часть входящих не импортировалась.
+        today = datetime.now(timezone.utc).strftime("%d-%b-%Y")
+        email_ids = _search_unseen(mail, today)
 
         for e_id in email_ids:
             try:
@@ -342,10 +355,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                 dn_bytes, dn_enc = decoded_parts[0]
                                 if isinstance(dn_bytes, bytes):
                                     display_name = dn_bytes.decode(dn_enc if dn_enc else "utf-8", errors="ignore")
-                        if display_name:
-                            sender = display_name
-                        else:
-                            sender = sender_email_addr
+                        sender = display_name or sender_email_addr
                         if not sender_email_addr:
                             sender_email_addr = sender
 
@@ -391,20 +401,18 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                         # Раньше сравнивалось с display-name, поэтому клиент почти не находился
                         client = None
                         if sender_email_addr:
-                            client = tdb.query(models.Client).filter(
+                            client = db.query(models.Client).filter(
                                 models.Client.email == sender_email_addr
                             ).first()
                         if not client:
-                            client = tdb.query(models.Client).filter(models.Client.email == sender).first()
+                            client = db.query(models.Client).filter(models.Client.email == sender).first()
                         client_id = client.id if client else None
 
-                        # Прошлые сделки того же отправителя — для предложения связать
-                        related = []
-                        if sender_email_addr:
-                            related = tdb.query(models.Card).filter(
-                                models.Card.sender_email == sender_email_addr,
-                                models.Card.is_deleted == False
-                            ).order_by(models.Card.id.desc()).limit(5).all()
+                        # Прошлые сделки того же отправителя здесь НЕ выбираются:
+                        # их отдаёт GET /email-parser/related/{card_id}, а карточка
+                        # рисует блоком renderRelatedCards. Прежний запрос
+                        # выполнялся на каждое импортированное письмо, а результат
+                        # выбрасывался — переменная related не читалась.
 
                         # Description (поле заметки) не заполняем: отправитель
                         # хранится в sender_email и в записи ленты, текст письма —
@@ -425,13 +433,19 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             client_id=client_id,
                             sender_email=sender_email_addr
                         )
-                        tdb.add(new_card)
-                        tdb.commit()
-                        tdb.refresh(new_card)
+                        db.add(new_card)
+                        db.commit()
+                        db.refresh(new_card)
 
                         for att_name, att_data in attachments:
                             if att_data:
-                                safe_name = hashlib.md5(f"{new_card.id}_{att_name}".encode()).hexdigest()[:8] + "_" + re.sub(r'[^a-zA-Z0-9._-]', '_', att_name)
+                                # md5 не для защиты, а чтобы коротко и стабильно
+                                # различать одноимённые вложения разных карточек.
+                                digest = hashlib.md5(
+                                    f"{new_card.id}_{att_name}".encode(),
+                                    usedforsecurity=False,
+                                ).hexdigest()[:8]
+                                safe_name = digest + "_" + re.sub(r'[^a-zA-Z0-9._-]', '_', att_name)
                                 att_path = os.path.join(UPLOAD_DIR, safe_name)
                                 # Имя вложения приходит из внешнего письма —
                                 # сохраняем строго внутри UPLOAD_DIR.
@@ -440,17 +454,17 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                                     continue
                                 try:
                                     Path(att_path).write_bytes(att_data)
-                                except Exception as e:
-                                    logger.error(f"Failed to save attachment {att_name!r} for card {new_card.id}: {e}")
+                                except Exception:
+                                    logger.exception(f"Failed to save attachment {att_name!r} for card {new_card.id}")
                                     raise
                                 attachment = models.CardAttachment(
                                     file_name=att_name,
                                     file_path=os.path.join("uploads", safe_name),
                                     card_id=new_card.id
                                 )
-                                tdb.add(attachment)
+                                db.add(attachment)
                         if attachments:
-                            tdb.commit()
+                            db.commit()
 
                         sender_line = sender
                         if sender_email_addr and sender_email_addr != sender:
@@ -462,8 +476,8 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000],
                             tenant_id=tenant_id,
                         )
-                        tdb.add(log_entry)
-                        tdb.commit()
+                        db.add(log_entry)
+                        db.commit()
 
                         imported_cards.append({
                             "id": new_card.id,
@@ -487,25 +501,23 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
             "cards": imported_cards
         }
 
-    except imaplib.IMAP4.error as e:
+    except imaplib.IMAP4.error:
         # FIX 2026-09-06 (аудит С7): текст исключения почтового сервера раньше
         # уходил клиенту в detail (там бывают имя хоста и данные сессии) —
         # наружу только обобщённая формулировка, детали в логе выше.
-        logger.error(f"IMAP error for tenant {tenant_id}: {e}")
+        logger.exception(f"IMAP error for tenant {tenant_id}")
         return {"tenant_id": tenant_id, "success": False, "error": "Ошибка авторизации на почтовом сервере: проверьте логин и пароль ящика", "count": 0}
     except TimeoutError:
         return {"tenant_id": tenant_id, "success": False, "error": "Превышено время ожидания при подключении к почте", "count": 0}
-    except Exception as e:
-        logger.error(f"Email sync error for tenant {tenant_id}: {type(e).__name__}: {e}")
+    except Exception:
+        logger.exception(f"Email sync error for tenant {tenant_id}")
         return {"tenant_id": tenant_id, "success": False, "error": "Ошибка подключения к почтовому серверу", "count": 0}
     finally:
         # FIX 2026-09-06 (аудит): logout был только на успехе — при ошибке
         # посреди выборки соединение с IMAP оставалось висеть до таймаута.
         if mail is not None:
-            try:
+            with contextlib.suppress(Exception):
                 mail.logout()
-            except Exception:
-                pass
 
 
 @router.post("/sync")
@@ -518,8 +530,8 @@ def sync_emails(request: Request, db: Session = Depends(get_db), current_user: m
     settings = load_settings(tenant_id)
     email_addr = settings.get("email")
     password = _get_smtp_password(settings)
-    imap_server = settings.get("imap_server")
-    target_status = settings.get("target_status", "Новый запрос")
+    # imap_server и target_status читает сам _sync_tenant_emails; здесь они
+    # оставались со времён до выделения этой функции и не использовались.
 
     if not email_addr or not password:
         raise HTTPException(status_code=400, detail="Настройки почты не заполнены")
@@ -539,14 +551,8 @@ def sync_all_tenants(db: Session = Depends(get_db)):
     try:
         results.append(_sync_tenant_emails(None, load_settings(None), db))
     except Exception as e:
-        logger.error(f"main account sync failed: {e}")
+        logger.exception("main account sync failed")
         results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
-
-    tenants = db.query(models_tenant.Tenant).all()
-    for tenant in tenants:
-        settings = load_settings(tenant.id)
-        result = _sync_tenant_emails(tenant.id, settings, db)
-        results.append(result)
 
     total_count = sum(r.get("count", 0) for r in results if r.get("success"))
     errors = [r for r in results if not r.get("success")]
@@ -571,49 +577,42 @@ def get_related_cards(card_id: int, db: Session = Depends(get_db), current_user:
     Тему письма намеренно НЕ используем: заявки с сайта всегда приходят
     с одинаковым заголовком, но это разные клиенты и разные сделки.
     """
-    tdb = _db(current_user, db)
-    try:
-        card = tdb.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
-        if not card.sender_email:
-            return {"card_id": card_id, "sender_email": None, "related": []}
-        rows = tdb.query(models.Card).filter(
-            models.Card.sender_email == card.sender_email,
-            models.Card.id != card_id,
-            models.Card.is_deleted == False
-        ).order_by(models.Card.id.desc()).limit(10).all()
-        return {
-            "card_id": card_id,
-            "sender_email": card.sender_email,
-            "related": [
-                {"id": c.id, "title": c.title, "status": c.status,
-                 "created_at": c.created_at.isoformat() if c.created_at else None,
-                 "total_amount": float(c.total_amount or 0)}
-                for c in rows
-            ],
-        }
-    finally:
-        if tdb is not db:
-            tdb.close()
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    if not card.sender_email:
+        return {"card_id": card_id, "sender_email": None, "related": []}
+    rows = db.query(models.Card).filter(
+        models.Card.sender_email == card.sender_email,
+        models.Card.id != card_id,
+        models.Card.is_deleted == False
+    ).order_by(models.Card.id.desc()).limit(10).all()
+    return {
+        "card_id": card_id,
+        "sender_email": card.sender_email,
+        "related": [
+            {"id": c.id, "title": c.title, "status": c.status,
+             "created_at": c.created_at.isoformat() if c.created_at else None,
+             "total_amount": float(c.total_amount or 0)}
+            for c in rows
+        ],
+    }
 
 
 @router.post("/link/{card_id}")
 def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """Переносит текст письма комментарием в целевую сделку и удаляет письмо-дубль."""
-    tdb = _db(current_user, db)
-    try:
-        src = tdb.query(models.Card).filter(models.Card.id == card_id).first()
-        dst = tdb.query(models.Card).filter(models.Card.id == payload.target_card_id).first()
-        if not src or not dst:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
+    src = db.query(models.Card).filter(models.Card.id == card_id).first()
+    dst = db.query(models.Card).filter(models.Card.id == payload.target_card_id).first()
+    if not src or not dst:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
 
         stamp = src.created_at.strftime("%d.%m.%Y %H:%M") if src.created_at else ""
         addition = f"\n\n--- Письмо от {stamp} ---\n{src.title}\n{src.description or ''}"
         dst.description = (dst.description or "") + addition
         dst.updated_at = datetime.now(timezone.utc)
 
-        tdb.add(models.ActivityLog(
+        db.add(models.ActivityLog(
             user_id=current_user.id,
             card_id=dst.id,
             action="Связано письмо",
@@ -621,8 +620,5 @@ def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = 
             tenant_id=current_user.tenant_id,
         ))
         src.is_deleted = True
-        tdb.commit()
+        db.commit()
         return {"success": True, "target_card_id": dst.id, "message": f"Письмо добавлено в сделку #{dst.id}"}
-    finally:
-        if tdb is not db:
-            tdb.close()

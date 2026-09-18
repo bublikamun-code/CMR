@@ -8,16 +8,17 @@
 
 Уведомления пишутся в базу получателя (см. notify.py).
 """
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import or_
-from typing import List, Optional
 from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, selectinload
 
 import models
 import schemas
-from database import get_db
 from auth import get_current_user
+from database import get_db
 from notify import notify
 
 router = APIRouter(
@@ -28,31 +29,20 @@ router = APIRouter(
 
 
 def _snapshot_title(db: Session, model, obj_id):
-    """Название сделки/клиента: ищем в основной базе, затем в tenant-базах.
+    """Название сделки/клиента: ищем в основной базе.
 
-    Сделка может жить в tenant-базе, недоступной читающему задачи, —
-    поэтому храним снимок названия в самой задаче (см. migrate_task_snapshots).
+    Снимок названия хранится в самой задаче (см. migrate_task_snapshots) —
+    lookup в основной базе — фолбэк для записей, созданных до миграции.
     """
     if not obj_id:
         return None
     obj = db.get(model, obj_id)
     if obj is not None:
         return getattr(obj, "title", None) or getattr(obj, "name", None)
-    from database import get_tenant_db
-    tenant_ids = sorted({int(r[0]) for r in db.query(models.User.tenant_id)
-                         .filter(models.User.tenant_id != None).distinct().all()})
-    for tid in tenant_ids:
-        sess = get_tenant_db(tid)
-        try:
-            obj = sess.get(model, obj_id)
-            if obj is not None:
-                return getattr(obj, "title", None) or getattr(obj, "name", None)
-        finally:
-            sess.close()
     return None
 
 
-def _serialize(db: Session, task: models.Task, usernames: dict = None) -> dict:
+def _serialize(db: Session, task: models.Task, usernames: dict | None = None) -> dict:
     def username(uid):
         if not uid:
             return None
@@ -165,6 +155,9 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         description=data.description,
         status=data.status or "todo",
         due_date=data.due_date,
+        # дефект 13: priority пришёл в схему; None (явный null в запросе)
+        # не должен попадать в колонку — TaskResponse объявляет priority: int
+        priority=data.priority if data.priority is not None else 0,
         assignee_id=data.assignee_id,
         creator_id=current_user.id,
         card_id=data.card_id,
@@ -172,17 +165,20 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         completed_at=datetime.now(timezone.utc) if data.status == "done" else None,
     )
     db.add(task)
-    db.commit()
+    # Атомарность (Фаза 4): задача и снимки названий — одна транзакция.
+    # flush вместо промежуточного commit: id задачи и server-defaults
+    # появляются до снимков, но внешняя видимость — только после единственного
+    # commit'а ниже.
+    db.flush()
     db.refresh(task)
 
-    # Снимки названий сделки/клиента (могут жить в tenant-базах)
+    # Снимки названий сделки/клиента (живут в основной базе)
     if task.card_id:
         task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id)
     if task.client_id:
         task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id)
-    if task.card_title_snapshot is not None or task.client_name_snapshot is not None:
-        db.commit()
-        db.refresh(task)
+    db.commit()
+    db.refresh(task)
 
     # Уведомление назначенному исполнителю (в его базу)
     if data.assignee_id:
@@ -207,6 +203,10 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
         task.description = data.description
     if data.due_date is not None:
         task.due_date = data.due_date
+    # дефект 13: приоритет задачи можно было только прочитать (TaskResponse),
+    # но не сохранить. None означает «поле не прислали» — не трогаем.
+    if data.priority is not None:
+        task.priority = data.priority
     if data.assignee_id is not None:
         task.assignee_id = data.assignee_id or None
     if data.card_id is not None:
@@ -221,7 +221,10 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
         task.status = data.status
         task.completed_at = datetime.now(timezone.utc) if data.status == "done" else None
 
-    db.commit()
+    # Атомарность (Фаза 4): правки и пересчёт снимков — одна транзакция.
+    # flush вместо промежуточного commit: снимки ниже читают из этой же
+    # сессии и уходят в БД единственным commit'ом.
+    db.flush()
     db.refresh(task)
 
     # Обновить снимки названий при смене привязки
@@ -234,8 +237,8 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
             task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id)
         else:
             task.client_name_snapshot = None
-        db.commit()
-        db.refresh(task)
+    db.commit()
+    db.refresh(task)
 
     # Уведомления об изменениях (пишутся в базу получателя)
     if data.assignee_id is not None and task.assignee_id and task.assignee_id != old_assignee:
@@ -243,7 +246,7 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
                type="task_assigned", title=f"Вам поручена задача: {task.title}",
                entity_type="task", entity_id=task.id)
     if data.due_date is not None and task.due_date != old_due:
-        notify(db, [r for r in {task.assignee_id, task.creator_id}],
+        notify(db, list({task.assignee_id, task.creator_id}),
                actor_id=current_user.id,
                type="task_due", title=f"Изменён срок задачи: {task.title}",
                details=task.due_date.strftime("%d.%m.%Y %H:%M") if task.due_date else "срок снят",

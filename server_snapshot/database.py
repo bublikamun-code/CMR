@@ -1,7 +1,9 @@
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import QueuePool
+import contextlib
 import os
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 # Where the SQLite files live. Defaults to the app directory so the existing
 # bare-metal server keeps working unchanged; Docker sets CRM_DATA_DIR=/app/data
@@ -103,11 +105,9 @@ async def get_db():
         # "Token was created in a different Context", and a fresh .get() can miss
         # the sessions entirely. Holding the list object is context-independent.
         for extra in bucket:
-            try:
+            with contextlib.suppress(Exception):
                 _active_sessions["count"] -= 1
                 extra.close()
-            except Exception:
-                pass
         _deferred_sessions.set(None)
         _active_sessions["count"] -= 1
         db.close()

@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+import logging
+from typing import List
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import List
-import logging
-import schemas
-import models
+
 import auth
-from database import get_db, get_tenant_db
+import models
+import schemas
+from database import get_db
 from limiter_config import limiter
 
 logger = logging.getLogger(__name__)
@@ -158,39 +160,3 @@ def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(ge
         target.hashed_password = auth.get_password_hash(data.password)
     db.commit()
     return {"detail": "Пользователь обновлён"}
-
-
-@router.post("/create-tenant", response_model=schemas.UserResponse)
-def create_tenant_admin(data: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_superadmin())):
-    existing = db.query(models.User).filter(models.User.username == data.username).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Пользователь уже существует")
-
-    from models_tenant import Tenant
-    import os, re
-    slug = re.sub(r'[^a-zA-Z0-9_]', '', data.username.lower().replace(" ", "_"))
-    if not slug or len(slug) < 3:
-        raise HTTPException(status_code=400, detail="Некорректное имя пользователя")
-    db_path = f"tenants/crm_{slug}.db"
-    os.makedirs("tenants", exist_ok=True)
-
-    tenant = Tenant(name=data.username, db_path=db_path)
-    db.add(tenant)
-    db.commit()
-    db.refresh(tenant)
-
-    new_user = models.User(
-        username=data.username,
-        hashed_password=auth.get_password_hash(data.password),
-        role="admin",
-        tenant_id=tenant.id
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    from database import Base, get_tenant_db
-    tdb = get_tenant_db(tenant.id)
-    tdb.close()
-
-    return {"id": new_user.id, "username": new_user.username, "role": new_user.role}

@@ -11,16 +11,16 @@ sync-overdue вызывается внешним cron'ом (заголовок X
 уведомление того же типа — новое не создаётся. Повторная просрочка после
 прочтения старого снова уведомит.
 """
-from datetime import datetime, date, timedelta, timezone
+import contextlib
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 import models
 import schemas
-from database import get_db, get_tenant_db
 from auth import get_current_user, require_cron_token
-from db_utils import resolve_tenant_db as _db
+from database import get_db
 from notify import notify
 
 router = APIRouter(
@@ -43,9 +43,8 @@ DEFAULT_OPEN_STATUSES = ("На списание", "Закрыто")
 @router.get("", response_model=schemas.NotificationsListResponse)
 def list_notifications(unread_only: bool = False, limit: int = LIST_LIMIT,
                        db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
     try:
-        base = tdb.query(models.Notification).filter(models.Notification.user_id == current_user.id)
+        base = db.query(models.Notification).filter(models.Notification.user_id == current_user.id)
         unread_count = base.filter(models.Notification.is_read == False).count()
         query = base
         if unread_only:
@@ -62,16 +61,15 @@ def list_notifications(unread_only: bool = False, limit: int = LIST_LIMIT,
             ],
         }
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.post("/read")
 def mark_read(data: schemas.NotificationReadRequest, db: Session = Depends(get_db),
               current_user: models.User = Depends(get_current_user)):
     """Отметить прочитанными конкретные ids или всё (если ids пуст)."""
-    tdb = _db(current_user, db)
     try:
-        query = (tdb.query(models.Notification)
+        query = (db.query(models.Notification)
                  .filter(models.Notification.user_id == current_user.id,
                          models.Notification.is_read == False))
         if data.ids:
@@ -81,27 +79,26 @@ def mark_read(data: schemas.NotificationReadRequest, db: Session = Depends(get_d
         for n in rows:
             n.is_read = True
             n.read_at = now
-        tdb.commit()
+        db.commit()
         return {"marked": len(rows)}
     finally:
-        tdb.close()
+        db.close()
 
 
 @router.delete("/{notification_id}")
 def delete_notification(notification_id: int, db: Session = Depends(get_db),
                         current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
     try:
-        n = (tdb.query(models.Notification)
+        n = (db.query(models.Notification)
              .filter(models.Notification.id == notification_id,
                      models.Notification.user_id == current_user.id).first())
         if not n:
             raise HTTPException(status_code=404, detail="Уведомление не найдено")
-        tdb.delete(n)
-        tdb.commit()
+        db.delete(n)
+        db.commit()
         return {"ok": True}
     finally:
-        tdb.close()
+        db.close()
 
 
 # --- Синхронизация просрочек (внешний cron, без пользовательской авторизации) ---
@@ -124,16 +121,24 @@ def _done_status_names(session):
 
 @cron_router.post("/sync-overdue", dependencies=[Depends(require_cron_token)])
 def sync_overdue(db: Session = Depends(get_db)):
-    """Пробегает по основной и всем tenant-базам, создаёт уведомления о просрочках.
+    """Пробегает по основной базе, создаёт уведомления о просрочках.
 
-    Уведомления адресуются конкретным пользователям внутри соответствующей базы,
-    поэтому каждый scope обрабатывается своей сессией.
+    Уведомления адресуются конкретным пользователям, поэтому получатели
+    сверяются с таблицей пользователей этой базы.
     """
     created_total = 0
     notif_purged = 0
     versions_purged = 0
-    day_key = date.today().isoformat()
+    # Ключ дня берём из UTC-времени, а не из date.today(). Локальная дата
+    # сервера (Europe/Minsk, UTC+3) расходится с UTC, и это ломало две вещи:
+    # 1) day_key уходит в детали уведомления как ключ дедупликации — сутки
+    #    переключались бы в 21:00 UTC и просрочка получила бы повторное
+    #    уведомление на три часа раньше;
+    # 2) day_key сравнивается строкой с Card.due_date/payment_due_date в
+    #    фильтрах ниже — сделки, ещё не просроченные по UTC, попадали бы
+    #    в выборку вечером.
     now = datetime.now(timezone.utc)
+    day_key = now.date().isoformat()
 
     # 0. Просроченные задачи — задачи живут в ОСНОВНОЙ базе, один проход.
     overdue_tasks = (db.query(models.Task)
@@ -148,85 +153,70 @@ def sync_overdue(db: Session = Depends(get_db)):
             details=day_key,
             entity_type="task", entity_id=t.id, dedupe=True)
 
-    tenant_ids = sorted({int(r[0]) for r in db.query(models.User.tenant_id)
-                         .filter(models.User.tenant_id != None).distinct().all()})
+    session = db
+    # Пользователи базы — только им пишем.
+    base_users = {u.id for u in session.query(models.User).all()}
+    try:
+        done_statuses = _done_status_names(session)
 
-    scopes = [("main", db)] + [(tid, get_tenant_db(tid)) for tid in tenant_ids]
+        # 2. Просроченные сделки (истёк due_date)
+        cards_overdue = (session.query(models.Card)
+                         .filter(models.Card.is_deleted == False,
+                                 models.Card.due_date != None,
+                                 models.Card.due_date < day_key)
+                         .all())
+        cards_overdue = [c for c in cards_overdue if c.status not in done_statuses]
+        for c in cards_overdue:
+            if c.owner_id not in base_users:
+                continue
+            created_total += notify(
+                db, [c.owner_id], type="card_overdue",
+                title=f"Просрочена сделка: {c.title}",
+                details=day_key,
+                entity_type="card", entity_id=c.id, dedupe=True)
 
-    for scope, session in scopes:
-        # Пользователи этой базы — только им пишем в этом scope.
-        base_users = {u.id for u in session.query(models.User).all()}
-        if scope != "main":
-            base_users &= {u.id for u in db.query(models.User.id)
-                           .filter(models.User.tenant_id == scope).all()}
-        try:
-            done_statuses = _done_status_names(session)
-
-            # 2. Просроченные сделки (истёк due_date)
-            cards_overdue = (session.query(models.Card)
-                             .filter(models.Card.is_deleted == False,
-                                     models.Card.due_date != None,
-                                     models.Card.due_date < day_key)
-                             .all())
-            cards_overdue = [c for c in cards_overdue if c.status not in done_statuses]
-            for c in cards_overdue:
-                if c.owner_id not in base_users:
-                    continue
-                created_total += notify(
-                    db, [c.owner_id], type="card_overdue",
-                    title=f"Просрочена сделка: {c.title}",
-                    details=day_key,
-                    entity_type="card", entity_id=c.id, dedupe=True)
-
-            # 3. Просроченные оплаты (истёк payment_due_date)
-            pay_overdue = (session.query(models.Card)
-                           .filter(models.Card.is_deleted == False,
-                                   models.Card.payment_due_date != None,
-                                   models.Card.payment_due_date < day_key,
-                                   models.Card.payment_status.notin_(["Оплачен", "Оплачено"]))
-                           .all())
-            for c in pay_overdue:
-                if c.owner_id not in base_users:
-                    continue
-                created_total += notify(
-                    db, [c.owner_id], type="card_payment",
-                    title=f"Истёк срок оплаты: {c.title}",
-                    details=day_key,
-                    entity_type="card", entity_id=c.id, dedupe=True)
-        except Exception:
-            # Ошибка на одной базе не должна останавливать остальные
-            try:
-                session.rollback()
-            except Exception:
-                pass
-            continue
-        finally:
-            # FIX аудита 10.09: ретенция раньше шла только по главной базе,
-            # tenant-базы росли безлимитно. Чистим в каждом scope, пока
-            # сессия ещё открыта (закрытие — в finally ниже).
-            cutoff_read = datetime.now(timezone.utc) - timedelta(days=30)
-            notif_purged += (session.query(models.Notification)
-                             .filter(models.Notification.is_read == True,
-                                     models.Notification.read_at < cutoff_read)
-                             .delete(synchronize_session=False))
-            cutoff_versions = datetime.now(timezone.utc) - timedelta(days=180)
-            old_versions = (session.query(models.RecordVersion)
-                            .filter(models.RecordVersion.changed_at < cutoff_versions)
-                            .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,
-                                      models.RecordVersion.version.desc())
-                            .all())
-            per_record = {}
-            ids_to_delete = []
-            for v in old_versions:
-                key = (v.table_name, v.record_id)
-                per_record[key] = per_record.get(key, 0) + 1
-                if per_record[key] > 20:
-                    ids_to_delete.append(v.id)
-            if ids_to_delete:
-                session.query(models.RecordVersion).filter(models.RecordVersion.id.in_(ids_to_delete)).delete(synchronize_session=False)
-            versions_purged += len(ids_to_delete)
-            session.commit()
-            if scope != "main":
-                session.close()
+        # 3. Просроченные оплаты (истёк payment_due_date)
+        pay_overdue = (session.query(models.Card)
+                       .filter(models.Card.is_deleted == False,
+                               models.Card.payment_due_date != None,
+                               models.Card.payment_due_date < day_key,
+                               models.Card.payment_status.notin_(["Оплачен", "Оплачено"]))
+                       .all())
+        for c in pay_overdue:
+            if c.owner_id not in base_users:
+                continue
+            created_total += notify(
+                db, [c.owner_id], type="card_payment",
+                title=f"Истёк срок оплаты: {c.title}",
+                details=day_key,
+                entity_type="card", entity_id=c.id, dedupe=True)
+    except Exception:
+        with contextlib.suppress(Exception):
+            session.rollback()
+    finally:
+        # Ретенция: чистим прочитанные уведомления старше 30 дней и версии
+        # записей старше 180 дней (оставляем по 20 последних на запись).
+        cutoff_read = datetime.now(timezone.utc) - timedelta(days=30)
+        notif_purged += (session.query(models.Notification)
+                         .filter(models.Notification.is_read == True,
+                                 models.Notification.read_at < cutoff_read)
+                         .delete(synchronize_session=False))
+        cutoff_versions = datetime.now(timezone.utc) - timedelta(days=180)
+        old_versions = (session.query(models.RecordVersion)
+                        .filter(models.RecordVersion.changed_at < cutoff_versions)
+                        .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,
+                                  models.RecordVersion.version.desc())
+                        .all())
+        per_record = {}
+        ids_to_delete = []
+        for v in old_versions:
+            key = (v.table_name, v.record_id)
+            per_record[key] = per_record.get(key, 0) + 1
+            if per_record[key] > 20:
+                ids_to_delete.append(v.id)
+        if ids_to_delete:
+            session.query(models.RecordVersion).filter(models.RecordVersion.id.in_(ids_to_delete)).delete(synchronize_session=False)
+        versions_purged += len(ids_to_delete)
+        session.commit()
 
     return {"created": created_total, "notifications_purged": notif_purged, "versions_purged": versions_purged}

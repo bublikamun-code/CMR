@@ -1,35 +1,41 @@
 import os
+
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy.exc import IntegrityError
 
 import models
-import models_tenant
+
+# Импорт ради побочного эффекта: Tenant объявлен на том же Base, поэтому модуль
+# обязан быть импортирован ДО create_all ниже — иначе таблица tenants не
+# создастся. Тот же приём с пояснением есть в tests/conftest.py.
+import models_tenant  # noqa: F401
 from database import engine
 from limiter_config import limiter
-from version import __version__, __build__
-
-from routers import auth_router
-from routers import kanban_router
-from routers import card_details_router
-from routers import payments_router
-from routers import writeoffs_router
-from routers import writeoff_groups_router
-from routers import clients_router
-from routers import tags_router
-from routers import suppliers_router
-from routers import activity_router
-from routers import tasks_router
-from routers import notifications_router
-from routers import email_parser_router
-from routers import custom_objects_router
-from routers import workflows_router
-from routers import webhooks_router
+from routers import (
+    activity_router,
+    auth_router,
+    card_details_router,
+    clients_router,
+    custom_objects_router,
+    dictionaries_router,
+    email_parser_router,
+    kanban_router,
+    nakladnye_router,
+    notifications_router,
+    payments_router,
+    suppliers_router,
+    tags_router,
+    tasks_router,
+    webhooks_router,
+    workflows_router,
+    writeoff_groups_router,
+    writeoffs_router,
+)
+from version import __build__, __version__
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -41,13 +47,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Снабжение и Продажи API",
     description="Бэкенд для Канбан-доски, учета оплат и списаний",
-    version=__version__,
-    # FIX 2026-09-06 (аудит С6): интерактивная карта API (/docs, /redoc,
-    # /openapi.json) публично раскрывала структуру всех эндпоинтов. Данных она
-    # не отдавала, но незачем рисовать атакующему схему — выключаем.
-    docs_url=None,
-    redoc_url=None,
-    openapi_url=None,
+    version=__version__
 )
 
 app.state.limiter = limiter
@@ -55,30 +55,13 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    logger.error(f"Unhandled error: {exc}")
     return JSONResponse(status_code=500, content={"detail": "Внутренняя ошибка сервера"})
-
-
-@app.exception_handler(IntegrityError)
-async def integrity_error_handler(request: Request, exc: IntegrityError):
-    # Н8 (аудит 06.09): нарушение констрейнтов БД (уникальность/связи) раньше
-    # уходило в общий 500 без объяснений. Наружу — читаемый 409; детали в лог.
-    logger.error(f"IntegrityError on {request.url.path}: {exc}")
-    return JSONResponse(
-        status_code=409,
-        content={"detail": "Действие конфликтует с существующими данными (дубликат или нарушена связь). Изменения не сохранены."},
-    )
 
 # CORS: the app is served same-origin, so this list only needs the hosts the
 # UI is actually reached by. Override with CRM_CORS_ORIGINS when the domain
 # changes; do not add wildcards, allow_credentials=True forbids them.
-_DEFAULT_ORIGINS = ",".join([
-    "https://cmr-svetvdome.online",
-    "http://cmr-svetvdome.online",
-    "http://87-232-64-12.nip.io",
-    "https://87-232-64-12.nip.io",
-    "http://87.232.64.12",
-])
+_DEFAULT_ORIGINS = "http://87-232-64-12.nip.io,https://87-232-64-12.nip.io,http://87.232.64.12"
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("CRM_CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
@@ -93,12 +76,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# Н22 (аудит 06.09): gzip ответов приложения. На голом хостинге nginx
-# пользователям недоступен, и 250КБ CSS / большие JSON уходили без сжатия;
-# сжатие на уровне приложения работает при любой схеме проксирования
-# (nginx не пережимает уже сжатое — Content-Encoding проходит насквозь).
-app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
-
 os.makedirs("uploads", exist_ok=True)
 os.makedirs("tenants", exist_ok=True)
 
@@ -109,6 +86,7 @@ app.include_router(payments_router.router)
 app.include_router(writeoffs_router.router)
 app.include_router(writeoff_groups_router.router)
 app.include_router(clients_router.router)
+app.include_router(dictionaries_router.router)
 app.include_router(tags_router.router)
 app.include_router(suppliers_router.router)
 app.include_router(activity_router.router)
@@ -124,6 +102,7 @@ app.include_router(notifications_router.cron_router)
 app.include_router(custom_objects_router.router)
 app.include_router(workflows_router.router)
 app.include_router(webhooks_router.router)
+app.include_router(nakladnye_router.router)
 
 @app.get("/")
 def serve_frontend():
@@ -133,11 +112,16 @@ def serve_frontend():
 def serve_admin():
     return FileResponse("admin.html")
 
-# У1 (решение владельца, 06.09): страницы-сироты settings.html /
-# workflows.html / custom_objects.html удалены — их функционал полностью
-# покрывают вкладки «Настройки» внутри index.html. Отдельные роуты и файлы
-# больше не нужны (страница воркфлоу вдобавок описывала несуществующий
-# движок — Н20; сам CRUD воркфлоу в API и вкладке «Настройки» сохранён).
+@app.get("/manifest.json")
+def serve_manifest():
+    # PWA-манифест, на который ссылается index.html. Отдельный роут нужен
+    # потому, что StaticFiles смонтирован только на /css и /js — без него
+    # браузер получал 404 и установка приложения не работала.
+    return FileResponse("manifest.json", media_type="application/manifest+json")
+
+# Отдельные страницы /settings.html, /workflows.html и /custom_objects.html удалены:
+# на проде этих файлов нет и роуты отдавали HTTP 500. Настройки, воркфлоу и кастомные
+# объекты живут страницами внутри index.html (js/settings.js ходит в /custom/* напрямую).
 
 @app.get("/api/version")
 def get_version():
@@ -152,7 +136,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
 
-    if path.startswith("/css/") or path.startswith("/js/"):
+    if path.startswith(("/css/", "/js/")):
         # Static assets are referenced with ?v=<sha1 of content> (see
         # tools/stamp_assets.py), so a given URL can never change meaning.
         # Caching them for a year removes ~250 KB CSS + 20 JS requests from
@@ -172,13 +156,9 @@ async def add_headers(request: Request, call_next):
     # только Google Fonts. frame-ancestors дублирует X-Frame-Options.
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    # FIX 2026-09-06 (аудит С5): 'unsafe-inline' убран из script-src — все
-    # инлайн-скрипты и onclick перенесены в внешние файлы (js/boot.js,
-    # js/handlers.js, *-page.js). style-src сохраняет 'unsafe-inline':
-    # разметка опирается на атрибуты style="…", их перенос — не задача CSP.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' data: https:; "
@@ -191,3 +171,21 @@ async def add_headers(request: Request, call_next):
 
 app.mount("/css", StaticFiles(directory="css"), name="css")
 app.mount("/js", StaticFiles(directory="js"), name="js")
+# /static/logo.svg нужен manifest.json (иконка) и admin.html (логотип в шапке).
+# Без маунта оба запроса отдавали 404: роутов на отдельные файлы нет, а
+# StaticFiles был смонтирован только на /css и /js.
+app.mount("/static", StaticFiles(directory="static"), name="static")
+# Новый фронт (site-v2, Этап 0/4 плана замены — design-plans/frontend-replacement-plan.md):
+# nginx проксирует всё на приложение, поэтому каталог вебрута сам по себе не
+# отдаётся — нужен маунт. html=True открывает /v2/ на index.html. Старый фронт
+# остаётся на / до переключения; откат /v2 — снятие маунта.
+app.mount("/v2", StaticFiles(directory="site-v2", html=True), name="v2")
+
+# site-v2 активно правится: кэш браузера не должен переживать деплой.
+# no-cache — переvalidation по ETag/Last-Modified, не запрет кэширования.
+@app.middleware("http")
+async def no_cache_v2(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/v2"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response

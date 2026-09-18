@@ -1,15 +1,18 @@
+import contextlib
 import os
 import re
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+
 import models
 import schemas
-from database import get_db, get_tenant_db
 from auth import get_current_user
-from db_utils import resolve_tenant_db as _db
+from constants import MONEY_EPSILON
+from database import get_db
 from limiter_config import limiter
 
 router = APIRouter(
@@ -35,6 +38,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # кто и когда поменял сумму/клиента/дату. Без этих записей
 # остаётся только догадываться, откуда взялись данные в сделке.
 # ============================================================
+
 
 def _fmt_money_log(value) -> str:
     try:
@@ -88,150 +92,135 @@ def _card_field_changes(session, card, old: dict) -> list:
             return _short_log(rec.name, 30) if rec else "—"
 
         changes.append(f'Клиент: {_client_name(old.get("client_id"))} → {_client_name(card.client_id)}')
+    if (card.owner_id or None) != (old.get("owner_id") or None):
+        # дефект 13: переназначение владельца — событие, которое должно быть
+        # видно в ленте так же, как смена клиента или магазина.
+        def _user_name(uid):
+            if uid is None:
+                return "—"
+            rec = session.query(models.User).filter(models.User.id == uid).first()
+            return _short_log(rec.username, 30) if rec else "—"
+
+        changes.append(f'Ответственный: {_user_name(old.get("owner_id"))} → {_user_name(card.owner_id)}')
     return changes
 
 
 @router.post("/cards/{card_id}/checklists", response_model=schemas.ChecklistResponse)
 def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        card = session.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
 
-        data = item.model_dump()
+    data = item.model_dump()
 
-        # Название берём из справочника поставщиков — оно ведущее.
-        # Ручной ввод остаётся только для старых записей без supplier_id.
-        if data.get("supplier_id"):
-            sup = session.query(models.Supplier).filter(
-                models.Supplier.id == data["supplier_id"]
-            ).first()
-            if not sup:
-                raise HTTPException(status_code=404, detail="Поставщик не найден")
-            data["company_name"] = sup.name
-        if not (data.get("company_name") or "").strip():
-            raise HTTPException(status_code=400, detail="Укажите поставщика")
+    # Название берём из справочника поставщиков — оно ведущее.
+    # Ручной ввод остаётся только для старых записей без supplier_id.
+    if data.get("supplier_id"):
+        sup = db.query(models.Supplier).filter(
+            models.Supplier.id == data["supplier_id"]
+        ).first()
+        if not sup:
+            raise HTTPException(status_code=404, detail="Поставщик не найден")
+        data["company_name"] = sup.name
+    if not (data.get("company_name") or "").strip():
+        raise HTTPException(status_code=400, detail="Укажите поставщика")
 
-        new_item = models.CardChecklist(**data, card_id=card_id)
-        session.add(new_item)
-        session.commit()
-        session.refresh(new_item)
-        return new_item
-    finally:
-        if tdb is not db:
-            tdb.close()
+    new_item = models.CardChecklist(**data, card_id=card_id)
+    db.add(new_item)
+    db.commit()
+    db.refresh(new_item)
+    return new_item
+
 
 @router.patch("/checklists/{checklist_id}", response_model=schemas.ChecklistResponse)
 def update_checklist_item(checklist_id: int, item_update: schemas.ChecklistUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
-        if not item:
-            raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
-        update_data = item_update.model_dump(exclude_unset=True)
+    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
+    update_data = item_update.model_dump(exclude_unset=True)
 
-        # Сменили поставщика — подтягиваем актуальное название из справочника
-        if "supplier_id" in update_data and update_data["supplier_id"]:
-            sup = session.query(models.Supplier).filter(
-                models.Supplier.id == update_data["supplier_id"]
-            ).first()
-            if not sup:
-                raise HTTPException(status_code=404, detail="Поставщик не найден")
-            update_data["company_name"] = sup.name
+    # Сменили поставщика — подтягиваем актуальное название из справочника
+    if update_data.get("supplier_id"):
+        sup = db.query(models.Supplier).filter(
+            models.Supplier.id == update_data["supplier_id"]
+        ).first()
+        if not sup:
+            raise HTTPException(status_code=404, detail="Поставщик не найден")
+        update_data["company_name"] = sup.name
 
-        for key, value in update_data.items():
-            setattr(item, key, value)
-        session.commit()
-        session.refresh(item)
-        return item
-    finally:
-        if tdb is not db:
-            tdb.close()
+    for key, value in update_data.items():
+        setattr(item, key, value)
+    db.commit()
+    db.refresh(item)
+    return item
+
 
 @router.delete("/checklists/{checklist_id}")
 def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
-        if not item:
-            raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
-        if item.invoice_file_path and os.path.exists(item.invoice_file_path):
-            os.remove(item.invoice_file_path)
-        session.delete(item)
-        session.commit()
-        return {"detail": "Пункт успешно удален"}
-    finally:
-        if tdb is not db:
-            tdb.close()
-
+    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
+    if item.invoice_file_path and os.path.exists(item.invoice_file_path):
+        os.remove(item.invoice_file_path)
+    db.delete(item)
+    db.commit()
+    return {"detail": "Пункт успешно удален"}
 # FIX 2026-09-06 (аудит С3): загрузки — тяжёлые операции (стриминг до 25 МБ)
 # и вектор записи мусора в uploads; лимит на оба upload-эндпоинта.
 # За nginx должен быть включён proxy-headers, иначе лимит общий на всех.
+
+
 @router.post("/checklists/{checklist_id}/invoice", response_model=schemas.ChecklistResponse)
+
+
 @limiter.limit("30/minute")
 def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
-        if not item:
-            raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
-        ALLOWED_EXTS = {'.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt'}
-        ext = os.path.splitext(file.filename or '')[1].lower()
-        if ext not in ALLOWED_EXTS:
-            raise HTTPException(status_code=400, detail=f"Тип файла не разрешён: {ext}")
-        _validate_upload_content(file, ext)
-        if item.invoice_file_path and os.path.exists(item.invoice_file_path):
-            os.remove(item.invoice_file_path)
-        original_name = os.path.basename(file.filename or "schet")
-        safe_filename = f"chk{checklist_id}_{uuid.uuid4().hex[:8]}_{original_name}"
-        file_path = os.path.join(UPLOAD_DIR, safe_filename)
-        # Defense-in-depth: сохраняем строго внутри UPLOAD_DIR (в имя файла
-        # попадает исходное имя вложения — проверяем, что оно не вынесло нас
-        # за пределы каталога).
-        if not os.path.realpath(file_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
-            raise HTTPException(status_code=400, detail="Недопустимое имя файла")
-        size = 0
-        with Path(file_path).open("wb") as buffer:
-            while chunk := file.file.read(1024 * 1024):
-                size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
-                    buffer.close()
-                    os.remove(file_path)
-                    raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
-                buffer.write(chunk)
-        item.invoice_file_name = original_name
-        item.invoice_file_path = file_path
-        session.commit()
-        session.refresh(item)
-        return item
-    finally:
-        if tdb is not db:
-            tdb.close()
+    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
+    ALLOWED_EXTS = {'.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt'}
+    ext = os.path.splitext(file.filename or '')[1].lower()
+    if ext not in ALLOWED_EXTS:
+        raise HTTPException(status_code=400, detail=f"Тип файла не разрешён: {ext}")
+    _validate_upload_content(file, ext)
+    if item.invoice_file_path and os.path.exists(item.invoice_file_path):
+        os.remove(item.invoice_file_path)
+    original_name = os.path.basename(file.filename or "schet")
+    safe_filename = f"chk{checklist_id}_{uuid.uuid4().hex[:8]}_{original_name}"
+    file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    # Defense-in-depth: сохраняем строго внутри UPLOAD_DIR (в имя файла
+    # попадает исходное имя вложения — проверяем, что оно не вынесло нас
+    # за пределы каталога).
+    if not os.path.realpath(file_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+    size = 0
+    with Path(file_path).open("wb") as buffer:
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                buffer.close()
+                os.remove(file_path)
+                raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
+            buffer.write(chunk)
+    item.invoice_file_name = original_name
+    item.invoice_file_path = file_path
+    db.commit()
+    db.refresh(item)
+    return item
+
 
 @router.delete("/checklists/{checklist_id}/invoice", response_model=schemas.ChecklistResponse)
 def delete_checklist_invoice(checklist_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
-        if not item:
-            raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
-        if item.invoice_file_path and os.path.exists(item.invoice_file_path):
-            os.remove(item.invoice_file_path)
-        item.invoice_file_name = None
-        item.invoice_file_path = None
-        session.commit()
-        session.refresh(item)
-        return item
-    finally:
-        if tdb is not db:
-            tdb.close()
-
+    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
+    if item.invoice_file_path and os.path.exists(item.invoice_file_path):
+        os.remove(item.invoice_file_path)
+    item.invoice_file_name = None
+    item.invoice_file_path = None
+    db.commit()
+    db.refresh(item)
+    return item
 ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt', '.odt', '.ods', '.zip', '.rar'}
 
 # UI FIX 2026-08-31 (аудит): проверка содержимого по magic bytes, а не только
@@ -273,219 +262,236 @@ def _validate_upload_content(file, ext: str):
 
 
 @router.post("/cards/{card_id}/attachments", response_model=schemas.AttachmentResponse)
+
+
 @limiter.limit("30/minute")
 def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        card = session.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
-        original_name = os.path.basename(file.filename or "file")
-        ext = os.path.splitext(original_name)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            raise HTTPException(status_code=400, detail=f"Тип файла {ext} не разрешён")
-        _validate_upload_content(file, ext)
-        if not original_name:
-            original_name = "file"
-        safe_filename = f"{card_id}_{uuid.uuid4().hex[:8]}_{original_name}"
-        file_path = os.path.join(UPLOAD_DIR, safe_filename)
-        size = 0
-        with Path(file_path).open("wb") as buffer:
-            while chunk := file.file.read(1024 * 1024):
-                size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
-                    buffer.close()
-                    os.remove(file_path)
-                    raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
-                buffer.write(chunk)
-        new_attachment = models.CardAttachment(file_name=original_name, file_path=file_path, card_id=card_id)
-        session.add(new_attachment)
-        session.commit()
-        session.refresh(new_attachment)
-        return new_attachment
-    finally:
-        if tdb is not db:
-            tdb.close()
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    original_name = os.path.basename(file.filename or "file")
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Тип файла {ext} не разрешён")
+    _validate_upload_content(file, ext)
+    if not original_name:
+        original_name = "file"
+    safe_filename = f"{card_id}_{uuid.uuid4().hex[:8]}_{original_name}"
+    file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    size = 0
+    with Path(file_path).open("wb") as buffer:
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                buffer.close()
+                os.remove(file_path)
+                raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
+            buffer.write(chunk)
+    new_attachment = models.CardAttachment(file_name=original_name, file_path=file_path, card_id=card_id)
+    db.add(new_attachment)
+    db.commit()
+    db.refresh(new_attachment)
+    return new_attachment
+
 
 @router.delete("/attachments/{attachment_id}")
 def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        attachment = session.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
-        if not attachment:
-            raise HTTPException(status_code=404, detail="Файл не найден")
-        if os.path.exists(attachment.file_path):
-            os.remove(attachment.file_path)
-        session.delete(attachment)
-        session.commit()
-        return {"detail": "Файл успешно удален"}
-    finally:
-        if tdb is not db:
-            tdb.close()
+    attachment = db.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    if os.path.exists(attachment.file_path):
+        os.remove(attachment.file_path)
+    db.delete(attachment)
+    db.commit()
+    return {"detail": "Файл успешно удален"}
+
 
 @router.patch("/cards/{card_id}", response_model=schemas.CardResponse)
 def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        card = session.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
-        # Снимок значений до мутаций — по нему строим запись «Изменение» в ленту
-        _old = {
-            "title": card.title,
-            "total_amount": card.total_amount,
-            "due_date": card.due_date,
-            "store_location": card.store_location,
-            "client_id": card.client_id,
-        }
-        if card_update.title is not None:
-            card.title = card_update.title
-            for tx in card.transactions:
-                tx.company_name = card_update.title
-        if card_update.total_amount is not None:
-            card.total_amount = card_update.total_amount
-            # FIX 2026-09-06 (аудит): раньше новая сумма сделки копировалась в
-            # ВСЕ транзакции — правка суммы после выписки накладных затирала и
-            # их суммы (реестр оплат расходился с напечатанными ТН).
-            # Пересчитываем только запись-остаток: сумма сделки минус уже
-            # выписанное (накладные/списания). Сами накладные не трогаем.
-            ledger = [t for t in card.transactions if not t.is_document]
-            issued_total = round(sum(float(t.amount or 0) for t in ledger
-                                     if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
-            new_rest = round(float(card_update.total_amount) - issued_total, 2)
-            remainder = next((t for t in ledger
-                              if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
-            if remainder is not None:
-                if new_rest <= 0.01:
-                    session.delete(remainder)
-                else:
-                    remainder.amount = new_rest
-            elif new_rest > 0.01 and card.status in ("Сборка", "На списание", "Закрыто"):
-                # Фикс аудита 10.09: остаток = «сделка в реестре оплат»
-                # (инвариант: запись появляется при входе в «Сборку»).
-                # Правка суммы в «Новом запросе»/«В работе» раньше сразу
-                # протаскивала сделку в реестр. Пересчитать существующий
-                # остаток можно в любом статусе, создавать — только с «Сборки».
-                session.add(models.Transaction(
-                    company_name=card.title, amount=new_rest,
-                    store_location=card.store_location, card_id=card.id,
-                ))
-            # Правка суммы создаёт/убирает остаток к выписке — статус
-            # выравнивается по тому же правилу, что и везде (иначе сделка с
-            # появившимся остатком застревала в «Закрыто» и пропадала с доски
-            # списания). «Сборку» не трогаем: там сделка по решению менеджера.
-            if card.status in ("На списание", "Закрыто"):
-                from routers.payments_router import _writeoff_status_for
-                card.status = _writeoff_status_for(card, ledger)
-        if 'store_location' in card_update.model_fields_set:
-            # Н4 (решение владельца, 06.09): правило «склад сделки единый» —
-            # СОЗНАТЕЛЬНОЕ. Смена склада сделки синхронно обновляет склад у
-            # всех её транзакций, включая выписанные накладные: сделка
-            # ведётся с одного склада. Вопросы оплат от склада не зависят.
-            card.store_location = card_update.store_location
-            for tx in card.transactions:
-                tx.store_location = card_update.store_location
-        if 'description' in card_update.model_fields_set:
-            old_note = (card.description or '').strip()
-            new_note = (card_update.description or '').strip()
-            # Заметка — единственное поле, которое пользователь редактирует
-            # ради самого текста, поэтому её изменения попадают в ленту
-            # активности отдельной записью «Комментарий».
-            if new_note != old_note and new_note:
-                session.add(models.ActivityLog(
-                    user_id=current_user.id,
-                    card_id=card_id,
-                    action="Комментарий",
-                    details=new_note[:4000],
-                    tenant_id=current_user.tenant_id
-                ))
-            card.description = card_update.description
-        if 'client_id' in card_update.model_fields_set:
-            card.client_id = card_update.client_id
-        if 'due_date' in card_update.model_fields_set:
-            card.due_date = card_update.due_date
-        if 'priority' in card_update.model_fields_set:
-            card.priority = card_update.priority
-        if 'paid_amount' in card_update.model_fields_set:
-            card.paid_amount = card_update.paid_amount
-        if 'payment_status' in card_update.model_fields_set:
-            card.payment_status = card_update.payment_status
-        if 'payment_due_date' in card_update.model_fields_set:
-            card.payment_due_date = card_update.payment_due_date
-        if 'tag_ids' in card_update.model_fields_set:
-            tags = session.query(models.Tag).filter(models.Tag.id.in_(card_update.tag_ids)).all()
-            card.tags = tags
-        _log_card_changes(session, card, current_user, _card_field_changes(session, card, _old))
-        session.commit()
-        session.refresh(card)
-        # Версионирование
-        from versioning import save_version as _save_version
-        _save_version(session, "cards", card.id,
-            {"title": card.title, "status": card.status, "total_amount": float(card.total_amount or 0), "description": card.description, "priority": card.priority},
-            user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
-        # Webhook уведомление
-        try:
-            from routers.webhooks_router import notify_webhooks_async
-            notify_webhooks_async(current_user.tenant_id, "card.updated",
-                {"id": card.id, "title": card.title, "status": card.status})
-        except Exception: pass
-        return card
-    finally:
-        if tdb is not db:
-            tdb.close()
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    # FIX 2026-09-12 (Фаза 2, дефект 13): owner_id вернулся в CardUpdate —
+    # переназначить владельца сделки было нельзя, PATCH отвечал 200 и ничего
+    # не менял. Проверка существования вынесена ДО мутаций: FK enforcement
+    # включён (PRAGMA foreign_keys=ON в database.py), поэтому чужой id дал
+    # бы IntegrityError и 500 в середине применения остальных полей.
+    # None разрешён: у FK ondelete="SET NULL", а auth_router.remove_user
+    # уже обнуляет owner_id у карточек удаляемого пользователя.
+    if 'owner_id' in card_update.model_fields_set and card_update.owner_id is not None:
+        owner = db.query(models.User).filter(
+            models.User.id == card_update.owner_id).first()
+        if not owner:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Пользователь #{card_update.owner_id} не найден")
+    # Снимок значений до мутаций — по нему строим запись «Изменение» в ленту
+    _old = {
+        "title": card.title,
+        "total_amount": card.total_amount,
+        "due_date": card.due_date,
+        "store_location": card.store_location,
+        "client_id": card.client_id,
+        "owner_id": card.owner_id,
+    }
+    if card_update.title is not None:
+        card.title = card_update.title
+        for tx in card.transactions:
+            tx.company_name = card_update.title
+    if card_update.total_amount is not None:
+        card.total_amount = card_update.total_amount
+        # FIX 2026-09-06 (аудит): раньше новая сумма сделки копировалась в
+        # ВСЕ транзакции — правка суммы после выписки накладных затирала и
+        # их суммы (реестр оплат расходился с напечатанными ТН).
+        # Пересчитываем только запись-остаток: сумма сделки минус уже
+        # выписанное (накладные/списания). Сами накладные не трогаем.
+        ledger = [t for t in card.transactions if not t.is_document]
+        issued_total = round(sum(float(t.amount or 0) for t in ledger
+                                 if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+        new_rest = round(float(card_update.total_amount) - issued_total, 2)
+        remainder = next((t for t in ledger
+                          if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
+        if remainder is not None:
+            if new_rest <= MONEY_EPSILON:
+                db.delete(remainder)
+            else:
+                remainder.amount = new_rest
+        elif new_rest > MONEY_EPSILON and card.status in ("Сборка", "На списание", "Закрыто"):
+            # Фикс аудита 10.09: остаток = «сделка в реестре оплат»
+            # (инвариант: запись появляется при входе в «Сборку»).
+            # Правка суммы в «Новом запросе»/«В работе» раньше сразу
+            # протаскивала сделку в реестр. Пересчитать существующий
+            # остаток можно в любом статусе, создавать — только с «Сборки».
+            db.add(models.Transaction(
+                company_name=card.title, amount=new_rest,
+                store_location=card.store_location, card_id=card.id,
+            ))
+        # Правка суммы создаёт/убирает остаток к выписке — статус
+        # выравнивается по тому же правилу, что и везде (иначе сделка с
+        # появившимся остатком застревала в «Закрыто» и пропадала с доски
+        # списания). «Сборку» не трогаем: там сделка по решению менеджера.
+        if card.status in ("На списание", "Закрыто"):
+            from services.writeoffs import writeoff_status_for
+            card.status = writeoff_status_for(card, ledger)
+        # FIX 2026-09-12 (Фаза 2, дефект 9): writeoff_groups.total_amount —
+        # агрегат сумм входящих в группу сделок, но пересчитывался он только
+        # в эндпоинтах самой группы (создание, добавление/вывод карточки,
+        # выписка накладной по группе). Правка суммы сделки через
+        # PATCH /cards/{id} группу не трогала, и итог группы расходился
+        # с суммой её карточек: на доске списания и в акте висело старое
+        # число. Функция пересчёта переиспользуется из writeoff_groups_router,
+        # второй копии формулы здесь появиться не должно.
+        if card.writeoff_group_id is not None:
+            from services.writeoffs import recompute_group_total
+            group = db.query(models.WriteoffGroup).filter(
+                models.WriteoffGroup.id == card.writeoff_group_id).first()
+            if group is not None:
+                # autoflush=False: фиксируем новую сумму сделки, чтобы
+                # group.cards считался от актуальных значений
+                db.flush()
+                recompute_group_total(group)
+    if 'store_location' in card_update.model_fields_set:
+        # Н4 (решение владельца, 06.09): правило «склад сделки единый» —
+        # СОЗНАТЕЛЬНОЕ. Смена склада сделки синхронно обновляет склад у
+        # всех её транзакций, включая выписанные накладные: сделка
+        # ведётся с одного склада. Вопросы оплат от склада не зависят.
+        card.store_location = card_update.store_location
+        for tx in card.transactions:
+            tx.store_location = card_update.store_location
+    if 'description' in card_update.model_fields_set:
+        old_note = (card.description or '').strip()
+        new_note = (card_update.description or '').strip()
+        # Заметка — единственное поле, которое пользователь редактирует
+        # ради самого текста, поэтому её изменения попадают в ленту
+        # активности отдельной записью «Комментарий».
+        if new_note != old_note and new_note:
+            db.add(models.ActivityLog(
+                user_id=current_user.id,
+                card_id=card_id,
+                action="Комментарий",
+                details=new_note[:4000],
+                tenant_id=current_user.tenant_id
+            ))
+        card.description = card_update.description
+    if 'client_id' in card_update.model_fields_set:
+        card.client_id = card_update.client_id
+    if 'owner_id' in card_update.model_fields_set:
+        card.owner_id = card_update.owner_id   # проверен выше, до мутаций
+    if 'due_date' in card_update.model_fields_set:
+        card.due_date = card_update.due_date
+    if 'priority' in card_update.model_fields_set:
+        card.priority = card_update.priority
+    if 'paid_amount' in card_update.model_fields_set:
+        card.paid_amount = card_update.paid_amount
+    if 'payment_status' in card_update.model_fields_set:
+        card.payment_status = card_update.payment_status
+    if 'payment_due_date' in card_update.model_fields_set:
+        card.payment_due_date = card_update.payment_due_date
+    if 'payment_terms' in card_update.model_fields_set:
+        # Условие оплаты (Этап 2.4 плана замены фронта) — не факт оплаты:
+        # paid_amount/payment_status этим полем не меняются.
+        card.payment_terms = card_update.payment_terms
+    if 'tag_ids' in card_update.model_fields_set:
+        tags = db.query(models.Tag).filter(models.Tag.id.in_(card_update.tag_ids)).all()
+        card.tags = tags
+    _log_card_changes(db, card, current_user, _card_field_changes(db, card, _old))
+    db.commit()
+    db.refresh(card)
+    # Версионирование
+    from versioning import save_version as _save_version
+    _save_version(db, "cards", card.id,
+        {"title": card.title, "status": card.status, "total_amount": float(card.total_amount or 0), "description": card.description, "priority": card.priority},
+        user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
+    # Webhook уведомление
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "card.updated",
+            {"id": card.id, "title": card.title, "status": card.status})
+    return card
+
 
 @router.patch("/cards/{card_id}/payment", response_model=schemas.CardResponse)
 def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        card = session.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
 
-        _old_pay = {
-            "paid_amount": card.paid_amount,
-            "payment_status": card.payment_status,
-            "payment_due_date": card.payment_due_date,
-        }
-        if payload.paid_amount is not None:
-            card.paid_amount = max(0, payload.paid_amount)
-        if payload.payment_due_date is not None:
-            card.payment_due_date = payload.payment_due_date
-        if payload.payment_status is not None:
-            card.payment_status = payload.payment_status
+    _old_pay = {
+        "paid_amount": card.paid_amount,
+        "payment_status": card.payment_status,
+        "payment_due_date": card.payment_due_date,
+    }
+    if payload.paid_amount is not None:
+        card.paid_amount = max(0, payload.paid_amount)
+    if payload.payment_due_date is not None:
+        card.payment_due_date = payload.payment_due_date
+    if payload.payment_status is not None:
+        card.payment_status = payload.payment_status
+    else:
+        # автоопределение статуса по сумме
+        total = float(card.total_amount or 0)
+        paid = float(card.paid_amount or 0)
+        if total <= 0:
+            card.payment_status = "Не оплачен"
+        elif paid >= total - MONEY_EPSILON:
+            card.payment_status = "Оплачен"
+        elif paid > MONEY_EPSILON:
+            card.payment_status = "Частично"
         else:
-            # автоопределение статуса по сумме
-            total = float(card.total_amount or 0)
-            paid = float(card.paid_amount or 0)
-            if total <= 0:
-                card.payment_status = "Не оплачен"
-            elif paid >= total - 0.01:
-                card.payment_status = "Оплачен"
-            elif paid > 0.01:
-                card.payment_status = "Частично"
-            else:
-                card.payment_status = "Не оплачен"
+            card.payment_status = "Не оплачен"
 
-        _pay_changes = []
-        if (card.payment_status or "") != (_old_pay.get("payment_status") or ""):
-            _pay_changes.append(f'Оплата: {_old_pay.get("payment_status") or "—"} → {card.payment_status}')
-        if float(card.paid_amount or 0) != float(_old_pay.get("paid_amount") or 0):
-            _pay_changes.append(f'Оплачено: {_fmt_money_log(_old_pay.get("paid_amount"))} → {_fmt_money_log(card.paid_amount)} BYN')
-        if (card.payment_due_date or None) != (_old_pay.get("payment_due_date") or None):
-            _pay_changes.append(f'Отсрочка до: {_fmt_date_log(_old_pay.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
-        _log_card_changes(session, card, current_user, _pay_changes)
+    _pay_changes = []
+    if (card.payment_status or "") != (_old_pay.get("payment_status") or ""):
+        _pay_changes.append(f'Оплата: {_old_pay.get("payment_status") or "—"} → {card.payment_status}')
+    if float(card.paid_amount or 0) != float(_old_pay.get("paid_amount") or 0):
+        _pay_changes.append(f'Оплачено: {_fmt_money_log(_old_pay.get("paid_amount"))} → {_fmt_money_log(card.paid_amount)} BYN')
+    if (card.payment_due_date or None) != (_old_pay.get("payment_due_date") or None):
+        _pay_changes.append(f'Отсрочка до: {_fmt_date_log(_old_pay.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
+    _log_card_changes(db, card, current_user, _pay_changes)
 
-        session.commit()
-        session.refresh(card)
-        return card
-    finally:
-        if tdb is not db:
-            tdb.close()
-
+    db.commit()
+    db.refresh(card)
+    return card
 # FIX 2026-09-06 (аудит): эндпоинт GET /files/{filename} удалён.
 # Он отдавал любой файл из uploads любому авторизованному пользователю без
 # проверки владельца/тенанта (IDOR), а фронтенд им уже не пользуется —
@@ -503,11 +509,9 @@ def _sanitize_download_name(name: str) -> str:
     if not name:
         return "attachment"
     if "=?" in name:
-        try:
+        with contextlib.suppress(Exception):
             from email.header import decode_header, make_header
             name = str(make_header(decode_header(name)))
-        except Exception:
-            pass
     name = re.sub(r"[\r\n\t]+", " ", name).strip()
     return name or "attachment"
 
@@ -543,47 +547,35 @@ def _resolve_file_path(stored_path: str) -> str:
 
 @router.get("/attachments/{attachment_id}/download")
 def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        attachment = session.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
-        if not attachment:
-            raise HTTPException(status_code=404, detail="Вложение не найдено")
-        file_path = _resolve_file_path(attachment.file_path)
-        if not file_path:
-            # Диагностика: путь из БД и папка, где искали (как в /files/)
-            import logging
-            logging.getLogger(__name__).warning(
-                "Attachment not found: id=%r stored=%r upload_dir=%r",
-                attachment_id, attachment.file_path, os.path.realpath(UPLOAD_DIR)
-            )
-            raise HTTPException(status_code=404, detail="Файл не найден на сервере")
-        return FileResponse(file_path, filename=_sanitize_download_name(attachment.file_name or os.path.basename(file_path)))
-    finally:
-        if tdb is not db:
-            tdb.close()
+    attachment = db.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Вложение не найдено")
+    file_path = _resolve_file_path(attachment.file_path)
+    if not file_path:
+        # Диагностика: путь из БД и папка, где искали (как в /files/)
+        import logging
+        logging.getLogger(__name__).warning(
+            "Attachment not found: id=%r stored=%r upload_dir=%r",
+            attachment_id, attachment.file_path, os.path.realpath(UPLOAD_DIR)
+        )
+        raise HTTPException(status_code=404, detail="Файл не найден на сервере")
+    return FileResponse(file_path, filename=_sanitize_download_name(attachment.file_name or os.path.basename(file_path)))
 
 
 @router.get("/checklists/{checklist_id}/invoice/download")
 def download_checklist_invoice_by_id(checklist_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    tdb = _db(current_user, db)
-    try:
-        session = tdb
-        item = session.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
-        if not item:
-            raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
-        if not item.invoice_file_path:
-            raise HTTPException(status_code=404, detail="Счёт не прикреплён")
-        file_path = _resolve_file_path(item.invoice_file_path)
-        if not file_path:
-            # Диагностика: путь из БД и папка, где искали (как в /files/)
-            import logging
-            logging.getLogger(__name__).warning(
-                "Checklist invoice not found: checklist_id=%r stored=%r upload_dir=%r",
-                checklist_id, item.invoice_file_path, os.path.realpath(UPLOAD_DIR)
-            )
-            raise HTTPException(status_code=404, detail="Файл счёта не найден на сервере")
-        return FileResponse(file_path, filename=item.invoice_file_name or os.path.basename(file_path))
-    finally:
-        if tdb is not db:
-            tdb.close()
+    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
+    if not item.invoice_file_path:
+        raise HTTPException(status_code=404, detail="Счёт не прикреплён")
+    file_path = _resolve_file_path(item.invoice_file_path)
+    if not file_path:
+        # Диагностика: путь из БД и папка, где искали (как в /files/)
+        import logging
+        logging.getLogger(__name__).warning(
+            "Checklist invoice not found: checklist_id=%r stored=%r upload_dir=%r",
+            checklist_id, item.invoice_file_path, os.path.realpath(UPLOAD_DIR)
+        )
+        raise HTTPException(status_code=404, detail="Файл счёта не найден на сервере")
+    return FileResponse(file_path, filename=item.invoice_file_name or os.path.basename(file_path))

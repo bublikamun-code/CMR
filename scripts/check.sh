@@ -90,8 +90,18 @@ import tempfile
 
 root = Path(sys.argv[1])
 with tempfile.TemporaryDirectory(prefix='.check-', dir=root) as work:
-    for name in ('css', 'js'):
-        Path(work, name).mkdir()
+    # Приложение монтирует статику по относительным путям (main.py:
+    # css, js, static, site-v2) — CWD тестов должен их видеть.
+    # Ссылки ведут на реальные ассеты репозитория (site/, site-v2/).
+    front = root / 'site'
+    back = root / 'server_snapshot'
+    for name, target in (('css', front / 'css'), ('js', front / 'js'),
+                         ('static', front / 'static'),
+                         ('site-v2', back / 'site-v2'),
+                         ('index.html', front / 'index.html'),
+                         ('admin.html', front / 'admin.html'),
+                         ('manifest.json', front / 'manifest.json')):
+        Path(work, name).symlink_to(target)
     env = os.environ.copy()
     env.update(
         PYTHONPATH=str(root / 'server_snapshot'),

@@ -1,6 +1,9 @@
-from sqlalchemy import Column, Integer, String, DateTime
 from datetime import datetime, timezone
+
+from sqlalchemy import Column, DateTime, Integer, String
+
 from database import Base
+
 
 class Tenant(Base):
     __tablename__ = "tenants"
