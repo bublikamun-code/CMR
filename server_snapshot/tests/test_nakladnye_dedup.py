@@ -347,7 +347,13 @@ def test_bot_create_rejects_duplicate(client, bot_headers, db):
     assert client.post("/nakladnye/bot/create", json=payload, headers=bot_headers).status_code == 200
 
     r = client.post("/nakladnye/bot/create", json=payload, headers=bot_headers)
-    assert r.status_code == 400, f"дубль принят со статусом {r.status_code}"
+    assert r.status_code == 409, f"дубль принят со статусом {r.status_code}"
+    body = r.json()
+    # FIX 2026-09-19 (A4): тело 409 содержит existing_id
+    detail = body.get("detail") if isinstance(body, dict) else None
+    assert isinstance(detail, dict), "detail должен быть объектом с existing_id"
+    assert "existing_id" in detail
+    assert detail["existing_id"] > 0
 
     _reload(db)
     assert db.query(models.Nakladnaya).count() == 1
@@ -392,7 +398,7 @@ def test_bot_create_rejects_duplicate_in_other_spelling(client, bot_headers, db,
 
     second = dict(first, doc_series=series, doc_number=number)
     r = client.post("/nakladnye/bot/create", json=second, headers=bot_headers)
-    assert r.status_code == 400, f"{series!r}/{number!r} принят как новая накладная"
+    assert r.status_code == 409, f"{series!r}/{number!r} принят как новая накладная"
 
     _reload(db)
     assert db.query(models.Nakladnaya).count() == 1
@@ -406,7 +412,11 @@ def test_crm_create_rejects_duplicate_too(client, manager, db):
     assert client.post("/nakladnye", headers=h, json=payload).status_code == 200
 
     r = client.post("/nakladnye", headers=h, json=payload)
-    assert r.status_code == 400, f"дубль принят со статусом {r.status_code}"
+    assert r.status_code == 409, f"дубль принят со статусом {r.status_code}"
+    # FIX 2026-09-19 (A4): 409 с existing_id
+    detail = r.json().get("detail")
+    assert isinstance(detail, dict)
+    assert "existing_id" in detail
 
     _reload(db)
     assert db.query(models.Nakladnaya).count() == 1
@@ -468,7 +478,7 @@ def test_update_onto_existing_number_is_rejected(client, manager, db):
 
     r = client.patch(f"/nakladnye/{victim.id}", headers=h,
                      json={"doc_number": "ТТН 4881041"})
-    assert r.status_code == 400, r.text
+    assert r.status_code == 409, r.text
 
     _reload(db)
     fresh = db.query(models.Nakladnaya).filter(

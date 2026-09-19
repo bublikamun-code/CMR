@@ -278,6 +278,32 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             headers={"X-Bot-Token": BOT_TOKEN},
                             files={"file": (photo["filename"], photo["data"], "image/jpeg")},
                         )
+                elif resp.status_code == 409:
+                    # FIX 2026-09-19 (A4): дубль по уникальному индексу
+                    # (гонка между check-duplicate и create). Сервер вернул
+                    # existing_id — загружаем фото к существующей записи,
+                    # как и при штатном обнаружении дубля через GET check-duplicate.
+                    try:
+                        dup_body = resp.json()
+                        dup_id = (dup_body.get("detail") or {}).get("existing_id")
+                    except Exception:
+                        dup_id = None
+                    if dup_id:
+                        for photo in inv["photos"]:
+                            await client.post(
+                                f"{CRM_API_URL}/nakladnye/bot/{dup_id}/photos",
+                                headers={"X-Bot-Token": BOT_TOKEN},
+                                files={"file": (photo["filename"], photo["data"], "image/jpeg")},
+                            )
+                        inv["_duplicate"] = True
+                        logger.info(f"Duplicate (409 race): doc {inv.get('doc_series')} "
+                                    f"{inv.get('doc_number')} → existing id={dup_id}")
+                    else:
+                        logger.error(f"CRM 409 without existing_id: {resp.text}")
+                elif resp.status_code == 422:
+                    # Неканонический doc_type или status из OCR — логируем и
+                    # пропускаем; оператор увидит в сводке, что документ не сохранён.
+                    logger.warning(f"CRM validation error (422): {resp.text}")
                 else:
                     logger.error(f"CRM error: {resp.status_code} {resp.text}")
 

@@ -62,7 +62,7 @@ def find_by_doc_key(session, doc_series, doc_number):
 
 
 def commit_with_doc_key_guard(session, doc_series, doc_number):
-    """FIX 2026-09-12 (Фаза 2, дефект 7): commit с переводом дубля в 400.
+    """FIX 2026-09-12 (Фаза 2, дефект 7): commit с переводом дубля в 409.
 
     Уникальность обеспечивает частичный индекс uq_nakladnye_doc_key
     (миграция 0005), поэтому проверка АТОМАРНА: гонка check-then-insert,
@@ -76,6 +76,11 @@ def commit_with_doc_key_guard(session, doc_series, doc_number):
     Если нарушение НЕ про уникальный ключ документа (например, битый FK),
     ошибка пробрасывается дальше: объявить её дублем значило бы соврать
     пользователю и увести разбор в сторону.
+
+    FIX 2026-09-19 (пакет A, дефект A4): статус 409 Conflict вместо 400 —
+    клиент (v2 boot.js и бот) отличает дубль от ошибки валидации и показывает
+    «уже существует» со ссылкой на существующую запись. Тело ответа содержит
+    existing_id, чтобы клиент мог дать ссылку на дубль.
     """
     try:
         session.commit()
@@ -86,10 +91,14 @@ def commit_with_doc_key_guard(session, doc_series, doc_number):
             raise
         series, number = models.nakladnaya_doc_key(doc_series, doc_number)
         raise HTTPException(
-            status_code=400,
-            detail=(f"Накладная с серией «{series}» и номером {number} уже принята "
-                    f"(id={existing.id}). Повторно тот же документ не создаётся — "
-                    f"если это повторная отгрузка, откройте существующую запись."),
+            status_code=409,
+            detail={
+                "message": (f"Накладная с серией «{series}» и номером {number} "
+                            f"уже принята (id={existing.id}). Повторно тот же "
+                            f"документ не создаётся — если это повторная "
+                            f"отгрузка, откройте существующую запись."),
+                "existing_id": existing.id,
+            },
         ) from e
 
 
