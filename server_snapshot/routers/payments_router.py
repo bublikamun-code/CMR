@@ -6,6 +6,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -156,7 +157,17 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
     grouped=False — сырые записи (нужны доске списания и карточке).
     """
     try:
-        query = db.query(models.Transaction).filter(models.Transaction.is_document == False)
+        # Фидбек 19.09: карточки из корзины (is_deleted) не должны показываться
+        # в реестре — иначе удалённая карточка «оставалась» в реестре и не
+        # открывалась. При восстановлении карточки записи возвращаются.
+        query = db.query(models.Transaction).outerjoin(
+            models.Card, models.Transaction.card_id == models.Card.id
+        ).filter(
+            or_(
+                models.Card.is_deleted == False,  # noqa: E712
+                models.Transaction.card_id.is_(None),
+            )
+        ).filter(models.Transaction.is_document == False)
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
         ).limit(REGISTRY_HARD_LIMIT).all()

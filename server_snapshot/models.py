@@ -157,6 +157,9 @@ class CardChecklist(Base):
     is_paid = Column(Boolean, default=False)
     is_secondary_check = Column(Boolean, default=False)
     note = Column(String, nullable=True)
+    # Фидбек 18.09: процесс закупки v2 — «Заказано»/«Получено».
+    ordered = Column(Boolean, default=False)
+    received = Column(Boolean, default=False)
     invoice_file_name = Column(String, nullable=True)
     invoice_file_path = Column(String, nullable=True)
     # Поставщик выбирается из справочника. company_name остаётся как

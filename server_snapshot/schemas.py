@@ -115,6 +115,8 @@ class ChecklistBase(BaseModel):
     is_paid: bool = False
     is_secondary_check: bool = False
     note: Optional[str] = None
+    ordered: bool = False
+    received: bool = False
     # Поставщик из справочника. company_name остаётся снимком названия,
     # чтобы старые записи и удалённые поставщики не теряли подпись.
     supplier_id: Optional[int] = None
@@ -129,6 +131,8 @@ class ChecklistUpdate(BaseModel):
     is_secondary_check: Optional[bool] = None
     note: Optional[str] = None
     supplier_id: Optional[int] = None
+    ordered: Optional[bool] = None
+    received: Optional[bool] = None
 
 class ChecklistResponse(ChecklistBase):
     id: int
