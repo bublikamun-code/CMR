@@ -8,6 +8,7 @@
 #
 # Usage:
 #   tools/deploy.sh front            # sync site/ -> server webroot
+#   tools/deploy.sh v2               # rebuild site-v2 from mockups, sync it
 #   tools/deploy.sh back <file>...   # sync backend file(s), then restart PM2
 #   tools/deploy.sh restart          # restart PM2 process only
 #   tools/deploy.sh status           # show PM2 status
@@ -78,6 +79,7 @@ front)
     rsync -avz --human-readable $DRY_RUN \
         -e "ssh ${SSH_OPTS[*]}" \
         --exclude '.git/' \
+        --exclude '.mimosa/' \
         --exclude '*.bak' \
         --exclude '*.bak_*' \
         --exclude '*.bak-*' \
@@ -91,6 +93,45 @@ front)
         "$REPO_ROOT/site/" \
         "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"
     echo "==> Frontend deployed. Static files need no restart."
+    ;;
+
+v2)
+    # site-v2 — генерируемый каталог (собирается из server_snapshot/tools/mockups).
+    # На прод должен уезжать только свежий билд, иначе прод и репозиторий
+    # расходятся молча: раньше front rsync'ил один site/, а v2 выкладывали руками.
+    echo "==> Verifying v2 source syntax"
+    JSC=/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc
+    if [[ -x "$JSC" ]]; then
+        for f in "$REPO_ROOT"/server_snapshot/tools/mockups/shell-v2-*.js \
+                 "$REPO_ROOT"/server_snapshot/tools/v2-api-template.js \
+                 "$REPO_ROOT"/server_snapshot/tools/v2-boot-template.js; do
+            result=$("$JSC" -e "try{new Function(readFile('$f'));print('OK')}catch(e){print('FAIL: '+e.message)}")
+            if [[ "$result" != OK ]]; then
+                echo "ERROR: синтаксис $(basename "$f"): $result" >&2
+                exit 1
+            fi
+        done
+        echo "    ok: синтаксис исходников v2"
+    else
+        echo "    jsc не найден — проверка синтаксиса пропущена" >&2
+    fi
+
+    echo "==> Rebuilding site-v2 from mockups"
+    python3 "$REPO_ROOT/server_snapshot/tools/build_site_v2.py" > /dev/null
+
+    echo "==> Syncing server_snapshot/site-v2/ -> $REMOTE_DIR/site-v2/"
+    # --delete: каталог генерируется целиком, удалённые модули не должны
+    # оставаться на проде. Исключения те же, что у front, плюс .mimosa
+    # (служебные файлы агентских инструментов, в проде не нужны).
+    rsync -avz --human-readable --delete $DRY_RUN \
+        -e "ssh ${SSH_OPTS[*]}" \
+        --exclude '.git/' \
+        --exclude '.mimosa/' \
+        --exclude '*.bak' \
+        --exclude '*.bak_*' \
+        "$REPO_ROOT/server_snapshot/site-v2/" \
+        "$SSH_USER@$SSH_HOST:$REMOTE_DIR/site-v2/"
+    echo "==> v2 deployed. Рестарт не нужен: статика, /v2 отдаётся с no-cache."
     ;;
 
 back)
