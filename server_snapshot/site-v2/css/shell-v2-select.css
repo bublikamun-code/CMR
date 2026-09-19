@@ -45,6 +45,10 @@ select.kb-select-native { display: none !important; }
     border-color: var(--muted, #626962); box-shadow: var(--sh-2, 0 8px 24px #0002);
 }
 .kb-select-surface.is-open::backdrop { background: transparent; pointer-events: none; }
+/* Поповер: короткий fade на открытие — маскирует кадр позиционирования;
+   без transform, чтобы не сдвигать уже посчитанную позицию */
+.kb-select-surface.is-open { animation: kb-pop-in 80ms linear; }
+@keyframes kb-pop-in { from { opacity: 0; } }
 .kb-select-surface.is-open > .kb-select-trigger {
     flex: none; border-radius: var(--r-sm, 8px) var(--r-sm, 8px) 0 0;
 }
@@ -211,7 +215,9 @@ select.fprint-select:hover,
     border: 1px solid var(--border);
     border-radius: 12px;
     box-shadow: var(--sh-2);
+    animation: kb-panel-in var(--dur-fast) var(--ease);
 }
+@keyframes kb-panel-in { from { opacity: 0; transform: translateY(6px); } }
 .v2-notif-head {
     padding: 10px 14px;
     font-size: var(--font-ui);

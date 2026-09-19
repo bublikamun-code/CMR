@@ -9,6 +9,12 @@
 }
 #kb-dialog[open] { animation: kb-detail-enter 180ms var(--ease); }
 #kb-dialog::backdrop { background: color-mix(in srgb, var(--text) 35%, transparent); }
+/* Выход дровера: JS вешает .closing и закрывает диалог по окончании анимации */
+#kb-dialog.closing { animation: kb-detail-exit var(--dur-exit) var(--ease) forwards; }
+@keyframes kb-detail-exit { to { transform: translateX(24px); opacity: 0; } }
+/* Подложка проявляется вместе с дровером */
+#kb-dialog[open]::backdrop { animation: kb-backdrop-in var(--dur-enter) var(--ease); }
+@keyframes kb-backdrop-in { from { opacity: 0; } }
 #kb-dialog :is(button, input, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 #kb-dialog [hidden] { display: none !important; }
 #kb-dialog .kb-detail { display: flex; flex-direction: column; min-height: 100%; }
@@ -100,6 +106,7 @@
 @media (prefers-reduced-motion: reduce) {
     #kb-dialog[open] { animation: none; }
     #kb-dialog, #kb-dialog * { scroll-behavior: auto; transition: none; }
+    #kb-dialog.closing { animation: none; }
 }
 
 /* Compact drawer: fixed summary/actions, one scrolling detail region. */

@@ -7,6 +7,11 @@
 [data-mgmt] .btn:hover, #mgmt-dialog .btn:hover { background: var(--surface-3, var(--surface-2)); }
 #mgmt-dialog { margin: auto; width: min(560px, calc(100% - 24px)); max-height: calc(100dvh - 24px); padding: 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: auto; font: inherit; }
 #mgmt-dialog::backdrop { background: rgb(0 0 0 / .3); }
+/* Диалог: короткий вход; выход мгновенный (частые формы — без лишнего движения) */
+#mgmt-dialog[open] { animation: mgmt-dialog-in var(--dur-enter) var(--ease); }
+@keyframes mgmt-dialog-in { from { transform: translateY(8px) scale(.98); opacity: 0; } }
+#mgmt-dialog[open]::backdrop { animation: mgmt-backdrop-in var(--dur-enter) var(--ease); }
+@keyframes mgmt-backdrop-in { from { opacity: 0; } }
 #mgmt-dialog h2 { font-size: 18px; margin-bottom: 16px; }
 .mgmt-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .mgmt-fields label { display: flex; flex-direction: column; min-width: 0; gap: 4px; font-size: 12px; }

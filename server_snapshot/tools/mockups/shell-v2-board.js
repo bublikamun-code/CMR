@@ -345,6 +345,27 @@
 
     var dialog = document.getElementById('kb-dialog');
     var activeCard = null;
+    // Закрытие дровера с коротким выходом: класс .closing запускает CSS-анимацию
+    // kb-detail-exit (120ms), по её концу — dialog.close(). Страховка по таймеру:
+    // если animationend не придёт (prefers-reduced-motion, прерванный кадр) —
+    // закрываем всё равно.
+    function closeDialog() {
+        if (!dialog.open || dialog.classList.contains('closing')) return;
+        var finished = false;
+        var finish = function () {
+            if (finished) return;
+            finished = true;
+            dialog.removeEventListener('animationend', onAnimEnd);
+            dialog.classList.remove('closing');
+            if (dialog.open) dialog.close();
+        };
+        var onAnimEnd = function (e) { if (e.animationName === 'kb-detail-exit') finish(); };
+        dialog.addEventListener('animationend', onAnimEnd);
+        dialog.classList.add('closing');
+        setTimeout(finish, 200);
+    }
+    // Esc закрывает через тот же выход: гасим нативный cancel и идём сами.
+    dialog.addEventListener('cancel', function (e) { e.preventDefault(); closeDialog(); });
     function refresh() {
         var scroll = Array.from(boardEl.querySelectorAll('.kb-cards')).map(function(el) { return el.scrollTop; });
         renderBoard(); renderQueue();
@@ -1178,7 +1199,7 @@
         if (!dialog.open) dialog.showModal();
         dialog.querySelector('.kb-detail-content').scrollTop = scrollTop;
         var send = document.getElementById('kb-send');
-        if (send) send.onclick = function() { c.stage = 'writeoff'; apiMutate('status', { id: Number(c.id), status: stageName('writeoff') }); dialog.close(); refresh(); notify(c.id + ' — передана в очередь выписки.'); };
+        if (send) send.onclick = function() { c.stage = 'writeoff'; apiMutate('status', { id: Number(c.id), status: stageName('writeoff') }); closeDialog(); refresh(); notify(c.id + ' — передана в очередь выписки.'); };
         var issue = document.getElementById('kb-issue');
         if (issue) issue.onclick = function() { openIssue(c); };
         var pay = document.getElementById('kb-pay');
@@ -1194,7 +1215,7 @@
                 if (ci >= 0) KBData.cards.splice(ci, 1);
                 if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
                 document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
-                dialog.close(); refresh();
+                closeDialog(); refresh();
                 notify(c.id + ' — карточка удалена в корзину.');
             }).catch(function (err) {
                 del.disabled = false;
@@ -1309,7 +1330,7 @@
                 if (fields.paid_amount !== undefined) c.paidAmount = Math.round(fields.paid_amount * 100);
                 if (fields.payment_due_date !== undefined) c.paymentDueDate = fields.payment_due_date || '';
                 if (fields.payment_status !== undefined) c.payment_status = fields.payment_status;
-                dialog.close(); refresh();
+                closeDialog(); refresh();
                 notify(c.id + ' — ' + message);
                 // Двухшаговая: оплата + касса. Касса — отдельный запрос.
                 if (cashAmountKop > 0 && hasClient) {
@@ -1337,7 +1358,7 @@
                     method: 'POST',
                     body: { amount: adv / 100, card_id: Number(c.id), note: noteInput.value || 'Аванс клиента' }
                 }).then(function () {
-                    dialog.close(); refresh();
+                    closeDialog(); refresh();
                     notify(c.id + ' — аванс ' + money(adv) + ' BYN в кассу клиента.');
                 }).catch(function (e2) {
                     err.textContent = 'Не сохранено: ' + (e2.detail || e2.message || 'ошибка');
@@ -1415,7 +1436,7 @@
                 if (saved && saved.rest !== undefined) c.remaining_kop = Math.round(saved.rest * 100);
                 if (saved && saved.card_closed) c.stage = 'done';
                 else if (c.remaining_kop !== null && c.remaining_kop <= 0) c.stage = 'done';
-                dialog.close(); refresh();
+                closeDialog(); refresh();
                 var nextCard = document.querySelector('#kb-queue-body [data-card="' + c.id + '"]');
                 (nextCard || document.getElementById('kb-q-pending')).focus({ preventScroll: true });
                 notify(c.id + (c.stage === 'done' ? ' — выписана полностью. Перенесена в «Списано».' : ' — частичная выписка. Осталось ' + moneyOrDash(cardRemaining(c)) + ' BYN.'));
@@ -1577,7 +1598,7 @@
             }
             return;
         }
-        if (e.target.closest('[data-close]')) dialog.close();
+        if (e.target.closest('[data-close]')) closeDialog();
     });
     dialog.addEventListener('input', function(e) {
         if (e.target.matches('[data-deal-field]')) e.target.setCustomValidity('');
@@ -1840,7 +1861,7 @@
                         c.groupId = 'gr-' + g.id;
                     });
                     groupPick = [];
-                    dialog.close(); refresh();
+                    closeDialog(); refresh();
                     notify('Групповая ТН ' + number + ' выписана на ' + picks.length + ' карточек · ' + money(totalAmount) + ' BYN.');
                 });
             })

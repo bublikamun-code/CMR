@@ -177,6 +177,12 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
     box-shadow: var(--sh-2); display: flex; align-items: center; gap: var(--s3); z-index: 60;
 }
 .kb-toast .btn-quiet { color: var(--bg); text-decoration: underline; }
+/* Тост: только вход (появление по снятию hidden); выход мгновенный */
+.kb-toast { animation: kb-toast-in var(--dur-fast) var(--ease); }
+@keyframes kb-toast-in { from { transform: translateX(-50%) translateY(10px); opacity: 0; } }
+/* Ошибочный тост: класс toast-error ставит JS (management.js, persist) */
+.kb-toast.toast-error { background: var(--danger); color: var(--bg); }
+.kb-toast.toast-error .btn-quiet { color: var(--bg); }
 
 @media (prefers-reduced-motion: reduce) {
     .kb-card, .kb-queue summary::after { transition: none; }
