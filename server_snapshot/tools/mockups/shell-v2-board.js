@@ -313,6 +313,9 @@
         e.preventDefault();
         var fromStage = drag.card.stage;
         var toStage = drag.column.dataset.stage;
+        // id и имя статуса — до cleanupDrag(): он обнуляет drag.
+        var cardId = Number(drag.card.id);
+        var status = stageName(toStage);
         moveCard(drag.card, toStage, drag.beforeId);
         // Оптимистичный drop: карточка остаётся там, куда её бросили, шапки
         // колонок и очередь пересчитываются локально — полная перерисовка
@@ -324,7 +327,7 @@
         renderQueue();
         document.dispatchEvent(new CustomEvent('kb:documents', { detail: cards }));
         document.dispatchEvent(new CustomEvent('kb:groups', { detail: KBData.groups }));
-        apiMutate('status', { id: Number(drag.card.id), status: stageName(toStage) }).then(function (ok) {
+        apiMutate('status', { id: cardId, status: status }).then(function (ok) {
             if (ok === false) refresh(); // сервер отказал: тост уже показан boot-слоем
         });
     });
