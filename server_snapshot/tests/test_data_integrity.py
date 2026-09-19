@@ -36,7 +36,7 @@ def _count(db, model, **flt):
 # ---------------------------------------------------------------------------
 
 def test_delete_card_permanently_cascades_and_unlinks(client, admin, db, make_card):
-    """Удаление сделки: дети-владельцы удаляются, ссылки из общих таблиц зануляются."""
+    """Удаление сделки: дети-владельцы удаляются вместе с ней, задачи отвязываются."""
     _, h = admin
     card = make_card(title="Сделка на удаление", total_amount=1000.0)
     card_id = card.id
@@ -62,11 +62,14 @@ def test_delete_card_permanently_cascades_and_unlinks(client, admin, db, make_ca
     assert _count(db, models.CardAttachment, card_id=card_id) == 0
     assert _count(db, models.CardChecklist, card_id=card_id) == 0
     assert _count(db, models.CardTag, card_id=card_id) == 0
-    # SET NULL — записи живут, но больше не указывают на удалённую сделку
+    # V3 (аудит прода 19.09): транзакции и лента — собственность сделки,
+    # удаляются вместе с ней; раньше FK SET NULL оставлял их сиротами,
+    # и записи без card_id висели в «Реестре оплат» как «старые записи».
     assert _count(db, models.Transaction, card_id=card_id) == 0
-    assert _count(db, models.Transaction) == 1, "транзакция должна остаться, но без card_id"
+    assert _count(db, models.Transaction) == 0, "транзакции удалённой сделки не остаются сиротами"
     assert _count(db, models.ActivityLog, card_id=card_id) == 0
-    assert _count(db, models.ActivityLog) == 1
+    assert _count(db, models.ActivityLog) == 0, "лента удалённой сделки чистится, а не зануляется"
+    # SET NULL — задачи это чужие поручения: отвязываются, но живут
     assert _count(db, models.Task, card_id=card_id) == 0
     assert _count(db, models.Task) == 1, "задача должна остаться, но без card_id"
 

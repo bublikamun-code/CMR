@@ -222,12 +222,47 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
             upload_dir = os.path.abspath(upload_dir)
             if real_path.startswith(upload_dir) and os.path.exists(real_path):
                 os.remove(real_path)
-    # FIX 2026-08-29 (FK ON): лента и задачи не имеют каскада в DDL и
-    # relationship на Card — отвязываем вручную (транзакции ORM занулит сам,
-    # чек-листы и вложения удалятся каскадом relationship).
-    db.query(models.ActivityLog).filter(models.ActivityLog.card_id == card_id).update({"card_id": None}, synchronize_session=False)
+    # FIX 2026-08-29 (FK ON) + V3 (аудит прода 19.09): карточка удалена навсегда —
+    # её собственность удаляется вместе с ней, а не остаётся сиротой. Ленту
+    # (activity_log) раньше зануляли: сироты без card_id были источником редких
+    # 500-х, чистка закреплена миграцией 0010. Задачи по-прежнему отвязываются,
+    # а не удаляются — это чужие поручения, а не собственность сделки.
+    # Группа запоминается до удаления: после db.delete(card) карточка недоступна.
+    group_id = card.writeoff_group_id
+    # Транзакции (остаток, накладные, копии в документах) удаляем физически:
+    # FK transactions.card_id имеет ondelete="SET NULL", ORM занулил бы card_id,
+    # и записи остались бы в «Реестре оплат» как «старые записи без привязки»
+    # (V3, аудит прода 19.09). Кассу клиента (client_payments) не трогаем —
+    # это реальные деньги, её card_id занулится сам по своему FK.
+    rows = db.query(models.Transaction).filter(models.Transaction.card_id == card_id).all()
+    tx_ids = [t.id for t in rows]
+    db.query(models.Transaction).filter(models.Transaction.card_id == card_id).delete(synchronize_session=False)
+    # История версий карточки и её транзакций без самой записи бессмысленна.
+    db.query(models.RecordVersion).filter(
+        models.RecordVersion.table_name == "cards",
+        models.RecordVersion.record_id == card_id,
+    ).delete(synchronize_session=False)
+    if tx_ids:
+        db.query(models.RecordVersion).filter(
+            models.RecordVersion.table_name == "transactions",
+            models.RecordVersion.record_id.in_(tx_ids),
+        ).delete(synchronize_session=False)
+    db.query(models.ActivityLog).filter(models.ActivityLog.card_id == card_id).delete(synchronize_session=False)
     db.query(models.Task).filter(models.Task.card_id == card_id).update({"card_id": None}, synchronize_session=False)
     db.delete(card)
+    # flush, а не commit: карточка уходит из сессии в БД, чтобы group.cards
+    # ниже отразил её отсутствие, но транзакция оставалась атомарной.
+    db.flush()
+    # Тотальная сумма группы — агрегат сумм карточек-участников; после удаления
+    # последнего участника группа стала бы плиткой-призраком (такие уже чистит
+    # POST /payments/repair-writeoffs — здесь то же правило на месте события).
+    if group_id is not None:
+        from services.writeoffs import recompute_group_total
+        group = db.query(models.WriteoffGroup).filter(models.WriteoffGroup.id == group_id).first()
+        if group is not None:
+            recompute_group_total(group)
+            if not group.cards:
+                db.delete(group)
     db.commit()
     return {"detail": "Карточка удалена навсегда"}
 
