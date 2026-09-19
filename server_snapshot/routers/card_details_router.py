@@ -515,9 +515,36 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         "payment_status": card.payment_status,
         "payment_due_date": card.payment_due_date,
     }
+    # V1 (аудит прода 19.09): закрытие из баланса тратит кредит клиента —
+    # деньги, реально внесённые в кассу (client_payments) и ещё не
+    # потреблённые покрытием счетов (Σ paid_amount неудалённых карточек).
+    # Без проверки касса-минус молча уходила в минус. Кассу закрытие из
+    # баланса не двигает вовсе: paid_amount — покрытие счёта, не приход.
+    # Проверка ДО мутаций: отказ не должен оставлять в сессии
+    # полуизменённую карточку.
+    draw = 0.0  # сколько списывается из баланса этой правкой (для журнала)
+    if payload.from_balance:
+        if card.client_id is None:
+            raise HTTPException(status_code=400,
+                detail="Закрытие из баланса доступно только для сделок с клиентом")
+        new_paid = float(card.paid_amount or 0) if payload.paid_amount is None else max(0.0, payload.paid_amount)
+        draw = round(new_paid - float(card.paid_amount or 0), 2)
+        if draw > MONEY_EPSILON:
+            # Ленивый импорт: clients_router не зависит от card_details_router,
+            # цикла нет; формула баланса одна — здесь её дублировать нельзя.
+            from routers.clients_router import _client_balance_payload
+            bal = _client_balance_payload(db, card.client_id)
+            available = round(bal["payments_total"] - bal["paid_on_cards"], 2)
+            if draw > available + MONEY_EPSILON:
+                raise HTTPException(status_code=400,
+                    detail=f"Баланса клиента не хватает: доступно {available} BYN, требуется {draw} BYN")
     if payload.paid_amount is not None:
         card.paid_amount = max(0, payload.paid_amount)
-    if payload.payment_due_date is not None:
+    # V2 (аудит прода 19.09): явный null стирает дату отсрочки — оба фронта
+    # шлют payment_due_date: null при статусе «Не оплачен». Поле не пришло
+    # в запросе — дату не трогаем (та же логика model_fields_set, что
+    # у client_id в PATCH /cards/{id}).
+    if 'payment_due_date' in payload.model_fields_set:
         card.payment_due_date = payload.payment_due_date
     if payload.payment_status is not None:
         card.payment_status = payload.payment_status
@@ -541,14 +568,11 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         _pay_changes.append(f'Оплачено: {_fmt_money_log(_old_pay.get("paid_amount"))} → {_fmt_money_log(card.paid_amount)} BYN')
     if (card.payment_due_date or None) != (_old_pay.get("payment_due_date") or None):
         _pay_changes.append(f'Отсрочка до: {_fmt_date_log(_old_pay.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
+    # «Закрыто из баланса…» — часть той же записи «Изменение»: после
+    # _log_card_changes дописывать бессмысленно, в ленту уже не попадёт.
+    if draw > MONEY_EPSILON:
+        _pay_changes.append(f'Закрыто из баланса клиента на {_fmt_money_log(draw)} BYN')
     _log_card_changes(db, card, current_user, _pay_changes)
-
-    # Баланс клиента (фидбек 18.09): client_payments — КАССА (реальные
-    # деньги от клиента), карточки — счета. Баланс = Σ кассы − Σ total.
-    # paid_amount — покрытие счёта и не обязано совпадать с кассой:
-    # закрытие из баланса (from_balance) не двигает кассу вовсе.
-    if payload.from_balance and float(card.paid_amount or 0) > float(_old_pay.get("paid_amount") or 0):
-        _pay_changes.append(f'Закрыто из баланса клиента на {_fmt_money_log(card.paid_amount)} BYN')
 
     db.commit()
     db.refresh(card)

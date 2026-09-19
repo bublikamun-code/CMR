@@ -132,3 +132,80 @@ def test_card_without_client_patches_normally(client, manager, db, make_card):
     r = client.patch(f"/cards/{card.id}/payment", headers=h,
                      json={"paid_amount": 300.0, "payment_status": "Оплачен"})
     assert r.status_code == 200, r.text
+
+
+def test_from_balance_without_money_rejected(client, manager, db, make_card, make_client):
+    """V1 (аудит прода 19.09): закрытие из баланса при пустой кассе — 400,
+    кредит клиента уходит в минус только с ведома сервера."""
+    _, h = manager
+    cl = make_client()
+    card = make_card(title="Сделка", total_amount=1000.0, paid_amount=0.0,
+                     payment_status="Не оплачен", client_id=cl.id)
+    r = client.patch(f"/cards/{card.id}/payment", headers=h,
+                     json={"paid_amount": 1000.0, "payment_status": "Оплачен",
+                           "from_balance": True})
+    assert r.status_code == 400, r.text
+    assert "не хватает" in r.json()["detail"]
+
+
+def test_from_balance_partial_credit(client, manager, db, make_card, make_client):
+    """V1: кредита 500 не хватает на счёт 1000 (400), ровно 500 проходит (200);
+    баланс после закрытия считается по прежней формуле, paid_on_cards = 500."""
+    _, h = manager
+    cl = make_client()
+    card = make_card(title="Сделка", total_amount=1000.0, paid_amount=0.0,
+                     payment_status="Не оплачен", client_id=cl.id)
+    assert client.post(f"/clients/{cl.id}/payments", headers=h,
+                       json={"amount": 500.0}).status_code == 200
+
+    r = client.patch(f"/cards/{card.id}/payment", headers=h,
+                     json={"paid_amount": 1000.0, "payment_status": "Оплачен",
+                           "from_balance": True})
+    assert r.status_code == 400, r.text
+    assert "не хватает" in r.json()["detail"]
+
+    r = client.patch(f"/cards/{card.id}/payment", headers=h,
+                     json={"paid_amount": 500.0, "payment_status": "Частично",
+                           "from_balance": True})
+    assert r.status_code == 200, r.text
+
+    bal = client.get(f"/clients/{cl.id}/balance", headers=h).json()
+    assert bal["payments_total"] == 500.0, "касса не двигается"
+    assert bal["paid_on_cards"] == 500.0, "счёт покрыт на 500"
+    assert bal["balance"] == -500.0, "баланс = касса − суммы счетов, как раньше"
+
+
+def test_from_balance_writes_activity_log(client, manager, db, make_card, make_client):
+    """V1: успешное закрытие из баланса создаёт запись в журнале карточки."""
+    _, h = manager
+    cl = make_client()
+    card = make_card(title="Сделка", total_amount=400.0, paid_amount=0.0,
+                     payment_status="Не оплачен", client_id=cl.id)
+    assert client.post(f"/clients/{cl.id}/payments", headers=h,
+                       json={"amount": 400.0}).status_code == 200
+    r = client.patch(f"/cards/{card.id}/payment", headers=h,
+                     json={"paid_amount": 400.0, "payment_status": "Оплачен",
+                           "from_balance": True})
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    logs = db.query(models.ActivityLog).filter(
+        models.ActivityLog.card_id == card.id,
+        models.ActivityLog.action == "Изменение",
+    ).all()
+    assert logs, "запись «Изменение» должна появиться"
+    assert any("Закрыто из баланса" in (log.details or "") for log in logs), \
+        "в журнале должна быть пометка о закрытии из баланса"
+
+
+def test_from_balance_requires_client(client, manager, db, make_card):
+    """V1: from_balance на сделке без клиента — 400: баланса, из которого
+    можно списать, у такой сделки нет."""
+    _, h = manager
+    card = make_card(title="Без клиента", total_amount=300.0, paid_amount=0.0,
+                     payment_status="Не оплачен")
+    r = client.patch(f"/cards/{card.id}/payment", headers=h,
+                     json={"paid_amount": 300.0, "payment_status": "Оплачен",
+                           "from_balance": True})
+    assert r.status_code == 400, r.text
+    assert "клиентом" in r.json()["detail"]
