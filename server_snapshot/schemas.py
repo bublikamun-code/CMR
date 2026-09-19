@@ -219,6 +219,12 @@ class ClientBalanceResponse(BaseModel):
 class ClientResponse(ClientBase):
     id: int
     created_at: datetime
+    # A11: сервер считает баланс клиента и просрочки — v2 больше не
+    # хардкодит эти значения. Поля опциональны: заполняются в списке
+    # клиентов и в GET /{id}, остаются None в ответах, где агрегат
+    # не запрашивался (создание, обновление).
+    cash_balance: Optional[float] = None      # Σ приходов − Σ total_amount карточек
+    overdue_deals: Optional[int] = None       # число карточек с просроченным due_date
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -266,6 +272,14 @@ class CardBase(BaseModel):
         VALID = {"Не оплачен", "Частично", "Оплачен", "Отсрочка"}
         if v not in VALID:
             raise ValueError(f"Недопустимый статус оплаты: {v}")
+        return v
+
+    @field_validator("total_amount")
+    @classmethod
+    def validate_total_amount(cls, v):
+        # A8: отрицательная сумма сделки → 422 (Pydantic) вместо 500.
+        if v is not None and v < 0:
+            raise ValueError("Сумма сделки не может быть отрицательной")
         return v
 
 class CardCreate(CardBase):
@@ -330,6 +344,12 @@ class CardResponse(CardBase):
     owner: Optional[UserResponse] = None
     client: Optional[ClientResponse] = None
     tags: List[TagResponse] = []
+    # A12: сервер — единственный источник правды по деньгам сделки.
+    # Поля вычисляются в services/card_money.py; клиент только отображает.
+    remaining: Optional[float] = None         # остаток к выписке, руб.
+    remaining_kop: Optional[int] = None       # остаток к выписке, коп.
+    writeoff_status: Optional[str] = None     # not_written | partially_written | written
+    issued_total: Optional[float] = None      # сумма выписанных документов, руб.
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -410,6 +430,11 @@ class TransactionResponse(TransactionBase):
     paid_amount: Optional[float] = None
     payment_status: Optional[str] = None
     is_partial_payment: Optional[bool] = None
+    # A5: признак аванса. Сервер — источник правды: вычисляется по note
+    # записи (содержит «аванс»/«advance») — единственный надёжный сигнал,
+    # доступный без миграции. v2-клиент фильтрует авансы по этому полю,
+    # а не по собственному payment_kind.
+    is_advance: Optional[bool] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -449,6 +474,11 @@ class CardUpdate(BaseModel):
     # ondelete="SET NULL", а auth_router.remove_user уже обнуляет owner_id
     # у карточек удаляемого пользователя, так что NULL — штатное значение.
     owner_id: Optional[int] = None
+    # A7: явный флаг снятия клиента. Без него client_id=null в полном
+    # сохранении (v2) не затирает клиента — защищает от случайного сброса.
+    # Старый фронт снимает клиента, посылая ТОЛЬКО {client_id: null};
+    # при явном флаге clear_client=true клиент обнуляется и в полном сохранении.
+    clear_client: Optional[bool] = None
 
     @field_validator("payment_status")
     @classmethod
@@ -458,6 +488,14 @@ class CardUpdate(BaseModel):
         VALID = {"Не оплачен", "Частично", "Оплачен", "Отсрочка"}
         if v not in VALID:
             raise ValueError(f"Недопустимый статус оплаты: {v}")
+        return v
+
+    @field_validator("total_amount")
+    @classmethod
+    def validate_total_amount(cls, v):
+        # A8: отрицательная сумма сделки → 422 вместо 500.
+        if v is not None and v < 0:
+            raise ValueError("Сумма сделки не может быть отрицательной")
         return v
 
 class CardPaymentUpdate(BaseModel):

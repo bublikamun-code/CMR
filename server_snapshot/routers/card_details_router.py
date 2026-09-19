@@ -294,6 +294,47 @@ def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db
     return new_attachment
 
 
+# A10: v2-клиент шлёт multipart POST на /files/attach/{card_id} с полем file.
+# Дубликат существующего /cards/{card_id}/attachments под контракт v2.
+# Старый JSON-эндпоинт не тронут — старый фронт работает как раньше.
+@router.post("/files/attach/{card_id}", response_model=schemas.AttachmentResponse)
+@limiter.limit("30/minute")
+def upload_file_v2_compat(request: Request, card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Multipart-загрузка вложения (контракт v2-клиента).
+
+    Полностью повторяет POST /cards/{card_id}/attachments: те же лимиты,
+    расширения, magic-bytes проверка и запись в card_attachments.
+    """
+    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    original_name = os.path.basename(file.filename or "file")
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Тип файла {ext} не разрешён")
+    _validate_upload_content(file, ext)
+    if not original_name:
+        original_name = "file"
+    safe_filename = f"{card_id}_{uuid.uuid4().hex[:8]}_{original_name}"
+    file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    if not os.path.realpath(file_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+    size = 0
+    with Path(file_path).open("wb") as buffer:
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                buffer.close()
+                os.remove(file_path)
+                raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
+            buffer.write(chunk)
+    new_attachment = models.CardAttachment(file_name=original_name, file_path=file_path, card_id=card_id)
+    db.add(new_attachment)
+    db.commit()
+    db.refresh(new_attachment)
+    return new_attachment
+
+
 @router.delete("/attachments/{attachment_id}")
 def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     attachment = db.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
@@ -413,8 +454,21 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
                 tenant_id=current_user.tenant_id
             ))
         card.description = card_update.description
+    # A7: защита от случайного затирания клиента при полном сохранении v2.
+    # client_id=null принимается только если:
+    #   (а) старый фронт: поле единственное в запросе (model_fields_set == 1);
+    #   (б) v2: явный флаг clear_client=true.
+    # В остальных случаях null игнорируется — клиент не затирается.
     if 'client_id' in card_update.model_fields_set:
-        card.client_id = card_update.client_id
+        new_cid = card_update.client_id
+        if new_cid is None:
+            is_only_field = len(card_update.model_fields_set) == 1
+            explicit_clear = bool(getattr(card_update, 'clear_client', False))
+            if is_only_field or explicit_clear:
+                card.client_id = None
+            # иначе — null из полного сохранения v2, игнорируем
+        else:
+            card.client_id = new_cid
     if 'owner_id' in card_update.model_fields_set:
         card.owner_id = card_update.owner_id   # проверен выше, до мутаций
     if 'due_date' in card_update.model_fields_set:

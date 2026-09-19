@@ -10,6 +10,7 @@ import schemas
 from auth import get_current_user, require_role
 from database import get_db
 from db_utils import cap_list
+from services.card_money import compute_card_money
 from versioning import save_version
 
 router = APIRouter(
@@ -17,6 +18,35 @@ router = APIRouter(
     tags=["Канбан-доска"],
     dependencies=[Depends(get_current_user)]
 )
+
+
+def _attach_money_fields(cards, db: Session):
+    """A12: вычисляет remaining/writeoff_status/issued_total для списка карточек.
+
+    Один batch-запрос вместо N+1: подтягиваем все записи реестра
+    (is_document=False) для всех карточек за один SELECT, группируем
+    по card_id, считаем через services.card_money.compute_card_money.
+    """
+    if not cards:
+        return
+    card_ids = [c.id for c in cards]
+    tx_rows = (
+        db.query(models.Transaction)
+        .filter(
+            models.Transaction.card_id.in_(card_ids),
+            models.Transaction.is_document == False,  # noqa: E712
+        )
+        .all()
+    )
+    by_card: dict[int, list] = {}
+    for tx in tx_rows:
+        by_card.setdefault(tx.card_id, []).append(tx)
+    for card in cards:
+        money = compute_card_money(card, by_card.get(card.id, []))
+        card.remaining = money["remaining"]
+        card.remaining_kop = money["remaining_kop"]
+        card.writeoff_status = money["writeoff_status"]
+        card.issued_total = money["issued_total"]
 
 
 @router.get("/cards", response_model=list[schemas.CardResponse])
@@ -29,6 +59,8 @@ def get_cards(response: Response, db: Session = Depends(get_db), current_user: m
         selectinload(models.Card.client),
         selectinload(models.Card.tags),
     ).order_by(models.Card.position, models.Card.id.desc()).all()
+    # A12: серверные денежные поля одним batch-запросом (без N+1).
+    _attach_money_fields(cards, db)
     # Н11 (аудит 06.09): предохранитель от аномального роста таблицы —
     # канбану нужны все карточки сразу, так что это пробка, не пагинация.
     return cap_list(cards, response)
@@ -45,6 +77,8 @@ def get_card(card_id: int, db: Session = Depends(get_db), current_user: models.U
     ).first()
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
+    # A12: одна карточка — тот же helper, batch из одного элемента.
+    _attach_money_fields([card], db)
     return card
 
 

@@ -1,8 +1,9 @@
 import contextlib
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 import models
@@ -19,6 +20,57 @@ router = APIRouter(
 )
 
 
+def _attach_client_aggregates(clients: list, db: Session):
+    """A11/A14: batch-агрегаты вместо N+1 (6 запросов на клиента × 400).
+
+    Два запроса на ВСЕХ клиентов:
+      1. Σ client_payments.amount по client_id → cash_balance;
+      2. Σ total_amount и count(due_date < now) по client_id → overdue_deals.
+    """
+    if not clients:
+        return
+    cids = [c.id for c in clients]
+
+    # Баланс кассы: Σ приходов за вычетом Σ total_amount карточек.
+    payments_agg = dict(
+        db.query(
+            models.ClientPayment.client_id,
+            func.coalesce(func.sum(models.ClientPayment.amount), 0),
+        )
+        .filter(models.ClientPayment.client_id.in_(cids))
+        .group_by(models.ClientPayment.client_id)
+        .all()
+    )
+
+    # Агрегаты по карточкам: сумма сделок и число просроченных.
+    now_date = datetime.now(timezone.utc).date()
+    cards_agg = (
+        db.query(
+            models.Card.client_id,
+            func.coalesce(func.sum(models.Card.total_amount), 0),
+            func.sum(
+                case(
+                    (models.Card.due_date < now_date, 1),
+                    else_=0,
+                )
+            ),
+        )
+        .filter(
+            models.Card.client_id.in_(cids),
+            models.Card.is_deleted == False,  # noqa: E712
+        )
+        .group_by(models.Card.client_id)
+        .all()
+    )
+    cards_map = {row[0]: (float(row[1]), int(row[2] or 0)) for row in cards_agg}
+
+    for c in clients:
+        pay_total = float(payments_agg.get(c.id, 0))
+        deals_total, overdue = cards_map.get(c.id, (0.0, 0))
+        c.cash_balance = round(pay_total - deals_total, 2)
+        c.overdue_deals = overdue
+
+
 @router.get("", response_model=List[schemas.ClientResponse])
 def list_clients(q: str = Query(None), response: Response = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     query = db.query(models.Client)
@@ -29,8 +81,11 @@ def list_clients(q: str = Query(None), response: Response = None, db: Session = 
             models.Client.unp.ilike(pattern),
             models.Client.phone.ilike(pattern),
         ))
+    clients = query.order_by(models.Client.name).all()
+    # A11/A14: агрегаты одним batch — без N+1.
+    _attach_client_aggregates(clients, db)
     # Н11 (аудит 06.09): предохранитель от неограниченного списка
-    return cap_list(query.order_by(models.Client.name).all(), response)
+    return cap_list(clients, response)
 
 
 @router.get("/{client_id}", response_model=schemas.ClientResponse)
@@ -39,6 +94,8 @@ def get_client(client_id: int, db: Session = Depends(get_db), current_user: mode
     client = query.first()
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
+    # A11: агрегаты для одного клиента — тем же batch-хелпером.
+    _attach_client_aggregates([client], db)
     return client
 
 

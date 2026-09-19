@@ -14,6 +14,17 @@ from services.invoices import find_duplicate_invoice, find_invoice_twins
 from services.writeoffs import ensure_registry_remainder, writeoff_status_for
 
 
+def _detect_advance(t) -> bool:
+    """A5: признак аванса по записи реестра.
+
+    Единственный надёжный сигнал без миграции — слово «аванс» или «advance»
+    в поле note (регистр не важен). Старый фронт помечает авансы именно
+    через примечание; v2 фильтрует по server-side is_advance.
+    """
+    note = (t.note or "").lower()
+    return "аванс" in note or "advance" in note
+
+
 def tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, payment_status=None):
     # UI FIX 2026-08-31: все ответные ветки этого роутера возвращают dict, а не
     # ORM-объект: сессия закрывается в finally до сериализации ответа,
@@ -41,6 +52,8 @@ def tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, 
         "paid_amount": paid_amount,
         "payment_status": payment_status,
         "is_partial_payment": partial,
+        # A5: серверный признак аванса — v2 фильтрует по нему.
+        "is_advance": _detect_advance(t),
     }
 
 
