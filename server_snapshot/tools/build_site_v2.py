@@ -127,8 +127,13 @@ def main():
     stamp = ver.hexdigest()[:10]
 
     # Глобальная версия ДО штампов: тег api.js ещё без ?v= — замена сработает.
+    # Тема восстанавливается синхронным inline-скриптом в <head>: иначе тёмная
+    # тема применялась только deferred navigation.js, и до его запуска мигала
+    # светлая. Инлайн здесь допустим, как и у V2_ASSET_VER (CSP v2 пока
+    # разрешает; при ужесточении оба сниппета переносятся в nonce одним списком).
     body = body.replace('<script src="js/v2/api.js"',
-                        f'<script>window.V2_ASSET_VER="{stamp}"</script>\n<script src="js/v2/api.js"')
+                        f'<script>try{{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}}catch(e){{}}'
+                        f'window.V2_ASSET_VER="{stamp}"</script>\n<script src="js/v2/api.js"')
 
     def _stamp(m):
         return f'{m.group(1)}{m.group(2)}?v={stamp}{m.group(4)}'

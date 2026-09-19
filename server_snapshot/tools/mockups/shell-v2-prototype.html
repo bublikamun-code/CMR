@@ -80,6 +80,11 @@ body {
 .num { font-variant-numeric: tabular-nums; }
 button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
 
+/* Смена темы без кроссфейда: .theme-switching вешается на <html> на 2 кадра */
+.theme-switching, .theme-switching *, .theme-switching *::before, .theme-switching *::after {
+    transition: none !important; animation: none !important;
+}
+
 /* ============ SHELL: рельс + рабочая область ============ */
 .app { display: flex; min-height: 100vh; align-items: flex-start; }
 

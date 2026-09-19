@@ -82,9 +82,14 @@
     });
     const theme = document.getElementById('theme-btn');
     theme.addEventListener('click', () => {
-        const dark = document.documentElement.dataset.theme !== 'dark';
-        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        const root = document.documentElement;
+        const dark = root.dataset.theme !== 'dark';
+        // Смена темы без кроссфейда: на 2 кадра глушим переходы
+        // (одного rAF мало — он срабатывает до repaint).
+        root.classList.add('theme-switching');
+        root.dataset.theme = dark ? 'dark' : 'light';
         theme.setAttribute('aria-pressed', String(dark));
+        requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('theme-switching')));
         try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) { /* сессионная тема */ }
     });
     render();
