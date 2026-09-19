@@ -105,11 +105,12 @@ app.include_router(webhooks_router.router)
 app.include_router(nakladnye_router.router)
 
 # Какой фронтенд считать основным на "/". Переключение — этап 4 плана замены
-# (design-plans/frontend-replacement-plan.md): v2 живёт на /v2/, старый фронт
-# остаётся на /legacy до конца приёмки. Дефолт намеренно "legacy": пока паритет
-# не принят владельцем, поведение прода не меняется; переключение — отдельный
-# коммит с заменой дефолта на "v2". Откат после переключения — вернуть "legacy".
-FRONTEND_MODE = os.environ.get("CRM_FRONTEND", "legacy")
+# (design-plans/frontend-replacement-plan.md), Пакет G. С 19.09.2026 основным
+# считается v2 — решение владельца после закрытия P0/V1–V10 и верификации на
+# копии прод-БД. Дефолт "v2" фиксирует выбор в КОДЕ: потеря/сброс .pm2.env не
+# откатывает корень на старый фронт молча. Осознанный откат — CRM_FRONTEND=legacy
+# в .pm2.env + pm2 restart crm; старый фронт заморожен и живёт на /legacy.
+FRONTEND_MODE = os.environ.get("CRM_FRONTEND", "v2")
 
 
 @app.get("/")
@@ -135,6 +136,10 @@ def serve_legacy_admin():
 
 @app.get("/admin")
 def serve_admin():
+    if FRONTEND_MODE == "v2":
+        # Админка v2 — раздел «Пульт» в SPA; старую админку держим только
+        # на /legacy/admin, чтобы закладка /admin не вела в замороженный UI.
+        return RedirectResponse("/v2/", status_code=302)
     return FileResponse("admin.html")
 
 @app.get("/manifest.json")
