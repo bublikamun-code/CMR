@@ -37,7 +37,9 @@
     function slug(name) {
         return 'st-' + String(name).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-|-$/g, '');
     }
-    function kopecks(value) { return Math.round((Number(value) || 0) * 100); }
+    // Единая конвертация рублей в копейки — через KBApi.cents (B8).
+    // Локальный алиас для краткости в buildKbData/buildFinSource.
+    var kopecks = (window.KBApi && window.KBApi.cents) || function (v) { return Math.round((Number(v) || 0) * 100); };
     // 'cl-22' → 22: клиентские id в v2 хранятся с префиксом, API ждёт число
     function numericId(id) {
         const n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
@@ -100,7 +102,15 @@
         const unassigned = { id: 'us-none', username: '—', full_name: 'Не назначен', initials: '··', role: 'manager' };
 
         const clients = clientsRaw.map(function (c) {
-            return { id: 'cl-' + c.id, name: c.name, unp: c.unp || '', contact_person: c.contact_person || '', phone: c.phone || '', address: c.address || '' };
+            return {
+                id: 'cl-' + c.id, name: c.name, unp: c.unp || '',
+                contact_person: c.contact_person || '', phone: c.phone || '',
+                address: c.address || '',
+                // A11: серверные поля баланса (пакет B).
+                // Если сервер ещё не отдаёт — undefined.
+                cash_balance: c.cash_balance !== undefined ? c.cash_balance : undefined,
+                overdue_deals: c.overdue_deals !== undefined ? c.overdue_deals : undefined
+            };
         });
         const suppliers = suppliersRaw.map(function (s) {
             return { id: 'sup-' + s.id, name: s.name, unp: s.unp || '', contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '', address: s.address || '' };
@@ -152,8 +162,15 @@
                 id: String(c.id),
                 title: c.title || 'Сделка',
                 clientId: clientObj ? clientObj.id : null,
-                client: clientObj ? clientObj.name : (c.title || 'Без клиента'),
-                store: storeIdByName[String(c.store_location || '').trim()] || (stores[0] && stores[0].id) || '',
+                // Клиента нет — значит нет. Раньше сюда подставлялось название
+                // сделки, и сохранение карточки привязывало/создавало клиента
+                // с именем сделки (на проде 994 карточки без клиента).
+                client: clientObj ? clientObj.name : '',
+                // Магазин — только фактический. Подстановка stores[0] при пустом
+                // или неизвестном значении показывала чужой магазин, а сохранение
+                // записывала его как настоящий (на проде справочник store_locations
+                // пуст, при этом 674 карточки идут без магазина).
+                store: storeIdByName[String(c.store_location || '').trim()] || '',
                 manager: manager,
                 amount: kopecks(c.total_amount),
                 paidAmount: kopecks(c.paid_amount),
@@ -166,6 +183,13 @@
                 payment_status: c.payment_status || '',
                 paymentDetails: null,
                 groupId: c.writeoff_group_id ? 'gr-' + c.writeoff_group_id : null,
+                // A12: серверные поля остатка и статуса списания (пакет B).
+                // Если сервер ещё не отдаёт — undefined (доска покажет «—»).
+                // Никакого fallback на клиентский расчёт.
+                remaining: c.remaining !== undefined ? c.remaining : undefined,
+                remaining_kop: c.remaining_kop !== undefined ? c.remaining_kop : undefined,
+                writeoff_status: c.writeoff_status !== undefined ? c.writeoff_status : undefined,
+                issued_total: c.issued_total !== undefined ? c.issued_total : undefined,
                 checklist: (c.checklists || []).map(function (item) {
                     return {
                         id: 'ck-' + item.id,
@@ -173,8 +197,13 @@
                         supplier_id: item.supplier_id ? 'sup-' + item.supplier_id : null,
                         note: item.note || '',
                         invFile: item.invoice_file_name || null,
-                        ordered: false,
-                        received: false
+                        // Флаги закупки и сумма пункта — с сервера (миграция 0009,
+                        // ChecklistResponse.ordered/received/amount). Здесь был
+                        // хардкод false и отсутствие amount: галочки «Заказано» /
+                        // «Получено» и сумма слетали после перезагрузки страницы.
+                        amount: item.amount === null || item.amount === undefined ? '' : Number(item.amount),
+                        ordered: Boolean(item.ordered),
+                        received: Boolean(item.received)
                     };
                 }),
                 attachments: (c.attachments || []).map(function (a) {
@@ -183,7 +212,7 @@
                 docs: (docsByCard[c.id] || []).map(function (d) {
                     // invoice_number в БД хранится целиком («ТН 0002351», «ТН ТТН4881042»,
                     // встречаются ТТН) — показываем как записано, без склейки серии.
-                    return { txId: d.id, series: '', number: String(d.invoice_number || ''), date: isoToRu(d.invoice_date || d.date), amount: kopecks(d.amount), originalsReturned: false };
+                    return { txId: d.id, series: '', number: String(d.invoice_number || ''), date: isoToRu(d.invoice_date || d.date), amount: kopecks(d.amount), originalsReturned: Boolean(d.is_invoice_doc) };
                 })
             };
         });
@@ -236,8 +265,45 @@
             };
         });
 
+        // Группы списания — с сервера (GET /writeoffs/groups/). Раньше здесь
+        // всегда лежал пустой массив: групповая ТН существовала только до
+        // перезагрузки, а вкладка «Накладные» у карточки из группы ничего не
+        // находила, и отмена группы была недостижима.
+        const docByGroup = {};
+        (payload.documents || []).forEach(function (d) {
+            if (d.writeoff_group_id == null || d.card_id != null) return;
+            if (!docByGroup[d.writeoff_group_id]) docByGroup[d.writeoff_group_id] = d;
+        });
+        const groups = (payload.groups || []).map(function (g) {
+            const groupClient = g.client_id ? clientById['cl-' + g.client_id] : null;
+            const groupDoc = docByGroup[g.id] || null;
+            return {
+                id: 'gr-' + g.id,
+                serverId: g.id,
+                serverTxId: groupDoc ? groupDoc.id : null,
+                name: g.name || ('Группа ' + g.id),
+                client: groupClient ? groupClient.name : '',
+                store: g.store_location || '',
+                // Серия отдельно не хранится: номер накладной записан целиком.
+                series: '',
+                number: String((groupDoc && groupDoc.invoice_number) || g.invoice_number || ''),
+                date: isoToRu(g.invoice_date || (groupDoc && groupDoc.invoice_date) || ''),
+                amount: kopecks(g.total_amount),
+                writtenOff: Boolean(g.written_off),
+                // Покрытие по карточкам сервер не хранит — известна только сумма
+                // группы. Отмена группы идёт через сервер, а не локальным
+                // пересчётом остатков.
+                covers: (g.cards || []).map(function (c) { return { cardId: String(c.id), amount: null }; })
+            };
+        });
+
         window.KBData = {
-            today: new Date(),
+            // Единый источник «сегодня» — UTC-дата (не зависит от пояса клиента).
+            today: (function () {
+                const iso = window.KBApi && window.KBApi.todayUTC ? window.KBApi.todayUTC() : '';
+                const p = String(iso).split('-');
+                return p.length === 3 ? new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])) : new Date();
+            })(),
             statuses: statuses,
             stores: stores,
             users: users.concat([unassigned]),
@@ -245,7 +311,7 @@
             suppliers: suppliers,
             tasks: tasks,
             cards: cards,
-            groups: [],
+            groups: groups,
             nextGroupId: 1
         };
         window.KBData.statusColor = function (status) {
@@ -283,30 +349,68 @@
         setText('Подключение к CRM…');
         if (!window.V2Api.token()) { const e = new Error('unauthorized'); e.unauthorized = true; throw e; }
         const meUser = await window.V2Api.me();
-        const results = await Promise.all([
-            window.V2Api.api('/kanban/cards'),
-            window.V2Api.api('/clients'),
-            window.V2Api.users(),
-            window.V2Api.api('/suppliers'),
-            window.V2Api.api('/tasks'),
-            window.V2Api.api('/payments/transactions'),
-            window.V2Api.api('/payments/documents'),
-            window.V2Api.api('/dictionaries/stores'),
-            window.V2Api.api('/dictionaries/statuses'),
-            window.V2Api.api('/nakladnye')
-        ]);
-        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5] });
-        window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6], results[9], results[3]);
+        // B6: сохраняем verified-роль из /auth/me, а не из ответа логина.
+        // Роль всегда подтверждена сервером при каждом старте.
+        if (meUser && meUser.role) window.V2Api.save(window.V2Api.token(), meUser.role);
+        await _loadAndApplyData();
+        enableMutations();
+        renderUser(meUser);
+        setText('CRM');
+        await injectAll(APP_SCRIPTS);
+    }
+
+    // Загрузка и применение всех коллекций (вынесено для переиспользования
+    // в KBApi.all()). Возвращает { KBData, KB_FIN_SOURCE } или бросает
+    // ошибку (B2: ошибка пробрасывается, не кешируется пустотой).
+    async function _loadAndApplyData() {
+        // Загружаем всё разом, но через allSettled: при сбое нужно назвать,
+        // какой именно раздел не ответил. Данные при этом НЕ применяем частично —
+        // неполная картина молча выглядит как настоящая (так работала старая
+        // ветка с переходом на демо). Ошибка пробрасывается наверх, в showFatal.
+        const sources = [
+            ['сделки', function () { return window.V2Api.api('/kanban/cards'); }],
+            ['клиенты', function () { return window.V2Api.api('/clients'); }],
+            ['пользователи', function () { return window.V2Api.users(); }],
+            ['поставщики', function () { return window.V2Api.api('/suppliers'); }],
+            ['задачи', function () { return window.V2Api.api('/tasks'); }],
+            ['реестр оплат', function () { return window.V2Api.api('/payments/transactions'); }],
+            ['документы', function () { return window.V2Api.api('/payments/documents'); }],
+            ['магазины', function () { return window.V2Api.api('/dictionaries/stores'); }],
+            ['статусы', function () { return window.V2Api.api('/dictionaries/statuses'); }],
+            ['входящие накладные', function () { return window.V2Api.api('/nakladnye'); }],
+            ['группы списания', function () { return window.V2Api.api('/writeoffs/groups/'); }]
+        ];
+        const settled = await Promise.allSettled(sources.map(function (s) { return s[1](); }));
+        const unauthorized = settled.filter(function (s) {
+            return s.status === 'rejected' && s.reason && s.reason.unauthorized;
+        })[0];
+        if (unauthorized) throw unauthorized.reason;
+        const failed = [];
+        settled.forEach(function (s, i) {
+            if (s.status === 'rejected') {
+                const code = s.reason && s.reason.status ? ' (код ' + s.reason.status + ')' : '';
+                failed.push(sources[i][0] + code);
+            }
+        });
+        if (failed.length) {
+            const err = new Error('не загрузили разделы: ' + failed.join(', '));
+            err.failed = failed;
+            throw err;
+        }
+        const results = settled.map(function (s) { return s.value; });
+        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5], groups: results[10] });
+        window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6], results[9]);
         // Фидбек 18.09: журнал сделки в v2 — из CRM (GET /activity?card_id),
         // включая «Импорт почты» с текстом письма. В демо-режиме загрузчика
         // нет — вкладка остаётся на локальных событиях.
         window.KBData.loadCardActivity = async function (cardId) {
             return await window.V2Api.api('/activity?card_id=' + encodeURIComponent(cardId) + '&limit=100');
         };
-        enableMutations();
-        renderUser(meUser);
-        setText('CRM');
-        await injectAll(APP_SCRIPTS);
+        // B9: регистрируем загрузчик для KBApi.all() (коалесинг перезагрузок).
+        if (window.KBApi && window.KBApi._setFetcher) {
+            window.KBApi._setFetcher(_loadAndApplyData);
+        }
+        return window.KBData;
     }
 
     function esc(value) {
@@ -339,7 +443,7 @@
     // «Просчет»/«Списание» — те же поля сгруппированной строки, что и в
     // рабочем реестре (is_calculated / is_written_off, агрегат по частям),
     // поэтому галочки в старом и новом реестре всегда совпадают.
-    function buildFinSource(cards, transactions, documents) {
+    function buildFinSource(cards, transactions, documents, nakladnye) {
         const cardById = {};
         (cards || []).forEach(function (c) { cardById[c.id] = c; });
         const docsByCard = {};
@@ -388,7 +492,31 @@
             const pb = b.date.split('.').reverse().join('-');
             return pb.localeCompare(pa);
         });
-        return { outgoing: outgoing, incoming: [] };
+        // Входящие накладные от поставщиков (GET /nakladnye). Аргумент и раньше
+        // передавался, но сигнатура была на три параметра — данные молча
+        // выбрасывались, и вкладка «Входящие» на реальной базе была пуста.
+        const incoming = (nakladnye || []).map(function (n) {
+            return {
+                id: 'n' + n.id,
+                supplier: n.supplier_name || n.supplier || '',
+                // Номер — как в БД: без склейки серии и префикса «ТН» (решение 18.09).
+                number: String(n.doc_number || ''),
+                date: isoToRu(n.doc_date),
+                store: n.store || '',
+                amount: kopecks(n.amount),
+                vat: kopecks(n.vat_amount),
+                checked: Boolean(n.is_verified),
+                arrived: Boolean(n.is_arrived),
+                paid: Boolean(n.is_paid),
+                file: n.excel_path || (Array.isArray(n.photo_paths) && n.photo_paths[0]) || ''
+            };
+        });
+        incoming.sort(function (a, b) {
+            const pa = a.date.split('.').reverse().join('-');
+            const pb = b.date.split('.').reverse().join('-');
+            return pb.localeCompare(pa);
+        });
+        return { outgoing: outgoing, incoming: incoming };
     }
     // Запись (Этап 2.1/2.2): статус/поля карточки и задачи уходят в CRM API.
     // Неудача показывается тостом; локальное состояние правится отдельно
@@ -397,31 +525,52 @@
         window.KBData.mutate = async function (kind, payload) {
             try {
                 if (kind === 'card') {
-                    await window.V2Api.api('/cards/' + payload.id, { method: 'PATCH', body: payload.fields });
+                    // A6: не слать пустой note/description (сервер создаёт пустой комментарий).
+                    // A7: не слать client_id: null (затирает клиента карточки).
+                    var fields = Object.assign({}, payload.fields);
+                    if (fields.client_id === null || fields.client_id === undefined) delete fields.client_id;
+                    if (fields.note === '') delete fields.note;
+                    if (fields.description === '') delete fields.description;
+                    await window.V2Api.api('/cards/' + payload.id, { method: 'PATCH', body: fields });
                 } else if (kind === 'status') {
-                    await window.V2Api.api('/kanban/cards/' + payload.id + '/status', { method: 'PATCH', body: { status: payload.status } });
+                    // A6: не слать пустую заметку при смене статуса.
+                    var sp = { status: payload.status };
+                    if (payload.note) sp.note = payload.note;
+                    await window.V2Api.api('/kanban/cards/' + payload.id + '/status', { method: 'PATCH', body: sp });
                 } else if (kind === 'task-status') {
                     await window.V2Api.api('/tasks/' + payload.id, { method: 'PATCH', body: { status: payload.status } });
                 } else if (kind === 'task-create') {
-                    return await window.V2Api.api('/tasks', { method: 'POST', body: { title: payload.title, status: 'todo', due_date: payload.due || null, assignee_id: payload.assignee || null, client_id: payload.client || null } });
+                    // B5: защита от двойного сабмита
+                    return await window.V2Api._guardCreate(
+                        'task-create:' + payload.title,
+                        function () { return window.V2Api.api('/tasks', { method: 'POST', body: { title: payload.title, status: 'todo', due_date: payload.due || null, assignee_id: payload.assignee || null, client_id: payload.client || null } }); }
+                    );
                 } else if (kind === 'store-save') {
                     return await (payload.id
                         ? window.V2Api.api('/dictionaries/stores/' + payload.id, { method: 'PATCH', body: payload.fields })
-                        : window.V2Api.api('/dictionaries/stores', { method: 'POST', body: payload.fields }));
+                        : window.V2Api._guardCreate('store-save:' + JSON.stringify(payload.fields),
+                            function () { return window.V2Api.api('/dictionaries/stores', { method: 'POST', body: payload.fields }); }));
                 } else if (kind === 'status-save') {
                     return await (payload.id
                         ? window.V2Api.api('/dictionaries/statuses/' + payload.id, { method: 'PATCH', body: payload.fields })
-                        : window.V2Api.api('/dictionaries/statuses', { method: 'POST', body: payload.fields }));
+                        : window.V2Api._guardCreate('status-save:' + JSON.stringify(payload.fields),
+                            function () { return window.V2Api.api('/dictionaries/statuses', { method: 'POST', body: payload.fields }); }));
                 } else if (kind === 'user-create') {
-                    return await window.V2Api.api('/auth/users', { method: 'POST', body: payload.fields });
+                    // B5: защита от двойного сабмита
+                    return await window.V2Api._guardCreate(
+                        'user-create:' + (payload.fields && payload.fields.username || ''),
+                        function () { return window.V2Api.api('/auth/users', { method: 'POST', body: payload.fields }); }
+                    );
                 } else if (kind === 'supplier-save') {
                     return await (payload.id
                         ? window.V2Api.api('/suppliers/' + payload.id, { method: 'PATCH', body: payload.fields })
-                        : window.V2Api.api('/suppliers', { method: 'POST', body: payload.fields }));
+                        : window.V2Api._guardCreate('supplier-save:' + JSON.stringify(payload.fields),
+                            function () { return window.V2Api.api('/suppliers', { method: 'POST', body: payload.fields }); }));
                 } else if (kind === 'client-save') {
                     return await (payload.id
                         ? window.V2Api.api('/clients/' + payload.id, { method: 'PATCH', body: payload.fields })
-                        : window.V2Api.api('/clients', { method: 'POST', body: payload.fields }));
+                        : window.V2Api._guardCreate('client-save:' + JSON.stringify(payload.fields),
+                            function () { return window.V2Api.api('/clients', { method: 'POST', body: payload.fields }); }));
                 } else if (kind === 'payment-terms') {
                     // payment_terms есть в CardUpdate (общий PATCH карточки),
                     // а в CardPaymentUpdate его нет.
@@ -432,7 +581,11 @@
                     // выбор статуса определяет деньги, а не наоборот.
                     return await window.V2Api.api('/cards/' + payload.id + '/payment', { method: 'PATCH', body: payload.fields });
                 } else if (kind === 'issue-invoice') {
-                    return await window.V2Api.api('/payments/cards/' + payload.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount, store_location: payload.store || null } });
+                    // B5: защита от двойного сабмита выписки
+                    return await window.V2Api._guardCreate(
+                        'issue-invoice:' + payload.id + ':' + payload.number,
+                        function () { return window.V2Api.api('/payments/cards/' + payload.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount, store_location: payload.store || null } }); }
+                    );
                 } else if (kind === 'invoice-edit') {
                     // Правка накладной: дата (ISO), номер и сумма — как на проде
                     // (PATCH /payments/transactions/{id}).
@@ -440,15 +593,22 @@
                 } else if (kind === 'annul-tx') {
                     return await window.V2Api.api('/payments/transactions/' + payload.txId, { method: 'DELETE' });
                 } else if (kind === 'group-issue') {
-                    const g = await window.V2Api.api('/writeoff-groups', { method: 'POST', body: { card_ids: payload.cards, name: payload.name } });
-                    const issued = await window.V2Api.api('/writeoff-groups/' + g.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount } });
-                    let txId = null;
-                    try {
-                        const docs = await window.V2Api.api('/payments/documents');
-                        const found = (docs || []).find(d => d.writeoff_group_id === g.id && (d.invoice_number || '') === payload.number);
-                        if (found) txId = found.id;
-                    } catch (e) { /* отмена группы будет локальной */ }
-                    return { id: g.id, txId: txId };
+                    // B5: защита от двойного сабмита групповой выписки
+                    return await window.V2Api._guardCreate(
+                        'group-issue:' + (payload.cards || []).join(',') + ':' + payload.number,
+                        async function () {
+                            // Сервер живёт по префиксу /writeoffs/groups (не /writeoff-groups).
+                            const g = await window.V2Api.api('/writeoffs/groups/', { method: 'POST', body: { card_ids: payload.cards, name: payload.name } });
+                            await window.V2Api.api('/writeoffs/groups/' + g.id + '/issue-invoice', { method: 'POST', body: { invoice_number: payload.number, invoice_date: payload.date, amount: payload.amount } });
+                            let txId = null;
+                            try {
+                                const docs = await window.V2Api.api('/payments/documents');
+                                const found = (docs || []).find(d => d.writeoff_group_id === g.id && (d.invoice_number || '') === payload.number);
+                                if (found) txId = found.id;
+                            } catch (e) { /* отмена группы будет локальной */ }
+                            return { id: g.id, txId: txId };
+                        }
+                    );
                 } else if (kind === 'card-delete') {
                     // Удаление карточки — мягкое: карточка уходит в корзину
                     // (is_deleted), восстановление — PATCH /cards/{id}/restore.
@@ -505,8 +665,10 @@
                     document.getElementById('login-password').value,
                     document.getElementById('login-remember').checked
                 );
+                // Токен сохраняем сразу; роль будет уточнена из /auth/me в bootApi() (B6).
                 window.V2Api.save(result.access_token, result.role);
                 overlay.hidden = true;
+                // bootApi() вызовет /auth/me и перезапишет роль подтверждённой.
                 await bootApi();
             } catch (err) {
                 errorEl.textContent = err.unauthorized || err.status === 401 ? 'Неверное имя пользователя или пароль.' :
@@ -520,6 +682,26 @@
 
     // boot.js подключён в <head> — стартуем после разбора DOM,
     // иначе оверлей входа и контейнеры интерфейса ещё не существуют.
+    // Сбой загрузки показываем как сбой. Раньше здесь был переход на демо-данные:
+    // достаточно было одному из десяти запросов ответить 403/500, и менеджер
+    // работал с выдуманными сделками «К-101…», принимая их за боевые.
+    function showFatal(err) {
+        const status = err && err.status ? ' (код ' + err.status + ')' : '';
+        const detail = (err && (typeof err.detail === 'string' ? err.detail : err.message)) || 'неизвестная ошибка';
+        setText('CRM недоступен');
+        const host = document.getElementById('shell-content');
+        if (!host) return;
+        host.innerHTML = '<section class="card" role="alert">' +
+            '<h2>Не удалось загрузить данные CRM' + esc(status) + '</h2>' +
+            '<p>' + esc(detail) + '</p>' +
+            '<p class="fin-note">Демо-данные вместо боевых не показываются намеренно: ' +
+            'работа с ними выглядела бы как настоящие сделки и суммы.</p>' +
+            '<button type="button" class="btn btn-primary" id="v2-retry">Повторить</button>' +
+            '</section>';
+        const retry = document.getElementById('v2-retry');
+        if (retry) retry.addEventListener('click', function () { start(); });
+    }
+
     async function start() {
         try {
             if (DEMO) { await bootDemo(); return; }
@@ -527,9 +709,8 @@
                 await bootApi();
             } catch (err) {
                 if (err && err.unauthorized) { showLogin(''); return; }
-                console.error('API недоступен, переключаюсь на демо-данные:', err);
-                setText('CRM API недоступен — показаны демо-данные');
-                await bootDemo();
+                console.error('Загрузка данных CRM не удалась:', err);
+                showFatal(err);
             }
         } catch (err) {
             console.error(err);
