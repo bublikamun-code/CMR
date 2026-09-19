@@ -30,12 +30,23 @@
         var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value || ''));
         return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
     }
+    // B3 fix: серверные даты хранятся в UTC (миграция 0003), поэтому «сегодня»
+    // для сравнений с дедлайнами/задачами берём по UTC, а не по локальному
+    // часовому поясу. Иначе вечером UTC+3 фильтр «сегодня» уже показывает
+    // завтрашний день. Источник истины — общий KBApi.todayUTC() из адаптера;
+    // здесь только разбор строки в Date для арифметики dayDiff.
+    function todayUTC() {
+        var parts = window.KBApi.todayUTC().split('-');
+        return new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
+    }
     function dayDiff(a, b) {
         return Math.round((b - a) / 86400000);
     }
     function overdueDays(card) {
         var deadline = parseDeadline(card.deadline);
-        return deadline ? dayDiff(deadline, D.today) : 0;
+        // Сравниваем с UTC-датой, чтобы серверные дедлайны (UTC) не разъезжались
+        // относительно локального пояса браузера.
+        return deadline ? dayDiff(deadline, todayUTC()) : 0;
     }
     function statusName(id) {
         var s = D.statuses.filter(function (x) { return x.id === id; })[0];
@@ -175,7 +186,8 @@
     // ---------- Задачи и сводка ----------
     function dueDiff(task) {
         var due = parseDeadline(task.due);
-        return due ? dayDiff(due, D.today) : 0; // >0 — просрочена (today − due)
+        // B3: сравниваем с UTC-датой (серверные сроки — в UTC).
+        return due ? dayDiff(due, todayUTC()) : 0; // >0 — просрочена (today − due)
     }
     function taskRow(t, pillClass) {
         var client = D.clientById(t.clientId);
@@ -299,6 +311,7 @@
         var drawer = document.getElementById('cl-drawer');
         if (!drawer) return;
         drawer.dataset.clientId = selectedClient || '';
+        var client = selectedClient ? D.clientById(selectedClient) : null;
         // Баланс кассы клиента (фидбек 18.09)
         if (client && window.V2Api && window.V2Api.token()) {
             var clNum = parseInt(String(client.id).replace(/[^0-9]/g, ''), 10);
@@ -310,12 +323,12 @@
                         : b < 0 ? b.toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' BYN — долг клиента'
                         : '0,00 BYN';
                 }
-            }).catch(function () {
+            }).catch(function (err) {
+                // B1 fix: не глотаем ошибку — показываем текст ошибки, а не «недоступно».
                 var line = document.getElementById('cl-cash-line');
-                if (line) line.textContent = 'недоступно';
+                if (line) line.textContent = 'Не удалось загрузить баланс' + (err && err.message ? ': ' + err.message : '');
             });
         }
-        var client = selectedClient ? D.clientById(selectedClient) : null;
         if (!client) {
             drawer.innerHTML = '<div class="drawer-body"><p class="fin-note">Клиент не выбран.</p></div>';
             return;
@@ -508,8 +521,10 @@
         task.done = !task.done;
         apiMutate('task-status', { id: Number(String(task.id).replace('task-', '')), status: task.done ? 'done' : 'todo' });
         if (task.done) {
-            var dd = String(D.today.getDate()).padStart(2, '0');
-            var mm = String(D.today.getMonth() + 1).padStart(2, '0');
+            // B3: дата закрытия задачи — по UTC, чтобы совпадать с серверной датой.
+            var todayUtc = todayUTC();
+            var dd = String(todayUtc.getUTCDate()).padStart(2, '0');
+            var mm = String(todayUtc.getUTCMonth() + 1).padStart(2, '0');
             task.closed = 'закрыто ' + dd + '.' + mm;
         } else delete task.closed;
         renderTasks();
@@ -553,7 +568,9 @@
         for (var i = 0; i < cells; i++) {
             var day = i - offset + 1;
             if (day < 1 || day > days) { html += '<div class="day" style="background:transparent"></div>'; continue; }
-            var isToday = D.today.getFullYear() === cal.y && D.today.getMonth() === cal.m && D.today.getDate() === day;
+            // B3: подсветка «сегодня» — по UTC, в соответствии с серверными датами.
+            var todayUtc = todayUTC();
+            var isToday = todayUtc.getUTCFullYear() === cal.y && todayUtc.getUTCMonth() === cal.m && todayUtc.getUTCDate() === day;
             var dayEvents = events[day] || [];
             var shown = dayEvents.slice(0, 2);
             html += '<div class="day' + (isToday ? ' today' : '') + '"><span class="n">' + day + '</span>' +
@@ -570,7 +587,7 @@
     document.getElementById('task-new').addEventListener('click', openTaskDialog);
     document.getElementById('cal-prev').addEventListener('click', function () { cal.m--; if (cal.m < 0) { cal.m = 11; cal.y--; } renderCalendar(); });
     document.getElementById('cal-next').addEventListener('click', function () { cal.m++; if (cal.m > 11) { cal.m = 0; cal.y++; } renderCalendar(); });
-    document.getElementById('cal-today').addEventListener('click', function () { cal = { y: D.today.getFullYear(), m: D.today.getMonth() }; renderCalendar(); });
+    document.getElementById('cal-today').addEventListener('click', function () { var t = todayUTC(); cal = { y: t.getUTCFullYear(), m: t.getUTCMonth() }; renderCalendar(); });
 
     document.addEventListener('kb:documents', function () { renderDay(); renderCalendar(); });
     document.addEventListener('kb:payment-saved', function () { renderCalendar(); });
@@ -686,7 +703,6 @@
         var clientId = numeric(drawer.dataset.clientId);
         var body = drawer.querySelector('.drawer-body');
         if (!body || body.dataset.balanceDone === clientId + '') return;
-        body.dataset.balanceDone = clientId + '';
         var old = body.querySelector('[data-cl-balance-block]');
         if (old) old.remove();
         if (!clientId) return;
@@ -698,11 +714,18 @@
             '<button type="button" class="btn btn-primary btn-sm" data-cl-pay="' + clientId + '">Принять оплату</button></div>';
         body.insertAdjacentElement('afterbegin', block);
         if (!window.V2Api || !window.V2Api.token()) { block.querySelector('[data-cl-balance]').textContent = ''; return; }
+        // B2 fix: не помечаем загрузку как завершённую до успешного ответа —
+        // иначе при сетевом сбое «баланс: » кешируется как пустота и не ретраится.
         window.V2Api.api('/clients/' + clientId + '/balance').then(function (bal) {
+            body.dataset.balanceDone = clientId + '';
             var el = block.querySelector('[data-cl-balance]');
             el.textContent = 'Баланс кассы: ' + fmtKop(Math.round(bal.balance * 100)) + ' BYN' +
                 (bal.balance > 0 ? ' — переплата клиента' : bal.balance < 0 ? ' — долг клиента' : '');
-        }).catch(function () { block.querySelector('[data-cl-balance]').textContent = ''; });
+        }).catch(function (err) {
+            // B1 fix: не глотаем ошибку — показываем состояние и даём повторить.
+            var el = block.querySelector('[data-cl-balance]');
+            if (el) el.textContent = 'Не удалось загрузить баланс' + (err && err.message ? ': ' + err.message : '');
+        });
         block.querySelector('[data-cl-pay]').addEventListener('click', function () {
             var input = block.querySelector('[data-cl-pay-amount]');
             var amount = parseFloat(String(input && input.value || '').replace(/\s|\u00a0/g, '').replace(',', '.'));

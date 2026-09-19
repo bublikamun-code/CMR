@@ -67,13 +67,16 @@
         return sign + String(rub).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ',' + kop;
     }
     function parseMoney(str) {
-        // ввод: "1 234,56" / "1234.56" / "123456" (копейки не принимаем вслепую — считаем рубли и копейки)
-        var s = String(str || '').trim().replace(/\s|\u00a0/g, '').replace(',', '.');
-        if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
+        // ввод: "1 234,56" / "1234.56" / "−1234,56" / "-1234.56" (копейки не принимаем вслепую — считаем рубли и копейки)
+        var s = String(str || '').trim().replace(/\s|\u00a0/g, '').replace(',', '.').replace(/\u2212/, '-');
+        if (!/^-?\d+(\.\d{1,2})?$/.test(s)) return null;
+        var neg = s.charAt(0) === '-';
+        if (neg) s = s.slice(1);
         var parts = s.split('.');
         var rub = parseInt(parts[0], 10);
         var kop = parts.length === 2 ? parseInt((parts[1] + '0').slice(0, 2), 10) : 0;
-        return rub * 100 + kop;
+        var result = rub * 100 + kop;
+        return neg ? -result : result;
     }
     function esc(s) {
         return String(s).replace(/[&<>"']/g, function (c) {
@@ -89,7 +92,30 @@
         var n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
         return isNaN(n) ? null : n;
     }
-    function remaining(card) { return card.amount - card.issued; }
+    // A12: сервер — единственный источник остатка. remaining_kop (int, копейки)
+    // отдаётся в карточке; если серверное поле отсутствует (old cache, demo
+    // без сервера) — null, и вызывающий код показывает «—», а не считает сам.
+    function cardRemaining(card) {
+        if (card.remaining_kop !== undefined && card.remaining_kop !== null) return card.remaining_kop;
+        return null;
+    }
+    // Выписано в копейках: серверное issued_total (руб→коп) или локальный
+    // сессионный счётчик card.issued (для демо и оптимистичных обновлений).
+    function cardIssued(card) {
+        if (card.issued_total !== undefined && card.issued_total !== null) return Math.round(card.issued_total * 100);
+        return card.issued || 0;
+    }
+    // Для проверок «осталось к выписке > 0» (фильтр очередей): если сервер
+    // не отдал remaining_kop, карточка пропускается — не показываем и не
+    // считаем её «к списанию», пока серверные данные не появятся.
+    function hasRemaining(card) {
+        var r = cardRemaining(card);
+        return r !== null && r > 0;
+    }
+    // Форматирование остатка: число или «—» если серверных данных нет.
+    function moneyOrDash(cents) {
+        return cents === null || cents === undefined ? '—' : money(cents);
+    }
     // 'cl-22' → 22: клиентские id в v2 с префиксом, API ждёт число
     // (фидбек 18.09: Number('cl-22') = NaN ломал баланс и кассу клиента)
     function numericClientId(id) {
@@ -126,19 +152,22 @@
         var chips = '<span class="pill">' + esc(KBData.storeName(c.store)) + '</span>' +
             '<span class="pill"><span class="avatar sm">' + esc(c.manager.initials || '··') + '</span>' + esc(c.manager.full_name || c.manager.username || '') + '</span>';
         chips += counterHTML('ordered', 'Заказано', cl.ordered) + counterHTML('received', 'Получено', cl.received);
-        // Статус оплаты — из CRM (payment_status); для демо-карточек —
-        // вывод из сумм, как раньше.
-        var payStatus = c.payment_status || (c.paidAmount >= c.amount && c.amount > 0 ? 'Оплачен' : (c.paidAmount > 0 ? 'Частично' : 'Не оплачен'));
-        if (payStatus === 'Оплачен') chips += '<span class="pill ok">оплачено полностью</span>';
+        // Статус оплаты — из CRM (payment_status); признак полной оплаты —
+        // по серверным полям (paidAmount/amount), не по хардкоду строки.
+        var fullyPaid = c.paidAmount >= c.amount && c.amount > 0;
+        var payStatus = c.payment_status || (fullyPaid ? 'Оплачен' : (c.paidAmount > 0 ? 'Частично' : 'Не оплачен'));
+        if (payStatus === 'Оплачен' || fullyPaid) chips += '<span class="pill ok">оплачено полностью</span>';
         else if (payStatus === 'Отсрочка') chips += '<span class="pill warn">отсрочка' + (c.paidAmount > 0 ? ' · ' + money(c.paidAmount) : '') + '</span>';
         else if (c.paidAmount > 0) chips += '<span class="pill ok">оплачено ' + money(c.paidAmount) + '</span>';
-        if (c.issued > 0 && c.issued < c.amount) chips += '<span class="pill warn">остаток ' + money(remaining(c)) + '</span>';
+        var remKop = cardRemaining(c);
+        var issuedKop = cardIssued(c);
+        if (remKop !== null && issuedKop > 0 && remKop > 0) chips += '<span class="pill warn">остаток ' + moneyOrDash(remKop) + '</span>';
         return '<button type="button" class="kb-card" draggable="true" data-card="' + esc(c.id) + '" aria-haspopup="dialog">' +
             '<span class="kb-card-title">' + esc(c.title) + '</span>' +
             '<span class="kb-card-meta num">' + esc(c.id) + ' · ' + esc(c.deadline) + '</span>' +
             '<span class="kb-card-chips">' + chips + '</span>' +
             '<span class="kb-card-foot num"><b>' + money(c.amount) + ' BYN</b>' +
-            (c.issued > 0 ? ' · списано ' + money(c.issued) : '') +
+            (issuedKop > 0 ? ' · списано ' + money(issuedKop) : '') +
             (c.docs.length ? ' · ТН: ' + c.docs.length : '') +
             (c.groupId ? ' · групповая ТН' : '') + '</span>' +
             '</button>';
@@ -360,6 +389,7 @@
     }
     function initCardCombos() {
         if (!dialog) return;
+        // Item #5: клиент — только из справочника; пустое = не указан.
         initCombo(dialog.querySelector('#kb-deal-client'),
             KBData.clients.map(function (cl) { return cl.name; }).filter(Boolean));
         initCombo(document.getElementById('kb-add-supplier'),
@@ -395,13 +425,13 @@
         // карточка не висит в «На списание», даже если статус ещё там же,
         // а в «Списано» попадает и без смены статуса.
         var list = visibleCards().filter(function (c) {
-            if (state.queueMode === 'pending') return c.stage === 'writeoff' && remaining(c) > 0;
-            return c.stage === 'done' || (c.stage === 'writeoff' && c.issued > 0 && remaining(c) <= 0);
+            if (state.queueMode === 'pending') return c.stage === 'writeoff' && hasRemaining(c);
+            return c.stage === 'done' || (c.stage === 'writeoff' && cardIssued(c) > 0 && !hasRemaining(c));
         });
-        document.getElementById('kb-queue-count').textContent = cards.filter(function(c) { return c.stage === 'writeoff' && remaining(c) > 0; }).length;
+        document.getElementById('kb-queue-count').textContent = cards.filter(function(c) { return c.stage === 'writeoff' && hasRemaining(c); }).length;
         groupPick = groupPick.filter(function (id) {
             var c = cards.find(function (x) { return x.id === id; });
-            return c && c.stage === 'writeoff' && remaining(c) > 0;
+            return c && c.stage === 'writeoff' && hasRemaining(c);
         });
         var pending = state.queueMode === 'pending';
         var allPicked = pending && list.length > 0 && list.every(function (c) { return groupPick.indexOf(c.id) >= 0; });
@@ -411,7 +441,7 @@
         document.getElementById('kb-queue-body').innerHTML = '<p class="kb-note">Поиск и магазин общие с доской. Найдено: ' + list.length + '</p>' + toolbar + list.map(function(c) {
             return '<div class="kb-q-row" role="button" tabindex="0" data-card="' + esc(c.id) + '" aria-haspopup="dialog" aria-label="Открыть ' + esc(c.id + ' · ' + c.title) + '">' +
                 (pending ? '<input type="checkbox" class="kb-q-pick" data-group-pick="' + esc(c.id) + '" aria-label="Включить ' + esc(c.id) + ' в групповую накладную"' + (groupPick.indexOf(c.id) >= 0 ? ' checked' : '') + '>' : '') +
-                '<div><b>' + esc(c.id + ' · ' + c.title) + '</b><div>' + esc(KBData.storeName(c.store)) + ' · К выписке ' + money(remaining(c)) + ' BYN</div></div></div>';
+                '<div><b>' + esc(c.id + ' · ' + c.title) + '</b><div>' + esc(KBData.storeName(c.store)) + ' · К выписке ' + moneyOrDash(cardRemaining(c)) + ' BYN</div></div></div>';
         }).join('');
     }
     function queueMode(mode) {
@@ -445,7 +475,8 @@
         return '<label class="kb-edit-field" for="kb-deal-' + key + '"><span>' + label + '</span>' + control + '</label>';
     }
     function dealInput(c, key, label, type) {
-        return dealField(key, label, '<input id="kb-deal-' + key + '" data-deal-field="' + key + '" type="' + (type || 'text') + '" value="' + esc(key === 'amount' ? money(c.amount) : c[key]) + '"' + (key === 'amount' ? ' inputmode="decimal"' : ' maxlength="240"') + (key === 'amount' && c.stage === 'done' ? ' disabled' : '') + '>');
+        // Item #12: maxlength 200 = серверный лимит заголовка (schemas.py:249).
+        return dealField(key, label, '<input id="kb-deal-' + key + '" data-deal-field="' + key + '" type="' + (type || 'text') + '" value="' + esc(key === 'amount' ? money(c.amount) : c[key]) + '"' + (key === 'amount' ? ' inputmode="decimal"' : ' maxlength="200"') + (key === 'amount' && c.stage === 'done' ? ' disabled' : '') + '>');
     }
     function dealSelect(key, label, values, selected, disabled) {
         return dealField(key, label, '<select id="kb-deal-' + key + '" data-deal-field="' + key + '"' + (disabled ? ' disabled' : '') + '>' + optionsHTML(values, selected) + '</select>');
@@ -453,6 +484,34 @@
     window.KBPayment.escape = esc;
     // Save only validated, normalized values. Raw input remains in KBPayment's
     // per-card WeakMap, including inactive date/day/prepay fields.
+    //
+    // Отрисовка состояния оплаты БЕЗ записи на сервер. Раньше валидация,
+    // покраска и PATCH жили в одной функции, а вызывались из отрисовки
+    // карточки: каждое открытие отправляло payment_terms/payment_due_date
+    // и создавало версию записи — чтение превращалось в запись, история
+    // пухла, а при одновременной работе затирались чужие правки.
+    function paintPayment(c, result, saved) {
+        dialog.querySelectorAll('[data-payment-field]').forEach(function(input) {
+            var error = result.errors[input.dataset.paymentField] || '';
+            input.setCustomValidity(error);
+            input.setAttribute('aria-invalid', String(!!error));
+            var message = document.getElementById(input.id + '-error');
+            if (message) message.textContent = error;
+        });
+        var status = document.getElementById('kb-payment-status');
+        if (status) {
+            status.dataset.valid = String(result.valid);
+            var suffix = (result.due ? ' · Оплатить до ' + result.due : '') +
+                (result.prepay !== null ? ' · Предоплата ' + money(result.prepay) + ' BYN' : '');
+            status.textContent = result.valid
+                ? (saved ? 'Сохранено' + suffix : 'Условия оплаты' + suffix)
+                : 'Не сохранено · ' + Object.values(result.errors).join(' ');
+        }
+        // Sync validation on the visible combobox, not only its hidden native.
+        var mode = dialog.querySelector('#kb-payment-mode');
+        if (mode) window.KBSelect.enhance(mode);
+    }
+    // Сохранение — только из пользовательских событий (input/change).
     function updatePayment(c) {
         var d = window.KBPayment.draft(c);
         var result = window.KBPayment.validate(c, parseMoney);
@@ -465,43 +524,38 @@
             // Дата оплаты появилась/изменилась — календарю пульта нужно перерисоваться.
             document.dispatchEvent(new CustomEvent('kb:payment-saved', { detail: { cardId: c.id } }));
         }
-        dialog.querySelectorAll('[data-payment-field]').forEach(function(input) {
-            var error = result.errors[input.dataset.paymentField] || '';
-            input.setCustomValidity(error);
-            input.setAttribute('aria-invalid', String(!!error));
-            var message = document.getElementById(input.id + '-error');
-            if (message) message.textContent = error;
-        });
-        var status = document.getElementById('kb-payment-status');
-        if (status) {
-            status.dataset.valid = String(result.valid);
-            status.textContent = result.valid ? 'Сохранено' + (result.due ? ' · Оплатить до ' + result.due : '') +
-                (result.prepay !== null ? ' · Предоплата ' + money(result.prepay) + ' BYN' : '') :
-                'Не сохранено · ' + Object.values(result.errors).join(' ');
-        }
-        // Sync validation on the visible combobox, not only its hidden native.
-        var mode = dialog.querySelector('#kb-payment-mode');
-        if (mode) window.KBSelect.enhance(mode);
+        paintPayment(c, result, true);
     }
     function renderPayment(c, reveal) {
         window.KBSelect.close();
-        document.getElementById('kb-payment-details').outerHTML = window.KBPayment.render(c);
+        var payDetails = document.getElementById('kb-payment-details');
+        if (payDetails) payDetails.outerHTML = window.KBPayment.render(c);
         updatePayment(c);
-        window.KBSelect.enhance(document.getElementById('kb-payment-details'));
+        var newDetails = document.getElementById('kb-payment-details');
+        if (newDetails) window.KBSelect.enhance(newDetails);
         if (reveal) {
-            document.getElementById('kb-tab-overview').click();
-            dialog.querySelector('.kb-detail-content').scrollTop = 0;
+            var overviewTab = document.getElementById('kb-tab-overview');
+            if (overviewTab) overviewTab.click();
+            var detailContent = dialog.querySelector('.kb-detail-content');
+            if (detailContent) detailContent.scrollTop = 0;
         }
     }
     // Card-only rendering; documents describe demo issuance, never payment events.
     // Preview-only supplier IDs and per-item files; no production uploads.
-    var procurementSuppliers = [['demo-1', 'Люстра Опт'], ['demo-2', 'СветКомплект'], ['demo-3', 'ЭлектроСнаб']];
+    // Item #8: поставщики — из KBData.suppliers (реальный справочник).
     var procurementFiles = new Map();
+    function supplierOptions() {
+        // Реальный справочник; если пуст — показываем подсказку.
+        var real = (KBData.suppliers || []).map(function (s) { return [s.id, s.name]; });
+        return real;
+    }
     function procurementFields(c, item) {
         var id = esc(item.id), disabled = c.stage === 'done' ? ' disabled' : '';
         var attachment = procurementFiles.get(item);
+        var opts = supplierOptions();
+        var emptyLabel = opts.length ? 'Выберите поставщика' : 'Поставщики не загружены';
         return '<div class="kb-procurement-fields"><label class="kb-edit-field" for="kb-supplier-' + id + '"><span>Поставщик</span><select id="kb-supplier-' + id + '" data-item-supplier="' + id + '"' + disabled + '>' +
-            [['', 'Выберите поставщика']].concat(window.KBSuppliers ? window.KBSuppliers.list() : procurementSuppliers).map(function(s) {
+            [['', emptyLabel]].concat(opts).map(function(s) {
                 return '<option value="' + s[0] + '"' + (item.supplier_id === s[0] ? ' selected' : '') + '>' + esc(s[1]) + '</option>';
             }).join('') + '</select></label><div class="kb-item-file">' +
             (attachment ? '<a class="kb-item-download" href="' + esc(attachment.url) + '" download="' + esc(attachment.file.name) + '">' + esc(attachment.file.name) + '</a>' : '<span class="kb-detail-hint">Файл не прикреплён</span>') +
@@ -563,12 +617,17 @@
         var clientOptions = KBData.clients
             .filter(function (cl) { return cl.id !== 'us-none' && cl.name; })
             .map(function (cl) { return '<option value="' + esc(cl.name) + '"></option>'; }).join('');
+        // Item #5: клиент — только фактическое значение; если не привязан —
+        // пустое поле (placeholder). Загрузчик мог подставить c.title как
+        // fallback — не выводим его, чтобы не создавать ложного впечатления.
+        var clientDisplay = c.clientId ? (c.client || '') : '';
         var info = dealInput(c, 'title', 'Название') +
             dealField('client', 'Клиент (начните вводить — поиск по справочнику)',
-                '<input id="kb-deal-client" data-deal-field="client" value="' + esc(c.client) + '" autocomplete="off" maxlength="240">' +
+                '<input id="kb-deal-client" data-deal-field="client" value="' + esc(clientDisplay) + '" placeholder="Не указан" autocomplete="off" maxlength="200">' +
                 '<datalist id="kb-clients-datalist">' + clientOptions + '</datalist>') +
-            dealSelect('store', 'Магазин', KBData.stores.map(function (s) { return [s.id, s.name]; }), c.store) +
-            dealSelect('manager', 'Менеджер', KBData.users.map(function (u, i) { return [i, u.full_name]; }), KBData.users.indexOf(c.manager)) +
+            dealSelect('store', 'Магазин', [['', 'Не указан']].concat(KBData.stores.map(function (s) { return [s.id, s.name]; })), c.store || '') +
+            // Item #4: менеджер по id, не по индексу массива
+            dealSelect('manager', 'Менеджер', [['', 'Не назначен']].concat(KBData.users.map(function (u) { return [u.id, u.full_name]; })), c.manager ? c.manager.id : '') +
             dealInput(c, 'deadline', 'Срок · ДД.ММ.ГГГГ') + dealInput(c, 'amount', 'Сумма, BYN') +
             dealField('note', 'Заметка', '<textarea id="kb-deal-note" data-deal-field="note" rows="2" maxlength="4000">' + esc(c.note) + '</textarea>');
         var checks = c.checklist.map(function(item, i) {
@@ -752,7 +811,8 @@
             }
             var filled = input.value.trim() !== '' && input.validity.valid && input.getAttribute('aria-invalid') !== 'true';
             var hidden = previous ? previous.hidden : state.hideFilled && filled;
-            input.closest('.kb-edit-field').hidden = hidden;
+            var wrapper = input.closest('.kb-edit-field');
+            if (wrapper) wrapper.hidden = hidden;
             if (!hidden) visible++;
         });
         var toggle = document.getElementById('kb-hide-filled');
@@ -769,7 +829,8 @@
         if (dialog.open && activeCard === c && dialog.querySelector('#kb-overview-fields')) {
             preserved = {};
             dialog.querySelectorAll('#kb-overview-fields [data-deal-field]').forEach(function(input) {
-                preserved[input.dataset.dealField] = { value: input.value, hidden: input.closest('.kb-edit-field').hidden,
+                var wrap = input.closest('.kb-edit-field');
+                preserved[input.dataset.dealField] = { value: input.value, hidden: wrap ? wrap.hidden : false,
                     error: input.validity.customError ? input.validationMessage : '', invalid: input.getAttribute('aria-invalid') };
             });
         }
@@ -783,7 +844,7 @@
         renderingCard = true;
         dialog.innerHTML = '<div class="kb-detail"><header class="kb-detail-head"><div><div class="kb-detail-meta"><span>Сделка ' + esc(c.id) + '</span><span class="kb-detail-badge">' + esc(currentStage) + '</span></div>' +
             '<h2 id="kb-dialog-title">' + esc(c.title) + '</h2></div><button type="button" class="kb-detail-close" data-close aria-label="Закрыть карточку" autofocus><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>' +
-            '<div class="kb-detail-summary"><dl class="kb-detail-money"><div class="kb-detail-total"><dt>Сумма сделки</dt><dd>' + money(c.amount) + ' <small>BYN</small></dd></div><div><dt>Оплачено</dt><dd>' + money(c.paidAmount) + ' <small>BYN</small></dd></div><div><dt>Выписано</dt><dd>' + money(c.issued) + ' <small>BYN</small></dd></div><div><dt>Осталось выписать</dt><dd>' + money(remaining(c)) + ' <small>BYN</small></dd></div></dl>' +
+            '<div class="kb-detail-summary"><dl class="kb-detail-money"><div class="kb-detail-total"><dt>Сумма сделки</dt><dd>' + money(c.amount) + ' <small>BYN</small></dd></div><div><dt>Оплачено</dt><dd>' + money(c.paidAmount) + ' <small>BYN</small></dd></div><div><dt>Выписано</dt><dd>' + money(cardIssued(c)) + ' <small>BYN</small></dd></div><div><dt>Осталось выписать</dt><dd>' + moneyOrDash(cardRemaining(c)) + ' <small>BYN</small></dd></div></dl>' +
             '<div class="kb-detail-controls">' +
             dealSelect('paymentTerms', 'Условия оплаты', [['', 'Не выбраны'], ['deferred', 'Отсрочка'], ['full', 'Оплата 100%'], ['partial_deferred', 'Частичная оплата + отсрочка платежа']], c.paymentTerms) +
             dealSelect('stage', 'Этап', stages.filter(function(st) { return (st.id !== 'done' || c.stage === 'done') && st.canAssign !== false; }).map(function(st) { return [st.id, st.name]; }), c.stage, c.stage === 'done') +
@@ -804,7 +865,8 @@
                 var selected = button.dataset.cardTab === name;
                 button.setAttribute('aria-selected', String(selected));
                 button.tabIndex = selected ? 0 : -1;
-                document.getElementById(button.getAttribute('aria-controls')).hidden = !selected;
+                var panel = document.getElementById(button.getAttribute('aria-controls'));
+                if (panel) panel.hidden = !selected;
                 if (selected && focus) button.focus();
             });
         }
@@ -822,7 +884,9 @@
             selectTab(tabs[index][0], true);
         };
         updateOverviewVisibility(preserved);
-        updatePayment(c);
+        // Отрисовка карточки ничего не сохраняет: только показываем состояние
+        // условий оплаты (PATCH уходит лишь из input/change — см. updatePayment).
+        paintPayment(c, window.KBPayment.validate(c, parseMoney), false);
         window.KBSelect.enhance(dialog);
         document.getElementById('kb-hide-filled').onclick = function() {
             state.hideFilled = !state.hideFilled;
@@ -967,15 +1031,20 @@
         var del = document.getElementById('kb-delete');
         if (del) del.onclick = function() {
             if (!window.confirm('Удалить карточку «' + (c.title || c.id) + '»?\nОна уйдёт в корзину — восстановление через администратора.')) return;
-            apiMutate('card-delete', { id: Number(c.id) });
-            // Фидбек 19.09: карточка исчезает с доски и из реестра сразу,
-            // без перезагрузки страницы.
-            var ci = KBData.cards.indexOf(c);
-            if (ci >= 0) KBData.cards.splice(ci, 1); // мутация на месте — все модули видят
-            if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
-            document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
-            dialog.close(); refresh();
-            notify(c.id + ' — карточка удалена в корзину.');
+            // Item #9: await before mutation — откат при ошибке.
+            del.disabled = true;
+            apiMutate('card-delete', { id: Number(c.id) }).then(function (ok) {
+                if (ok === false) { del.disabled = false; notify('Удаление не прошло на сервере.'); return; }
+                var ci = KBData.cards.indexOf(c);
+                if (ci >= 0) KBData.cards.splice(ci, 1);
+                if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
+                document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
+                dialog.close(); refresh();
+                notify(c.id + ' — карточка удалена в корзину.');
+            }).catch(function (err) {
+                del.disabled = false;
+                notify('Не удалено: ' + (err.detail || err.message || 'ошибка'));
+            });
         };
     }
 
@@ -1070,21 +1139,35 @@
             };
         });
 
-        function finish(fields, message) {
-            apiMutate('register-payment', { id: Number(c.id), fields: fields });
-            if (fields.paid_amount !== undefined) c.paidAmount = Math.round(fields.paid_amount * 100);
-            if (fields.payment_due_date !== undefined) c.paymentDueDate = fields.payment_due_date || '';
-            if (fields.payment_status !== undefined) c.payment_status = fields.payment_status;
-            dialog.close(); refresh();
-            notify(c.id + ' — ' + message);
-        }
-        function createCash(amountKop) {
-            // Касса: реальные деньги от клиента по этой сделке.
-            return window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/payments', {
-                method: 'POST',
-                body: { amount: amountKop / 100, card_id: Number(c.id), note: 'Оплата по сделке' }
-            }).catch(function (e2) {
-                notify('Оплата проведена, но касса клиента не обновилась: ' + (e2.detail || e2.message || 'ошибка'));
+        // Item #9: finish теперь async — локальное состояние меняется ТОЛЬКО
+        // после успешного ответа сервера. Второй шаг (касса) — отдельно;
+        // при его провале явно сообщаем, что именно не удалось.
+        function finish(fields, message, cashAmountKop) {
+            var submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.disabled = true;
+            apiMutate('register-payment', { id: Number(c.id), fields: fields }).then(function (ok) {
+                if (ok === false) {
+                    if (submitBtn) submitBtn.disabled = false;
+                    notify('Оплата не сохранена на сервере.');
+                    return;
+                }
+                if (fields.paid_amount !== undefined) c.paidAmount = Math.round(fields.paid_amount * 100);
+                if (fields.payment_due_date !== undefined) c.paymentDueDate = fields.payment_due_date || '';
+                if (fields.payment_status !== undefined) c.payment_status = fields.payment_status;
+                dialog.close(); refresh();
+                notify(c.id + ' — ' + message);
+                // Двухшаговая: оплата + касса. Касса — отдельный запрос.
+                if (cashAmountKop > 0 && hasClient) {
+                    window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/payments', {
+                        method: 'POST',
+                        body: { amount: cashAmountKop / 100, card_id: Number(c.id), note: 'Оплата по сделке' }
+                    }).catch(function (e2) {
+                        notify('Оплата проведена, но касса клиента не обновилась: ' + (e2.detail || e2.message || 'ошибка'));
+                    });
+                }
+            }).catch(function (err) {
+                if (submitBtn) submitBtn.disabled = false;
+                notify('Оплата не проведена: ' + (err.detail || err.message || 'ошибка'));
             });
         }
         form.onsubmit = function (e) {
@@ -1111,12 +1194,9 @@
                 var fromB = useFromBalance();
                 if (fromB && clientBalance < total - paid) { err.textContent = 'Баланса клиента не хватает (нужно ' + money(total - paid) + ' BYN).'; return; }
                 var cashNow = fromB ? 0 : (total - paid);
-                var doPaid = function () {
-                    finish({ paid_amount: total / 100, payment_status: 'Оплачен', from_balance: fromB || undefined },
-                        fromB ? 'закрыто из баланса, оплачено 100%.' : 'оплачено 100% — ' + money(total) + ' BYN.');
-                    if (cashNow > 0 && hasClient) createCash(cashNow);
-                };
-                doPaid();
+                finish({ paid_amount: total / 100, payment_status: 'Оплачен', from_balance: fromB || undefined },
+                    fromB ? 'закрыто из баланса, оплачено 100%.' : 'оплачено 100% — ' + money(total) + ' BYN.',
+                    cashNow);
                 return;
             }
             var amount = parseMoney(amountInput.value);
@@ -1127,29 +1207,32 @@
                 if (fromB2 && clientBalance < amount - paid) { err.textContent = 'Баланса клиента не хватает.'; return; }
                 var cashNow2 = fromB2 ? 0 : Math.max(0, amount - paid);
                 finish({ paid_amount: amount / 100, payment_status: newStatus, from_balance: fromB2 || undefined },
-                    'оплачено ' + money(amount) + ' BYN' + (fromB2 ? ' из баланса' : '') + ', статус «' + newStatus + '».');
-                if (cashNow2 > 0 && hasClient) createCash(cashNow2);
+                    'оплачено ' + money(amount) + ' BYN' + (fromB2 ? ' из баланса' : '') + ', статус «' + newStatus + '».',
+                    cashNow2);
                 return;
             }
             if (mode === 'Отсрочка') {
                 if (!Number.isSafeInteger(amount) || amount < 0) { err.textContent = 'Укажите оплаченную сумму (0 и более).'; return; }
                 if (!dueInput.value) { err.textContent = 'Укажите дату отсрочки.'; return; }
-                return finish({ paid_amount: amount / 100, payment_status: 'Отсрочка', payment_due_date: dueInput.value }, 'отсрочка до ' + dueInput.value + ', оплачено ' + money(amount) + ' BYN.');
+                finish({ paid_amount: amount / 100, payment_status: 'Отсрочка', payment_due_date: dueInput.value }, 'отсрочка до ' + dueInput.value + ', оплачено ' + money(amount) + ' BYN.', 0);
+                return;
             }
             if (mode === 'Не оплачен') {
-                var doReset = function () {
-                    finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).');
-                };
                 if (paid > 0) {
-                    if (window.confirm('Обнулить покрытие счёта (оплачено ' + money(paid) + ' BYN)? Касса клиента не меняется.')) doReset();
-                } else doReset();
+                    if (window.confirm('Обнулить покрытие счёта (оплачено ' + money(paid) + ' BYN)? Касса клиента не меняется.'))
+                        finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
+                } else {
+                    finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
+                }
             }
         };
     }
 
     function openIssue(c) {
         window.KBSelect.close();
-        dialog.innerHTML = '<h2 id="kb-dialog-title">Выписать накладную · ' + esc(c.id) + '</h2><p>Остаток: ' + money(remaining(c)) + ' BYN</p><form id="kb-issue-form" class="kb-form"><div class="kb-field"><label for="kb-date">Дата выписки</label><input id="kb-date" type="date" required></div><div class="kb-field"><label for="kb-series">Серия</label><input id="kb-series" maxlength="30" required></div><div class="kb-field"><label for="kb-number">Номер</label><input id="kb-number" maxlength="50" required></div><div class="kb-field"><label for="kb-amount">Сумма, BYN</label><input id="kb-amount" inputmode="decimal" value="' + money(remaining(c)) + '" required></div><p class="kb-form-error" id="kb-error" role="alert"></p><p class="kb-form-hint">Частичная выписка оставляет остаток в очереди. Полная — переносит в «Списано». ТН появится в финансовых документах.</p><button class="btn btn-primary" type="submit">Подтвердить выписку</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
+        var rem = cardRemaining(c);
+        var remDisplay = moneyOrDash(rem);
+        dialog.innerHTML = '<h2 id="kb-dialog-title">Выписать накладную · ' + esc(c.id) + '</h2><p>Остаток: ' + remDisplay + ' BYN</p><form id="kb-issue-form" class="kb-form"><div class="kb-field"><label for="kb-date">Дата выписки</label><input id="kb-date" type="date" required></div><div class="kb-field"><label for="kb-series">Серия</label><input id="kb-series" maxlength="30" required></div><div class="kb-field"><label for="kb-number">Номер</label><input id="kb-number" maxlength="50" required></div><div class="kb-field"><label for="kb-amount">Сумма, BYN</label><input id="kb-amount" inputmode="decimal" value="' + remDisplay + '" required></div><p class="kb-form-error" id="kb-error" role="alert"></p><p class="kb-form-hint">Частичная выписка оставляет остаток в очереди. Полная — переносит в «Списано». ТН появится в финансовых документах.</p><button class="btn btn-primary" type="submit">Подтвердить выписку</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
         document.getElementById('kb-date').focus();
         var submitted = false;
         document.getElementById('kb-issue-form').onsubmit = function(e) {
@@ -1159,23 +1242,33 @@
             var series = document.getElementById('kb-series').value.trim();
             var number = document.getElementById('kb-number').value.trim();
             var date = document.getElementById('kb-date').value;
+            var remVal = cardRemaining(c);
             var error = !series || !number || !date ? 'Заполните дату, серию и номер.' :
-                !Number.isSafeInteger(amount) || amount <= 0 || amount > remaining(c) ? 'Сумма должна быть больше нуля и не превышать остаток.' :
+                !Number.isSafeInteger(amount) || amount <= 0 || (remVal !== null && amount > remVal) ? 'Сумма должна быть больше нуля и не превышать остаток.' :
                 c.docs.some(function(d) { return d.series.toLowerCase() === series.toLowerCase() && d.number.toLowerCase() === number.toLowerCase(); }) ? 'Эта накладная уже выписана по карточке.' : '';
             if (error) { document.getElementById('kb-error').textContent = error; return; }
             document.getElementById('kb-error').textContent = '';
             submitted = true;
-            const doc = { series: series, number: number, date: ruFromIso(date), amount: amount, originalsReturned: false };
-            c.docs.push(doc);
+            // Await server response before mutating local state (item #2/#9).
             apiMutate('issue-invoice', { id: Number(c.id), number: number, date: date, amount: amount / 100 }).then(function (saved) {
-                if (saved && saved.id) doc.txId = saved.id;
+                // Ответ сервера: {success, invoice_id, amount, rest, card_closed, message}
+                var doc = { series: series, number: number, date: ruFromIso(date), amount: amount, originalsReturned: false };
+                if (saved && saved.invoice_id) doc.txId = saved.invoice_id;
+                c.docs.push(doc);
+                c.issued += amount;
+                // Обновляем серверные поля, если сервер их отдал
+                if (saved && saved.rest !== undefined) c.remaining_kop = Math.round(saved.rest * 100);
+                if (saved && saved.card_closed) c.stage = 'done';
+                else if (c.remaining_kop !== null && c.remaining_kop <= 0) c.stage = 'done';
+                dialog.close(); refresh();
+                var nextCard = document.querySelector('#kb-queue-body [data-card="' + c.id + '"]');
+                (nextCard || document.getElementById('kb-q-pending')).focus({ preventScroll: true });
+                notify(c.id + (c.stage === 'done' ? ' — выписана полностью. Перенесена в «Списано».' : ' — частичная выписка. Осталось ' + moneyOrDash(cardRemaining(c)) + ' BYN.'));
+            }).catch(function (err) {
+                submitted = false;
+                var errEl = document.getElementById('kb-error');
+                if (errEl) errEl.textContent = (err && (err.detail || err.message)) || 'Не удалось выписать накладную.';
             });
-            c.issued += amount;
-            if (remaining(c) === 0) c.stage = 'done';
-            dialog.close(); refresh();
-            var nextCard = document.querySelector('#kb-queue-body [data-card="' + c.id + '"]');
-            (nextCard || document.getElementById('kb-q-pending')).focus({ preventScroll: true });
-            notify(c.id + (c.stage === 'done' ? ' — выписана полностью. Перенесена в «Списано».' : ' — частичная выписка. Осталось ' + money(remaining(c)) + ' BYN.'));
         };
     }
     // Карточка открывается из любого места: клик по элементу с data-card
@@ -1265,36 +1358,68 @@
                 var gid = target.slice(6);
                 var group = KBData.groups.filter(function (x) { return x.id === gid; })[0];
                 if (!group) return;
-                group.covers.forEach(function (cov) {
-                    var card = cards.find(function (x) { return x.id === cov.cardId; });
-                    if (!card) return;
-                    card.issued = Math.max(0, card.issued - cov.amount);
-                    card.groupId = null;
-                    var w = writeoffStatus();
-                    if (remaining(card) > 0 && card.stage === 'done' && w) card.stage = w.id;
-                });
-                if (group.serverTxId) apiMutate('annul-tx', { txId: group.serverTxId });
-                KBData.groups.splice(KBData.groups.indexOf(group), 1);
-                refresh();
-                notify('Групповая ТН ' + group.series + ' ' + group.number + ' отменена. Остатки возвращены ' + group.covers.length + ' карточкам.');
-                openCard(activeCard);
-                var groupInvoicesTab = document.getElementById('kb-tab-invoices');
-                if (groupInvoicesTab) groupInvoicesTab.click();
+                var doCancelGroupLocal = function () {
+                    group.covers.forEach(function (cov) {
+                        var card = cards.find(function (x) { return x.id === cov.cardId; });
+                        if (!card) return;
+                        card.issued = Math.max(0, card.issued - cov.amount);
+                        card.groupId = null;
+                        // Invalidate server money cache
+                        card.remaining_kop = undefined;
+                        card.issued_total = undefined;
+                        var w = writeoffStatus();
+                        if (hasRemaining(card) && card.stage === 'done' && w) card.stage = w.id;
+                    });
+                    KBData.groups.splice(KBData.groups.indexOf(group), 1);
+                    refresh();
+                    notify('Групповая ТН ' + group.series + ' ' + group.number + ' отменена. Остатки возвращены ' + group.covers.length + ' карточкам.');
+                    openCard(activeCard);
+                    var groupInvoicesTab = document.getElementById('kb-tab-invoices');
+                    if (groupInvoicesTab) groupInvoicesTab.click();
+                };
+                // Item #3: отмена группы не должна быть молча локальной.
+                if (group.serverTxId) {
+                    apiMutate('annul-tx', { txId: group.serverTxId }).then(function (ok) {
+                        if (ok === false) { notify('Отмена группы не прошла на сервере — обновите страницу.'); return; }
+                        doCancelGroupLocal();
+                    }).catch(function (err) {
+                        notify('Отмена группы не прошла: ' + (err.detail || err.message || 'ошибка'));
+                    });
+                } else {
+                    // Группа без serverTxId — не была сохранена на сервере,
+                    // локальная отмена безопасна (создана в этой сессии).
+                    doCancelGroupLocal();
+                }
                 return;
             }
             var index = Number(target);
             var doc = activeCard.docs[index];
             if (!doc) return;
-            activeCard.docs.splice(index, 1);
-            activeCard.issued = Math.max(0, activeCard.issued - doc.amount);
-            if (doc.txId) apiMutate('annul-tx', { txId: doc.txId });
-            var writeoff = writeoffStatus();
-            if (activeCard.stage === 'done' && remaining(activeCard) > 0 && writeoff) activeCard.stage = writeoff.id;
-            refresh();
-            notify(activeCard.id + ' — ТН ' + doc.series + ' ' + doc.number + ' отменена. Остаток к выписке ' + money(remaining(activeCard)) + ' BYN.');
-            openCard(activeCard);
-            var invoicesTab = document.getElementById('kb-tab-invoices');
-            if (invoicesTab) invoicesTab.click();
+            // Await server before mutating (item #9 — откат при ошибке).
+            var doCancelLocal = function () {
+                activeCard.docs.splice(index, 1);
+                activeCard.issued = Math.max(0, activeCard.issued - doc.amount);
+                // Invalidate server money cache so next read recomputes
+                activeCard.remaining_kop = undefined;
+                activeCard.issued_total = undefined;
+                var writeoff = writeoffStatus();
+                if (activeCard.stage === 'done' && hasRemaining(activeCard) && writeoff) activeCard.stage = writeoff.id;
+                refresh();
+                notify(activeCard.id + ' — ТН ' + doc.series + ' ' + doc.number + ' отменена. Остаток к выписке ' + moneyOrDash(cardRemaining(activeCard)) + ' BYN.');
+                openCard(activeCard);
+                var invoicesTab = document.getElementById('kb-tab-invoices');
+                if (invoicesTab) invoicesTab.click();
+            };
+            if (doc.txId) {
+                apiMutate('annul-tx', { txId: doc.txId }).then(function (ok) {
+                    if (ok === false) { notify('Отмена не прошла на сервере — обновите страницу.'); return; }
+                    doCancelLocal();
+                }).catch(function (err) {
+                    notify('Отмена не прошла: ' + (err.detail || err.message || 'ошибка'));
+                });
+            } else {
+                doCancelLocal();
+            }
             return;
         }
         if (e.target.closest('[data-close]')) dialog.close();
@@ -1326,7 +1451,25 @@
             return;
         }
         if (input.matches('[data-originals]')) {
-            activeCard.docs[Number(input.dataset.originals)].originalsReturned = input.checked;
+            // Item #7: пишем флаг на сервер (doc-flag → is_invoice_doc).
+            var docIdx = Number(input.dataset.originals);
+            var doc = activeCard.docs[docIdx];
+            if (!doc) return;
+            var prev = doc.originalsReturned;
+            doc.originalsReturned = input.checked;
+            if (doc.txId && window.KBData.mutate) {
+                window.KBData.mutate('doc-flag', { field: 'tnHere', txId: doc.txId, checked: input.checked }).then(function (ok) {
+                    if (ok === false) {
+                        doc.originalsReturned = prev;
+                        input.checked = prev;
+                        notify('Флаг не сохранён на сервере.');
+                    }
+                }).catch(function () {
+                    doc.originalsReturned = prev;
+                    input.checked = prev;
+                    notify('Флаг не сохранён: ошибка сети.');
+                });
+            }
             refresh();
             return;
         }
@@ -1337,13 +1480,19 @@
             if (key === 'amount') {
                 value = parseMoney(value);
                 if (activeCard.stage === 'done') return;
-                if (!Number.isSafeInteger(value) || value <= 0 || value < activeCard.issued || (activeCard.issued > 0 && value === activeCard.issued)) error = 'Сумма должна быть больше нуля и уже выписанной суммы.';
-            } else if ((key === 'title' || key === 'client') && !value) error = 'Заполните поле.';
+                if (!Number.isSafeInteger(value) || value <= 0 || value < cardIssued(activeCard) || (cardIssued(activeCard) > 0 && value === cardIssued(activeCard))) error = 'Сумма должна быть больше нуля и уже выписанной суммы.';
+            } else if (key === 'title' && !value) error = 'Заполните название.';
+            // Item #5: клиент может быть пустым (= не указан), валидация не нужна.
             else if (key === 'deadline') {
                 var parts = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(value);
                 var date = parts && new Date(Number(parts[3]), Number(parts[2]) - 1, Number(parts[1]));
                 if (!parts || date.getFullYear() !== Number(parts[3]) || date.getMonth() !== Number(parts[2]) - 1 || date.getDate() !== Number(parts[1])) error = 'Введите дату в формате ДД.ММ.ГГГГ.';
-            } else if (key === 'manager') value = KBData.users[Number(value)];
+            } else if (key === 'manager') {
+                // Item #4: сопоставление по id, не по индексу массива.
+                // Пустое значение или 'us-none' = менеджер не назначен.
+                if (!value || value === 'us-none') value = null;
+                else value = KBData.users.find(function (u) { return u.id === value; }) || null;
+            }
             else if (key === 'stage') {
                 if (activeCard.stage === 'done' || !KBData.statuses.some(function(st) { return st.id === value; })) return;
                 moveCard(activeCard, value, null);
@@ -1352,25 +1501,28 @@
             input.setAttribute('aria-invalid', String(!!error));
             if (error) { input.reportValidity(); return; }
             if (key === 'client') {
-                // Привязка клиента по справочнику: точное имя → client_id;
-                // нет такого — предлагаем создать клиента с этим именем.
+                // Item #5: пустое значение = клиент не указан; client_id
+                // не отправляется. Создание нового — только явным действием.
+                if (!value.trim()) {
+                    activeCard.clientId = null;
+                    activeCard.client = '';
+                    apiMutate('card', { id: Number(activeCard.id), fields: { client_id: null } });
+                    refresh();
+                    return;
+                }
                 var match = KBData.clients.filter(function (cl) {
                     return cl.name && cl.name.toLowerCase() === value.trim().toLowerCase();
                 })[0];
-                var applyClient = function (clientId, name) {
-                    activeCard.clientId = clientId ? 'cl-' + clientId : null;
-                    activeCard.client = name;
-                    apiMutate('card', { id: Number(activeCard.id), fields: { client_id: clientId } });
-                };
-                if (match) { applyClient(numericClientIdValue(match.id), match.name); refresh(); }
-                else if (value.trim() && window.V2Api && window.V2Api.token() && window.confirm('Клиента «' + value.trim() + '» нет в справочнике. Создать?')) {
-                    window.V2Api.api('/clients', { method: 'POST', body: { name: value.trim() } })
-                        .then(function (created) {
-                            KBData.clients.push({ id: 'cl-' + created.id, name: created.name });
-                            applyClient(created.id, created.name);
-                            refresh();
-                        })
-                        .catch(function (e2) { notify('Клиент не создан: ' + (e2.detail || e2.message || 'ошибка')); });
+                if (match) {
+                    activeCard.clientId = match.id;
+                    activeCard.client = match.name;
+                    apiMutate('card', { id: Number(activeCard.id), fields: { client_id: numericClientIdValue(match.id) } });
+                    refresh();
+                } else {
+                    // Клиента нет в справочнике — НЕ создаём побочно.
+                    // Возвращаем поле к предыдущему значению.
+                    notify('Клиента «' + value.trim() + '» нет в справочнике. Создайте его в разделе «Клиенты» и выберите здесь.');
+                    input.value = activeCard.clientId ? (activeCard.client || '') : '';
                 }
                 return;
             }
@@ -1379,8 +1531,17 @@
             else if (key === 'note') apiMutate('card', { id: Number(activeCard.id), fields: { description: value } });
             else if (key === 'amount') apiMutate('card', { id: Number(activeCard.id), fields: { total_amount: value / 100 } });
             else if (key === 'deadline') apiMutate('card', { id: Number(activeCard.id), fields: { due_date: isoFromRu(value) } });
-            else if (key === 'store') apiMutate('card', { id: Number(activeCard.id), fields: { store_location: KBData.storeName(value) } });
-            else if (key === 'manager') apiMutate('card', { id: Number(activeCard.id), fields: { owner_id: value ? Number(String(value.id).replace('us-', '')) || null : null } });
+            else if (key === 'store') {
+                // Item #6: отправляем store_location только если пользователь
+                // действительно выбрал значение; пустое = 'не указан'.
+                var storeName = value ? KBData.storeName(value) : '';
+                apiMutate('card', { id: Number(activeCard.id), fields: { store_location: storeName || null } });
+            }
+            else if (key === 'manager') {
+                // Item #4: owner_id по user.id, а не по индексу массива.
+                var ownerId = value ? (Number(String(value.id).replace('us-', '')) || null) : null;
+                apiMutate('card', { id: Number(activeCard.id), fields: { owner_id: ownerId } });
+            }
             else if (key === 'stage') apiMutate('status', { id: Number(activeCard.id), status: stageName(value) });
             refresh();
             if (key === 'stage' || key === 'amount') {
@@ -1404,7 +1565,9 @@
                 .catch(function (e2) { notify('Статус закупки не сохранён: ' + (e2.detail || e2.message || 'ошибка')); });
         }
         openCard(activeCard); refresh();
-        dialog.querySelector('[data-check="' + index + '"][data-flag="' + flag + '"]').focus();
+        // Item #12: focus safe — после перерендера элемент мог исчезнуть.
+        var focusTarget = dialog.querySelector('[data-check="' + index + '"][data-flag="' + flag + '"]');
+        if (focusTarget) focusTarget.focus();
     });
     document.getElementById('kb-q-board').onclick = function() { queueMode('board'); };
     document.getElementById('kb-q-pending').onclick = function() { queueMode('pending'); };
@@ -1417,7 +1580,20 @@
         var purge = e.target.closest('[data-trash-purge]');
         if (restore) {
             window.V2Api.api('/kanban/cards/' + restore.dataset.trashRestore + '/restore', { method: 'PATCH' })
-                .then(function () { trashCache = trashCache.filter(function (c) { return String(c.id) !== restore.dataset.trashRestore; }); renderTrash(); notify('Карточка восстановлена из корзины.'); })
+                .then(function () {
+                    trashCache = trashCache.filter(function (c) { return String(c.id) !== restore.dataset.trashRestore; });
+                    renderTrash();
+                    // Item #10: инвалидируем кэш карточек после восстановления.
+                    // Загружаем восстановленную карточку и добавляем в массив.
+                    window.V2Api.api('/kanban/cards/' + restore.dataset.trashRestore).then(function (fresh) {
+                        if (fresh && fresh.id) {
+                            // Сигнал загрузчику перегрузить данные (boot all()).
+                            if (window.KBData && window.KBData.reload) window.KBData.reload();
+                            else refresh();
+                        }
+                    }).catch(function () { refresh(); });
+                    notify('Карточка восстановлена из корзины.');
+                })
                 .catch(function (e2) { notify('Не восстановлено: ' + (e2.detail || e2.message || 'ошибка')); });
         } else if (purge) {
             if (window.confirm('Удалить карточку НАВСЕГДА? Восстановить будет невозможно.')) {
@@ -1436,7 +1612,7 @@
             return;
         }
         if (e.target.id === 'kb-group-all') {
-            groupPick = e.target.checked ? visibleCards().filter(function (c) { return c.stage === 'writeoff' && remaining(c) > 0; }).map(function (c) { return c.id; }) : [];
+            groupPick = e.target.checked ? visibleCards().filter(function (c) { return c.stage === 'writeoff' && hasRemaining(c); }).map(function (c) { return c.id; }) : [];
             renderQueue();
         }
     });
@@ -1446,19 +1622,19 @@
     function openGroupIssue() {
         var picks = groupPick.map(function (id) { return cards.find(function (c) { return c.id === id; }); }).filter(Boolean);
         if (picks.length < 2) return;
-        var total = picks.reduce(function (a, c) { return a + remaining(c); }, 0);
+        // Item #3: сервер требует Σ total_amount карточек, не сумму остатков.
+        var totalAmount = picks.reduce(function (a, c) { return a + c.amount; }, 0);
         var clients = picks.map(function (c) { return c.client; }).filter(function (v, i, arr) { return arr.indexOf(v) === i; });
         var stores = picks.map(function (c) { return KBData.storeName(c.store); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; });
         window.KBSelect.close();
         dialog.innerHTML = '<h2 id="kb-dialog-title">Групповая накладная · ' + picks.length + ' карточек</h2>' +
-            '<dl class="kb-kv kb-group-kv"><dt>Карточки</dt><dd>' + picks.map(function (c) { return esc(c.id + ' · ' + money(remaining(c)) + ' BYN'); }).join('<br>') + '</dd>' +
-            '<dt>Клиент</dt><dd>' + esc(clients.length === 1 ? clients[0] : 'Разные клиенты') + '</dd>' +
-            '<dt>Магазин</dt><dd>' + esc(stores.length === 1 ? stores[0] : 'Разные магазины') + '</dd></dl>' +
-            '<p class="kb-detail-hint">Одна накладная на всю группу — как «группы списаний» на проде. Отмена вернёт остаток каждой карточке.</p>' +
+            '<dl class="kb-kv kb-group-kv"><dt>Карточки</dt><dd>' + picks.map(function (c) { return esc(c.id + ' · ' + moneyOrDash(cardRemaining(c)) + ' BYN'); }).join('<br>') + '</dd>' +
+            '<dt>Клиент</dt><dd>' + esc(clients.length === 1 ? (clients[0] || 'Не указан') : 'Разные клиенты') + '</dd>' +
+            '<dt>Магазин</dt><dd>' + esc(stores.length === 1 ? (stores[0] || 'Не указан') : 'Разные магазины') + '</dd></dl>' +
+            '<p class="kb-detail-hint">Одна накладная на всю группу — как «группы списаний» на проде. Сумма: ' + money(totalAmount) + ' BYN (Σ сумм карточек, как требует сервер).</p>' +
             '<form id="kb-group-form" class="kb-form"><div class="kb-field"><label for="kb-g-date">Дата выписки</label><input id="kb-g-date" type="date" required></div>' +
-            '<div class="kb-field"><label for="kb-g-series">Серия</label><input id="kb-g-series" maxlength="30" required></div>' +
-            '<div class="kb-field"><label for="kb-g-number">Номер</label><input id="kb-g-number" maxlength="50" required></div>' +
-            '<div class="kb-field"><label for="kb-g-amount">Сумма, BYN</label><input id="kb-g-amount" value="' + money(total) + '" disabled></div>' +
+            '<div class="kb-field"><label for="kb-g-number">Номер накладной</label><input id="kb-g-number" maxlength="50" required></div>' +
+            '<div class="kb-field"><label for="kb-g-amount">Сумма, BYN</label><input id="kb-g-amount" value="' + money(totalAmount) + '" disabled></div>' +
             '<p class="kb-form-error" id="kb-g-error" role="alert"></p>' +
             '<button class="btn btn-primary" type="submit">Выписать на группу</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
         document.getElementById('kb-g-date').focus();
@@ -1466,43 +1642,59 @@
         document.getElementById('kb-group-form').onsubmit = function (e) {
             e.preventDefault();
             if (submitted) return;
-            var series = document.getElementById('kb-g-series').value.trim();
             var number = document.getElementById('kb-g-number').value.trim();
             var date = document.getElementById('kb-g-date').value;
-            var error = !series || !number || !date ? 'Заполните дату, серию и номер.' :
-                KBData.groups.some(function (g) { return g.series.toLowerCase() === series.toLowerCase() && g.number.toLowerCase() === number.toLowerCase(); }) ? 'Накладная с таким номером уже выписана.' : '';
+            // Item #3: проверка дубля — с учётом пустой серии в серверных группах.
+            var error = !number || !date ? 'Заполните дату и номер.' :
+                KBData.groups.some(function (g) {
+                    var gNum = (g.number || '').toLowerCase();
+                    return gNum && gNum === number.toLowerCase();
+                }) ? 'Накладная с таким номером уже выписана.' : '';
             if (error) { document.getElementById('kb-g-error').textContent = error; return; }
             submitted = true;
-            issueGroup(picks, clients, stores, series, number, date, total);
+            issueGroup(picks, number, date, totalAmount);
         };
         if (!dialog.open) dialog.showModal();
     }
-    function issueGroup(picks, clients, stores, series, number, date, total) {
-        var gid = 'G' + KBData.nextGroupId;
-        var group = {
-            id: gid, name: 'Группа ' + KBData.nextGroupId,
-            client: clients.length === 1 ? clients[0] : 'Разные клиенты',
-            store: stores.length === 1 ? stores[0] : 'Разные магазины',
-            series: series, number: number, date: date, amount: total,
-            covers: picks.map(function (c) { return { cardId: c.id, amount: remaining(c) }; })
-        };
-        group.covers.forEach(function (cov) {
-            var card = cards.find(function (x) { return x.id === cov.cardId; });
-            card.issued += cov.amount;
-            card.groupId = gid;
-            if (remaining(card) <= 0) card.stage = 'done';
-        });
-        KBData.nextGroupId++;
-        KBData.groups.push(group);
-        groupPick = [];
-        apiMutate('group-issue', {
-            cards: picks.map(function (c) { return Number(c.id); }),
-            name: group.name, number: number, date: date, amount: total / 100
-        }).then(function (saved) {
-            if (saved && saved.id) { group.serverId = saved.id; group.serverTxId = saved.txId; }
-        });
-        dialog.close(); refresh();
-        notify('Групповая ТН ' + series + ' ' + number + ' выписана на ' + picks.length + ' карточек · ' + money(total) + ' BYN.');
+    function issueGroup(picks, number, date, totalAmount) {
+        // Item #3: прямые API-вызовы с правильными путями /writeoffs/groups
+        // (boot template мапит 'group-issue' на старые /writeoff-groups).
+        var cardIds = picks.map(function (c) { return Number(c.id); });
+        var submitBtn = dialog.querySelector('#kb-group-form button[type="submit"]');
+        if (submitBtn) submitBtn.disabled = true;
+        window.V2Api.api('/writeoffs/groups', { method: 'POST', body: { card_ids: cardIds } })
+            .then(function (g) {
+                if (!g || !g.id) throw new Error('Группа не создана');
+                return window.V2Api.api('/writeoffs/groups/' + g.id + '/issue-invoice', {
+                    method: 'POST',
+                    body: { invoice_number: number, invoice_date: date, amount: totalAmount / 100 }
+                }).then(function (result) {
+                    // Обновляем локальный кэш групп
+                    var groupEntry = {
+                        id: 'gr-' + g.id, serverId: g.id, serverTxId: result && result.invoice_number ? g.id : null,
+                        name: g.name || 'Группа', client: picks[0].client || '', store: picks[0].store || '',
+                        series: '', number: number, date: date, amount: totalAmount,
+                        writtenOff: true,
+                        covers: picks.map(function (c) { return { cardId: c.id, amount: null }; })
+                    };
+                    KBData.groups.push(groupEntry);
+                    // Invalidate server money cache for affected cards
+                    picks.forEach(function (c) {
+                        c.remaining_kop = undefined;
+                        c.issued_total = undefined;
+                        c.groupId = 'gr-' + g.id;
+                    });
+                    groupPick = [];
+                    dialog.close(); refresh();
+                    notify('Групповая ТН ' + number + ' выписана на ' + picks.length + ' карточек · ' + money(totalAmount) + ' BYN.');
+                });
+            })
+            .catch(function (err) {
+                if (submitBtn) submitBtn.disabled = false;
+                submitted = false;
+                var errEl = document.getElementById('kb-g-error');
+                if (errEl) errEl.textContent = (err && (err.detail || err.message)) || 'Не удалось выписать групповую накладную.';
+            });
     }
     // Админка правит справочники → доска и фильтры перерисовываются.
     document.addEventListener('kb:dictionaries-changed', function () {
