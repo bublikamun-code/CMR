@@ -324,6 +324,50 @@
     // (аналог «групп списаний» на проде). Отмена возвращает остаток каждой.
     var groupPick = [];
     var editingDoc = null; // индекс накладной в открытой карточке, которую правят
+    // Комбобокс с поиском (фидбек 18.09 «квадратное и круглое, белый
+    // шрифт»): нативный datalist выглядел чужеродно. Список стилизован
+    // под v2, фильтруется по вводу.
+    function initCombo(input, options) {
+        if (!input) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'kb-combo';
+        input.parentNode.insertBefore(wrap, input);
+        wrap.appendChild(input);
+        var list = document.createElement('div');
+        list.className = 'kb-combo-list';
+        list.hidden = true;
+        wrap.appendChild(list);
+        function renderList() {
+            var q = input.value.trim().toLowerCase();
+            var items = options.filter(function (o) { return !q || o.toLowerCase().indexOf(q) !== -1; }).slice(0, 12);
+            list.innerHTML = items.map(function (o) {
+                return '<div class="kb-combo-item">' + esc(o) + '</div>';
+            }).join('');
+            list.hidden = items.length === 0;
+            list.querySelectorAll('.kb-combo-item').forEach(function (el, i) {
+                el.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    input.value = items[i];
+                    list.hidden = true;
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+            });
+        }
+        input.addEventListener('focus', renderList);
+        input.addEventListener('input', renderList);
+        input.addEventListener('blur', function () { setTimeout(function () { list.hidden = true; }, 150); });
+        input.addEventListener('keydown', function (e) { if (e.key === 'Escape') { list.hidden = true; } });
+    }
+    function initCardCombos() {
+        if (!dialog) return;
+        initCombo(dialog.querySelector('#kb-deal-client'),
+            KBData.clients.map(function (cl) { return cl.name; }).filter(Boolean));
+        initCombo(document.getElementById('kb-add-supplier'),
+            (KBData.suppliers || []).map(function (s) { return s.name; }));
+        dialog.querySelectorAll('.kb-sup-combo').forEach(function (input) {
+            initCombo(input, (KBData.suppliers || []).map(function (s) { return s.name; }));
+        });
+    }
     // Корзина (фидбек 18.09): удалённые карточки — восстановление и
     // удаление навсегда (последнее — только администратор на бэкенде).
     var trashCache = [];
@@ -521,7 +565,7 @@
             .map(function (cl) { return '<option value="' + esc(cl.name) + '"></option>'; }).join('');
         var info = dealInput(c, 'title', 'Название') +
             dealField('client', 'Клиент (начните вводить — поиск по справочнику)',
-                '<input id="kb-deal-client" data-deal-field="client" list="kb-clients-datalist" value="' + esc(c.client) + '" autocomplete="off" maxlength="240">' +
+                '<input id="kb-deal-client" data-deal-field="client" value="' + esc(c.client) + '" autocomplete="off" maxlength="240">' +
                 '<datalist id="kb-clients-datalist">' + clientOptions + '</datalist>') +
             dealSelect('store', 'Магазин', KBData.stores.map(function (s) { return [s.id, s.name]; }), c.store) +
             dealSelect('manager', 'Менеджер', KBData.users.map(function (u, i) { return [i, u.full_name]; }), KBData.users.indexOf(c.manager)) +
@@ -594,7 +638,7 @@
             '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>Заказано ' + cl.ordered + ' · Получено ' + cl.received + ' (из ' + cl.total + ')</span></h3>' +
             '<p class="kb-detail-hint">Файл до 25 МБ</p>' +
             '<div class="kb-add-check">' +
-            '<input id="kb-add-supplier" list="kb-suppliers-datalist" placeholder="Поставщик (выберите или впишите)" style="flex:1;min-width:170px">' +
+            '<input id="kb-add-supplier" placeholder="Поставщик (выберите или впишите)" style="flex:1;min-width:170px">' +
             '<datalist id="kb-suppliers-datalist">' + (KBData.suppliers || []).map(function (s) { return '<option value="' + esc(s.name) + '"></option>'; }).join('') + '</datalist>' +
             '<input id="kb-add-amount" inputmode="decimal" placeholder="Сумма, BYN" style="width:120px">' +
             '<button type="button" class="btn btn-primary btn-sm" id="kb-add-check">Добавить</button></div>' +
@@ -787,6 +831,7 @@
         selectTab(selectedTab, false);
         bindAttachmentDownloads();
         loadCardHistory(c);
+        initCardCombos();
         loadWarehouseFlags(c);
         dialog.querySelectorAll('input[data-wh]').forEach(function (input) {
             input.addEventListener('change', function () {
