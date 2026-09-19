@@ -29,6 +29,10 @@
     } catch (e) { /* нет хранилища — тема сессионная */ }
 
     function render(focus = false) {
+        // V9: дровер сделки — <dialog> вне скрытых видов, при смене раздела
+        // закрываем его, иначе он висит поверх «Финансов» и других разделов.
+        const openDialog = document.getElementById('kb-dialog');
+        if (openDialog && openDialog.open) openDialog.close();
         let key = location.hash.slice(1);
         // Состояние доски (q/store/mode) живёт после «?» и разбирается board.js.
         const queryAt = key.indexOf('?');
