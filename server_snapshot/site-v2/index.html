@@ -8,18 +8,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="css/shell-v2-base.css?v=d630d925f9">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=d630d925f9">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=d630d925f9">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=d630d925f9">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=d630d925f9">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=d630d925f9">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=d630d925f9">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=d630d925f9">
-<script>window.V2_ASSET_VER="d630d925f9"</script>
-<script src="js/v2/api.js?v=d630d925f9"></script>
-<script src="js/v2/boot.js?v=d630d925f9"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=07ecea17a8">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=07ecea17a8">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=07ecea17a8">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=07ecea17a8">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=07ecea17a8">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=07ecea17a8">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=07ecea17a8">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=07ecea17a8">
+<script>window.V2_ASSET_VER="07ecea17a8"</script>
+<script src="js/v2/api.js?v=07ecea17a8"></script>
+<script src="js/v2/boot.js?v=07ecea17a8"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=07ecea17a8">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -226,7 +226,15 @@
           <h2 class="card-title">Реестр оплат</h2>
 
           <div class="fin-toolbar">
-            <div class="fin-field"><label for="fin-payment-search">Поиск по клиенту, карточке, магазину, просчёту или ТН</label><input id="fin-payment-search" type="search" placeholder="Например, РемонтСити" autocomplete="off"></div>
+            <div class="fin-search" id="fin-payment-search-wrap">
+              <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-payment-search" title="Поиск">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              </button>
+              <div class="fin-search-field" inert>
+                <input id="fin-payment-search" type="search" placeholder="Клиент, карточка, магазин, просчёт, ТН…" aria-label="Поиск по клиенту, карточке, магазину, просчёту или ТН" autocomplete="off">
+                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+            </div>
             <div class="fin-filters" role="group" aria-label="Фильтр реестра">
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="debt" aria-pressed="false">Есть долг</button>
@@ -250,6 +258,15 @@
           <h2 class="card-title">Документы · возврат оригиналов к нам</h2>
 
           <div class="fin-filters fin-toolbar" role="group" aria-label="Фильтр возврата документов">
+            <div class="fin-search" id="fin-document-search-wrap">
+              <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-document-search" title="Поиск">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              </button>
+              <div class="fin-search-field" inert>
+                <input id="fin-document-search" type="search" placeholder="Клиент, ТН, счёт…" aria-label="Поиск по клиенту, карточке, ТН или счёту" autocomplete="off">
+                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+            </div>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
@@ -273,6 +290,17 @@
         <div class="card" id="fin-incoming" data-fin-panel hidden>
           <h2 class="card-title">Входящие накладные</h2>
 
+          <div class="fin-toolbar">
+            <div class="fin-search" id="fin-incoming-search-wrap">
+              <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-incoming-search" title="Поиск">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              </button>
+              <div class="fin-search-field" inert>
+                <input id="fin-incoming-search" type="search" placeholder="Поставщик, номер, магазин…" aria-label="Поиск по поставщику, номеру, магазину или дате" autocomplete="off">
+                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+            </div>
+          </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Демо входящих накладных — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-incoming-table">
               <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>

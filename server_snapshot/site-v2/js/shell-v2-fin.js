@@ -327,6 +327,7 @@
         sortDocRows();
         const rows = visibleRows('#fin-document-rows', (r) => (documentFilter === 'all' ||
             (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false))) &&
+            matches(r, $('#fin-document-search').value) &&
             (docMonth === 'all' || (r.tn && /^\d{2}\.\d{2}\.\d{4}$/.test(r.tn.date) && r.tn.date.slice(6, 10) + '-' + r.tn.date.slice(3, 5) === docMonth)), keepFocused);
         $('#fin-document-count').textContent = `Видимых документов: ${rows.length} · Все оформленные оригиналы у нас: ${rows.filter((r) => r.tnHere && (r.billHere || r.billRequired === false)).length}`;
         $('#fin-document-empty').hidden = rows.length !== 0;
@@ -429,6 +430,42 @@
         [docMonthSel, docSortSel, finMonthSel].forEach((sel) => { if (sel) window.KBSelect.enhance(sel); });
         window.KBSelect.enhance($('#fin-document-rows'));
     }
+    // Раскрывающийся поиск на каждой странице финансов: лупа раскрывает поле
+    // (инертное в закрытом состоянии), фильтрация живая на input, Esc и «×»
+    // закрывают и сбрасывают. Паттерн kb-search доски.
+    function wireFinSearch(wrapId) {
+        const wrap = document.getElementById(wrapId);
+        if (!wrap) return;
+        const toggle = wrap.querySelector('.fin-search-toggle');
+        const field = wrap.querySelector('.fin-search-field');
+        const input = field.querySelector('input');
+        const setOpen = (open) => {
+            wrap.classList.toggle('is-open', open);
+            field.inert = !open;
+            toggle.setAttribute('aria-expanded', String(open));
+            toggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
+            if (open) {
+                input.focus();
+            } else {
+                if (input.value) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); }
+                toggle.focus();
+            }
+        };
+        toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+        wrap.querySelector('.fin-search-close').addEventListener('click', () => setOpen(false));
+        input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false); } });
+    }
+    ['fin-payment-search-wrap', 'fin-document-search-wrap', 'fin-incoming-search-wrap'].forEach(wireFinSearch);
+    // Живой поиск по документам: те же поля, что у matches (клиент, карточка,
+    // дата, магазин, просчёт, ТН), плюс номер счёта в строке.
+    $('#fin-document-search').addEventListener('input', () => updateDocuments());
+    // Входящие: строки строятся один раз и без data-record — фильтруем по
+    // тексту строки тем же нормализованием (ё → е, нижний регистр).
+    function updateIncoming() {
+        const q = normalize($('#fin-incoming-search').value);
+        $$('#fin-incoming-rows tr').forEach((tr) => { tr.hidden = !!q && !normalize(tr.textContent).includes(q); });
+    }
+    $('#fin-incoming-search').addEventListener('input', updateIncoming);
     updatePayments();
     updateDocuments();
     updateJournal();

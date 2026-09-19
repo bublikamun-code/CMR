@@ -473,6 +473,28 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
    контрол ломает ряд. Вне .fin-filters поверхность остаётся прямоугольной. */
 #view-fin .fin-filters .kb-select-surface { min-height: 40px; border-radius: var(--r-pill); }
 #view-fin .fin-filters .kb-select-trigger { min-height: 38px; padding: 0 16px; border-radius: var(--r-pill); }
+/* Раскрывающийся поиск (лупа → поле с живой фильтрацией) — паттерн kb-search
+   доски, изолированно для финансовых списков. Закрыт — иконка-кружок 32px;
+   открыт — капсула в рост чипов. Переходы руками: motion-токены в v2 не
+   заведены (см. tokens.md §6 — канон старого фронта). */
+#view-fin .fin-search { display: flex; align-items: center; border: 1px solid transparent; border-radius: var(--r-pill); }
+#view-fin .fin-search .kb-icon { width: 32px; height: 32px; flex: 0 0 32px; border-radius: var(--r-pill); }
+#view-fin .fin-search .fin-search-field {
+    display: flex; align-items: center; gap: var(--s2);
+    width: 0; opacity: 0; overflow: hidden;
+    transition: width .18s cubic-bezier(0, 0, 0.2, 1), opacity .12s linear;
+}
+#view-fin .fin-search.is-open { background: var(--surface); border-color: var(--border-strong); padding: 3px 6px 3px 3px; }
+#view-fin .fin-search.is-open .fin-search-toggle { border-color: transparent; background: transparent; }
+#view-fin .fin-search.is-open .fin-search-field { width: 250px; opacity: 1; padding-left: var(--s2); }
+#view-fin .fin-search input {
+    /* перекрывает общее правило #view-fin input[type="search"] выше:
+       внутри капсулы полю рамка и фон не нужны */
+    width: 100%; min-width: 0; font: inherit; font-size: var(--font-ui); color: var(--text);
+    background: transparent; border: none; border-radius: 0; outline: none; padding: 4px 0;
+}
+#view-fin .fin-search input::placeholder { color: var(--fin-muted); }
+#view-fin .fin-search .kb-quiet { flex: 0 0 auto; min-height: 32px; min-width: 32px; }
 #view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 #view-fin .fin-demo { font-size: var(--font-ui); font-weight: 700; padding: 6px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); }
@@ -719,7 +741,15 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           <h2 class="card-title">Реестр оплат</h2>
 
           <div class="fin-toolbar">
-            <div class="fin-field"><label for="fin-payment-search">Поиск по клиенту, карточке, магазину, просчёту или ТН</label><input id="fin-payment-search" type="search" placeholder="Например, РемонтСити" autocomplete="off"></div>
+            <div class="fin-search" id="fin-payment-search-wrap">
+              <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-payment-search" title="Поиск">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              </button>
+              <div class="fin-search-field" inert>
+                <input id="fin-payment-search" type="search" placeholder="Клиент, карточка, магазин, просчёт, ТН…" aria-label="Поиск по клиенту, карточке, магазину, просчёту или ТН" autocomplete="off">
+                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+            </div>
             <div class="fin-filters" role="group" aria-label="Фильтр реестра">
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="debt" aria-pressed="false">Есть долг</button>
@@ -743,6 +773,15 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           <h2 class="card-title">Документы · возврат оригиналов к нам</h2>
 
           <div class="fin-filters fin-toolbar" role="group" aria-label="Фильтр возврата документов">
+            <div class="fin-search" id="fin-document-search-wrap">
+              <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-document-search" title="Поиск">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              </button>
+              <div class="fin-search-field" inert>
+                <input id="fin-document-search" type="search" placeholder="Клиент, ТН, счёт…" aria-label="Поиск по клиенту, карточке, ТН или счёту" autocomplete="off">
+                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+            </div>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
@@ -766,6 +805,17 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         <div class="card" id="fin-incoming" data-fin-panel hidden>
           <h2 class="card-title">Входящие накладные</h2>
 
+          <div class="fin-toolbar">
+            <div class="fin-search" id="fin-incoming-search-wrap">
+              <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-incoming-search" title="Поиск">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              </button>
+              <div class="fin-search-field" inert>
+                <input id="fin-incoming-search" type="search" placeholder="Поставщик, номер, магазин…" aria-label="Поиск по поставщику, номеру, магазину или дате" autocomplete="off">
+                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+              </div>
+            </div>
+          </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Демо входящих накладных — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-incoming-table">
               <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>
@@ -1294,6 +1344,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         sortDocRows();
         const rows = visibleRows('#fin-document-rows', (r) => (documentFilter === 'all' ||
             (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false))) &&
+            matches(r, $('#fin-document-search').value) &&
             (docMonth === 'all' || (r.tn && /^\d{2}\.\d{2}\.\d{4}$/.test(r.tn.date) && r.tn.date.slice(6, 10) + '-' + r.tn.date.slice(3, 5) === docMonth)), keepFocused);
         $('#fin-document-count').textContent = `Видимых документов: ${rows.length} · Все оформленные оригиналы у нас: ${rows.filter((r) => r.tnHere && (r.billHere || r.billRequired === false)).length}`;
         $('#fin-document-empty').hidden = rows.length !== 0;
@@ -1396,6 +1447,42 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         [docMonthSel, docSortSel, finMonthSel].forEach((sel) => { if (sel) window.KBSelect.enhance(sel); });
         window.KBSelect.enhance($('#fin-document-rows'));
     }
+    // Раскрывающийся поиск на каждой странице финансов: лупа раскрывает поле
+    // (инертное в закрытом состоянии), фильтрация живая на input, Esc и «×»
+    // закрывают и сбрасывают. Паттерн kb-search доски.
+    function wireFinSearch(wrapId) {
+        const wrap = document.getElementById(wrapId);
+        if (!wrap) return;
+        const toggle = wrap.querySelector('.fin-search-toggle');
+        const field = wrap.querySelector('.fin-search-field');
+        const input = field.querySelector('input');
+        const setOpen = (open) => {
+            wrap.classList.toggle('is-open', open);
+            field.inert = !open;
+            toggle.setAttribute('aria-expanded', String(open));
+            toggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
+            if (open) {
+                input.focus();
+            } else {
+                if (input.value) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles: true })); }
+                toggle.focus();
+            }
+        };
+        toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+        wrap.querySelector('.fin-search-close').addEventListener('click', () => setOpen(false));
+        input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false); } });
+    }
+    ['fin-payment-search-wrap', 'fin-document-search-wrap', 'fin-incoming-search-wrap'].forEach(wireFinSearch);
+    // Живой поиск по документам: те же поля, что у matches (клиент, карточка,
+    // дата, магазин, просчёт, ТН), плюс номер счёта в строке.
+    $('#fin-document-search').addEventListener('input', () => updateDocuments());
+    // Входящие: строки строятся один раз и без data-record — фильтруем по
+    // тексту строки тем же нормализованием (ё → е, нижний регистр).
+    function updateIncoming() {
+        const q = normalize($('#fin-incoming-search').value);
+        $$('#fin-incoming-rows tr').forEach((tr) => { tr.hidden = !!q && !normalize(tr.textContent).includes(q); });
+    }
+    $('#fin-incoming-search').addEventListener('input', updateIncoming);
     updatePayments();
     updateDocuments();
     updateJournal();
