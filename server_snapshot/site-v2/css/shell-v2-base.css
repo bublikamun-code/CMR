@@ -458,6 +458,11 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 22px; accent-color: var(--accent); cursor: pointer; }
 #view-fin .fin-check { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
 #view-fin .fin-tabs .btn, #view-fin .fin-filters .btn { min-height: 40px; white-space: normal; text-align: left; }
+/* Системные селекты в ряду фильтров (месяц, сортировка) — канонический
+   kb-select в геометрии чипов: та же высота и капсула, иначе голый нативный
+   контрол ломает ряд. Вне .fin-filters поверхность остаётся прямоугольной. */
+#view-fin .fin-filters .kb-select-surface { min-height: 40px; border-radius: var(--r-pill); }
+#view-fin .fin-filters .kb-select-trigger { min-height: 38px; padding: 0 16px; border-radius: var(--r-pill); }
 #view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 #view-fin .fin-demo { font-size: var(--font-ui); font-weight: 700; padding: 6px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); }

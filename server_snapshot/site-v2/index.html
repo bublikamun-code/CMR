@@ -8,18 +8,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="css/shell-v2-base.css?v=9c42ec1c62">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=9c42ec1c62">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=9c42ec1c62">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=9c42ec1c62">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=9c42ec1c62">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=9c42ec1c62">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=9c42ec1c62">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=9c42ec1c62">
-<script>window.V2_ASSET_VER="9c42ec1c62"</script>
-<script src="js/v2/api.js?v=9c42ec1c62"></script>
-<script src="js/v2/boot.js?v=9c42ec1c62"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=9c42ec1c62">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=d630d925f9">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=d630d925f9">
+<script>window.V2_ASSET_VER="d630d925f9"</script>
+<script src="js/v2/api.js?v=d630d925f9"></script>
+<script src="js/v2/boot.js?v=d630d925f9"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=d630d925f9">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -230,7 +230,8 @@
             <div class="fin-filters" role="group" aria-label="Фильтр реестра">
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="debt" aria-pressed="false">Есть долг</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>                <select id="fin-month" aria-label="Месяц" style="align-self:center"></select>
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>
+              <select id="fin-month" aria-label="Месяц"></select>
                 <button type="button" class="btn btn-ghost btn-sm" id="fin-payment-export">Экспорт CSV</button>
             </div>
           </div>
@@ -252,8 +253,8 @@
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
-            <select id="fin-doc-month" aria-label="Месяц выписки" style="align-self:center"></select>
-            <select id="fin-doc-sort" aria-label="Сортировка по дате выписки" style="align-self:center">
+            <select id="fin-doc-month" aria-label="Месяц выписки"></select>
+            <select id="fin-doc-sort" aria-label="Сортировка по дате выписки">
               <option value="desc">Сначала новые</option>
               <option value="asc">Сначала старые</option>
             </select>

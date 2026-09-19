@@ -468,6 +468,11 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 22px; accent-color: var(--accent); cursor: pointer; }
 #view-fin .fin-check { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
 #view-fin .fin-tabs .btn, #view-fin .fin-filters .btn { min-height: 40px; white-space: normal; text-align: left; }
+/* Системные селекты в ряду фильтров (месяц, сортировка) — канонический
+   kb-select в геометрии чипов: та же высота и капсула, иначе голый нативный
+   контрол ломает ряд. Вне .fin-filters поверхность остаётся прямоугольной. */
+#view-fin .fin-filters .kb-select-surface { min-height: 40px; border-radius: var(--r-pill); }
+#view-fin .fin-filters .kb-select-trigger { min-height: 38px; padding: 0 16px; border-radius: var(--r-pill); }
 #view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 #view-fin .fin-demo { font-size: var(--font-ui); font-weight: 700; padding: 6px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); }
@@ -718,7 +723,8 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <div class="fin-filters" role="group" aria-label="Фильтр реестра">
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="debt" aria-pressed="false">Есть долг</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>                <select id="fin-month" aria-label="Месяц" style="align-self:center"></select>
+              <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="unposted" aria-pressed="false">Не списано</button>
+              <select id="fin-month" aria-label="Месяц"></select>
                 <button type="button" class="btn btn-ghost btn-sm" id="fin-payment-export">Экспорт CSV</button>
             </div>
           </div>
@@ -740,8 +746,8 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="returned" aria-pressed="false">Всё у нас</button>
-            <select id="fin-doc-month" aria-label="Месяц выписки" style="align-self:center"></select>
-            <select id="fin-doc-sort" aria-label="Сортировка по дате выписки" style="align-self:center">
+            <select id="fin-doc-month" aria-label="Месяц выписки"></select>
+            <select id="fin-doc-sort" aria-label="Сортировка по дате выписки">
               <option value="desc">Сначала новые</option>
               <option value="asc">Сначала старые</option>
             </select>
@@ -1381,6 +1387,14 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             return `<option value="${ym}">${names[Number(parts[1]) - 1]} ${parts[0]}</option>`;
         }).join('');
         finMonthSel.addEventListener('change', () => { finMonth = finMonthSel.value; updatePayments(); });
+    }
+    // Системные фильтры (месяц, сортировка) и «Печать» в документах — через
+    // канонический kb-select, как селекты доски. Строки строятся один раз,
+    // поэтому enhancement в конце IIFE достаточен; повторный вызов безопасен
+    // (WeakMap + sync подхватывает новые option).
+    if (window.KBSelect) {
+        [docMonthSel, docSortSel, finMonthSel].forEach((sel) => { if (sel) window.KBSelect.enhance(sel); });
+        window.KBSelect.enhance($('#fin-document-rows'));
     }
     updatePayments();
     updateDocuments();

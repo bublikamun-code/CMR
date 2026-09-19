@@ -421,6 +421,14 @@
         }).join('');
         finMonthSel.addEventListener('change', () => { finMonth = finMonthSel.value; updatePayments(); });
     }
+    // Системные фильтры (месяц, сортировка) и «Печать» в документах — через
+    // канонический kb-select, как селекты доски. Строки строятся один раз,
+    // поэтому enhancement в конце IIFE достаточен; повторный вызов безопасен
+    // (WeakMap + sync подхватывает новые option).
+    if (window.KBSelect) {
+        [docMonthSel, docSortSel, finMonthSel].forEach((sel) => { if (sel) window.KBSelect.enhance(sel); });
+        window.KBSelect.enhance($('#fin-document-rows'));
+    }
     updatePayments();
     updateDocuments();
     updateJournal();
