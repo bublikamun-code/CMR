@@ -121,17 +121,19 @@ def test_finish_assembly_requires_assembly_status(client, manager, db, make_card
     assert r.status_code == 400
 
 
-def test_execute_closes_from_any_status(client, manager, db, make_card):
-    """Фиксируем текущее поведение: /execute не проверяет предусловий и не создаёт
-    транзакций — просто ставит «Закрыто»."""
+def test_execute_requires_writeoff_column(client, manager, db, make_card):
+    """V5 (аудит прода 19.09): /execute проводит списание только из колонки
+    «На списание». Раньше эндпоинт ставил «Закрыто» из любого статуса без
+    складских флагов и записи в ленту (счастливый путь — в
+    tests/test_writeoff_queue.py)."""
     _, h = manager
     card = make_card(total_amount=100.0, status="Новый запрос")
     card_id = card.id
     r = client.post(f"/writeoffs/{card_id}/execute", headers=h)
-    assert r.status_code == 200, r.text
+    assert r.status_code == 400, r.text
     _reload(db)
     db.refresh(card)
-    assert card.status == "Закрыто"
+    assert card.status == "Новый запрос"
     assert _ledger(db, card_id) == []
 
 
