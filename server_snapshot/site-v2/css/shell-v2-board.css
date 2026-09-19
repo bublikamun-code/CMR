@@ -184,12 +184,14 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 
 /* ---------- Узкие экраны: доска скроллится вбок, не body ---------- */
 @media (max-width: 1100px) {
-    .kb-board { grid-auto-flow: column; grid-auto-columns: minmax(210px, 240px); grid-template-columns: none; }
+    .kb-board { grid-auto-flow: column; grid-auto-columns: minmax(210px, 240px); grid-template-columns: none; overflow-x: auto; }
 }
+/* Дополнительная страховка: колонки никогда не сжимаются меньше минимума */
+.kb-col { flex-shrink: 0; }
 
 /* Колонок столько, сколько статусов в справочнике; десктоп — равные доли,
    узкий экран — фиксированные колонки с горизонтальным скроллом доски. */
-.kb-board { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); height: clamp(360px, calc(100dvh - 330px), 900px); min-height: 0; }
+.kb-board { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); height: clamp(360px, calc(100dvh - 330px), 900px); min-height: 0; overflow-x: auto; }
 .kb-col { height: 100%; overflow: hidden; }
 .kb-col-head { flex-wrap: wrap; flex-shrink: 0; }
 .kb-col-sum { flex-basis: 100%; margin-left: 0; }

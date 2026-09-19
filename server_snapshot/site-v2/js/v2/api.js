@@ -71,6 +71,41 @@
         fd.append('file', file);
         return fetch(API_BASE + path, { method: 'POST', headers: headers, credentials: 'include', body: fd });
     }
+    // ── Хелперы ────────────────────────────────────────────────────────
+
+    // Рубли → копейки (целое). Устойчив к float (0.07 → 7),
+    // строкам с пробелами и запятой ('1 234,56' → 123456).
+    // Контракт: number|string → int; NaN/undefined/null → 0.
+    function cents(value) {
+        if (value === null || value === undefined || value === '') return 0;
+        if (typeof value === 'number') {
+            return isFinite(value) ? Math.round(value * 100) : 0;
+        }
+        var s = String(value).replace(/\s/g, '').replace(',', '.');
+        var n = parseFloat(s);
+        return isNaN(n) ? 0 : Math.round(n * 100);
+    }
+
+    // Сегодня по UTC в формате YYYY-MM-DD (не зависит от локального пояса).
+    function todayUTC() {
+        var d = new Date();
+        var y = d.getUTCFullYear();
+        var m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        var day = String(d.getUTCDate()).padStart(2, '0');
+        return y + '-' + m + '-' + day;
+    }
+
+    // ── Двойной сабмит: in-flight блокировка POST-созданий ────────────
+    var _inflight = {};
+    function _guardCreate(key, fn) {
+        if (_inflight[key]) return Promise.resolve(null);
+        _inflight[key] = true;
+        return Promise.resolve().then(fn).then(function (r) {
+            delete _inflight[key]; return r;
+        }, function (e) { delete _inflight[key]; throw e; });
+    }
+
+    // ── V2Api (обратно совместимый) ────────────────────────────────────
     window.V2Api = {
         token: token,
         save: save,
@@ -78,10 +113,57 @@
         api: api,
         download: download,
         upload: upload,
+        // B5: in-flight guard для POST-созданий (используется boot.js)
+        _guardCreate: _guardCreate,
         login: function (username, password, remember) {
             return api('/auth/login', { method: 'POST', form: { username: username, password: password, remember: remember ? 'true' : '' } });
         },
         me: function () { return api('/auth/me'); },
         users: function () { return api('/auth/users'); }
+    };
+
+    // ── KBApi (публичный слой данных v2) ───────────────────────────────
+    // Все экранные модули читают KBData и вызывают KBApi.*;
+    // V2Api остаётся для обратной совместимости.
+    window.KBApi = {
+        // Авторизация
+        token: token,
+        save: save,
+        clear: clear,
+        // HTTP
+        api: api,
+        download: download,
+        upload: upload,
+        // Утилиты
+        cents: cents,
+        todayUTC: todayUTC,
+        // Баланс клиента (A11): GET /clients/{id}/balance
+        clientBalance: function (id) {
+            return api('/clients/' + id + '/balance');
+        },
+        // Служебное: boot.js регистрирует загрузчик данных здесь
+        _setFetcher: function (fn) { this._fetcher = fn; },
+        _fetcher: null,
+        // Перезагрузка всех коллекций с сервера (B9: коалесинг).
+        // Параллельные вызовы возвращают один Promise; данные обновляются
+        // только если загрузка осталась последней (generation counter).
+        all: function () {
+            if (!this._fetcher) return Promise.resolve(null);
+            if (this._inFlight) return this._inFlight;
+            var self = this;
+            var gen = (this._gen || 0) + 1;
+            this._gen = gen;
+            this._inFlight = this._fetcher().then(function (data) {
+                self._inFlight = null;
+                if (self._gen !== gen) return data; // стартует более новая — не применяем
+                return data;
+            }, function (err) {
+                self._inFlight = null;
+                throw err; // ошибка пробрасывается, не кешируется
+            });
+            return this._inFlight;
+        },
+        _inFlight: null,
+        _gen: 0
     };
 })();

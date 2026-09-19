@@ -47,6 +47,11 @@
                 render(kind);
                 document.dispatchEvent(new Event(kind === 'supplier' ? 'kb:suppliers-changed' : 'kb:dictionaries-changed'));
             }
+        }).catch(function (err) {
+            // B1 fix: не глотаем ошибку сохранения — показываем тост.
+            var msg = (err && (err.detail || err.message)) || 'ошибка сохранения';
+            var t = document.getElementById('kb-toast');
+            if (t) { t.hidden = false; t.textContent = 'Не сохранено: ' + msg; t.classList.add('toast-error'); setTimeout(function () { t.hidden = true; t.classList.remove('toast-error'); }, 4000); }
         });
     }
     const dialog = document.createElement('dialog');
@@ -107,7 +112,14 @@
         if (kind==='user' || kind==='store' || kind==='status') document.dispatchEvent(new Event('kb:dictionaries-changed'));
         dialog.close();
     }
-    dialog.addEventListener('close',()=>{ if(window.KBSelect) window.KBSelect.close(); if(opener?.isConnected) opener.focus(); else $('mgmt-'+editing.kind+'-new').focus(); });
+    dialog.addEventListener('close',()=>{
+        // B4 fix: очищаем форму при закрытии, чтобы скрытые required-поля
+        // не блокировали сабмит других форм (invalid form control is not focusable).
+        dialog.innerHTML = '';
+        if(window.KBSelect) window.KBSelect.close();
+        if(opener?.isConnected) opener.focus();
+        else if(editing && $('mgmt-'+editing.kind+'-new')) $('mgmt-'+editing.kind+'-new').focus();
+    });
     Object.keys(data).forEach(kind=>{
         render(kind);
         $('mgmt-'+kind+'-new').onclick=e=>open(kind,null,e.currentTarget);
@@ -155,7 +167,15 @@
             $('mgmt-email-last').textContent = s.last_sync
                 ? 'Последняя синхронизация: ' + new Date(s.last_sync).toLocaleString('ru-RU')
                 : 'Синхронизаций ещё не было';
-        } catch (e) { /* настройки недоступны — карточка остаётся свёрнутой */ }
+        } catch (e) {
+            // B1 fix: показываем состояние ошибки в карточке почты, а не просто сворачиваем.
+            const body = $('mgmt-email-body');
+            if (body) {
+                body.hidden = false;
+                const hint = body.querySelector('[data-mail-error]') || (() => { const p = document.createElement('p'); p.setAttribute('data-mail-error', ''); p.style.cssText = 'color:var(--danger);font-size:var(--font-ui);padding:8px 0'; body.prepend(p); return p; })();
+                hint.textContent = 'Не удалось загрузить настройки' + (e && e.message ? ': ' + e.message : '') + '. Попробуйте обновить страницу.';
+            }
+        }
     }
     $('mgmt-email-save').addEventListener('click', async () => {
         const password = $('mgmt-email-pass').value.trim();
@@ -202,6 +222,8 @@
                 body: { old_password: oldPassword, new_password: newPassword }
             });
             window.alert((res && res.detail || 'Пароль изменён.') + ' Войдите с новым паролем.');
+            // Осознанно пустой catch: после смены пароля пытаемся отозвать сессию,
+            // но если logout не прошёл — всё равно чистим локальный токен и перезагружаем.
             await window.V2Api.api('/auth/logout', { method: 'POST' }).catch(() => {});
             window.V2Api.clear();
             location.reload();
@@ -217,7 +239,13 @@
             if (!badge) return;
             badge.hidden = !list.unread_count;
             badge.textContent = list.unread_count > 99 ? '99+' : String(list.unread_count);
-        } catch (e) { /* тихо: колокольчик не критичен */ }
+        } catch (e) {
+            // B1 fix: не глотаем молча — хотя колокольчик не критичен,
+            // хотя бы console.warn + снимаем бейдж, чтобы не врать пользователю.
+            console.warn('[bell] не удалось загрузить уведомления:', e && e.message || e);
+            const badge = $('v2-bell-count');
+            if (badge) { badge.hidden = true; badge.textContent = ''; }
+        }
     }
     function renderItem(n) {
         const when = n.created_at ? new Date(n.created_at).toLocaleString('ru-RU') : '';
