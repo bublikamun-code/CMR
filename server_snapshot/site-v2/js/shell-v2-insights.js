@@ -415,7 +415,13 @@
         var button = e.target.closest('[data-open-card]');
         if (button) window.KBBoard.open(button.dataset.openCard);
     });
-    document.getElementById('cl-search').addEventListener('input', renderClients);
+    // Debounce: rebuild таблицы клиентов и дровера не должен бежать на
+    // каждый символ — ждём паузу в вводе 150 мс.
+    var clSearchTimer = 0;
+    document.getElementById('cl-search').addEventListener('input', function () {
+        clearTimeout(clSearchTimer);
+        clSearchTimer = setTimeout(renderClients, 150);
+    });
     var rows = document.getElementById('cl-rows');
     rows.addEventListener('click', function (e) {
         if (e.target.closest('.icon-action')) return;

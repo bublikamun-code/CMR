@@ -314,6 +314,9 @@
         writeBoardParams({ store: state.store === 'all' ? '' : state.store });
         refresh();
     });
+    // Debounce: полная перерисовка доски (сотни карточек) не должна бежать
+    // на каждый символ — ждём паузу в вводе 150 мс.
+    var searchTimer = 0;
     var searchToggle = document.getElementById('kb-search-toggle');
     function toggleSearch(open) {
         document.getElementById('kb-search-wrap').classList.toggle('is-open', open);
@@ -321,12 +324,17 @@
         searchToggle.setAttribute('aria-expanded', String(open));
         searchToggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
         if (open) searchEl.focus();
-        else { searchEl.value = ''; state.search = ''; writeBoardParams({ q: '' }); refresh(); searchToggle.focus(); }
+        else { clearTimeout(searchTimer); searchEl.value = ''; state.search = ''; writeBoardParams({ q: '' }); refresh(); searchToggle.focus(); }
     }
     searchToggle.onclick = function() { toggleSearch(searchToggle.getAttribute('aria-expanded') !== 'true'); };
     document.getElementById('kb-search-close').onclick = function() { toggleSearch(false); };
     searchEl.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); toggleSearch(false); } });
-    searchEl.addEventListener('input', function () { state.search = searchEl.value; writeBoardParams({ q: state.search }); refresh(); });
+    searchEl.addEventListener('input', function () {
+        state.search = searchEl.value;
+        writeBoardParams({ q: state.search });
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(refresh, 150);
+    });
     document.getElementById('kb-density').onclick = function() { setDensity(!state.compact); };
     function setDensity(compact) {
         state.compact = compact;

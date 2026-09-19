@@ -137,7 +137,13 @@
         $('mgmt-'+kind+'-new').onclick=e=>open(kind,null,e.currentTarget);
         $('mgmt-'+kind+'-rows').onclick=e=>{const button=e.target.closest('[data-edit]');if(button) open(kind,button.dataset.edit,button);};
     });
-    $('mgmt-supplier-search').addEventListener('input',()=>render('supplier'));
+    // Debounce: rebuild таблицы поставщиков не должен бежать на каждый
+    // символ — ждём паузу в вводе 150 мс.
+    let supplierSearchTimer = 0;
+    $('mgmt-supplier-search').addEventListener('input',()=>{
+        clearTimeout(supplierSearchTimer);
+        supplierSearchTimer = setTimeout(()=>render('supplier'),150);
+    });
 })();
 
 /* ============================================================
