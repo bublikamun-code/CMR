@@ -16,7 +16,7 @@
     const roleLabels = {board: 'Колонка доски', writeoff: 'Очередь списания'};
     const fields = {
         supplier: [['name','Название','text',true],['unp','УНП'],['contact_person','Контактное лицо'],['phone','Телефон','tel'],['email','Email','email'],['address','Адрес'],['note','Примечание','textarea']],
-        user: [['username','Логин','text',true],['full_name','Полное имя'],['password','Пароль (для создания)','password'],['role','Роль','select',true]],
+        user: [['username','Логин','text',true],['password','Пароль (минимум 8 символов; обязателен при создании)','password'],['role','Роль','select',true]],
         store: [['name','Название','text',true],['address','Адрес'],['phone','Телефон','tel']],
         status: [['name','Название','text',true],['color','Цвет','color'],['position','Позиция','number',true]]
     };
@@ -66,7 +66,11 @@
     }
     function render(kind) {
         const query = kind === 'supplier' ? $('mgmt-supplier-search').value.trim().toLocaleLowerCase('ru') : '';
-        const rows = data[kind].filter(r => Object.values(r).join(' ').toLocaleLowerCase('ru').includes(query));
+        // V10 (аудит 19.09): us-none («Не назначен») — служебный
+        // псевдопользователь для отображения ответственного на доске,
+        // в списке пользователей админки ему не место.
+        const rows = data[kind].filter(r => r.id !== 'us-none')
+            .filter(r => Object.values(r).join(' ').toLocaleLowerCase('ru').includes(query));
         $('mgmt-'+kind+'-rows').innerHTML = rows.map(r => '<tr data-id="'+esc(r.id)+'">'+cells(kind,r).map(v=>'<td>'+esc(v ?? '—')+'</td>').join('')+
             '<td><button type="button" class="btn btn-ghost btn-sm" data-edit="'+esc(r.id)+'" aria-label="Редактировать '+esc(r.name || r.username)+'">Изменить</button></td></tr>').join('');
         if (kind === 'supplier') {
@@ -98,10 +102,18 @@
         Object.keys(values).forEach(k=>values[k]=values[k].trim());
         const key=kind==='user'?'username':'name';
         if (!values[key]) { $('mgmt-error').textContent='Заполните '+(kind==='user'?'логин.':'название.'); return; }
+        // P0-2 (аудит 19.09): пароль обязателен только при СОЗДАНИИ
+        // пользователя (сервер: POST /auth/users требует ≥8 символов,
+        // PATCH принимает пустой пароль = «не менять»).
+        if (kind==='user' && !id && values.password && values.password.length < 8) {
+            $('mgmt-error').textContent='Пароль должен содержать минимум 8 символов.'; return;
+        }
         if (data[kind].some(r=>r.id!==id && r[key].toLocaleLowerCase('ru')===values[key].toLocaleLowerCase('ru'))) {
             $('mgmt-error').textContent='Такая запись уже есть.'; return;
         }
         if (kind==='status') values.position=Number(values.position);
+        // full_name в модели/schemas сервера нет — не выдумываем поле.
+        delete values.full_name;
         const record=data[kind].find(r=>r.id===id);
         if (record) Object.assign(record,values);
         else data[kind].push({id:'local-'+sequence++, role:'board', serverId:null, ...values});
@@ -198,10 +210,11 @@
         const btn = $('mgmt-email-sync');
         btn.disabled = true;
         try {
+            // V6 (аудит 19.09): сервер отдаёт {success, count, cards} напрямую
+            // (без обёртки results/total_count) — читаем фактический контракт.
             const res = await window.V2Api.api('/email-parser/sync', { method: 'POST' });
-            const first = (res.results || [])[0] || {};
-            if (first.success) toast('Синхронизация выполнена: новых писем ' + (res.total_count || 0));
-            else toast('Синхронизация не прошла: ' + (first.error || 'ошибка'), true);
+            if (res && res.success) toast('Синхронизация выполнена: новых писем ' + (res.count || 0));
+            else toast('Синхронизация не прошла: ' + ((res && res.error) || 'ошибка'), true);
             loadMail();
         } catch (e) { toast('Синхронизация не прошла: ' + (e.detail || e.message || 'ошибка'), true); }
         finally { btn.disabled = false; }

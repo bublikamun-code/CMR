@@ -976,9 +976,9 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         { id: 'c101', cardId: 'K-101', card: 'К-101 · Лампы для склада', date: '05.09.2026', client: 'ООО «Веснаторг»', amount: 150000, paid: 150000, store: 'Матусевича', estimate: 'ПР-101', tn: { number: 'ТН-0905', date: '05.09.2026', bill: 'СЧ-101' }, posted: false, tnHere: false, billHere: false, print: 'Печать организации при возврате', authority: 'Получатель — директор, без доверенности', note: 'Полностью оплачено. Оба оригинала ещё у клиента.' }
         ],
         incoming: [
-        { supplier: 'ООО «СветОпт»', number: 'ВХ-501', date: '16.09.2026', store: 'Матусевича', amount: 240000, vat: 40000, checked: true, arrived: false, paid: true, file: 'svetopt-501.pdf' },
-        { supplier: 'ООО «ЭлектроСнаб»', number: 'ВХ-498', date: '15.09.2026', store: 'Богдановича', amount: 180000, vat: 30000, checked: false, arrived: true, paid: false, file: 'electro-498.pdf' },
-        { supplier: 'ООО «Люмен»', number: 'ВХ-490', date: '12.09.2026', store: 'БН', amount: 96000, vat: 16000, checked: true, arrived: true, paid: false, file: 'lumen-490.pdf' }
+        { id: 'n1', supplier: 'ООО «СветОпт»', number: 'ВХ-501', date: '16.09.2026', store: 'Матусевича', amount: 240000, vat: 40000, checked: true, arrived: false, paid: true, file: 'svetopt-501.pdf', photoPaths: [], excelPath: null },
+        { id: 'n2', supplier: 'ООО «ЭлектроСнаб»', number: 'ВХ-498', date: '15.09.2026', store: 'Богдановича', amount: 180000, vat: 30000, checked: false, arrived: true, paid: false, file: 'electro-498.pdf', photoPaths: [], excelPath: null },
+        { id: 'n3', supplier: 'ООО «Люмен»', number: 'ВХ-490', date: '12.09.2026', store: 'БН', amount: 96000, vat: 16000, checked: true, arrived: true, paid: false, file: 'lumen-490.pdf', photoPaths: [], excelPath: null }
         ]
     };
     const outgoing = finSource.outgoing;
@@ -1015,14 +1015,126 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление №/даты — в карточке сделки. Здесь демо просмотра, редактирование не реализовано.</p></details></td>
         <td class="num">${money(r.amount)}</td>
     </tr>`).join('');
-    const status = (yes) => `<span class="fin-status">${yes ? 'Да' : 'Нет'}</span>`;
+    const status = (yes, title) => `<span class="fin-status" title="${esc(title)}">${yes ? 'Да' : 'Нет'}</span>`;
     const incRows = $('#fin-incoming-rows');
     if (incRows && !incoming.length) incRows.closest('table').insertAdjacentHTML('afterend', '<p class="fin-note">Входящих накладных от поставщиков нет.</p>');
-    $('#fin-incoming-rows').innerHTML = incoming.map((r) => `<tr>
+    $('#fin-incoming-rows').innerHTML = incoming.map((r) => {
+        const photos = Array.isArray(r.photoPaths) ? r.photoPaths : [];
+        const hasExcel = Boolean(r.excelPath);
+        const hasFiles = photos.length > 0 || hasExcel;
+        const numId = String(r.id || '').replace(/\D/g, '');
+        let filesHtml;
+        if (!hasFiles) {
+            filesHtml = '<p class="fin-note" style="margin:4px 0">Файлов нет</p>';
+        } else {
+            const photoItems = photos.map((p, i) =>
+                `<li><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(p)}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${i + 1}</button></li>`
+            ).join('');
+            const excelItem = hasExcel
+                ? `<li><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${esc(numId)}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>`
+                : '';
+            filesHtml = `<ul class="fin-inc-files" style="list-style:none;padding:0;margin:4px 0;display:flex;flex-direction:column;gap:4px">${photoItems}${excelItem}</ul>`;
+        }
+        return `<tr>
         <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
-        <td class="num">${money(r.amount)}</td><td>${status(r.checked)}</td><td>${status(r.arrived)}</td><td>${status(r.paid)}</td>
-        <td><details><summary>НДС и источник</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p><p>Файл: ${esc(r.file)}.</p></details></td>
-    </tr>`).join('');
+        <td class="num">${money(r.amount)}</td><td>${status(r.checked, 'Проверена' + (r.checked ? '' : ' — нет'))}</td><td>${status(r.arrived, 'Пришла' + (r.arrived ? '' : ' — нет'))}</td><td>${status(r.paid, 'Оплачена' + (r.paid ? '' : ' — нет'))}</td>
+        <td><details><summary>НДС и файлы</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p>${filesHtml}</details></td>
+    </tr>`;
+    }).join('');
+    // --- Входящие: загрузка миниатюр фото через авторизованный blob --------
+    (function loadIncPhotoThumbs() {
+        if (!window.V2Api || !window.V2Api.token()) return;
+        document.querySelectorAll('.fin-inc-photo[data-filename]').forEach(async (btn) => {
+            const filename = btn.dataset.filename;
+            if (!filename) return;
+            try {
+                const resp = await window.V2Api.download('/nakladnye/photos/' + encodeURIComponent(filename));
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = btn.dataset.nak || filename;
+                img.style.cssText = 'width:80px;height:60px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer;display:block';
+                img.dataset.action = 'inc-photo-view';
+                img.dataset.blobUrl = url;
+                img.title = 'Открыть фото в новой вкладке';
+                btn.replaceWith(img);
+            } catch (e) {
+                btn.textContent = '📷 ' + filename + ' (ошибка)';
+                btn.title = 'Не удалось загрузить: ' + (e.message || 'неизвестная ошибка');
+            }
+        });
+    })();
+    // --- Входящие: делегированные обработчики (фото / Excel) ---------------
+    document.addEventListener('click', (event) => {
+        const target = event.target.closest('[data-action]');
+        if (!target) return;
+        const action = target.dataset.action;
+        if (action === 'inc-photo' || action === 'inc-photo-view') {
+            if (!window.V2Api || !window.V2Api.token()) {
+                const t = document.getElementById('kb-toast');
+                if (t) { t.hidden = false; t.textContent = 'Фото доступно только после входа в CRM'; setTimeout(() => t.hidden = true, 4000); }
+                return;
+            }
+            let blobUrl = target.dataset.blobUrl;
+            const filename = target.dataset.filename;
+            const openPhoto = (bUrl) => {
+                const w = window.open(bUrl, '_blank', 'noopener');
+                if (!w) {
+                    const t = document.getElementById('kb-toast');
+                    if (t) { t.hidden = false; t.textContent = 'Разрешите всплывающие окна для просмотра фото'; setTimeout(() => t.hidden = true, 4000); }
+                }
+            };
+            if (blobUrl) {
+                openPhoto(blobUrl);
+            } else if (filename) {
+                window.V2Api.download('/nakladnye/photos/' + encodeURIComponent(filename))
+                    .then((resp) => {
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        return resp.blob();
+                    })
+                    .then((blob) => {
+                        blobUrl = URL.createObjectURL(blob);
+                        target.dataset.blobUrl = blobUrl;
+                        openPhoto(blobUrl);
+                    })
+                    .catch((e) => {
+                        const t = document.getElementById('kb-toast');
+                        if (t) { t.hidden = false; t.textContent = 'Ошибка загрузки фото: ' + (e.message || 'неизвестная ошибка'); setTimeout(() => t.hidden = true, 4000); }
+                    });
+            }
+        } else if (action === 'inc-excel') {
+            const nakId = target.dataset.nakId;
+            if (!nakId) return;
+            if (!window.V2Api || !window.V2Api.token()) {
+                const t = document.getElementById('kb-toast');
+                if (t) { t.hidden = false; t.textContent = 'Excel доступен только после входа в CRM'; setTimeout(() => t.hidden = true, 4000); }
+                return;
+            }
+            window.V2Api.download('/nakladnye/' + nakId + '/excel')
+                .then(async (resp) => {
+                    if (!resp.ok) {
+                        let detail = 'HTTP ' + resp.status;
+                        try { const d = await resp.json(); detail = d.detail || detail; } catch (x) { /* без тела */ }
+                        throw new Error(detail);
+                    }
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'nakladnaya_' + nakId + '.xlsx';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                })
+                .catch((e) => {
+                    const t = document.getElementById('kb-toast');
+                    if (t) { t.hidden = false; t.textContent = 'Ошибка выгрузки Excel: ' + (e.message || 'неизвестная ошибка'); setTimeout(() => t.hidden = true, 4000); }
+                });
+        }
+    });
 
     let paymentFilter = 'all';
     let finMonth = 'all';

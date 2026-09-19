@@ -22,6 +22,7 @@ SSH_USER="${SSH_USER:-h212005}"
 SSH_HOST="${SSH_HOST:-87.232.64.12}"
 REMOTE_DIR="${REMOTE_DIR:-/var/www/h212005/data/www/cmr-svetvdome.online}"
 PM2_APP="${PM2_APP:-crm}"
+BOT_APP="${BOT_APP:-nakladnye-bot}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 SSH_OPTS=(-i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
@@ -176,6 +177,18 @@ back)
         exit 0
     fi
     restart_app
+    # Бот — отдельное приложение pm2, токены живут в env его процесса:
+    # рестарт строго БЕЗ --update-env, иначе дамп окружения затрёт боевые
+    # переменные и бот упадёт. Делается только если выкатывался файл бота.
+    for f in "$@"; do
+        if [[ "$f" == telegram_nakladnye_bot.py ]]; then
+            echo "==> Restarting $BOT_APP (без --update-env)"
+            pm2_cmd "restart $BOT_APP"
+            pm2_cmd "save"
+            pm2_cmd "logs $BOT_APP --err --lines 10 --nostream"
+            break
+        fi
+    done
     echo "==> Check for startup errors:"
     pm2_cmd "logs $PM2_APP --err --lines 15 --nostream"
     ;;

@@ -703,13 +703,20 @@
             '<button type="button" class="btn btn-primary btn-sm" id="kb-add-check">Добавить</button></div>' +
             (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
             '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +
+            '<div id="kb-attachments-list">' +
             ((c.attachments || []).length ? c.attachments.map(function (a) {
-                // Фидбек 18.09: вложение из письма должно скачиваться
-                // (GET /attachments/{id}/download, как в рабочей версии).
-                return '<button type="button" class="kb-check-row kb-att-dl" data-att-id="' + (a.id || '') + '" data-att-name="' + esc(a.name || 'attachment') + '" title="Скачать файл">' +
+                return '<div class="kb-check-row kb-att-row" data-att-row="' + esc(a.id) + '">' +
+                    '<button type="button" class="kb-att-dl" data-att-id="' + (a.id || '') + '" data-att-name="' + esc(a.name || 'attachment') + '" title="Скачать файл" style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;background:none;border:none;cursor:pointer;padding:4px 0">' +
                     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
-                    '<span class="grow trunc">' + esc(a.name || '') + '</span></button>';
+                    '<span class="grow trunc">' + esc(a.name || '') + '</span></button>' +
+                    '<button type="button" class="btn btn-ghost btn-sm kb-att-del" data-att-del="' + esc(a.id) + '" data-att-del-name="' + esc(a.name || '') + '" title="Удалить вложение">✕</button>' +
+                    '</div>';
             }).join('') : '<p class="kb-detail-empty">Вложений нет.</p>') +
+            '</div>' +
+            '<div class="kb-att-upload">' +
+            '<label class="kb-att-upload-btn"><input type="file" id="kb-att-upload-input" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt" hidden>Загрузить файлы</label>' +
+            '<p class="kb-detail-hint">До 25 МБ каждый, несколько файлов</p>' +
+            '</div>' +
             '</section>' +
             '<section id="kb-panel-invoices" role="tabpanel" aria-labelledby="kb-tab-invoices" tabindex="0" hidden>' +
             '<h3 class="kb-detail-section-title">Выписанные накладные <span>' + (c.docs.length + (c.groupId ? 1 : 0)) + '</span></h3>' +
@@ -717,6 +724,7 @@
             '<p class="kb-detail-hint">Выписанные ТН доступны в «Финансы → Документы». Оплата учитывается отдельно.</p></section>' +
             '<section id="kb-panel-history" role="tabpanel" aria-labelledby="kb-tab-history" tabindex="0" hidden>' +
             '<h3 class="kb-detail-section-title">История сделки</h3><div id="kb-history-real"><p class="kb-detail-empty">Журнал загружается…</p></div>' +
+            '<h3 class="kb-detail-section-title">Письма отправителя</h3><div id="kb-email-related"><p class="kb-detail-empty">Загрузка…</p></div>' +
             '<h3 class="kb-detail-section-title">Выписки этой сессии</h3><ol class="kb-detail-history">' + history +
             '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Текущий этап: ' + esc(currentStage) + '</b><p>Состояние карточки сейчас; время перехода не записывается.</p></div></li></ol></section>';
     }
@@ -748,6 +756,145 @@
     function bindAttachmentDownloads() {
         dialog.querySelectorAll('.kb-att-dl').forEach(function (btn) {
             btn.onclick = function () { downloadAttachment(btn.dataset.attId, btn.dataset.attName); };
+        });
+    }
+    // ---------- Вложения: удаление и загрузка ----------
+    // Удаление вложения: DELETE /attachments/{id} с подтверждением.
+    // При ошибке — тост с текстом сервера, список не меняется.
+    function deleteAttachment(id, name) {
+        if (!id || !window.V2Api || !window.V2Api.token()) return;
+        if (!window.confirm('Удалить вложение «' + (name || id) + '»?')) return;
+        var snapshot = activeCard ? (activeCard.attachments || []).slice() : null;
+        // Оптимистично убираем из списка сразу (UX): при ошибке вернём.
+        if (activeCard && activeCard.attachments) {
+            activeCard.attachments = activeCard.attachments.filter(function (a) { return String(a.id) !== String(id); });
+            openCard(activeCard);
+        }
+        window.V2Api.api('/attachments/' + id, { method: 'DELETE' }).then(function () {
+            notify('Вложение удалено.');
+        }).catch(function (err) {
+            // Откат списка при ошибке
+            if (activeCard && snapshot) activeCard.attachments = snapshot;
+            if (activeCard) openCard(activeCard);
+            notify('Не удалено: ' + (err.detail || err.message || 'ошибка'));
+        });
+    }
+    // Загрузка нескольких файлов: каждый файл — отдельный запрос,
+    // падение одного не рвёт остальные. Лимит 25 МБ проверяется ДО запроса.
+    function uploadCardAttachments(files) {
+        if (!activeCard || !window.V2Api || !window.V2Api.token()) return;
+        var cardId = Number(activeCard.id);
+        var uploaded = 0;
+        var errors = [];
+        var pending = files.length;
+        if (!pending) return;
+        Array.from(files).forEach(function (file) {
+            if (file.size > 25 * 1024 * 1024) {
+                errors.push(file.name + ': больше 25 МБ');
+                pending--;
+                if (!pending) finishUpload(uploaded, errors);
+                return;
+            }
+            window.V2Api.upload('/files/attach/' + cardId, file).then(function (resp) {
+                if (!resp.ok) {
+                    return resp.json().then(function (j) {
+                        throw new Error(j && j.detail ? String(j.detail) : ('HTTP ' + resp.status));
+                    });
+                }
+                return resp.json();
+            }).then(function (saved) {
+                // Добавляем вложение в карточку из ответа сервера
+                if (saved && saved.id && activeCard) {
+                    activeCard.attachments = activeCard.attachments || [];
+                    activeCard.attachments.push({ id: saved.id, name: saved.file_name, path: saved.file_path });
+                }
+                uploaded++;
+                pending--;
+                if (!pending) finishUpload(uploaded, errors);
+            }).catch(function (err) {
+                errors.push(file.name + ': ' + (err.detail || err.message || 'ошибка'));
+                pending--;
+                if (!pending) finishUpload(uploaded, errors);
+            });
+        });
+        function finishUpload(count, errs) {
+            if (count > 0 && activeCard) openCard(activeCard);
+            if (count > 0 && !errs.length) notify('Загружено файлов: ' + count);
+            else if (count > 0 && errs.length) notify('Загружено: ' + count + ', ошибки: ' + errs.join('; '));
+            else if (errs.length) notify('Загрузка не удалась: ' + errs.join('; '));
+        }
+    }
+    // Привязка обработчиков удаления и загрузки вложений
+    function bindAttachmentActions() {
+        dialog.querySelectorAll('.kb-att-del').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                deleteAttachment(btn.dataset.attDel, btn.dataset.attDelName);
+            });
+        });
+        var uploadInput = dialog.querySelector('#kb-att-upload-input');
+        if (uploadInput) {
+            uploadInput.addEventListener('change', function () {
+                if (uploadInput.files && uploadInput.files.length) {
+                    uploadCardAttachments(uploadInput.files);
+                    uploadInput.value = '';
+                }
+            });
+        }
+    }
+    // ---------- Письма отправителя ----------
+    // GET /email-parser/related/{card_id} — список связанных писем.
+    // Роль documents не имеет доступа к почтовому роутеру — показываем
+    // «недоступно для вашей роли» без запроса.
+    function loadRelatedEmails(c) {
+        var box = document.getElementById('kb-email-related');
+        if (!box) return;
+        if (!window.V2Api || !window.V2Api.token()) {
+            box.innerHTML = '<p class="kb-detail-empty">Доступно при подключении к CRM.</p>';
+            return;
+        }
+        var role = null;
+        try { role = localStorage.getItem('crm_role'); } catch (e) { /* без хранилища */ }
+        if (role === 'documents') {
+            box.innerHTML = '<p class="kb-detail-empty">Недоступно для вашей роли.</p>';
+            return;
+        }
+        window.V2Api.api('/email-parser/related/' + encodeURIComponent(c.id)).then(function (data) {
+            var related = (data && data.related) || [];
+            if (!related.length) {
+                box.innerHTML = '<p class="kb-detail-empty">Писем не найдено.</p>';
+                return;
+            }
+            box.innerHTML = '<ul class="kb-email-list">' + related.map(function (item) {
+                var date = item.created_at ? new Date(item.created_at).toLocaleString('ru-RU') : '';
+                return '<li class="kb-email-row">' +
+                    '<div class="kb-email-info"><b>' + esc(item.title || 'Без темы') + '</b>' +
+                    '<span class="kb-detail-hint">' + esc(date) + '</span></div>' +
+                    '<button type="button" class="btn btn-ghost btn-sm kb-email-link" data-link-target="' + esc(item.id) + '" data-link-target-title="' + esc(item.title || '') + '">Связать со сделкой</button>' +
+                    '</li>';
+            }).join('') + '</ul>';
+            // Обработчики «Связать со сделкой»
+            box.querySelectorAll('.kb-email-link').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    linkEmailToCard(c, btn.dataset.linkTarget, btn.dataset.linkTargetTitle);
+                });
+            });
+        }).catch(function (err) {
+            box.innerHTML = '<p class="kb-detail-empty">Не удалось загрузить письма: ' + esc(err.detail || err.message || 'ошибка') + '</p>';
+        });
+    }
+    // POST /email-parser/link/{card_id} — связать письмо с текущей сделкой.
+    // Тело: { target_card_id: <id целевой сделки из related> }.
+    function linkEmailToCard(currentCard, targetCardId, targetTitle) {
+        if (!targetCardId || !window.V2Api) return;
+        window.V2Api.api('/email-parser/link/' + encodeURIComponent(currentCard.id), {
+            method: 'POST',
+            body: { target_card_id: Number(targetCardId) }
+        }).then(function (result) {
+            notify(result && result.message ? result.message : 'Письмо связано со сделкой.');
+            // Обновляем блок писем — письмо удаляется на сервере
+            if (currentCard) loadRelatedEmails(currentCard);
+        }).catch(function (err) {
+            notify('Не удалось связать: ' + (err.detail || err.message || 'ошибка'));
         });
     }
     // Фидбек 18.09: флаги складского списания по накладным карточки —

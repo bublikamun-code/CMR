@@ -508,7 +508,9 @@
                 checked: Boolean(n.is_verified),
                 arrived: Boolean(n.is_arrived),
                 paid: Boolean(n.is_paid),
-                file: n.excel_path || (Array.isArray(n.photo_paths) && n.photo_paths[0]) || ''
+                file: n.excel_path || (Array.isArray(n.photo_paths) && n.photo_paths[0]) || '',
+                photoPaths: Array.isArray(n.photo_paths) ? n.photo_paths : [],
+                excelPath: n.excel_path || null
             };
         });
         incoming.sort(function (a, b) {
@@ -560,6 +562,26 @@
                     return await window.V2Api._guardCreate(
                         'user-create:' + (payload.fields && payload.fields.username || ''),
                         function () { return window.V2Api.api('/auth/users', { method: 'POST', body: payload.fields }); }
+                    );
+                } else if (kind === 'user-save') {
+                    // P0-2 (аудит 19.09): админка шлёт kind 'user-save' и для
+                    // создания, и для правки — обработчика не было, запрос
+                    // вообще не уходил. Пароль ≥8 обязателен только при
+                    // создании (POST /auth/users); при правке (PATCH) шлём
+                    // роль и опционально новый пароль. full_name на сервере
+                    // нет (ни в модели, ни в схемах) — не отправляем.
+                    var uf = payload.fields || {};
+                    var ubody = { role: uf.role || 'manager' };
+                    if (uf.password) ubody.password = uf.password;
+                    if (payload.id != null) {
+                        return await window.V2Api.api('/auth/users/' + payload.id, { method: 'PATCH', body: ubody });
+                    }
+                    if (!uf.password || uf.password.length < 8) {
+                        return Promise.reject({ detail: 'Пароль обязателен при создании (минимум 8 символов)' });
+                    }
+                    return await window.V2Api._guardCreate(
+                        'user-save:' + (uf.username || ''),
+                        function () { return window.V2Api.api('/auth/users', { method: 'POST', body: { username: uf.username, password: uf.password, role: ubody.role } }); }
                     );
                 } else if (kind === 'supplier-save') {
                     return await (payload.id
