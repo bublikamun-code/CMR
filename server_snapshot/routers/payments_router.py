@@ -15,7 +15,7 @@ import schemas
 from auth import get_current_user
 from constants import MONEY_EPSILON
 from database import get_db
-from services.invoices import find_invoice_twins, norm_invoice_number
+from services.invoices import find_duplicate_invoice, find_invoice_twins, norm_invoice_number
 from services.payments import add_invoice as add_invoice_svc
 from services.payments import delete_transaction as delete_transaction_svc
 from services.payments import issue_invoice as issue_invoice_svc
@@ -358,6 +358,74 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         if "print_status" in update_data and tx.card_id is not None:
             for twin in db.query(models.Transaction).filter(models.Transaction.card_id == tx.card_id, models.Transaction.id != tx.id).all():
                 twin.print_status = update_data["print_status"]
+        # V4 (аудит прода 19.09): правка номера накладной — тот же замок, что
+        # в issue_invoice/add_invoice: второй раз один и тот же номер на одной
+        # сделке поставить нельзя, иначе реестр расходится с напечатанными ТН.
+        # Область поиска — записи ЭТОЙ ЖЕ сделки (доли одной физической
+        # накладной и частичные отгрузки дублями не являются — см. комментарий
+        # к find_duplicate_invoice в services/invoices.py и инварианты в
+        # tests/test_nakladnye_dedup.py). Документы не проверяем: их номер
+        # повторяет оригинал по дизайну, пара синхронизирована выше.
+        if (not tx.is_document and tx.card_id is not None
+                and "invoice_number" in update_data
+                and (tx.invoice_number or "").strip()):
+            others = db.query(models.Transaction).filter(
+                models.Transaction.card_id == tx.card_id,
+                models.Transaction.id != tx.id,
+                models.Transaction.is_document == False,
+            ).all()
+            duplicate = find_duplicate_invoice(others, tx.invoice_number)
+            if duplicate is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(f"Накладная {tx.invoice_number.strip()} уже есть по этой сделке "
+                            f"(запись #{duplicate.id}). Второй раз тот же номер поставить нельзя."),
+                )
+        # V4 (аудит прода 19.09): правка суммы ТН раньше не пересчитывала
+        # запись-остаток и статус карточки — реестр расходился с напечатанными
+        # накладными. Формула и ветки — как в add_invoice (services/payments.py,
+        # блок «Инварианты как во всей системе») и в PATCH /cards/{id}
+        # (card_details_router.update_card): запись-остаток = сумма сделки −
+        # выписанное; вторую копию формулы плодить нельзя, ветка создания
+        # остатка — только из «Сборки» и дальше, как в PATCH /cards/{id}.
+        # Документы и записи без карточки правятся как раньше, без пересчёта.
+        if "amount" in update_data and not tx.is_document and tx.card_id is not None:
+            db.flush()  # autoflush=False: SELECT ниже обязан увидеть правку суммы
+            card = db.query(models.Card).filter(models.Card.id == tx.card_id).first()
+            ledger = db.query(models.Transaction).filter(
+                models.Transaction.card_id == tx.card_id,
+                models.Transaction.is_document == False,
+            ).all()
+            # Валидация против остатка — только для записей-накладных
+            # (складское списание или номер): сумму остатка сам остаток
+            # не ограничивает, он производный.
+            invoice_like = bool(tx.is_warehouse_writeoff or (tx.invoice_number or "").strip())
+            if invoice_like and card is not None:
+                others_issued = round(sum(float(t.amount or 0) for t in ledger
+                                          if t.id != tx.id
+                                          and (t.is_warehouse_writeoff or (t.invoice_number or "").strip())), 2)
+                available = round(float(card.total_amount or 0) - others_issued, 2)
+                if float(tx.amount or 0) > available + MONEY_EPSILON:
+                    raise HTTPException(status_code=400,
+                        detail=f"Сумма накладной ({round(float(tx.amount or 0), 2)}) больше остатка по сделке ({available})")
+            if card is not None:
+                issued_total = round(sum(float(t.amount or 0) for t in ledger
+                                         if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
+                new_rest = round(float(card.total_amount or 0) - issued_total, 2)
+                remainder = next((t for t in ledger
+                                  if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
+                if remainder is not None:
+                    if new_rest <= MONEY_EPSILON:
+                        db.delete(remainder)
+                    else:
+                        remainder.amount = new_rest
+                elif new_rest > MONEY_EPSILON and card.status in ("Сборка", "На списание", "Закрыто"):
+                    db.add(models.Transaction(
+                        company_name=card.title, amount=new_rest,
+                        store_location=card.store_location, card_id=card.id,
+                    ))
+                if card.status in ("На списание", "Закрыто"):
+                    card.status = writeoff_status_for(card, ledger)
         db.commit()
         db.refresh(tx)
         return tx_dict(tx)
