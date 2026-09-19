@@ -18,7 +18,9 @@ import json, os
 from playwright.sync_api import sync_playwright
 
 OUT = "/tmp/crm_matrix"; os.makedirs(OUT, exist_ok=True)
-BASE = "http://87-232-64-12.nip.io/v2/"
+BASE = os.environ.get("V2_BASE", "http://87-232-64-12.nip.io/v2/")
+V2_USER = os.environ.get("V2_USER", "v2_audit")
+V2_PASS = os.environ.get("V2_PASS", "V2Audit2026!")
 results = []
 def check(name, ok, note=""):
     results.append((name, bool(ok), note))
@@ -42,11 +44,11 @@ with sync_playwright() as p:
     # --- 1. Вход ---
     page.goto(BASE, timeout=30000)
     page.wait_for_selector("#login-username", state="visible", timeout=20000)
-    page.fill("#login-username", "v2_audit")
-    page.fill("#login-password", "V2Audit2026!")
+    page.fill("#login-username", V2_USER)
+    page.fill("#login-password", V2_PASS)
     page.click("#login-submit")
     page.wait_for_timeout(4000)
-    check("1. Вход в v2", page.locator("#v2-user").inner_text().find("v2_audit") >= 0)
+    check("1. Вход в v2", page.locator("#v2-user").inner_text().find(V2_USER) >= 0)
 
     # --- 2. Карточки на своих местах: сверяем ВСЕ карточки с API ---
     pos = page.evaluate("""async () => {
