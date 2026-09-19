@@ -218,6 +218,9 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 .btn-sm { height: 32px; padding: 0 12px; font-size: var(--font-micro); }
 .btn-quiet { color: var(--muted); padding: 0 8px; min-height: 32px; min-width: 32px; display: inline-flex; align-items: center; justify-content: center; }
 .btn-quiet:hover { color: var(--text); }
+/* Пресс-фидбек: нажатие сжимает кнопку (60ms — быстро), отпускание — 140ms */
+.btn, .btn-quiet { transition: transform var(--dur-fast) var(--ease), filter var(--dur-fast) var(--ease); }
+.btn:active, .btn-quiet:active { transform: scale(.97); transition-duration: 60ms; }
 
 /* ============ ОЧЕРЕДЬ «ТРЕБУЕТ ВНИМАНИЯ» ============ */
 .queue { display: flex; flex-direction: column; }
@@ -519,6 +522,16 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
 .mt2 { margin-top: var(--s2); }
 .grow { flex: 1; min-width: 0; }
 .trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Глобальный reduced-motion: глушит анимации/переходы поверх точечных
+   блоков модулей (тосты, диалоги, дровер, поповеры) */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
 
 /* site-v2: вход и статус источника (нет в прототипе) */
 .login-overlay {
