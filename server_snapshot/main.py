@@ -2,7 +2,7 @@ import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -104,9 +104,34 @@ app.include_router(workflows_router.router)
 app.include_router(webhooks_router.router)
 app.include_router(nakladnye_router.router)
 
+# Какой фронтенд считать основным на "/". Переключение — этап 4 плана замены
+# (design-plans/frontend-replacement-plan.md): v2 живёт на /v2/, старый фронт
+# остаётся на /legacy до конца приёмки. Дефолт намеренно "legacy": пока паритет
+# не принят владельцем, поведение прода не меняется; переключение — отдельный
+# коммит с заменой дефолта на "v2". Откат после переключения — вернуть "legacy".
+FRONTEND_MODE = os.environ.get("CRM_FRONTEND", "legacy")
+
+
 @app.get("/")
 def serve_frontend():
+    if FRONTEND_MODE == "v2":
+        # Редирект, а не FileResponse: ассеты v2 лежат относительными путями
+        # внутри /v2/ и на корне резолвились бы в маунты старого фронта /css и /js.
+        return RedirectResponse("/v2/", status_code=302)
     return FileResponse("index.html")
+
+
+@app.get("/legacy")
+def serve_legacy_frontend():
+    # Старый фронт на период приёмки. Его ассеты смонтированы на /css и /js
+    # абсолютными путями, поэтому работают и с корня, и из /legacy.
+    return FileResponse("index.html")
+
+
+@app.get("/legacy/admin")
+def serve_legacy_admin():
+    return FileResponse("admin.html")
+
 
 @app.get("/admin")
 def serve_admin():
