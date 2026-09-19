@@ -210,6 +210,21 @@
         card.stage = stage;
         cards.splice(target, 0, card);
     }
+    // Точечное обновление шапки колонки после локального переноса: те же
+    // числа, что считает renderBoard(), но без перестройки колонок.
+    function updateColumnHead(stageId) {
+        var st = KBData.statuses.find(function (x) { return x.id === stageId; });
+        var col = boardEl.querySelector('.kb-col[data-stage="' + stageId + '"]');
+        if (!st || !col) return;
+        var inCol = visibleCards().filter(function (c) { return c.stage === stageId; });
+        col.querySelector('.kb-col-count').textContent = inCol.length;
+        col.querySelector('.kb-col-sum').textContent = money(inCol.reduce(function (a, c) { return a + c.amount; }, 0));
+        col.setAttribute('aria-label', st.name + ' — карточек: ' + inCol.length);
+        var list = col.querySelector('.kb-cards');
+        var empty = list.querySelector('.kb-empty');
+        if (!inCol.length && !empty) list.innerHTML = '<p class="kb-empty">Пусто</p>';
+        else if (inCol.length && empty) empty.remove();
+    }
     var drag = null;
     var dragFrame = 0;
     var suppressCardClick = false;
@@ -296,9 +311,22 @@
         placeDrop(e.clientX, e.clientY);
         if (!drag.column) { cleanupDrag(); return; }
         e.preventDefault();
-        moveCard(drag.card, drag.column.dataset.stage, drag.beforeId);
-        apiMutate('status', { id: Number(drag.card.id), status: stageName(drag.column.dataset.stage) });
-        cleanupDrag(); refresh();
+        var fromStage = drag.card.stage;
+        var toStage = drag.column.dataset.stage;
+        moveCard(drag.card, toStage, drag.beforeId);
+        // Оптимистичный drop: карточка остаётся там, куда её бросили, шапки
+        // колонок и очередь пересчитываются локально — полная перерисовка
+        // доски (сотни карточек) не нужна. Отказ сервера откатит к истине.
+        if (drag.placeholder.parentNode) drag.placeholder.parentNode.insertBefore(drag.source, drag.placeholder);
+        var changedStage = fromStage !== toStage;
+        cleanupDrag();
+        if (changedStage) { updateColumnHead(fromStage); updateColumnHead(toStage); }
+        renderQueue();
+        document.dispatchEvent(new CustomEvent('kb:documents', { detail: cards }));
+        document.dispatchEvent(new CustomEvent('kb:groups', { detail: KBData.groups }));
+        apiMutate('status', { id: Number(drag.card.id), status: stageName(toStage) }).then(function (ok) {
+            if (ok === false) refresh(); // сервер отказал: тост уже показан boot-слоем
+        });
     });
     document.addEventListener('dragend', cleanupDrag);
     document.addEventListener('drop', cleanupDrag);
