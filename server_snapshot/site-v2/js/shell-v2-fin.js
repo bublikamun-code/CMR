@@ -54,7 +54,11 @@
         <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление №/даты — в карточке сделки. Здесь демо просмотра, редактирование не реализовано.</p></details></td>
         <td class="num">${money(r.amount)}</td>
     </tr>`).join('');
-    const status = (yes, title) => `<span class="fin-status" title="${esc(title)}">${yes ? 'Да' : 'Нет'}</span>`;
+    // Фидбек 20.09: статусы входящих — живые галочки, а не текст «Да/Нет»; правка уходит в PATCH /nakladnye.
+    // Без видимого текста в label: заголовок колонки уже называет статус,
+    // а текст ломал бы живой поиск (updateIncoming ищет по textContent строки).
+    const INC_FIELD_PROP = { verified: 'checked', arrived: 'arrived', paid: 'paid' };
+    const incCheck = (r, field, title, numId) => `<label class="fin-check" for="fin-inc-${field}-${r.id}"><input type="checkbox" id="fin-inc-${field}-${r.id}" data-inc-id="${numId}" data-inc-field="${field}" aria-label="${esc(title + ' — ' + r.supplier + ', ' + r.number)}" title="${title}"${r[INC_FIELD_PROP[field]] ? ' checked' : ''}></label>`;
     const incRows = $('#fin-incoming-rows');
     if (incRows && !incoming.length) incRows.closest('table').insertAdjacentHTML('afterend', '<p class="fin-note">Входящих накладных от поставщиков нет.</p>');
     $('#fin-incoming-rows').innerHTML = incoming.map((r) => {
@@ -76,7 +80,7 @@
         }
         return `<tr>
         <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
-        <td class="num">${money(r.amount)}</td><td>${status(r.checked, 'Проверена' + (r.checked ? '' : ' — нет'))}</td><td>${status(r.arrived, 'Пришла' + (r.arrived ? '' : ' — нет'))}</td><td>${status(r.paid, 'Оплачена' + (r.paid ? '' : ' — нет'))}</td>
+        <td class="num">${money(r.amount)}</td><td>${incCheck(r, 'verified', 'Проверена', numId)}</td><td>${incCheck(r, 'arrived', 'Пришла', numId)}</td><td>${incCheck(r, 'paid', 'Оплачена', numId)}</td>
         <td><details><summary>НДС и файлы</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p>${filesHtml}</details></td>
     </tr>`;
     }).join('');
@@ -368,6 +372,28 @@
                 window.V2Api.api('/payments/transactions/' + r.docTxId, { method: 'PATCH', body: { print_status: target.value || null } })
                     .catch(() => { const t = document.getElementById('kb-toast'); if (t) { t.hidden = false; t.textContent = 'Печать не сохранена'; setTimeout(() => t.hidden = true, 3000); } });
             }
+        }
+        // Входящие накладные: галочка статуса сохраняется в CRM (PATCH /nakladnye).
+        // При ошибке — откат галочки и локального поля + тост (в демо-режиме без
+        // токена остаётся локальное состояние, как у галочек реестра).
+        const incBox = event.target;
+        if (incBox.matches('input[type="checkbox"][data-inc-field]')) {
+            const nakId = incBox.dataset.incId;
+            const rec = incoming.find((x) => String(x.id) === 'n' + nakId);
+            const incProp = INC_FIELD_PROP[incBox.dataset.incField];
+            if (!rec || !incProp) return;
+            const prev = rec[incProp];
+            rec[incProp] = incBox.checked;
+            if (window.V2Api && window.V2Api.token()) {
+                window.V2Api.api('/nakladnye/' + nakId, { method: 'PATCH', body: { ['is_' + incBox.dataset.incField]: incBox.checked } })
+                    .catch((err) => {
+                        incBox.checked = prev;
+                        rec[incProp] = prev;
+                        const t = document.getElementById('kb-toast');
+                        if (t) { t.hidden = false; t.textContent = 'Не сохранено: ' + (err.detail || err.message || 'ошибка'); setTimeout(() => t.hidden = true, 3000); }
+                    });
+            }
+            return;
         }
         const input = event.target;
         if (!input.matches('input[type="checkbox"][data-field]')) return;
