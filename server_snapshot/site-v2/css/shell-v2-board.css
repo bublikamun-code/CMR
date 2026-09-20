@@ -68,13 +68,13 @@
 
 /* ---------- Карточка ---------- */
 .kb-card {
-    display: block; width: 100%; text-align: left;
+    display: block; width: 100%; text-align: left; position: relative;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--r-md); padding: var(--s2) var(--s3);
     box-shadow: var(--sh-1); transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
 }
 .kb-card:hover { border-color: var(--border-strong); box-shadow: var(--sh-2); }
-.kb-card-title { font-size: var(--font-body); font-weight: 700; line-height:1.35; overflow-wrap: anywhere; }
+.kb-card-title { font-size: var(--font-body); font-weight: 700; line-height:1.35; overflow-wrap: anywhere; padding-right: 26px; }
 .kb-card-meta { display: flex; flex-wrap: wrap; gap: 4px var(--s2); margin-top: 3px; font-size: var(--font-micro); color: var(--muted); }
 .kb-card-meta .num { white-space: nowrap; }
 .kb-card-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
@@ -83,6 +83,20 @@
     display: flex; flex-wrap: wrap; gap: 4px var(--s2); margin-top: 5px;
     font-size: var(--font-micro); color: var(--muted);
 }
+/* Кнопка удаления на плитке (фидбек 20.09): не заходить в карточку.
+   Видна на ховере и фокусе; на тач-экранах — всегда. Хит-зона 28px (WCAG 2.5.8). */
+.kb-card-del {
+    position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; padding: 0;
+    display: grid; place-items: center; cursor: pointer;
+    background: var(--surface); color: var(--muted);
+    border: 1px solid var(--border); border-radius: var(--r-pill);
+    opacity: 0; pointer-events: none;
+    transition: opacity 140ms var(--ease), color 140ms var(--ease), border-color 140ms var(--ease);
+}
+.kb-card:hover .kb-card-del,
+.kb-card:focus-within .kb-card-del { opacity: 1; pointer-events: auto; }
+.kb-card-del:hover { color: var(--danger); border-color: var(--danger); }
+@media (hover: none) { .kb-card-del { opacity: 1; pointer-events: auto; } }
 .kb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); display: inline-block; }
 .kb-dot.ok { background: var(--ok); }
 .kb-dot.warn { background: var(--warn); }
@@ -184,8 +198,27 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .kb-toast.toast-error { background: var(--danger); color: var(--bg); }
 .kb-toast.toast-error .btn-quiet { color: var(--bg); }
 
+/* ---------- Подтверждение действия вместо window.confirm (фидбек 20.09) ---------- */
+/* По образцу #mgmt-dialog (management.css): те же размеры и паттерн появления. */
+#kb-confirm {
+    margin: auto; width: min(440px, calc(100% - 24px));
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--r-lg);
+    padding: 20px; font: inherit;
+}
+#kb-confirm::backdrop { background: rgb(0 0 0 / .3); }
+#kb-confirm[open], #kb-confirm[open]::backdrop { animation: kb-confirm-in var(--dur-enter) var(--ease); }
+@keyframes kb-confirm-in { from { transform: translateY(8px) scale(.98); opacity: 0; } }
+#kb-confirm h2 { font-size: 18px; letter-spacing: -.2px; margin: 0 0 12px; overflow-wrap: anywhere; }
+#kb-confirm .kb-confirm-msg { color: var(--muted); font-size: var(--font-ui); margin: 0; overflow-wrap: anywhere; }
+#kb-confirm .kb-confirm-foot { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: 20px; }
+/* Опасное действие — залитая красная кнопка (у базы .btn фона нет). */
+.btn-danger { background: var(--danger); color: var(--bg); border-color: transparent; }
+.btn-danger:hover { background: color-mix(in srgb, var(--danger) 85%, black); }
+
 @media (prefers-reduced-motion: reduce) {
-    .kb-card, .kb-queue summary::after { transition: none; }
+    .kb-card, .kb-card-del, .kb-queue summary::after { transition: none; }
+    #kb-confirm[open], #kb-confirm[open]::backdrop { animation: none; }
 }
 
 /* ---------- Узкие экраны: доска скроллится вбок, не body ---------- */

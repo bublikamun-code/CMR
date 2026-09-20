@@ -162,7 +162,10 @@
         var remKop = cardRemaining(c);
         var issuedKop = cardIssued(c);
         if (remKop !== null && issuedKop > 0 && remKop > 0) chips += '<span class="pill warn">остаток ' + moneyOrDash(remKop) + '</span>';
-        return '<button type="button" class="kb-card" draggable="true" data-card="' + esc(c.id) + '" aria-haspopup="dialog">' +
+        // Фидбек 20.09: удаление с плитки, без захода в карточку. Плитка —
+        // div, не button: кнопку удаления нельзя вложить в <button>.
+        // role="button" + tabindex сохраняют открытие с клавиатуры.
+        return '<div class="kb-card" role="button" tabindex="0" draggable="true" data-card="' + esc(c.id) + '" aria-haspopup="dialog">' +
             '<span class="kb-card-title">' + esc(c.title) + '</span>' +
             '<span class="kb-card-meta num">' + esc(c.id) + ' · ' + esc(c.deadline) + '</span>' +
             '<span class="kb-card-chips">' + chips + '</span>' +
@@ -170,7 +173,8 @@
             (issuedKop > 0 ? ' · списано ' + money(issuedKop) : '') +
             (c.docs.length ? ' · ТН: ' + c.docs.length : '') +
             (c.groupId ? ' · групповая ТН' : '') + '</span>' +
-            '</button>';
+            '<button type="button" class="kb-card-del" data-card-del="' + esc(c.id) + '" aria-label="Удалить карточку ' + esc(c.title) + '" title="Удалить"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+            '</div>';
     }
 
     function renderBoard() {
@@ -514,16 +518,75 @@
         document.getElementById('kb-q-history').setAttribute('aria-pressed', String(mode === 'history'));
         renderQueue();
     }
+    // Фидбек 20.09: тост больше не висит вечно — авто-закрытие через 6 с
+    // (достаточно прочитать и успеть нажать «Списано»; вручную — крестик).
+    var toastTimer = 0;
     function notify(text) {
         var toast = document.getElementById('kb-toast');
         toast.hidden = false;
         toast.innerHTML = '<span>' + esc(text) + '</span><button class="btn-quiet" id="kb-see-history">Списано</button><button class="btn-quiet" id="kb-dismiss" aria-label="Закрыть уведомление">×</button>';
-        document.getElementById('kb-dismiss').onclick = function() { toast.hidden = true; };
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toast.hidden = true; }, 6000);
+        var hideToast = function () { clearTimeout(toastTimer); toast.hidden = true; };
+        document.getElementById('kb-dismiss').onclick = hideToast;
         document.getElementById('kb-see-history').onclick = function() {
             queueMode('history');
-            document.getElementById('kb-q-history').focus(); toast.hidden = true;
+            document.getElementById('kb-q-history').focus(); hideToast();
         };
     }
+    // ---------- Подтверждение вместо window.confirm (фидбек 20.09) ----------
+    // Нативный confirm не стилизован. Один <dialog> на страницу, вопросы
+    // идут по очереди; ask() возвращает Promise<boolean> (true — подтверждено).
+    var kbConfirmEl = null;
+    var kbConfirmResolve = null;
+    var kbConfirmOpener = null; // куда вернуть фокус после закрытия
+    function kbConfirmSettle(value) {
+        if (!kbConfirmResolve) return;
+        var resolve = kbConfirmResolve;
+        kbConfirmResolve = null;
+        resolve(value);
+    }
+    var KBConfirm = {
+        ask: function (opts) {
+            opts = opts || {};
+            if (!kbConfirmEl) {
+                kbConfirmEl = document.createElement('dialog');
+                kbConfirmEl.id = 'kb-confirm';
+                kbConfirmEl.setAttribute('aria-labelledby', 'kb-confirm-title');
+                document.body.appendChild(kbConfirmEl);
+                // Закрытие без выбора (Esc) — всегда «отмена»; click-ветки
+                // успевают вызвать kbConfirmSettle раньше, здесь это no-op.
+                kbConfirmEl.addEventListener('cancel', function () { kbConfirmSettle(false); });
+                kbConfirmEl.addEventListener('close', function () {
+                    kbConfirmSettle(false);
+                    // Контент не чистим: форм и required-полей здесь нет, а
+                    // очистка в момент закрытия при переоткрытии гоняется с
+                    // ask() и оставляла диалог открытым, но пустым.
+                    if (kbConfirmOpener && kbConfirmOpener.isConnected) kbConfirmOpener.focus();
+                    kbConfirmOpener = null;
+                });
+            }
+            if (kbConfirmEl.open) {
+                // Новый вопрос вытесняет прежний; его промис resolves(false) явно,
+                // не полагаясь на порядок событийной очистки close.
+                kbConfirmSettle(false);
+                kbConfirmEl.close();
+            }
+            kbConfirmOpener = document.activeElement;
+            kbConfirmEl.innerHTML = '<h2 id="kb-confirm-title">' + esc(opts.title || 'Подтвердите действие') + '</h2>' +
+                (opts.message ? '<p class="kb-confirm-msg">' + esc(opts.message) + '</p>' : '') +
+                '<div class="kb-confirm-foot">' +
+                '<button type="button" class="btn btn-ghost" data-confirm-cancel>' + esc(opts.cancelText || 'Отмена') + '</button>' +
+                '<button type="button" class="btn btn-danger" data-confirm-ok>' + esc(opts.confirmText || 'Удалить') + '</button></div>';
+            kbConfirmEl.querySelector('[data-confirm-cancel]').onclick = function () { kbConfirmSettle(false); kbConfirmEl.close(); };
+            kbConfirmEl.querySelector('[data-confirm-ok]').onclick = function () { kbConfirmSettle(true); kbConfirmEl.close(); };
+            kbConfirmEl.showModal();
+            // Действие опасное — стартовый фокус на безопасной «Отмене».
+            kbConfirmEl.querySelector('[data-confirm-cancel]').focus();
+            return new Promise(function (resolve) { kbConfirmResolve = resolve; });
+        }
+    };
+    window.KBConfirm = KBConfirm;
     // Edits are session-local; issued sums remain controlled by openIssue.
     function optionsHTML(values, selected) {
         return values.map(function(value) {
@@ -823,20 +886,25 @@
     // При ошибке — тост с текстом сервера, список не меняется.
     function deleteAttachment(id, name) {
         if (!id || !window.V2Api || !window.V2Api.token()) return;
-        if (!window.confirm('Удалить вложение «' + (name || id) + '»?')) return;
-        var snapshot = activeCard ? (activeCard.attachments || []).slice() : null;
-        // Оптимистично убираем из списка сразу (UX): при ошибке вернём.
-        if (activeCard && activeCard.attachments) {
-            activeCard.attachments = activeCard.attachments.filter(function (a) { return String(a.id) !== String(id); });
-            openCard(activeCard);
-        }
-        window.V2Api.api('/attachments/' + id, { method: 'DELETE' }).then(function () {
-            notify('Вложение удалено.');
-        }).catch(function (err) {
-            // Откат списка при ошибке
-            if (activeCard && snapshot) activeCard.attachments = snapshot;
-            if (activeCard) openCard(activeCard);
-            notify('Не удалено: ' + (err.detail || err.message || 'ошибка'));
+        KBConfirm.ask({
+            title: 'Удалить вложение?',
+            message: '«' + (name || id) + '»'
+        }).then(function (ok) {
+            if (!ok) return;
+            var snapshot = activeCard ? (activeCard.attachments || []).slice() : null;
+            // Оптимистично убираем из списка сразу (UX): при ошибке вернём.
+            if (activeCard && activeCard.attachments) {
+                activeCard.attachments = activeCard.attachments.filter(function (a) { return String(a.id) !== String(id); });
+                openCard(activeCard);
+            }
+            window.V2Api.api('/attachments/' + id, { method: 'DELETE' }).then(function () {
+                notify('Вложение удалено.');
+            }).catch(function (err) {
+                // Откат списка при ошибке
+                if (activeCard && snapshot) activeCard.attachments = snapshot;
+                if (activeCard) openCard(activeCard);
+                notify('Не удалено: ' + (err.detail || err.message || 'ошибка'));
+            });
         });
     }
     // Загрузка нескольких файлов: каждый файл — отдельный запрос,
@@ -1028,6 +1096,27 @@
         document.getElementById('kb-overview-empty').hidden = visible !== 0;
     }
     var renderingCard = false;
+    // Общий путь удаления (фидбек 20.09): и из диалога, и с плитки.
+    // resetBtn дисейблится на время запроса; с плитки он не нужен.
+    function deleteCard(c, resetBtn) {
+        var setDisabled = function (disabled) { if (resetBtn) resetBtn.disabled = disabled; };
+        setDisabled(true);
+        apiMutate('card-delete', { id: Number(c.id) }).then(function (ok) {
+            if (ok === false) { setDisabled(false); notify('Удаление не прошло на сервере.'); return; }
+            var ci = KBData.cards.indexOf(c);
+            if (ci >= 0) KBData.cards.splice(ci, 1);
+            if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
+            document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
+            // Диалог закрываем только если в нём открыта именно эта карточка
+            // (удаление с плитки не должно гасить чужой открытый диалог).
+            if (dialog.open && activeCard === c) closeDialog();
+            refresh();
+            notify(c.id + ' — карточка удалена в корзину.');
+        }).catch(function (err) {
+            setDisabled(false);
+            notify('Не удалено: ' + (err.detail || err.message || 'ошибка'));
+        });
+    }
     function openCard(c) {
         window.KBSelect.close();
         window.KBPayment.draft(c);
@@ -1237,20 +1326,11 @@
         if (pay) pay.onclick = function() { openPay(c); };
         var del = document.getElementById('kb-delete');
         if (del) del.onclick = function() {
-            if (!window.confirm('Удалить карточку «' + (c.title || c.id) + '»?\nОна уйдёт в корзину — восстановление через администратора.')) return;
-            // Item #9: await before mutation — откат при ошибке.
-            del.disabled = true;
-            apiMutate('card-delete', { id: Number(c.id) }).then(function (ok) {
-                if (ok === false) { del.disabled = false; notify('Удаление не прошло на сервере.'); return; }
-                var ci = KBData.cards.indexOf(c);
-                if (ci >= 0) KBData.cards.splice(ci, 1);
-                if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
-                document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
-                closeDialog(); refresh();
-                notify(c.id + ' — карточка удалена в корзину.');
-            }).catch(function (err) {
-                del.disabled = false;
-                notify('Не удалено: ' + (err.detail || err.message || 'ошибка'));
+            KBConfirm.ask({
+                title: 'Удалить карточку?',
+                message: '«' + (c.title || c.id) + '» уйдёт в корзину — восстановление через администратора.'
+            }).then(function (ok) {
+                if (ok) deleteCard(c, del); // Item #9: запрос только после подтверждения
             });
         };
     }
@@ -1426,8 +1506,13 @@
             }
             if (mode === 'Не оплачен') {
                 if (paid > 0) {
-                    if (window.confirm('Обнулить покрытие счёта (оплачено ' + money(paid) + ' BYN)? Касса клиента не меняется.'))
-                        finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
+                    KBConfirm.ask({
+                        title: 'Обнулить покрытие счёта?',
+                        message: 'Оплачено ' + money(paid) + ' BYN. Касса клиента не меняется.',
+                        confirmText: 'Обнулить'
+                    }).then(function (ok) {
+                        if (ok) finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
+                    });
                 } else {
                     finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
                 }
@@ -1491,8 +1576,25 @@
         var card = cards.find(function(c) { return c.id === cardEl.dataset.card; });
         if (card) openCard(card);
     });
+    // Фидбек 20.09: удаление прямо с плитки. Открытие карточки не мешает:
+    // кнопка отсекается guard'ом interactive в обработчике выше.
+    document.addEventListener('click', function(e) {
+        var delBtn = e.target.closest('[data-card-del]');
+        if (!delBtn) return;
+        var card = cards.find(function(c) { return c.id === delBtn.dataset.cardDel; });
+        if (!card) return;
+        KBConfirm.ask({
+            title: 'Удалить карточку?',
+            message: '«' + (card.title || card.id) + '» уйдёт в корзину — восстановление через администратора.'
+        }).then(function (ok) {
+            if (ok) deleteCard(card, null);
+        });
+    });
     document.addEventListener('keydown', function(e) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
+        // Enter/Space на кнопке удаления — её родное действие, не открытие.
+        var delEl = e.target.closest ? e.target.closest('.kb-card-del') : null;
+        if (delEl) return;
         var cardEl = e.target.closest ? e.target.closest('[data-card][role="button"]') : null;
         if (!cardEl) return;
         e.preventDefault();
@@ -1803,11 +1905,15 @@
                 })
                 .catch(function (e2) { notify('Не восстановлено: ' + (e2.detail || e2.message || 'ошибка')); });
         } else if (purge) {
-            if (window.confirm('Удалить карточку НАВСЕГДА? Восстановить будет невозможно.')) {
+            KBConfirm.ask({
+                title: 'Удалить карточку НАВСЕГДА?',
+                message: 'Восстановить будет невозможно.'
+            }).then(function (ok) {
+                if (!ok) return;
                 window.V2Api.api('/kanban/cards/' + purge.dataset.trashPurge + '/permanent', { method: 'DELETE' })
                     .then(function () { trashCache = trashCache.filter(function (c) { return String(c.id) !== purge.dataset.trashPurge; }); renderTrash(); notify('Карточка удалена навсегда.'); })
                     .catch(function (e2) { notify('Не удалено: ' + (e2.detail || e2.message || 'ошибка')); });
-            }
+            });
         }
     });
     document.getElementById('kb-queue-body').addEventListener('change', function (e) {
