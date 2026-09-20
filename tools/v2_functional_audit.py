@@ -171,7 +171,15 @@ with sync_playwright() as p:
     drow = page.locator("#fin-document-rows tr", has_text="AUDIT v2 тест").first
     if not drow.locator("input[data-field='tnHere']").is_checked():
         drow.locator("input[data-field='tnHere']").click(); page.wait_for_timeout(800)
-    drow.locator("select.fprint-select").select_option("Печать"); page.wait_for_timeout(800)
+    # С 9bdba57 нативный select скрыт (паттерн kb-select): значение ставим
+    # нативному select'у и диспатчим input+change — ровно то, что делает
+    # shell-v2-select.js при выборе опции пользователем.
+    drow.locator("select.fprint-select").evaluate(
+        "el => { const opt = [...el.options].find(o => o.textContent.trim() === 'Печать');"
+        " el.value = opt ? opt.value : 'Печать';"
+        " el.dispatchEvent(new Event('input', {bubbles: true}));"
+        " el.dispatchEvent(new Event('change', {bubbles: true})); }"
+    ); page.wait_for_timeout(800)
     page.reload(); page.wait_for_timeout(3000)
     page.locator("[data-view=fin]").first.click(timeout=5000)
     page.locator("[data-fin-tab]", has_text="Документ").first.click(timeout=4000)
