@@ -617,18 +617,96 @@
     function fmtKop(v) {
         return (Math.round(v) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    function askFields(client) {
-        var name = window.prompt('Имя клиента*', client ? (client.name || '') : '');
-        if (name === null) return null;
-        name = name.trim();
-        if (!name) { window.alert('Имя обязательно'); return null; }
-        var phone = window.prompt('Телефон', client ? (client.phone || '') : '') || '';
-        var unp = window.prompt('УНП', client ? (client.unp || '') : '') || '';
-        var contact = window.prompt('Контактное лицо', client ? (client.contact_person || '') : '') || '';
-        var address = window.prompt('Адрес', client ? (client.address || '') : '') || '';
-        return { name: name, phone: phone.trim(), unp: unp.trim(), contact_person: contact.trim(), address: address.trim() };
+    // Свои esc: esc из первого IIFE сюда не виден, а значения клиента
+    // (например contact_person из импорта писем) подставляются в value-атрибут.
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
     }
     function refreshAll() { location.reload(); }
+
+    // Локальный тост по образцу management.js: alert блокирует страницу,
+    // тост — нет (kb-toast живёт в прототипе глобально).
+    function toast(text, isError) {
+        var t = document.getElementById('kb-toast');
+        if (!t) return;
+        t.hidden = false;
+        t.textContent = text;
+        t.classList.toggle('toast-error', Boolean(isError));
+        setTimeout(function () { t.hidden = true; t.classList.remove('toast-error'); }, 4000);
+    }
+
+    // Фидбек 20.09: создание/редактирование клиента было цепочкой нативных
+    // window.prompt («каждое поле отдельно по очереди») — заменено одной
+    // формой-диалогом в стиле mgmt-dialog админки (класс .v2-form-dialog
+    // из management.css). Поля те же пять, что были в prompt-цепочке.
+    var CL_FIELDS = [
+        ['name', 'Имя клиента*', true, 'text'],
+        ['phone', 'Телефон', false, 'tel'],
+        ['unp', 'УНП', false, 'text'],
+        ['contact_person', 'Контактное лицо', false, 'text'],
+        ['address', 'Адрес', false, 'text']
+    ];
+    var clDialog = null;
+    var clResolve = null;
+    var clOpener = null;
+    function ensureClientDialog() {
+        if (clDialog) return clDialog;
+        clDialog = document.createElement('dialog');
+        clDialog.id = 'cl-dialog';
+        clDialog.className = 'v2-form-dialog';
+        clDialog.setAttribute('aria-labelledby', 'cl-dialog-title');
+        // Любое закрытие без сабмита («Отмена», Escape/cancel, клик мимо
+        // невозможен у showModal) — отмена: отдаём null и возвращаем фокус.
+        clDialog.addEventListener('close', function () {
+            var resolve = clResolve;
+            clResolve = null;
+            if (resolve) resolve(null);
+            if (clOpener && clOpener.isConnected) clOpener.focus();
+            clOpener = null;
+            // B4-паттерн mgmt-dialog: чистим форму, чтобы скрытые required-поля
+            // не блокировали следующий сабмит.
+            clDialog.innerHTML = '';
+        });
+        document.body.append(clDialog);
+        return clDialog;
+    }
+    function openClientForm(client, opener) {
+        if (!window.V2Api || !window.V2Api.token()) {
+            toast('Доступно только при подключении к CRM.', true);
+            return Promise.resolve(null);
+        }
+        var dlg = ensureClientDialog();
+        clOpener = opener || null;
+        dlg.innerHTML = '<form id="cl-form"><h2 id="cl-dialog-title">' + (client ? 'Редактирование клиента' : 'Новый клиент') + '</h2>' +
+            '<div class="mgmt-fields">' + CL_FIELDS.map(function (f) {
+                var value = client ? (client[f[0]] || '') : '';
+                return '<label for="cl-f-' + f[0] + '"><span>' + f[1] + '</span>' +
+                    '<input id="cl-f-' + f[0] + '" name="' + f[0] + '" type="' + f[3] + '"' +
+                    (f[2] ? ' required' : '') + ' value="' + esc(value) + '"></label>';
+            }).join('') + '</div>' +
+            '<p id="cl-form-error" role="alert"></p>' +
+            '<div class="mgmt-actions"><button class="btn btn-ghost" type="button" data-cl-cancel>Отмена</button>' +
+            '<button class="btn btn-ghost" type="submit">Сохранить</button></div></form>';
+        dlg.querySelector('[data-cl-cancel]').addEventListener('click', function () { dlg.close(); });
+        dlg.querySelector('#cl-form').addEventListener('submit', function (event) {
+            event.preventDefault();
+            var raw = Object.fromEntries(new FormData(event.target));
+            var values = {};
+            Object.keys(raw).forEach(function (k) { values[k] = String(raw[k]).trim(); });
+            // Валидация имени — как в прежней prompt-цепочке.
+            if (!values.name) { dlg.querySelector('#cl-form-error').textContent = 'Имя обязательно.'; return; }
+            var resolve = clResolve;
+            clResolve = null;
+            dlg.close();
+            if (resolve) resolve(values);
+        });
+        var promise = new Promise(function (resolve) { clResolve = resolve; });
+        dlg.showModal();
+        dlg.querySelector('#cl-f-name').focus();
+        return promise;
+    }
 
     function openNewDealFor(clientId) {
         var cl = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === numeric(clientId); })[0];
@@ -668,13 +746,18 @@
     });
 
     var newBtn = document.getElementById('cl-new');
-    if (newBtn) newBtn.addEventListener('click', function () {
-        if (!window.V2Api || !window.V2Api.token()) { window.alert('Доступно только при подключении к CRM.'); return; }
-        var fields = askFields(null);
-        if (!fields) return;
-        window.V2Api.api('/clients', { method: 'POST', body: fields })
-            .then(function () { window.alert('Клиент создан.'); refreshAll(); })
-            .catch(function (e) { window.alert('Не создано: ' + (e.detail || e.message || 'ошибка')); });
+    if (newBtn) newBtn.addEventListener('click', function (event) {
+        openClientForm(null, event.currentTarget).then(function (fields) {
+            if (!fields) return;
+            window.V2Api.api('/clients', { method: 'POST', body: fields })
+                .then(function () {
+                    // Тост должен успеть показаться до перезагрузки — раньше
+                    // эту паузу держал модальный alert.
+                    toast('Клиент создан.');
+                    setTimeout(refreshAll, 600);
+                })
+                .catch(function (e) { toast('Не создано: ' + (e.detail || e.message || 'ошибка'), true); });
+        });
     });
 
     document.addEventListener('click', function (event) {
@@ -683,11 +766,12 @@
             var num = numeric(editBtn.dataset.clEdit);
             var client = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === num; })[0];
             if (!client) return;
-            var fields = askFields(client);
-            if (!fields) return;
-            window.V2Api.api('/clients/' + num, { method: 'PATCH', body: fields })
-                .then(function () { window.alert('Клиент сохранён.'); refreshAll(); })
-                .catch(function (e) { window.alert('Не сохранено: ' + (e.detail || e.message || 'ошибка')); });
+            openClientForm(client, editBtn).then(function (fields) {
+                if (!fields) return;
+                window.V2Api.api('/clients/' + num, { method: 'PATCH', body: fields })
+                    .then(function () { toast('Клиент сохранён.'); setTimeout(refreshAll, 600); })
+                    .catch(function (e) { toast('Не сохранено: ' + (e.detail || e.message || 'ошибка'), true); });
+            });
             return;
         }
         var delBtn = event.target.closest('[data-cl-delete]');

@@ -3,29 +3,31 @@
 [data-mgmt] .tbl { min-width: 640px; }
 [data-mgmt] .tbl td { white-space: normal; overflow-wrap: anywhere; }
 [data-mgmt] .search-pill { min-height: 38px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); font: inherit; }
-[data-mgmt] .btn, #mgmt-dialog .btn { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); box-shadow: none; }
-[data-mgmt] .btn:hover, #mgmt-dialog .btn:hover { background: var(--surface-3, var(--surface-2)); }
-#mgmt-dialog { margin: auto; width: min(560px, calc(100% - 24px)); max-height: calc(100dvh - 24px); padding: 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: auto; font: inherit; }
-#mgmt-dialog::backdrop { background: rgb(0 0 0 / .3); }
+[data-mgmt] .btn, #mgmt-dialog .btn, .v2-form-dialog .btn { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); box-shadow: none; }
+[data-mgmt] .btn:hover, #mgmt-dialog .btn:hover, .v2-form-dialog .btn:hover { background: var(--surface-3, var(--surface-2)); }
+/* .v2-form-dialog — общий вид формы-диалога вне админки (например,
+   клиентская форма #cl-dialog в «Пульте дня»); стили те же, что у #mgmt-dialog. */
+#mgmt-dialog, .v2-form-dialog { margin: auto; width: min(560px, calc(100% - 24px)); max-height: calc(100dvh - 24px); padding: 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: auto; font: inherit; }
+#mgmt-dialog::backdrop, .v2-form-dialog::backdrop { background: rgb(0 0 0 / .3); }
 /* Диалог: короткий вход; выход мгновенный (частые формы — без лишнего движения) */
-#mgmt-dialog[open] { animation: mgmt-dialog-in var(--dur-enter) var(--ease); }
+#mgmt-dialog[open], .v2-form-dialog[open] { animation: mgmt-dialog-in var(--dur-enter) var(--ease); }
 @keyframes mgmt-dialog-in { from { transform: translateY(8px) scale(.98); opacity: 0; } }
-#mgmt-dialog[open]::backdrop { animation: mgmt-backdrop-in var(--dur-enter) var(--ease); }
+#mgmt-dialog[open]::backdrop, .v2-form-dialog[open]::backdrop { animation: mgmt-backdrop-in var(--dur-enter) var(--ease); }
 @keyframes mgmt-backdrop-in { from { opacity: 0; } }
-#mgmt-dialog h2 { font-size: 18px; margin-bottom: 16px; }
+#mgmt-dialog h2, .v2-form-dialog h2 { font-size: 18px; margin-bottom: 16px; }
 .mgmt-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .mgmt-fields label { display: flex; flex-direction: column; min-width: 0; gap: 4px; font-size: 12px; }
 .mgmt-fields label:has(textarea) { grid-column: 1 / -1; }
-#mgmt-dialog :is(input,textarea,select) { min-width: 0; width: 100%; min-height: 38px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); font: inherit; background: var(--surface); color: var(--text); }
-#mgmt-dialog textarea { resize: vertical; }
-#mgmt-dialog :is(button,input,textarea,select):focus-visible, [data-mgmt] :is(button,input):focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; box-shadow: none; }
+#mgmt-dialog :is(input,textarea,select), .v2-form-dialog :is(input,textarea,select) { min-width: 0; width: 100%; min-height: 38px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); font: inherit; background: var(--surface); color: var(--text); }
+#mgmt-dialog textarea, .v2-form-dialog textarea { resize: vertical; }
+#mgmt-dialog :is(button,input,textarea,select):focus-visible, .v2-form-dialog :is(button,input,textarea,select):focus-visible, [data-mgmt] :is(button,input):focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; box-shadow: none; }
 .mgmt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-#mgmt-error { color: var(--danger); font-size: 12px; }
+#mgmt-error, #cl-form-error { color: var(--danger); font-size: 12px; }
 #view-fin .fin-check input { accent-color: var(--muted); }
 @media(max-width:540px) {
     .mgmt-fields { grid-template-columns: minmax(0,1fr); }
     [data-mgmt] .card-head .right { width: 100%; margin-left: 0; }
     [data-mgmt] .search-pill { width: 100%; min-width: 0 !important; }
-    #mgmt-dialog :is(input,textarea,select) { font-size: 16px; }
+    #mgmt-dialog :is(input,textarea,select), .v2-form-dialog :is(input,textarea,select) { font-size: 16px; }
 }
-@media(pointer:coarse) { [data-mgmt] .btn, #mgmt-dialog .btn { min-height:44px; } }
+@media(pointer:coarse) { [data-mgmt] .btn, #mgmt-dialog .btn, .v2-form-dialog .btn { min-height:44px; } }
