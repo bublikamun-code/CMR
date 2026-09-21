@@ -80,6 +80,7 @@ def main():
         shutil.rmtree(OUT)
     (OUT / "css").mkdir(parents=True)
     (OUT / "js" / "v2").mkdir(parents=True)
+    (OUT / "fonts").mkdir(parents=True)
 
     (OUT / "css" / "shell-v2-base.css").write_text(base_css + "\n\n" + V2_EXTRA_CSS, encoding="utf-8")
 
@@ -88,6 +89,10 @@ def main():
         shutil.copyfile(css, OUT / "css" / css.name)
     for js in MOCKUPS.glob("shell-v2-*.js"):
         shutil.copyfile(js, OUT / "js" / js.name)
+    # Шрифты (@font-face в прототипе ссылается на ../fonts/). Иммутабельный
+    # кэш на проде держится по имени файла — при замене файла переименовать.
+    for font in sorted(MOCKUPS.glob("fonts/*.woff2")):
+        shutil.copyfile(font, OUT / "fonts" / font.name)
 
     body = html
 
