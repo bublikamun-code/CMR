@@ -189,3 +189,17 @@ button.kb-att-dl {
     font: inherit;
 }
 button.kb-att-dl:hover { border-color: var(--accent); }
+
+/* Кнопка «Загрузить файлы» (label со скрытым input) — зона прикрепления;
+   .kb-drop-hot — подсветка при перетаскивании файла на пункт закупки
+   (.kb-check-item) или зону вложений (.kb-att-upload). */
+.kb-att-upload-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: inherit; font-size: 13px; color: var(--accent); cursor: pointer;
+    border: 1px dashed var(--accent); border-radius: 8px; padding: 6px 12px;
+}
+.kb-att-upload-btn:hover { background: rgba(99, 102, 241, .08); }
+.kb-att-upload-btn input { display: none; }
+.kb-check-item.kb-drop-hot { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 8px; }
+.kb-att-upload.kb-drop-hot .kb-att-upload-btn,
+.kb-inv-up.kb-drop-hot { color: var(--accent); border-color: var(--accent); background: rgba(99, 102, 241, .08); }

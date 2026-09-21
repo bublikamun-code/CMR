@@ -336,7 +336,17 @@
         });
     });
     document.addEventListener('dragend', cleanupDrag);
-    document.addEventListener('drop', cleanupDrag);
+    // Файл, брошенный мимо зон прикрепления, не должен открываться браузером
+    // вместо страницы. Перетаскивание плиток (drag != null) не трогаем —
+    // у него свои обработчики.
+    document.addEventListener('dragover', function (e) {
+        if (drag) return;
+        if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') !== -1) e.preventDefault();
+    });
+    document.addEventListener('drop', function (e) {
+        if (!drag && e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') !== -1) e.preventDefault();
+        cleanupDrag();
+    });
     document.addEventListener('keydown', function(e) { if (e.key === 'Escape') cleanupDrag(); });
     window.addEventListener('blur', cleanupDrag);
 
@@ -733,6 +743,48 @@
         updateItemFile(item);
     });
 
+    // Прикрепление файлов (жалоба 21.09: кнопка «Прикрепить файл» не
+    // открывала выбор, перетаскивание не принималось). Клик по label
+    // дублируем явным input.click(): нативная активация скрытого input
+    // ненадёжна в части WebView. Перетаскивание принимают пункт закупки
+    // (.kb-check-item → файл счёта) и зона вложений (.kb-att-upload →
+    // вложения сделки). Делегаты на dialog, потому что модалка
+    // перерисовывается при каждом openCard.
+    dialog.addEventListener('click', function (e) {
+        // Клик по самому input — это всплывший синтетический клик от нашего
+        // же input.click() ниже: без этого.guardа пикер зовётся дважды.
+        if (e.target.closest('input[type="file"]')) return;
+        var lab = e.target.closest('.kb-inv-up, .kb-att-upload-btn');
+        if (!lab) return;
+        var input = lab.querySelector('input[type="file"]');
+        if (!input) return;
+        e.preventDefault(); // гасим нативную пересылку клика label → input
+        input.click();
+    });
+    dialog.addEventListener('dragover', function (e) {
+        var zone = e.target.closest('.kb-check-item, .kb-att-upload');
+        if (!zone || !e.dataTransfer) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        zone.classList.add('kb-drop-hot');
+    });
+    dialog.addEventListener('dragleave', function (e) {
+        var zone = e.target.closest('.kb-check-item, .kb-att-upload');
+        if (zone && (!e.relatedTarget || !zone.contains(e.relatedTarget))) zone.classList.remove('kb-drop-hot');
+    });
+    dialog.addEventListener('drop', function (e) {
+        var zone = e.target.closest('.kb-check-item, .kb-att-upload');
+        if (!zone || !e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+        e.preventDefault();
+        zone.classList.remove('kb-drop-hot');
+        if (zone.classList.contains('kb-check-item')) {
+            var rawId = String(zone.dataset.procurementItem || '').replace(/[^0-9]/g, '');
+            uploadChecklistInvoice(rawId, e.dataTransfer.files[0]);
+        } else {
+            uploadCardAttachments(e.dataTransfer.files);
+        }
+    });
+
     function cardTabContent(c, currentStage) {
         var cl = checklistSummary(c);
         // Фидбек 18.09: клиент выбирается из справочника с поиском
@@ -951,6 +1003,26 @@
             else if (count > 0 && errs.length) notify('Загружено: ' + count + ', ошибки: ' + errs.join('; '));
             else if (errs.length) notify('Загрузка не удалась: ' + errs.join('; '));
         }
+    }
+    // Файл счёта пункта закупки: загрузка и обновление пункта на экране.
+    // Раньше имя файла оседало в c._invFiles, которое разметка не читала, —
+    // после успешной загрузки пункт продолжал показывать «Прикрепить файл»,
+    // и прикрепление выглядело сломанным. Теперь пишем в item.invFile,
+    // который рендерит cardTabContent (как это уже делает открепление).
+    function uploadChecklistInvoice(id, file) {
+        if (!id || !file || !window.V2Api || !window.V2Api.token()) return;
+        if (file.size > 25 * 1024 * 1024) { notify('Файл больше 25 МБ.'); return; }
+        window.V2Api.upload('/checklists/' + id + '/invoice', file).then(function (resp) {
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return resp.json();
+        }).then(function (saved) {
+            if (saved.invoice_file_name) {
+                var item = procurementItem('ck-' + id);
+                if (item) item.invFile = saved.invoice_file_name;
+                openCard(activeCard);
+            }
+            notify('Файл счёта прикреплён.');
+        }).catch(function (e2) { notify('Файл не прикреплён: ' + (e2.detail || e2.message || 'ошибка')); });
     }
     // Привязка обработчиков удаления и загрузки вложений
     function bindAttachmentActions() {
@@ -1190,6 +1262,9 @@
         };
         selectTab(selectedTab, false);
         bindAttachmentDownloads();
+        // Раньше не вызывалась вовсе: «Загрузить файлы» у вложений сделки
+        // и кнопки «✕» удаления были мёртвыми.
+        bindAttachmentActions();
         loadCardHistory(c);
         initCardCombos();
         loadWarehouseFlags(c);
@@ -1271,21 +1346,7 @@
         });
         dialog.querySelectorAll('.kb-inv-input').forEach(function (inp) {
             inp.addEventListener('change', function () {
-                var id = inp.dataset.invUp;
-                var file = inp.files && inp.files[0];
-                if (!id || !file) return;
-                if (file.size > 25 * 1024 * 1024) { notify('Файл больше 25 МБ.'); return; }
-                window.V2Api.upload('/checklists/' + id + '/invoice', file).then(function (resp) {
-                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    return resp.json();
-                }).then(function (saved) {
-                    if (saved.invoice_file_name) {
-                        c._invFiles = c._invFiles || {};
-                        c._invFiles[id] = saved.invoice_file_name;
-                        openCard(c);
-                    }
-                    notify('Файл счёта прикреплён.');
-                }).catch(function (e2) { notify('Файл не прикреплён: ' + (e2.detail || e2.message || 'ошибка')); });
+                uploadChecklistInvoice(inp.dataset.invUp, inp.files && inp.files[0]);
             });
         });
         // Добавление пункта закупки: поставщик из справочника (можно вписать
