@@ -15,12 +15,16 @@
             const s = document.createElement('script');
             // Кэш-штамп сборки: после деплоя браузер не держит старый модуль
             s.src = src + (window.V2_ASSET_VER ? '?v=' + window.V2_ASSET_VER : '');
+            // async=false: скачиваются все параллельно, исполняются строго
+            // в порядке вставки (последовательная закачка по одному RTT
+            // тормозила первый вход на мобильных — жалоба 21.09).
+            s.async = false;
             s.onload = resolve;
             s.onerror = function () { reject(new Error('не загрузился ' + src)); };
             document.head.appendChild(s);
         });
     }
-    async function injectAll(list) { for (const src of list) await inject(src); }
+    async function injectAll(list) { await Promise.all(list.map(inject)); }
 
     // Канон статусов сделки (schemas.CARD_STATUSES) → идентификаторы/цвета v2.
     const STATUS_MAP = [
