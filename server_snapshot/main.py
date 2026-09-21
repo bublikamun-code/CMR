@@ -211,11 +211,25 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # остаётся на / до переключения; откат /v2 — снятие маунта.
 app.mount("/v2", StaticFiles(directory="site-v2", html=True), name="v2")
 
-# site-v2 активно правится: кэш браузера не должен переживать деплой.
-# no-cache — переvalidation по ETag/Last-Modified, не запрет кэширования.
+# Кэш-политика /v2. HTML всегда no-cache — он держит штампы ?v= и должен
+# перепроверяться при каждом входе, иначе после деплоя браузер смешает новый
+# HTML со старой статикой. Штампованная статика (css/, js/) — иммутабельный
+# годовой кэш: контент меняется → пересборка меняет штамп → меняется URL
+# (?v=...), поэтому «вечное» кэширование безопасно. Шрифты в CSS url()
+# без штампа — их версия зашита в имя файла (см. build_site_v2.py).
+# no-cache — revalidation по ETag, не запрет кэширования.
+# Правка 21.09: раньше no-cache стоял на всём /v2*, и каждый вход гонял
+# ~20 условных запросов — на мобильном RTT это давало десятки секунд до
+# отрисовки (жалоба «канбан появляется через 20 секунд»).
+V2_IMMUTABLE_PREFIXES = ("/v2/css/", "/v2/js/", "/v2/fonts/")
+
 @app.middleware("http")
-async def no_cache_v2(request, call_next):
+async def v2_cache_headers(request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith("/v2"):
-        response.headers["Cache-Control"] = "no-cache"
+    path = request.url.path
+    if path.startswith("/v2"):
+        if path.startswith(V2_IMMUTABLE_PREFIXES):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
     return response
