@@ -346,6 +346,14 @@
                 date: isoToRu(g.invoice_date || (groupDoc && groupDoc.invoice_date) || ''),
                 amount: kopecks(g.total_amount),
                 writtenOff: Boolean(g.written_off),
+                // «ТН у нас» / «Счёт у нас» группы — флаги её записи-документа
+                // (is_invoice_doc / is_bill_doc), как у одиночных сделок в
+                // buildFinSource (docTxId/tnHere/billHere там). Без docTxId
+                // переключатель оригиналов в «Документах» не знал, какую
+                // запись править, и галочка группы не сохранялась.
+                docTxId: groupDoc ? groupDoc.id : null,
+                tnHere: Boolean(groupDoc && groupDoc.is_invoice_doc),
+                billHere: Boolean(groupDoc && groupDoc.is_bill_doc),
                 // Покрытие по карточкам сервер не хранит — известна только сумма
                 // группы. Отмена группы идёт через сервер, а не локальным
                 // пересчётом остатков.

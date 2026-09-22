@@ -197,19 +197,11 @@ jobs:
           SSH_HOST: ${{ secrets.CRM_DEPLOY_HOST }}
         run: bash tools/deploy.sh front
 
-      # Основной фронт — v2, но CI выкатывал только site/ (замороженный legacy):
-      # site-v2 приходилось выкладывать руками, и прод молча разъезжался с main.
-      # deploy.sh v2 сам пересобирает site-v2 из mockups и синхронизирует его
-      # с --delete, поэтому удалённые модули на проде не остаются. Свежесть
-      # артефакта в git к этому моменту уже подтверждена гейтом в job `test`.
-      # Рестарт PM2 не нужен: это статика (HTML v2 отдаётся с no-cache).
-      - name: Deploy v2 frontend
-        if: ${{ env.HAS_SECRETS == 'true' }}
-        env:
-          SSH_KEY: ~/.ssh/crm_svetvdome_deploy
-          SSH_USER: ${{ secrets.CRM_DEPLOY_USER }}
-          SSH_HOST: ${{ secrets.CRM_DEPLOY_HOST }}
-        run: bash tools/deploy.sh v2
+      # Решение владельца 23.09: автодеплой v2 из CI НЕ включать — выкатка
+      # основного фронта остаётся ручным действием (tools/deploy.sh v2), как и
+      # предусмотрено AGENTS.md («деплой — по договорённости с владельцем, не
+      # автоматом»). Гейт свежести site-v2 в job `test` оставлен: он ничего не
+      # деплоит и не даёт разъехаться mockups и артефакту в git.
 
       - name: Skip deploy (no secrets configured)
         if: ${{ env.HAS_SECRETS != 'true' }}

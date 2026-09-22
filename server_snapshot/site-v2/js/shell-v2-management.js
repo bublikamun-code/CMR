@@ -250,50 +250,236 @@
     });
 
     /* --- Уведомления: колокольчик --- */
+    // Пункт 10 плана (аудит F9): раскрытие колокольчика БОЛЬШЕ НЕ меняет
+    // статусы — авто-POST /notifications/read {ids:[]} на каждое открытие
+    // убран. Прочтение теперь только явное: «Прочитать все» либо переход
+    // по конкретному уведомлению.
+    const NOTIF_TRASH = '<svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M9 6V4h6v2M6 6l1 14h10l1-14"/></svg>';
+    let notifItems = [];    // снимок списка: локальные правки без повторного GET
+    let notifUnread = 0;    // непрочитанных по данным сервера
+
+    function setBellBadge(count) {
+        const badge = $('v2-bell-count');
+        if (!badge) return;
+        badge.hidden = !count;
+        badge.textContent = count > 99 ? '99+' : String(count);
+    }
     async function refreshBellCount() {
         if (!window.V2Api.token()) return;
         try {
             const list = await window.V2Api.api('/notifications');
-            const badge = $('v2-bell-count');
-            if (!badge) return;
-            badge.hidden = !list.unread_count;
-            badge.textContent = list.unread_count > 99 ? '99+' : String(list.unread_count);
+            notifUnread = list.unread_count || 0;
+            setBellBadge(notifUnread);
         } catch (e) {
             // B1 fix: не глотаем молча — хотя колокольчик не критичен,
             // хотя бы console.warn + снимаем бейдж, чтобы не врать пользователю.
             console.warn('[bell] не удалось загрузить уведомления:', e && e.message || e);
-            const badge = $('v2-bell-count');
-            if (badge) { badge.hidden = true; badge.textContent = ''; }
+            setBellBadge(0);
         }
+    }
+
+    // Куда ведёт уведомление. Своего роутера не изобретаем: сделка открывается
+    // тем же мостом KBBoard, которым пользуются «Пульт дня» и «Клиент 360»,
+    // клиент — кликом строки его таблицы, задача — переходом в раздел «Задачи»
+    // (отдельной карточки задачи в v2 нет, как нет её и в legacy:
+    // site/js/notifications.js:99-102). Без entity_id уведомление остаётся
+    // некликабельным — мёртвых элементов в панели не держим.
+    function notifTarget(n) {
+        if (!n || !n.entity_id) return null;
+        // Ид в клиентских данных с префиксом: v2-boot-template.js собирает
+        // cards как String(id), tasks как 'task-'+id, clients как 'cl-'+id.
+        // KBBoard.open сравнивает СТРОГО (card.id === id), поэтому String().
+        if (n.entity_type === 'card') return { view: 'board', card: String(n.entity_id), label: 'Открыть сделку' };
+        if (n.entity_type === 'task') return { view: 'tasks', task: 'task-' + n.entity_id, label: 'Открыть задачу' };
+        if (n.entity_type === 'client') return { view: 'clients', client: 'cl-' + n.entity_id, label: 'Открыть карточку клиента' };
+        return null;
+    }
+    function gotoTarget(target) {
+        if (!target) return;
+        // Раздел переключаем штатным кликом по рейке: свой обработчик
+        // navigation.js отрабатывает синхронно (pushState + render), поэтому
+        // объект открываем сразу и hashchange в очереди не остаётся. Прямая
+        // запись location.hash дала бы отложенный hashchange, и render()
+        // оболочки закрыл бы только что открытую карточку сделки.
+        const link = document.querySelector('.rail [data-view="' + target.view + '"]');
+        if (link) link.click();
+        else if (location.hash !== '#' + target.view) location.hash = '#' + target.view;
+
+        if (target.card) {
+            if (window.KBBoard && window.KBBoard.open) window.KBBoard.open(target.card);
+            const dialog = $('kb-dialog');
+            if (!dialog || !dialog.open) toast('Сделка ' + target.card + ' не найдена в загруженных данных', true);
+            return;
+        }
+        // Строки задач и клиентов живут в DOM постоянно (разделы не
+        // пересоздаются), поэтому ищем их сразу. Нет строки — остаёмся в
+        // разделе: задачу могли удалить, клиент мог попасть под поиск.
+        const row = target.task
+            ? document.querySelector('#tasks-list [data-task-toggle="' + target.task + '"]')
+            : document.querySelector('#cl-rows [data-cl-id="' + target.client + '"]');
+        if (!row) return;
+        if (target.client) row.click();   // выбор клиента = существующий клик строки
+        // render() оболочки следующим кадром утаскивает фокус на #shell-content
+        // и скроллит окно в ноль — ставим фокус после него, тем же порядком rAF.
+        requestAnimationFrame(() => {
+            row.scrollIntoView({ block: 'center' });
+            row.focus({ preventScroll: true });
+        });
+    }
+
+    function headHtml(readAll) {
+        // «Прочитать все» показываем только когда есть что помечать.
+        return '<div class="v2-notif-head"><span id="v2-notif-title">Уведомления</span>' +
+            (readAll ? '<button type="button" class="btn btn-ghost btn-sm" data-notif-read-all title="Отметить все уведомления прочитанными">Прочитать все</button>' : '') +
+            '</div>';
     }
     function renderItem(n) {
         const when = n.created_at ? new Date(n.created_at).toLocaleString('ru-RU') : '';
-        return '<div class="v2-notif-item' + (n.is_read ? '' : ' unread') + '">' +
-            '<div class="v2-notif-item-title">' + esc(n.title) + (n.is_read ? '' : '<span class="v2-notif-dot"></span>') + '</div>' +
-            (n.details ? '<div class="v2-notif-item-details">' + esc(n.details) + '</div>' : '') +
-            '<div class="v2-notif-item-time">' + esc(when) + '</div></div>';
+        const target = notifTarget(n);
+        // Точка «не прочитано» декоративна — состояние дублируем текстом для скринридера.
+        const body = '<span class="v2-notif-item-title">' + (n.is_read ? '' : '<span class="v2-notif-sr">Не прочитано. </span>') + esc(n.title) + (n.is_read ? '' : '<span class="v2-notif-dot" aria-hidden="true"></span>') + '</span>' +
+            (n.details ? '<span class="v2-notif-item-details">' + esc(n.details) + '</span>' : '') +
+            '<span class="v2-notif-item-time">' + esc(when) + '</span>';
+        const main = target
+            ? '<button type="button" class="v2-notif-main" data-notif-open="' + esc(n.id) + '" title="' + esc(target.label) + '">' + body + '</button>'
+            : '<div class="v2-notif-body">' + body + '</div>';
+        return '<div class="v2-notif-item' + (n.is_read ? '' : ' unread') + '"><div class="v2-notif-row">' + main +
+            '<button type="button" class="icon-action danger v2-notif-del" data-notif-del="' + esc(n.id) + '" title="Удалить уведомление" aria-label="Удалить уведомление: ' + esc(n.title) + '">' + NOTIF_TRASH + '</button>' +
+            '</div></div>';
     }
-    $('v2-bell').addEventListener('click', async () => {
+    function renderPanel() {
         const panel = $('v2-notif-panel');
         if (!panel) return;
-        if (!panel.hidden) { panel.hidden = true; return; }
+        panel.innerHTML = headHtml(notifUnread > 0) + (notifItems.length
+            ? notifItems.map(renderItem).join('')
+            : '<div class="v2-notif-item"><p class="kb-detail-hint">Уведомлений нет.</p></div>');
+    }
+    function closePanel(restoreFocus) {
+        const panel = $('v2-notif-panel');
+        const bell = $('v2-bell');
+        if (!panel || panel.hidden) return;
+        panel.hidden = true;
+        if (!bell) return;
+        bell.setAttribute('aria-expanded', 'false');
+        // Фокус возвращаем только при закрытии с клавиатуры/колокольчика: после
+        // клика по разделу утаскивать фокус в шапку нельзя.
+        if (restoreFocus && (panel.contains(document.activeElement) || document.activeElement === bell)) bell.focus();
+    }
+    async function openPanel() {
+        const panel = $('v2-notif-panel');
+        if (!panel) return;
+        const bell = $('v2-bell');
         panel.hidden = false;
-        panel.innerHTML = '<div class="v2-notif-head">Уведомления</div><div class="v2-notif-item"><p class="kb-detail-hint">Загрузка…</p></div>';
+        if (bell) bell.setAttribute('aria-expanded', 'true');
+        panel.innerHTML = headHtml(false) + '<div class="v2-notif-item"><p class="kb-detail-hint">Загрузка…</p></div>';
         try {
             const list = await window.V2Api.api('/notifications');
-            panel.innerHTML = '<div class="v2-notif-head">Уведомления</div>' + (list.items.length
-                ? list.items.map(renderItem).join('')
-                : '<div class="v2-notif-item"><p class="kb-detail-hint">Уведомлений нет.</p></div>');
-            if (list.unread_count) {
-                await window.V2Api.api('/notifications/read', { method: 'POST', body: { ids: [] } });
-                const badge = $('v2-bell-count');
-                if (badge) { badge.hidden = true; badge.textContent = ''; }
+            notifItems = list.items || [];
+            notifUnread = list.unread_count || 0;
+            setBellBadge(notifUnread);
+            if (!panel.hidden) renderPanel();   // панель могли закрыть, пока шёл запрос
+        } catch (e) {
+            if (!panel.hidden) panel.innerHTML = headHtml(false) + '<div class="v2-notif-item"><p class="kb-detail-hint">Не удалось загрузить уведомления.</p></div>';
+        }
+    }
+    async function readAll(button) {
+        const panel = $('v2-notif-panel');
+        button.disabled = true;
+        try {
+            // ids: [] — сервер помечает ВСЕ непрочитанные текущего пользователя.
+            await window.V2Api.api('/notifications/read', { method: 'POST', body: { ids: [] } });
+            const list = await window.V2Api.api('/notifications');
+            notifItems = list.items || [];
+            notifUnread = list.unread_count || 0;
+            setBellBadge(notifUnread);
+            if (panel && !panel.hidden) {
+                renderPanel();
+                // Кнопка «Прочитать все» после пометки исчезает (нечего
+                // помечать — мёртвых кнопок не держим), поэтому уводим фокус
+                // на первое оставшееся действие панели, а не в body.
+                const first = panel.querySelector('button') || $('v2-bell');
+                if (first) first.focus();
             }
-        } catch (e) { panel.innerHTML = '<div class="v2-notif-head">Уведомления</div><div class="v2-notif-item"><p class="kb-detail-hint">Не удалось загрузить уведомления.</p></div>'; }
-    });
+        } catch (e) {
+            button.disabled = false;
+            toast('Не отмечено: ' + (e.detail || e.message || 'ошибка'), true);
+        }
+    }
+    async function openNotification(id) {
+        const n = notifItems.filter((x) => String(x.id) === String(id))[0];
+        if (!n) return;
+        const target = notifTarget(n);
+        closePanel(false);
+        gotoTarget(target);
+        if (n.is_read) return;
+        try {
+            // Одно уведомление, а не «всё»: ids: [id].
+            await window.V2Api.api('/notifications/read', { method: 'POST', body: { ids: [n.id] } });
+            n.is_read = true;
+            notifUnread = Math.max(0, notifUnread - 1);
+            setBellBadge(notifUnread);
+        } catch (e) { toast('Не отмечено: ' + (e.detail || e.message || 'ошибка'), true); }
+    }
+    async function deleteNotification(button) {
+        const panel = $('v2-notif-panel');
+        const id = button.dataset.notifDel;
+        const index = notifItems.findIndex((x) => String(x.id) === String(id));
+        button.disabled = true;
+        try {
+            await window.V2Api.api('/notifications/' + encodeURIComponent(id), { method: 'DELETE' });
+            const removed = index >= 0 ? notifItems[index] : null;
+            notifItems = notifItems.filter((x) => String(x.id) !== String(id));
+            if (removed && !removed.is_read) notifUnread = Math.max(0, notifUnread - 1);
+            setBellBadge(notifUnread);
+            if (panel && !panel.hidden) {
+                renderPanel();
+                // Фокус не должен падать в body: переводим на удаление соседнего
+                // уведомления, а когда список опустел — обратно на колокольчик.
+                const rest = panel.querySelectorAll('[data-notif-del]');
+                const next = rest.length ? rest[Math.max(0, Math.min(index, rest.length - 1))] : $('v2-bell');
+                if (next) next.focus();
+            }
+        } catch (e) {
+            button.disabled = false;
+            toast('Не удалено: ' + (e.detail || e.message || 'ошибка'), true);
+        }
+    }
+
+    const bell = $('v2-bell');
+    const notifPanel = $('v2-notif-panel');
+    // В прототипе (tools/mockups) колокольчика нет — его инжектит сборщик,
+    // поэтому без guards весь модуль падал бы на file://.
+    if (bell) {
+        bell.setAttribute('aria-controls', 'v2-notif-panel');
+        bell.setAttribute('aria-expanded', 'false');
+        bell.addEventListener('click', () => {
+            if (notifPanel && !notifPanel.hidden) closePanel(true);
+            else openPanel();
+        });
+    }
+    if (notifPanel) {
+        // Заголовок панелей рисуется вместе с содержимым, поэтому до первого
+        // открытия aria-labelledby висел бы в пустоту — кладём шапку сразу.
+        if (!notifPanel.innerHTML.trim()) notifPanel.innerHTML = headHtml(false);
+        notifPanel.setAttribute('aria-labelledby', 'v2-notif-title');
+        notifPanel.addEventListener('click', (event) => {
+            const action = event.target.closest('[data-notif-read-all], [data-notif-del], [data-notif-open]');
+            if (!action) return;
+            if (action.hasAttribute('data-notif-read-all')) readAll(action);
+            else if (action.hasAttribute('data-notif-del')) deleteNotification(action);
+            else openNotification(action.dataset.notifOpen);
+        });
+    }
     document.addEventListener('click', (event) => {
         const panel = $('v2-notif-panel');
-        if (panel && !panel.hidden && !panel.contains(event.target) && event.target.closest('#v2-bell') === null) panel.hidden = true;
+        if (panel && !panel.hidden && !panel.contains(event.target) && event.target.closest('#v2-bell') === null) closePanel(false);
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        const panel = $('v2-notif-panel');
+        // Только когда фокус в панели или на колокольчике: Escape у открытых
+        // диалогов перехватывать нельзя.
+        if (panel && !panel.hidden && (panel.contains(document.activeElement) || document.activeElement === bell)) closePanel(true);
     });
 
     // Первичная загрузка: колокольчик сразу, карточка почты — при входе в Admin.
