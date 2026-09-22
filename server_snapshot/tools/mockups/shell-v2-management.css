@@ -31,3 +31,26 @@
     #mgmt-dialog :is(input,textarea,select), .v2-form-dialog :is(input,textarea,select) { font-size: 16px; }
 }
 @media(pointer:coarse) { [data-mgmt] .btn, #mgmt-dialog .btn, .v2-form-dialog .btn { min-height:44px; } }
+
+/* ============================================================
+   Панель уведомлений (пункт 10): действие «Прочитать все»
+   в заголовке, переход к объекту и удаление одного уведомления.
+   Базовые правила панели живут в shell-v2-select.css, этот модуль
+   подключается позже — поэтому переопределяем только раскладку.
+   ============================================================ */
+.v2-notif-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.v2-notif-row { display: flex; align-items: flex-start; gap: 4px; }
+/* Переход к объекту — настоящая кнопка на всю ширину строки, но выглядит текстом.
+   padding:0 обязателен: общий сброс button (shell-v2-prototype.html) не трогает
+   внутренний отступ UA, и без него кликабельная строка съезжает относительно
+   некликабельной. Рамку фокуса не задаём — хватает общей
+   :where(button,…):focus-visible из shell-v2-controls.css. */
+.v2-notif-main { flex: 1 1 auto; min-width: 0; display: block; text-align: left; padding: 0; }
+.v2-notif-main:hover .v2-notif-item-title { color: var(--accent); }
+.v2-notif-body { flex: 1 1 auto; min-width: 0; }
+.v2-notif-main .v2-notif-item-details, .v2-notif-main .v2-notif-item-time,
+.v2-notif-body .v2-notif-item-details, .v2-notif-body .v2-notif-item-time { display: block; }
+.v2-notif-del { flex: 0 0 auto; }
+/* «Не прочитано» для скринридера: точка декоративна, состояние читаем текстом */
+.v2-notif-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media(pointer:coarse) { .v2-notif-del { width: 44px; height: 44px; } }
