@@ -844,7 +844,7 @@
             // строку; примечание ниже. Без дублей имени и нативных селектов.
             return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '">' +
                 '<div class="kb-check-line">' +
-                '<input class="kb-sup-combo" data-cl-id="' + rawId + '" value="' + esc(item.supplierName || item.label || '') + '" placeholder="Поставщик (выберите или впишите)" list="kb-suppliers-datalist" autocomplete="off">' +
+                '<input class="kb-sup-combo" data-cl-id="' + rawId + '" value="' + esc(item.supplierName || item.label || '') + '" placeholder="Поставщик (выберите или впишите)" autocomplete="off">' +
                 '<input class="kb-sup-amount" data-cl-id="' + rawId + '" value="' + esc(item.amount || '') + '" placeholder="Сумма, BYN" inputmode="decimal" style="width:110px">' +
                 invFileHtml +
                 '</div>' +
@@ -901,7 +901,6 @@
             '<p class="kb-detail-hint">Файл до 25 МБ</p>' +
             '<div class="kb-add-check">' +
             '<input id="kb-add-supplier" placeholder="Поставщик (выберите или впишите)" style="flex:1;min-width:170px">' +
-            '<datalist id="kb-suppliers-datalist">' + (KBData.suppliers || []).map(function (s) { return '<option value="' + esc(s.name) + '"></option>'; }).join('') + '</datalist>' +
             '<input id="kb-add-amount" inputmode="decimal" placeholder="Сумма, BYN" style="width:120px">' +
             '<button type="button" class="btn btn-primary btn-sm" id="kb-add-check">Добавить</button></div>' +
             (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
