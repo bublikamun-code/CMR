@@ -70,6 +70,17 @@ jobs:
         with:
           python-version: '3.11'
 
+      # site-v2 — генерируемый каталог, но в git он лежит обычными файлами.
+      # Гейт собирает эталон из tools/mockups во временный каталог и сверяет его
+      # с артефактом, рабочее дерево не меняется. Без него правка источников
+      # без пересборки уезжает в main молча: tools/deploy.sh v2 пересобирает
+      # артефакт на месте, а docker-образ бэкенда (COPY server_snapshot/ .)
+      # печёт то, что лежит в git. Ставится ДО установки зависимостей — нужны
+      # только stdlib и python3, а падать лучше за секунды, а не после pip.
+      # Провал здесь блокирует deploy-production через needs: [build, test, ...].
+      - name: Verify site-v2 is up to date with its sources
+        run: python3 server_snapshot/tools/check_site_v2_fresh.py
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -185,6 +196,20 @@ jobs:
           SSH_USER: ${{ secrets.CRM_DEPLOY_USER }}
           SSH_HOST: ${{ secrets.CRM_DEPLOY_HOST }}
         run: bash tools/deploy.sh front
+
+      # Основной фронт — v2, но CI выкатывал только site/ (замороженный legacy):
+      # site-v2 приходилось выкладывать руками, и прод молча разъезжался с main.
+      # deploy.sh v2 сам пересобирает site-v2 из mockups и синхронизирует его
+      # с --delete, поэтому удалённые модули на проде не остаются. Свежесть
+      # артефакта в git к этому моменту уже подтверждена гейтом в job `test`.
+      # Рестарт PM2 не нужен: это статика (HTML v2 отдаётся с no-cache).
+      - name: Deploy v2 frontend
+        if: ${{ env.HAS_SECRETS == 'true' }}
+        env:
+          SSH_KEY: ~/.ssh/crm_svetvdome_deploy
+          SSH_USER: ${{ secrets.CRM_DEPLOY_USER }}
+          SSH_HOST: ${{ secrets.CRM_DEPLOY_HOST }}
+        run: bash tools/deploy.sh v2
 
       - name: Skip deploy (no secrets configured)
         if: ${{ env.HAS_SECRETS != 'true' }}
