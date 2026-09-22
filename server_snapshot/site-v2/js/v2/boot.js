@@ -10,9 +10,23 @@
         const el = document.getElementById('shell-source');
         if (el) el.textContent = t;
     };
+    // Реестр уже вставленных модулей. «Повторить» на экране ошибки снова зовёт
+    // bootApi(), а повторное исполнение модуля удваивает его document/window-
+    // слушатели и оставляет второй экземпляр доски на своём массиве
+    // KBData.cards (правки первого «отскакивают»). Ключ — исходный путь:
+    // s.src дополняется кэш-штампом '?v=…'.
+    const injected = {};
     function inject(src) {
+        if (injected[src] || document.querySelector('script[data-v2-src="' + src + '"]')) {
+            injected[src] = true;
+            return Promise.resolve();
+        }
+        injected[src] = true;
         return new Promise(function (resolve, reject) {
             const s = document.createElement('script');
+            // data-v2-src — исходный путь без штампа: по нему в DevTools видны
+            // дубли, и он же подстраховывает реестр (скрипт мог быть в разметке).
+            s.dataset.v2Src = src;
             // Кэш-штамп сборки: после деплоя браузер не держит старый модуль
             s.src = src + (window.V2_ASSET_VER ? '?v=' + window.V2_ASSET_VER : '');
             // async=false: скачиваются все параллельно, исполняются строго
@@ -20,7 +34,13 @@
             // тормозила первый вход на мобильных — жалоба 21.09).
             s.async = false;
             s.onload = resolve;
-            s.onerror = function () { reject(new Error('не загрузился ' + src)); };
+            s.onerror = function () {
+                // Сбой не засчитывается как вставка: «Повторить» обязан
+                // скачать модуль снова, иначе bootApi() отклонится и на нём.
+                delete injected[src];
+                s.remove();
+                reject(new Error('не загрузился ' + src));
+            };
             document.head.appendChild(s);
         });
     }
@@ -57,6 +77,38 @@
         const clean = String(name || '').replace(/[^A-Za-zА-Яа-яЁё ]/g, ' ').trim();
         const words = clean.split(/\s+/).filter(Boolean);
         return (words.length > 1 ? words[0][0] + words[1][0] : clean.slice(0, 2)).toUpperCase() || '··';
+    }
+
+    // Обновление коллекций «на месте»: модули v2 держат ссылки на window.KBData,
+    // его массивы и window.KB_FIN_SOURCE (board.js: `var cards = KBData.cards`,
+    // insights.js: `var D = window.KBData`, fin: `const finSource = ...`), поэтому
+    // подмена объекта оставила бы их на устаревших данных до F5.
+    // Массивы чистятся и наполняются заново (идентичность сохраняется),
+    // вложенные plain-объекты сливаются рекурсивно, остальное присваивается.
+    // Date и функции не plain-объекты по Object.prototype.toString — не рекурсим.
+    function applyInPlace(target, fresh) {
+        if (!target || !fresh) return target;
+        const isPlain = function (v) { return Object.prototype.toString.call(v) === '[object Object]'; };
+        Object.keys(fresh).forEach(function (key) {
+            const next = fresh[key];
+            const prev = target[key];
+            if (Array.isArray(prev) && Array.isArray(next)) {
+                prev.length = 0;
+                next.forEach(function (item) { prev.push(item); });
+                return;
+            }
+            if (isPlain(prev) && isPlain(next)) {
+                applyInPlace(prev, next);
+                // Устаревших ключей (снятый с сервера справочник, удалённая
+                // транзакция) в свежей картине быть не должно.
+                Object.keys(prev).forEach(function (k) {
+                    if (!Object.prototype.hasOwnProperty.call(next, k)) delete prev[k];
+                });
+                return;
+            }
+            target[key] = next;
+        });
+        return target;
     }
 
     function buildKbData(payload) {
@@ -301,7 +353,7 @@
             };
         });
 
-        window.KBData = {
+        const next = {
             // Единый источник «сегодня» — UTC-дата (не зависит от пояса клиента).
             today: (function () {
                 const iso = window.KBApi && window.KBApi.todayUTC ? window.KBApi.todayUTC() : '';
@@ -318,6 +370,11 @@
             groups: groups,
             nextGroupId: 1
         };
+        // При перезагрузке без F5 объект не подменяем: модули держат ссылку
+        // на window.KBData и на его массивы (см. applyInPlace). Методы ниже
+        // не входят в next и пересоздаются каждым вызовом — их не затираем.
+        if (window.KBData) applyInPlace(window.KBData, next);
+        else window.KBData = next;
         window.KBData.statusColor = function (status) {
             const value = String(status.color || '').replace(/^#/, '');
             return /^[0-9a-f]{6}$/i.test(value) ? '#' + value : 'var(--' + (value || 'faint') + ')';
@@ -403,12 +460,28 @@
         }
         const results = settled.map(function (s) { return s.value; });
         buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5], groups: results[10] });
-        window.KB_FIN_SOURCE = buildFinSource(window.KBData.cards, results[5], results[6], results[9]);
+        // Фин-модуль захватывает и объект, и его массивы (`const finSource =
+        // window.KB_FIN_SOURCE`, `const outgoing = finSource.outgoing`) —
+        // поэтому реестры тоже обновляются на месте, а не подменой.
+        const finSource = buildFinSource(window.KBData.cards, results[5], results[6], results[9]);
+        if (window.KB_FIN_SOURCE) applyInPlace(window.KB_FIN_SOURCE, finSource);
+        else window.KB_FIN_SOURCE = finSource;
         // Фидбек 18.09: журнал сделки в v2 — из CRM (GET /activity?card_id),
         // включая «Импорт почты» с текстом письма. В демо-режиме загрузчика
         // нет — вкладка остаётся на локальных событиях.
         window.KBData.loadCardActivity = async function (cardId) {
             return await window.V2Api.api('/activity?card_id=' + encodeURIComponent(cardId) + '&limit=100');
+        };
+        // Перезагрузка данных без F5: KBApi.all() заново читает разделы и
+        // обновляет коллекции на месте, подписчики (доска) перерисовываются
+        // по событию kb:reloaded. Ошибка пробрасывается вызывающему коду.
+        window.KBData.reload = async function () {
+            if (!window.KBApi || !window.KBApi.all) return null;
+            const data = await window.KBApi.all();
+            // null — загрузчик не зарегистрирован (демо): данных нет, события нет.
+            if (!data) return null;
+            document.dispatchEvent(new CustomEvent('kb:reloaded'));
+            return data;
         };
         // B9: регистрируем загрузчик для KBApi.all() (коалесинг перезагрузок).
         if (window.KBApi && window.KBApi._setFetcher) {
@@ -538,6 +611,34 @@
                     if (fields.note === '') delete fields.note;
                     if (fields.description === '') delete fields.description;
                     await window.V2Api.api('/cards/' + payload.id, { method: 'PATCH', body: fields });
+                } else if (kind === 'card-create') {
+                    // Создание сделки с доски. Возвращаем объект карточки из
+                    // ответа сервера — доске нужен id новой сделки. Отказ отдаём
+                    // текстом ({ error }), а не в общий catch ниже: тот пишет
+                    // тост без стиля ошибки, и форма осталась бы без причины.
+                    try {
+                        return await window.V2Api._guardCreate(
+                            'card-create:' + payload.title,
+                            function () {
+                                return window.V2Api.api('/kanban/cards', {
+                                    method: 'POST',
+                                    // owner_id не шлём: сервер подставит текущего пользователя
+                                    body: {
+                                        title: payload.title,
+                                        status: payload.status,
+                                        total_amount: payload.total_amount,
+                                        priority: payload.priority,
+                                        client_id: payload.client_id,
+                                        store_location: payload.store_location,
+                                        due_date: payload.due_date
+                                    }
+                                });
+                            }
+                        );
+                    } catch (createErr) {
+                        const detail = createErr && createErr.detail;
+                        return { error: (typeof detail === 'string' && detail) || (createErr && createErr.message) || 'ошибка' };
+                    }
                 } else if (kind === 'status') {
                     // A6: не слать пустую заметку при смене статуса.
                     var sp = { status: payload.status };
@@ -673,6 +774,10 @@
             }
         };
     }
+    // showLogin() вызывается и на старте, и по «Повторить» после сбоя загрузки:
+    // без флага слушатель сабмита накладывался бы снова и одно нажатие «Войти»
+    // отправляло несколько POST /auth/login (и несколько bootApi()).
+    var loginBound = false;
     function showLogin(message) {
         setText('Требуется вход');
         const overlay = document.getElementById('login-overlay');
@@ -680,29 +785,32 @@
         overlay.hidden = false;
         const errorEl = document.getElementById('login-error');
         if (message) errorEl.textContent = message;
-        document.getElementById('login-form').addEventListener('submit', async function (e) {
-            e.preventDefault();
-            errorEl.textContent = '';
-            const button = document.getElementById('login-submit');
-            button.disabled = true;
-            try {
-                const result = await window.V2Api.login(
-                    document.getElementById('login-username').value.trim(),
-                    document.getElementById('login-password').value,
-                    document.getElementById('login-remember').checked
-                );
-                // Токен сохраняем сразу; роль будет уточнена из /auth/me в bootApi() (B6).
-                window.V2Api.save(result.access_token, result.role);
-                overlay.hidden = true;
-                // bootApi() вызовет /auth/me и перезапишет роль подтверждённой.
-                await bootApi();
-            } catch (err) {
-                errorEl.textContent = err.unauthorized || err.status === 401 ? 'Неверное имя пользователя или пароль.' :
-                    err.status === 429 ? 'Слишком много попыток входа. Подождите минуту.' :
-                    'Сервер недоступен. Проверьте подключение и адрес API.';
-                button.disabled = false;
-            }
-        });
+        if (!loginBound) {
+            loginBound = true;
+            document.getElementById('login-form').addEventListener('submit', async function (e) {
+                e.preventDefault();
+                errorEl.textContent = '';
+                const button = document.getElementById('login-submit');
+                button.disabled = true;
+                try {
+                    const result = await window.V2Api.login(
+                        document.getElementById('login-username').value.trim(),
+                        document.getElementById('login-password').value,
+                        document.getElementById('login-remember').checked
+                    );
+                    // Токен сохраняем сразу; роль будет уточнена из /auth/me в bootApi() (B6).
+                    window.V2Api.save(result.access_token, result.role);
+                    overlay.hidden = true;
+                    // bootApi() вызовет /auth/me и перезапишет роль подтверждённой.
+                    await bootApi();
+                } catch (err) {
+                    errorEl.textContent = err.unauthorized || err.status === 401 ? 'Неверное имя пользователя или пароль.' :
+                        err.status === 429 ? 'Слишком много попыток входа. Подождите минуту.' :
+                        'Сервер недоступен. Проверьте подключение и адрес API.';
+                    button.disabled = false;
+                }
+            });
+        }
         document.getElementById('login-username').focus();
     }
 

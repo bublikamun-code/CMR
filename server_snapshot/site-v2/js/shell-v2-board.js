@@ -418,6 +418,28 @@
         document.dispatchEvent(new CustomEvent('kb:documents', { detail: cards }));
         document.dispatchEvent(new CustomEvent('kb:groups', { detail: KBData.groups }));
     }
+    // Перечитать данные с сервера без F5. Если загрузчик недоступен (прототип
+    // на демо-данных) или не зарегистрирован — хотя бы перерисовываем доску.
+    // Ошибку загрузки не глотает: её показывает вызывающий код.
+    function reloadData() {
+        if (!window.KBData || !window.KBData.reload) { refresh(); return Promise.resolve(null); }
+        return window.KBData.reload().then(function (data) {
+            if (!data) refresh();
+            return data;
+        });
+    }
+    // Данные перечитаны с сервера без F5 (boot: KBData.reload → KBApi.all()
+    // обновляет коллекции на месте, поэтому массив cards остаётся тем же).
+    // Открытый дровер переводим на свежий объект карточки: прежний указывает
+    // на данные до перезагрузки. Карточки больше нет (удалена) — закрываем.
+    document.addEventListener('kb:reloaded', function () {
+        if (dialog.open && activeCard) {
+            var fresh = cards.find(function (c) { return c.id === activeCard.id; });
+            if (fresh) openCard(fresh); else closeDialog();
+        }
+        populateStores();
+        refresh();
+    });
     document.addEventListener('fin:originals', function(e) {
         var c = cards.find(function(card) { return card.id === e.detail.cardId; });
         if (!c || !c.docs[e.detail.index]) return;
@@ -530,16 +552,22 @@
     }
     // Фидбек 20.09: тост больше не висит вечно — авто-закрытие через 6 с
     // (достаточно прочитать и успеть нажать «Списано»; вручную — крестик).
+    // isError — стиль ошибки (класс toast-error, как в management.js/insights.js)
+    // и без кнопки «Списано»: к отказу записи очередь выписки не относится.
     var toastTimer = 0;
-    function notify(text) {
+    function notify(text, isError) {
         var toast = document.getElementById('kb-toast');
         toast.hidden = false;
-        toast.innerHTML = '<span>' + esc(text) + '</span><button class="btn-quiet" id="kb-see-history">Списано</button><button class="btn-quiet" id="kb-dismiss" aria-label="Закрыть уведомление">×</button>';
+        toast.classList.toggle('toast-error', Boolean(isError));
+        toast.innerHTML = '<span>' + esc(text) + '</span>' +
+            (isError ? '' : '<button class="btn-quiet" id="kb-see-history">Списано</button>') +
+            '<button class="btn-quiet" id="kb-dismiss" aria-label="Закрыть уведомление">×</button>';
         clearTimeout(toastTimer);
-        toastTimer = setTimeout(function () { toast.hidden = true; }, 6000);
-        var hideToast = function () { clearTimeout(toastTimer); toast.hidden = true; };
+        var hideToast = function () { clearTimeout(toastTimer); toast.hidden = true; toast.classList.remove('toast-error'); };
+        toastTimer = setTimeout(hideToast, 6000);
         document.getElementById('kb-dismiss').onclick = hideToast;
-        document.getElementById('kb-see-history').onclick = function() {
+        var seeHistory = document.getElementById('kb-see-history');
+        if (seeHistory) seeHistory.onclick = function() {
             queueMode('history');
             document.getElementById('kb-q-history').focus(); hideToast();
         };
@@ -1177,7 +1205,15 @@
             if (ok === false) { setDisabled(false); notify('Удаление не прошло на сервере.'); return; }
             var ci = KBData.cards.indexOf(c);
             if (ci >= 0) KBData.cards.splice(ci, 1);
-            if (window.KB_FIN_SOURCE) window.KB_FIN_SOURCE.outgoing = window.KB_FIN_SOURCE.outgoing.filter(function (r) { return r.cardId !== c.id; });
+            // Реестр финансов чистим на месте: фин-модуль держит ссылку на
+            // массив finSource.outgoing (prototype: `const outgoing = ...`),
+            // подмена массива оставила бы удалённую сделку в реестре до F5.
+            if (window.KB_FIN_SOURCE && Array.isArray(window.KB_FIN_SOURCE.outgoing)) {
+                var finRows = window.KB_FIN_SOURCE.outgoing;
+                for (var ri = finRows.length - 1; ri >= 0; ri--) {
+                    if (finRows[ri].cardId === c.id) finRows.splice(ri, 1);
+                }
+            }
             document.querySelectorAll('#fin-payment-rows tr[data-card="' + c.id + '"], #fin-document-rows tr[data-card="' + c.id + '"]').forEach(function (row) { row.remove(); });
             // Диалог закрываем только если в нём открыта именно эта карточка
             // (удаление с плитки не должно гасить чужой открытый диалог).
@@ -1942,6 +1978,118 @@
     document.getElementById('kb-q-board').onclick = function() { queueMode('board'); };
     document.getElementById('kb-q-pending').onclick = function() { queueMode('pending'); };
     document.getElementById('kb-q-history').onclick = function() { queueMode('history'); };
+    // ---------- Создание сделки с доски ----------
+    // Набор полей — как в форме рабочей версии (site/js/kanban.js): название,
+    // сумма, клиент, магазин, срок, приоритет. Статус всегда «Новый запрос»,
+    // owner_id не шлём (сервер подставляет текущего пользователя), а созданная
+    // сделка не открывается — доска просто перечитывает данные (решение 22.09).
+    var NC_PRIORITY = [[0, 'Без приоритета'], [1, 'Низкий'], [2, 'Средний'], [3, 'Высокий']];
+    var newCardDialog = null;
+    var newCardOpener = null;
+    function ensureNewCardDialog() {
+        if (newCardDialog) return newCardDialog;
+        newCardDialog = document.createElement('dialog');
+        newCardDialog.id = 'kb-new-card-dialog';
+        newCardDialog.className = 'v2-form-dialog';
+        newCardDialog.setAttribute('aria-labelledby', 'kb-nc-heading');
+        newCardDialog.addEventListener('close', function () {
+            if (window.KBSelect) window.KBSelect.close();
+            if (newCardOpener && newCardOpener.isConnected) newCardOpener.focus();
+            newCardOpener = null;
+            // Форма чистится на закрытии: скрытые required-поля не должны
+            // блокировать следующий сабмит (приём из формы клиента).
+            newCardDialog.innerHTML = '';
+        });
+        document.body.append(newCardDialog);
+        return newCardDialog;
+    }
+    function openNewCardForm(opener) {
+        if (!window.V2Api || !window.V2Api.token() || !window.KBData.mutate) {
+            notify('Создание сделок доступно только при подключении к CRM.', true);
+            return;
+        }
+        var dlg = ensureNewCardDialog();
+        newCardOpener = opener || null;
+        // В payload магазина уходит ИМЯ: cards.store_location — строка, а не id.
+        dlg.innerHTML = '<form id="kb-nc-form"><h2 id="kb-nc-heading">Новая сделка</h2>' +
+            '<div class="mgmt-fields">' +
+            '<label for="kb-nc-title" style="grid-column:1/-1"><span>Название*</span>' +
+            '<input id="kb-nc-title" name="title" type="text" maxlength="200" required autocomplete="off"></label>' +
+            '<label for="kb-nc-amount"><span>Сумма, BYN</span>' +
+            '<input id="kb-nc-amount" name="total_amount" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>' +
+            '<label for="kb-nc-due"><span>Срок</span><input id="kb-nc-due" name="due_date" type="date"></label>' +
+            '<label for="kb-nc-client"><span>Клиент</span><select id="kb-nc-client" name="client_id">' +
+            '<option value="">— не привязан —</option>' +
+            KBData.clients.map(function (cl) { return '<option value="' + esc(cl.id) + '">' + esc(cl.name) + '</option>'; }).join('') +
+            '</select></label>' +
+            '<label for="kb-nc-store"><span>Магазин</span><select id="kb-nc-store" name="store_location">' +
+            '<option value="">— не выбран —</option>' +
+            KBData.stores.map(function (s) { return '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>'; }).join('') +
+            '</select></label>' +
+            '<label for="kb-nc-priority"><span>Приоритет</span><select id="kb-nc-priority" name="priority">' +
+            NC_PRIORITY.map(function (p) { return '<option value="' + p[0] + '">' + p[1] + '</option>'; }).join('') +
+            '</select></label></div>' +
+            '<p id="kb-nc-error" class="kb-form-error" role="alert"></p>' +
+            '<div class="mgmt-actions"><button class="btn btn-ghost" type="button" data-nc-cancel>Отмена</button>' +
+            '<button class="btn btn-primary" type="submit" id="kb-nc-submit">Создать</button></div></form>';
+        var errorEl = dlg.querySelector('#kb-nc-error');
+        var submitBtn = dlg.querySelector('#kb-nc-submit');
+        // Ошибка показывается в форме, а не alert'ом: фокус остаётся на поле.
+        function fieldError(input, message) {
+            errorEl.textContent = message;
+            dlg.querySelectorAll('[aria-invalid="true"]').forEach(function (el) { el.removeAttribute('aria-invalid'); });
+            if (input) { input.setAttribute('aria-invalid', 'true'); input.focus(); }
+        }
+        dlg.querySelector('[data-nc-cancel]').addEventListener('click', function () { dlg.close(); });
+        dlg.querySelector('#kb-nc-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            errorEl.textContent = '';
+            var titleInput = dlg.querySelector('#kb-nc-title');
+            var amountInput = dlg.querySelector('#kb-nc-amount');
+            var title = titleInput.value.trim();
+            if (!title) { fieldError(titleInput, 'Название обязательно.'); return; }
+            var amountKop = 0;
+            if (amountInput.value.trim()) {
+                amountKop = parseMoney(amountInput.value);
+                // Отрицательную сумму сервер отвергает (schemas.CardBase) — 422.
+                if (amountKop === null || amountKop < 0) {
+                    fieldError(amountInput, 'Сумма — число в BYN, не меньше нуля. Например: 1 250,00');
+                    return;
+                }
+            }
+            submitBtn.disabled = true;
+            apiMutate('card-create', {
+                title: title,
+                status: 'Новый запрос',
+                total_amount: amountKop / 100,
+                priority: Number(dlg.querySelector('#kb-nc-priority').value) || 0,
+                client_id: numericClientIdValue(dlg.querySelector('#kb-nc-client').value),
+                store_location: dlg.querySelector('#kb-nc-store').value || null,
+                due_date: dlg.querySelector('#kb-nc-due').value || null
+            }).then(function (created) {
+                submitBtn.disabled = false;
+                // null — in-flight guard: такой сабмит уже уходит, ждём его.
+                if (!created) return;
+                if (created.error) { fieldError(null, 'Не создано: ' + created.error); return; }
+                dlg.close();
+                reloadData().then(function () {
+                    notify('Сделка создана');
+                }).catch(function (err) {
+                    refresh();
+                    notify('Сделка создана, но доска не обновилась: ' + (err.detail || err.message || 'ошибка'), true);
+                });
+            }).catch(function (err) {
+                submitBtn.disabled = false;
+                fieldError(null, 'Не создано: ' + (err.detail || err.message || 'ошибка'));
+            });
+        });
+        dlg.showModal();
+        if (window.KBSelect) window.KBSelect.enhance(dlg);
+        dlg.querySelector('#kb-nc-title').focus();
+    }
+    // Кнопки тулбара может не оказаться (устаревшая разметка) — не падаем.
+    var newCardBtn = document.getElementById('kb-new-card');
+    if (newCardBtn) newCardBtn.addEventListener('click', function () { openNewCardForm(newCardBtn); });
     var trashBtn = document.getElementById('kb-q-trash');
     if (trashBtn) trashBtn.onclick = function() { queueMode('trash'); };
     // Делегирование для панели группы: чекбоксы пересобираются при каждой отрисовке.
@@ -1953,16 +2101,15 @@
                 .then(function () {
                     trashCache = trashCache.filter(function (c) { return String(c.id) !== restore.dataset.trashRestore; });
                     renderTrash();
-                    // Item #10: инвалидируем кэш карточек после восстановления.
-                    // Загружаем восстановленную карточку и добавляем в массив.
-                    window.V2Api.api('/kanban/cards/' + restore.dataset.trashRestore).then(function (fresh) {
-                        if (fresh && fresh.id) {
-                            // Сигнал загрузчику перегрузить данные (boot all()).
-                            if (window.KBData && window.KBData.reload) window.KBData.reload();
-                            else refresh();
-                        }
-                    }).catch(function () { refresh(); });
-                    notify('Карточка восстановлена из корзины.');
+                    // Item #10: карточка возвращается на доску перечитыванием
+                    // данных (KBData.reload → kb:reloaded → refresh) — отдельный
+                    // GET карточки и ручная вставка в массив больше не нужны.
+                    reloadData()
+                        .then(function () { notify('Карточка восстановлена из корзины.'); })
+                        .catch(function (e2) {
+                            refresh();
+                            notify('Карточка восстановлена, но данные не обновились: ' + (e2.detail || e2.message || 'ошибка'), true);
+                        });
                 })
                 .catch(function (e2) { notify('Не восстановлено: ' + (e2.detail || e2.message || 'ошибка')); });
         } else if (purge) {
