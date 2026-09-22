@@ -44,6 +44,14 @@ def tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, 
         "print_status": t.print_status, "note": t.note,
         "invoice_number": t.invoice_number, "invoice_date": t.invoice_date,
         "is_document": bool(t.is_document),
+        # V7 (пункт 17 плана v2): is_invoice_doc / is_bill_doc — ОРИГИНАЛЫ
+        # документов у нас: «оригинал ТН возвращён» (карточка v2) == «ТН у нас»
+        # (финансы v2) == колонка «ТН» в «Документах» legacy. Один бизнес-факт
+        # под тремя подписями, хранится на записи-документе (is_document=True);
+        # отдельной колонки originals_returned нет и не будет — разбор решения
+        # в docs/audits/V2-PLAN-RECON-2026-09-22.md §6. В кодировке проекта
+        # «invoice» = накладная (invoice_number — № ТН), поэтому имя колонки
+        # читается как «накладная-документ у нас» и не противоречит смыслу.
         "is_invoice_doc": bool(t.is_invoice_doc),
         "is_bill_doc": bool(t.is_bill_doc),
         "is_warehouse_writeoff": bool(t.is_warehouse_writeoff),

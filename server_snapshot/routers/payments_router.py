@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 import models
 import schemas
-from auth import get_current_user
+from auth import get_current_user, require_role
 from constants import MONEY_EPSILON
 from database import get_db
 from services.invoices import find_duplicate_invoice, find_invoice_twins, norm_invoice_number
@@ -293,7 +293,15 @@ def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), cu
         db.close()
 
 
-@router.delete("/transactions/{transaction_id}")
+# V11 (пункт 17 плана v2): удаление записи реестра — это отмена накладной/оплаты.
+# Операция необратима и тянет за собой пересчёт остатка, статуса сделки и пары
+# «накладная + копия в Документах» (services/payments.delete_transaction),
+# поэтому она админская. До гейта любую запись реестра удалял каждый
+# аутентифицированный пользователь, включая роли warehouse и documents.
+# Отмена групповой ТН идёт этим же роутом: документ группы — обычная запись
+# реестра с is_document=True и writeoff_group_id.
+@router.delete("/transactions/{transaction_id}",
+               dependencies=[Depends(require_role("admin", "superadmin"))])
 def delete_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
         return delete_transaction_svc(db, transaction_id, current_user)
@@ -309,6 +317,23 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         if not tx:
             raise HTTPException(status_code=404, detail="Транзакция не найдена")
         update_data = updates.model_dump(exclude_unset=True) if hasattr(updates, 'model_dump') else updates.dict(exclude_unset=True)
+        # V7 (пункт 17 плана v2): is_invoice_doc / is_bill_doc — флаги
+        # «оригинал ТН у нас» и «оригинал счёта у нас». Каноническое место
+        # хранения — запись-документ (is_document=True): её читают «Документы»
+        # legacy (site/js/documents.js:185), «ТН у нас» в финансах v2
+        # (shell-v2-fin.js:198) и «Оригинал ТН возвращён» в карточке v2
+        # (shell-v2-board.js:918). Это ОДИН бизнес-факт под тремя подписями,
+        # отдельной колонки не будет — решение и разбор в V2-PLAN-RECON §6.
+        # На строке реестра оплат (оплата/остаток) флаг не читает ни один
+        # экран, поэтому запись туда — данные, потерянные молча. Отклоняем
+        # сразу: 400 с внятной причиной вместо зелёной галочки в никуда.
+        doc_only_fields = {"is_invoice_doc", "is_bill_doc"} & update_data.keys()
+        if doc_only_fields and not tx.is_document:
+            raise HTTPException(
+                status_code=400,
+                detail=("Флаги «ТН у нас» и «Счёт у нас» ставятся только на записи "
+                        "раздела «Документы», а запись "
+                        f"#{transaction_id} — строка реестра оплат"))
         # Пара «накладная + копия в Документах» ищется по СТАРЫМ значениям
         # (как при удалении) — поэтому до применения правок.
         invoice_fields = {"invoice_date", "invoice_number"} & update_data.keys()
@@ -566,7 +591,8 @@ def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user
         db.close()
 
 
-@router.delete("/cards/{card_id}/writeoff")
+@router.delete("/cards/{card_id}/writeoff",
+               dependencies=[Depends(require_role("admin", "superadmin"))])
 def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """Полностью убрать сделку из складского списания.
 
@@ -574,6 +600,12 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
     и все их копии в разделе «Документы». Карточка возвращается в «Сборку».
     Раньше удалялась одна запись, поэтому плитка оставалась в «На списание»,
     а документы продолжали висеть.
+
+    V11 (пункт 17 плана v2): массовое удаление записей реестра — операция
+    админская, как и DELETE /transactions/{id}. Ручка осталась только в legacy
+    («Списание», site/js/writeoffs.js:401 и site/js/payments.js:297) — v2 её
+    не зовёт; если владелец решит вернуть складу право отмены списания,
+    гейт снимается одной строкой (см. V2-PLAN-RECON §6).
     """
     try:
         rows = db.query(models.Transaction).filter(

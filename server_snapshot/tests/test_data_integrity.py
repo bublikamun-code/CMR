@@ -138,9 +138,13 @@ def test_delete_client_requires_admin(client, manager, db):
 # Удаление поставщика
 # ---------------------------------------------------------------------------
 
-def test_delete_supplier_unlinks_checklists_and_nakladnye(client, manager, db):
-    """И чек-листы, и накладные должны потерять ссылку, но не запись."""
-    _, h = manager
+def test_delete_supplier_unlinks_checklists_and_nakladnye(client, admin, db):
+    """И чек-листы, и накладные должны потерять ссылку, но не запись.
+
+    Проверяется под админом: с пункта 17 (V11) DELETE /suppliers/{id} —
+    админская операция, как и DELETE /clients/{id}.
+    """
+    _, h = admin
     sup = models.Supplier(name="Поставщик")
     db.add(sup)
     db.commit()
@@ -167,16 +171,28 @@ def test_delete_supplier_unlinks_checklists_and_nakladnye(client, manager, db):
     assert _count(db, models.Nakladnaya) == 1, "накладная должна остаться"
 
 
-def test_delete_supplier_allowed_for_manager_is_inconsistent_with_clients(
-        client, manager, db):
-    """Фиксируем несоответствие модели доступа: DELETE /clients требует admin,
-    а DELETE /suppliers — нет. Тест документирует текущее поведение."""
-    _, h = manager
+def test_delete_supplier_requires_admin(client, manager, admin, db):
+    """РЕГРЕССИЯ на пункт 17 (V11): справочники удаляет только админ.
+
+    Раньше тест фиксировал несоответствие модели доступа — DELETE /clients
+    требовал admin, а DELETE /suppliers выполнялся для любого менеджера.
+    Несогласованность закрыта: оба справочника под одной матрицей
+    (см. tests/test_role_gates_v11.py).
+    """
     sup = models.Supplier(name="Поставщик 2")
     db.add(sup)
     db.commit()
-    r = client.delete(f"/suppliers/{sup.id}", headers=h)
-    assert r.status_code == 200, "сейчас manager может удалить поставщика"
+    sup_id = sup.id
+
+    _, mh = manager
+    assert client.delete(f"/suppliers/{sup_id}", headers=mh).status_code == 403
+    _reload(db)
+    assert _exists(db, models.Supplier, sup_id), "после 403 поставщик обязан остаться"
+
+    _, ah = admin
+    assert client.delete(f"/suppliers/{sup_id}", headers=ah).status_code == 200
+    _reload(db)
+    assert not _exists(db, models.Supplier, sup_id)
 
 
 # ---------------------------------------------------------------------------
@@ -238,8 +254,9 @@ def test_no_fk_violations_after_bulk_deletions(client, admin, db, make_user, mak
 # Теги и задачи
 # ---------------------------------------------------------------------------
 
-def test_delete_tag_removes_card_links(client, manager, db, make_card):
-    _, h = manager
+def test_delete_tag_removes_card_links(client, admin, db, make_card):
+    """Удаление тега снимает его со всех сделок; с пункта 17 (V11) — админ."""
+    _, h = admin
     tag = models.Tag(name="важно")
     card = make_card()
     db.add(tag)

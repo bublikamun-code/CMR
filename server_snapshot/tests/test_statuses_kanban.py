@@ -137,15 +137,16 @@ def test_execute_requires_writeoff_column(client, manager, db, make_card):
     assert _ledger(db, card_id) == []
 
 
-def test_remove_from_writeoff_clears_everything(client, manager, db, make_card):
+def test_remove_from_writeoff_clears_everything(client, admin, db, make_card):
     """DELETE /payments/cards/{id}/writeoff сносит накладные и их копии.
 
     Запись-остаток при этом СОЗНАТЕЛЬНО пересоздаётся: «Сборка» означает,
     что сделка обязана быть видна в реестре оплат (иначе она исчезала оттуда,
     пока её не «пнули» вручную). Поэтому ожидаем ровно одну свежую запись
     на полную сумму сделки, а не ноль.
+    Роль admin: с пункта 17 (V11) массовое удаление записей реестра — админское.
     """
-    _, h = manager
+    _, h = admin
     card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
     card_id = card.id
     assert client.post(f"/payments/trigger_from_card/{card_id}", headers=h,
@@ -174,9 +175,9 @@ def test_remove_from_writeoff_clears_everything(client, manager, db, make_card):
     assert round(float(left[0].amount), 2) == 1000.0
 
 
-def test_remove_from_writeoff_does_not_resurrect_deleted_card(client, manager, db, make_card):
-    """Карточка в корзине должна остаться в корзине."""
-    _, h = manager
+def test_remove_from_writeoff_does_not_resurrect_deleted_card(client, admin, db, make_card):
+    """Карточка в корзине должна остаться в корзине. Роль admin — см. V11."""
+    _, h = admin
     card = make_card(title="В корзине", total_amount=100.0, status="Сборка",
                      is_deleted=True)
     card_id = card.id

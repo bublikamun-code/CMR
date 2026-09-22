@@ -186,12 +186,13 @@ def test_number_without_digits_is_compared_literally(client, manager, db, make_c
     assert _issue(client, h, card.id, "без номера", 100.0).status_code == 200
 
 
-def test_invoice_number_matching_ignores_spaces_and_prefixes(client, manager, db, make_card):
+def test_invoice_number_matching_ignores_spaces_and_prefixes(client, admin, db, make_card):
     """«ТТН 4881030» и «ТТН4881030» — одна накладная: сравнение только по цифрам.
 
     В боевых данных оба написания уже встречаются, поэтому нормализация обязательна.
+    Роль — admin: удаление записи реестра с пункта 17 (V11) админское.
     """
-    _, h = manager
+    _, h = admin
     card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
     assert _issue(client, h, card.id, "ТТН4881030", 400.0).status_code == 200
@@ -217,13 +218,14 @@ def test_invoice_number_matching_ignores_spaces_and_prefixes(client, manager, db
 
 
 @pytest.mark.parametrize("status", ["В работе", "Сборка", "На списание"])
-def test_twin_found_by_digits_when_spelling_differs(client, manager, db, make_card, status):
+def test_twin_found_by_digits_when_spelling_differs(client, admin, db, make_card, status):
     """Прямая проверка _norm: номер с пробелом находит близнеца без пробела.
 
     Проверяется во всех трёх статусах: раньше в «Сборке» тест был невозможен,
     потому что удаление падало в 500 на второй вставке остатка (починено в Фазе 2).
+    Роль — admin: удаление записи реестра с пункта 17 (V11) админское.
     """
-    _, h = manager
+    _, h = admin
     card = make_card(title="Сделка", total_amount=1000.0, status=status)
     card_id = card.id
 
@@ -243,7 +245,7 @@ def test_twin_found_by_digits_when_spelling_differs(client, manager, db, make_ca
         "документ с тем же номером в другом написании должен определиться как близнец"
 
 
-def test_delete_invoice_from_card_in_assembly_does_not_crash(client, manager, db, make_card):
+def test_delete_invoice_from_card_in_assembly_does_not_crash(client, admin, db, make_card):
     """Починено в Фазе 2 (2026-09-11).
 
     SessionLocal работает с autoflush=False, поэтому при удалении накладной
@@ -252,8 +254,9 @@ def test_delete_invoice_from_card_in_assembly_does_not_crash(client, manager, db
     не видел незафиксированную строку и добавлял вторую. Частичный unique-индекс
     uq_remainder_per_card (миграция 0004) отвечал IntegrityError → 500.
     Теперь ensure_registry_remainder делает flush() перед SELECT.
+    Роль — admin: удаление записи реестра с пункта 17 (V11) админское.
     """
-    _, h = manager
+    _, h = admin
     card = make_card(title="Сделка", total_amount=1000.0, status="Сборка")
     card_id = card.id
 
@@ -741,15 +744,28 @@ def test_amount_no_vat_is_optional(client, manager):
     assert r.json().get("amount_no_vat") is None
 
 
-def test_nakladnye_delete_does_not_require_admin(client, manager, db):
-    """Фиксируем текущую модель доступа: удалить накладную может любой менеджер,
-    тогда как DELETE /clients требует admin. Несогласованность — см. Фазу 2."""
-    _, h = manager
+def test_nakladnye_delete_requires_admin(client, manager, admin, db):
+    """РЕГРЕССИЯ на пункт 17 (V11): входящую накладную удаляет только админ.
+
+    Прежнее поведение (удаляет любой менеджер) тест фиксировал как
+    несогласованность модели доступа с DELETE /clients. С пункта 17
+    несогласованности нет: удаление необратимо (вместе со строкой стираются
+    фото с диска), поэтому оно админское. Создание и правка остались
+    операционными — склад и бот работают без админа.
+    """
     nak = models.Nakladnaya(doc_series="АБ", doc_number="4", supplier_name="П")
     db.add(nak)
     db.commit()
     nak_id = nak.id
 
-    assert client.delete(f"/nakladnye/{nak_id}", headers=h).status_code == 200
+    _, mh = manager
+    assert client.delete(f"/nakladnye/{nak_id}", headers=mh).status_code == 403
+    _reload(db)
+    assert db.query(models.Nakladnaya).filter(
+        models.Nakladnaya.id == nak_id).first() is not None, \
+        "после 403 накладная обязана остаться"
+
+    _, ah = admin
+    assert client.delete(f"/nakladnye/{nak_id}", headers=ah).status_code == 200
     _reload(db)
     assert db.query(models.Nakladnaya).filter(models.Nakladnaya.id == nak_id).first() is None

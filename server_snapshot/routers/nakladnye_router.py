@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 import models
 import schemas
-from auth import get_current_user
+from auth import get_current_user, require_role
 from database import get_db
 from services.nakladnye import (
     commit_with_doc_key_guard,
@@ -176,7 +176,13 @@ def update_nakladnaya(
         db.close()
 
 
-@router.delete("/{nak_id}", dependencies=[Depends(get_current_user)])
+# V11 (пункт 17 плана v2): удаление входящей накладной необратимо — вместе со
+# строкой стираются её фото с диска (основание приёма товара). Создание и правка
+# остаются операционными (склад и бот работают без админа), удаление — админское.
+# Ни один фронт этот роут не зовёт (grep по mockups/, шаблонам v2 и site/js —
+# 0 обращений), поэтому гейт не ломает существующие сценарии.
+@router.delete("/{nak_id}",
+               dependencies=[Depends(require_role("admin", "superadmin"))])
 def delete_nakladnaya(
     nak_id: int,
     db: Session = Depends(get_db),

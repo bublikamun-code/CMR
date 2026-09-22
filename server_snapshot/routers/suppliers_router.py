@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 import models
 import schemas
-from auth import get_current_user
+from auth import get_current_user, require_role
 from database import get_db
 from db_utils import cap_list
 
@@ -99,7 +99,13 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
     return s
 
 
-@router.delete("/{supplier_id}")
+# V11 (пункт 17 плана v2): справочник поставщиков закрыт так же, как справочник
+# клиентов (DELETE /clients/{id} — admin). Удаление поставщика правит историю:
+# пункты чек-листов теряют supplier_id, входящие накладные — ссылку на
+# справочник. До гейта поставщика удалял любой менеджер, хотя клиент ему был
+# недоступен — это несоответствие модели доступа фиксировал test_access_matrix.py.
+@router.delete("/{supplier_id}",
+               dependencies=[Depends(require_role("admin", "superadmin"))])
 def delete_supplier(supplier_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
     s = query.first()
