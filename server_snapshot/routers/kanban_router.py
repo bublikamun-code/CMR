@@ -1,15 +1,18 @@
 import contextlib
 import os
+from typing import List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 import models
 import schemas
 from auth import get_current_user, require_role
 from database import get_db
-from db_utils import cap_list
+from db_utils import PAGE_MAX_SIZE, cap_list, resolve_page, set_page_headers
 from services.card_money import compute_card_money
 from versioning import save_version
 
@@ -18,6 +21,17 @@ router = APIRouter(
     tags=["Канбан-доска"],
     dependencies=[Depends(get_current_user)]
 )
+
+
+class CardPage(BaseModel):
+    """Страница сделок — пункт 16 плана (дефект B11: /kanban/cards отдавал
+    474 КБ одним куском). Включается только явным limit/offset; без них роут
+    по-прежнему возвращает плоский массив CardResponse, так что существующий
+    клиент (v2-boot-template.js грузит всю доску разом) не ломается."""
+    items: List[schemas.CardResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 def _attach_money_fields(cards, db: Session):
@@ -49,21 +63,42 @@ def _attach_money_fields(cards, db: Session):
         card.issued_total = money["issued_total"]
 
 
-@router.get("/cards", response_model=list[schemas.CardResponse])
-def get_cards(response: Response, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+@router.get("/cards", response_model=Union[CardPage, List[schemas.CardResponse]])
+def get_cards(response: Response,
+              limit: Optional[int] = Query(None, ge=1, le=PAGE_MAX_SIZE),
+              offset: Optional[int] = Query(None, ge=0),
+              db: Session = Depends(get_db),
+              current_user: models.User = Depends(get_current_user)):
     query = db.query(models.Card).filter(models.Card.is_deleted == False)
-    cards = query.options(
+    page = resolve_page(limit, offset)
+    total = None
+    if page is not None:
+        # Общее число — одним COUNT по ТОМУ ЖЕ фильтру, что и выборка: считается
+        # до применения limit/offset, иначе total был бы размером страницы.
+        total = query.with_entities(func.count()).scalar() or 0
+    listing = query.options(
         selectinload(models.Card.attachments),
         selectinload(models.Card.checklists).selectinload(models.CardChecklist.supplier),
         selectinload(models.Card.owner),
         selectinload(models.Card.client),
         selectinload(models.Card.tags),
-    ).order_by(models.Card.position, models.Card.id.desc()).all()
+    ).order_by(models.Card.position, models.Card.id.desc())
+    if page is not None:
+        # order_by обязан идти ДО limit/offset — SQLAlchemy иначе бросает
+        # InvalidRequestError. Порядок (position, id DESC) — ровно прежний и
+        # тотальный: id уникален, поэтому страницы не перекрываются и не
+        # теряют сделки на стыках.
+        listing = listing.limit(page.limit).offset(page.offset)
+    cards = listing.all()
     # A12: серверные денежные поля одним batch-запросом (без N+1).
+    # В режиме страницы считается только для строк страницы.
     _attach_money_fields(cards, db)
-    # Н11 (аудит 06.09): предохранитель от аномального роста таблицы —
-    # канбану нужны все карточки сразу, так что это пробка, не пагинация.
-    return cap_list(cards, response)
+    if page is None:
+        # Н11 (аудит 06.09): предохранитель от аномального роста таблицы —
+        # канбану нужны все карточки сразу, так что это пробка, не пагинация.
+        return cap_list(cards, response)
+    set_page_headers(response, total)
+    return {"items": cards, "total": total, "limit": page.limit, "offset": page.offset}
 
 
 @router.get("/cards/{card_id}", response_model=schemas.CardResponse)

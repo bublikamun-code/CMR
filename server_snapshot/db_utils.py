@@ -13,6 +13,7 @@ resolve_tenant_db_standalone — для хендлеров без Depends(get_db
 SessionLocal() с deferred-close обёрткой (см. database.get_tenant_db).
 """
 import logging
+from typing import NamedTuple, Optional
 
 from database import get_tenant_db
 
@@ -69,3 +70,56 @@ def cap_list(items, response=None, limit: int = LIST_HARD_LIMIT):
         response.headers["X-Total-Count"] = str(total)
         response.headers["X-Truncated"] = "true"
     return items[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Пункт 16 плана V2-WORKPLAN-2026-09-22 (дефект B11): настоящие серверные
+# страницы для тяжёлых списков. cap_list выше — предохранитель, он отдаёт ВСЁ
+# и только обрезает аномальный рост; здесь — отдаём ровно запрошенный кусок.
+#
+# Контракт намеренно опциональный: без limit/offset роут ведёт себя как раньше
+# (возвращает массив), поэтому клиент переводится на страницы отдельным шагом
+# и ничего не ломается в день деплоя сервера.
+#
+# Пороги повторяют уже принятые в репо, а не изобретены заново:
+#   PAGE_DEFAULT_SIZE = 50  — дефолт GET /activity (activity_router.Query(50, le=200));
+#   PAGE_MAX_SIZE     = 200 — его же потолок le=200.
+# Ограничение объявляется через Query(ge=/le=), поэтому невалидные значения
+# (0, отрицательные, мусор) FastAPI сам отвергает кодом 422 — второй стиль
+# обработки ошибок в репо не используется.
+# ---------------------------------------------------------------------------
+PAGE_DEFAULT_SIZE = 50
+PAGE_MAX_SIZE = 200
+
+
+class PageRequest(NamedTuple):
+    """Разрешённые параметры страницы (после применения дефолтов)."""
+    limit: int
+    offset: int
+
+
+def resolve_page(limit: Optional[int], offset: Optional[int]) -> Optional[PageRequest]:
+    """Включён ли режим страницы, и если да — какими параметрами.
+
+    None — пагинация ВЫКЛЮЧЕНА (ни один параметр не передан): вызывающий роут
+    обязан вернуть прежнюю форму ответа. Переключатель — сам факт передачи
+    limit ИЛИ offset: offset без limit не должен молча игнорироваться, иначе
+    клиент получил бы весь список, полагая, что читает страницу.
+    """
+    if limit is None and offset is None:
+        return None
+    return PageRequest(
+        limit=limit if limit is not None else PAGE_DEFAULT_SIZE,
+        offset=offset if offset is not None else 0,
+    )
+
+
+def set_page_headers(response, total: int) -> None:
+    """Заголовок общего числа в режиме страницы.
+
+    X-Total-Count — уже существующий контракт реестра оплат и cap_list, так
+    что клиент читает его тем же кодом. X-Truncated здесь не ставится намеренно:
+    в режиме страницы усечения нет — есть ровно тот кусок, который запросили.
+    """
+    if response is not None:
+        response.headers["X-Total-Count"] = str(total)
