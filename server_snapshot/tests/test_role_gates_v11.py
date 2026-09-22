@@ -21,6 +21,7 @@ documents (дефект V11, V2-PLAN-RECON §6: «любой аутентифи�
 | Массовая починка списаний                           | POST /payments/repair-writeoffs      | 403     | 403       | 403       | 200   | 200        |
 | Пользователи, справочники, вебхуки, воркфлоу,       | /auth/users, /dictionaries/*,        | 403     | 403       | 403       | 200   | 200        |
 | кастомные объекты (были закрыты до пункта 17)       | /webhooks, /workflows, /custom       |         |           |           |       |            |
+| Настройки почтового ящика CRM (запись)              | POST /email-parser/settings          | 403     | 403       | 403       | 200   | 200        |
 
 ОПЕРАЦИОННЫЕ действия остаются доступными любому аутентифицированному
 (проверены в конце файла): перенос сделки в реестр, выписка накладной,
@@ -364,3 +365,20 @@ def test_warehouse_keeps_writeoff_execution(client, make_user, db, make_card):
                        json={"store_location": STORE}).status_code == 200
     assert client.post(f"/writeoffs/{card.id}/finish_assembly", headers=h).status_code == 200
     assert client.post(f"/writeoffs/{card.id}/execute", headers=h).status_code == 200
+
+
+def test_email_settings_write_is_admin_only(client, make_user):
+    """Настройки ящика (адрес, IMAP, пароль разбора почты) пишет только админ.
+
+    Находка воркера пункта 17 (23.09): до гейта POST /email-parser/settings
+    был доступен любой роли — менеджер или склад могли увести разбор почты
+    CRM на чужой сервер.
+    """
+    payload = {"email": "crm@example.com", "password": "secret123",
+               "imap_server": "imap.example.com", "target_status": "Новый запрос"}
+    for role in NON_ADMIN_ROLES:
+        _, h = make_user(role)
+        r = client.post("/email-parser/settings", headers=h, json=payload)
+        assert r.status_code == 403, (role, r.text)
+    _, h = make_user("admin")
+    assert client.post("/email-parser/settings", headers=h, json=payload).status_code == 200
