@@ -4,15 +4,18 @@
 Запуск: python3 tools/v2_functional_audit.py
 Требует: playwright (pip), временный superadmin-пользователь v2_audit на
 проде (создать/удалить вручную — скрипт печатает CLEANUP_IDS для уборки
-тестовой карточки и клиента: DELETE transactions/card_attachments/
-client_payments по card_id/client_id, затем cards, clients, users).
+тестовой карточки, UI-карточки и клиента: DELETE transactions/
+card_attachments/client_payments по card_id/client_id, затем cards,
+clients, users).
 
 Проверки: вход; карточки в своих колонках (все, сверка со статусами API);
 поиск; очереди «На списание»/«Списано» (правила board.js); сводка 553;
 тестовая сделка: выписка, галочки реестра + сохранение, CSV, документы
 (ТН/Счёт/Печать), все режимы оплаты, аванс и закрытие из баланса,
-«Импорт почты» в истории; настройки почты; колокольчик; разделы;
-ошибки консоли. Мутации — только на тестовой карточке AUDIT v2 тест.
+«Импорт почты» в истории; создание сделки с доски (UI-путь: кнопка →
+диалог → POST /kanban/cards → карточка в DOM без F5); настройки почты;
+колокольчик; разделы; ошибки консоли. Мутации — только на тестовых
+карточках AUDIT v2 тест и AUDIT v2 UI-сделка.
 """
 import json, os
 from playwright.sync_api import sync_playwright
@@ -31,8 +34,33 @@ with sync_playwright() as p:
     page = browser.new_page(viewport={"width": 1600, "height": 950})
     console_errors = []
     page.on("pageerror", lambda e: console_errors.append(str(e)))
-    page.on("dialog", lambda d: d.accept())  # «Не оплачен» — подтверждение обнуления
+    page.on("dialog", lambda d: d.accept())  # нативные confirm/alert (insights.js)
     page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+
+    # Опасные действия доски с 5293043 подтверждаются не нативным confirm, а
+    # модальным <dialog id="kb-confirm"> (KBConfirm.ask в shell-v2-board.js):
+    # page.on("dialog") его не видит, диалог остаётся открытым и перехватывает
+    # клики — без автоподтверждения аудит вставал на шаге 6e («Не оплачен»).
+    # add_init_script — потому что шаги 6a/6c/6d делают page.reload().
+    page.add_init_script("""
+        (() => {
+            const arm = () => {
+                if (window.__kbConfirmAutopilot) return;
+                window.__kbConfirmAutopilot = true;
+                const accept = () => {
+                    const d = document.getElementById('kb-confirm');
+                    if (!d || !d.open) return;
+                    const ok = d.querySelector('[data-confirm-ok]');
+                    if (ok) ok.click();
+                };
+                new MutationObserver(accept).observe(document.documentElement, {
+                    childList: true, subtree: true, attributes: true, attributeFilter: ['open']
+                });
+            };
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arm);
+            else arm();
+        })();
+    """)
 
     def open_card(cid):
         page.evaluate("""(cid) => {
@@ -276,6 +304,66 @@ with sync_playwright() as p:
     }""")
     check("6j. «Импорт почты» в журнале (карточка %s)" % hist, hist is not None)
 
+    # 6k. Создание сделки с доски: UI-путь целиком (раньше карточка создавалась
+    # напрямую через API в шаге 6, поэтому отсутствие кнопки в тулбаре не ловилось).
+    # Проверяем: кнопка есть → диалог открывается → сабмит шлёт POST /kanban/cards
+    # → карточка появилась в DOM доски и в KBData БЕЗ перезагрузки страницы.
+    page.locator("[data-view=board]").first.click(timeout=5000)
+    page.wait_for_timeout(600)
+    page.locator("#kb-q-board").click(timeout=5000)
+    page.wait_for_timeout(400)
+    ui_posts = []
+    page.on("request", lambda r: ui_posts.append(r.url)
+            if r.method == "POST" and r.url.split("?")[0].endswith("/kanban/cards") else None)
+    ui_btn = page.locator("#kb-new-card").count() > 0
+    ui_card = None
+    ui_amount = None
+    ui_toast = False
+    ui_err = ""
+    if ui_btn:
+        # Сбой шага не должен ронять весь аудит: остальные проверки дороже.
+        try:
+            page.locator("#kb-new-card").click(timeout=4000)
+            page.wait_for_selector("#kb-nc-form", state="visible", timeout=5000)
+            # Маркер «страницу не перезагружали»: после location.reload() он исчезнет.
+            page.evaluate("() => { window.__auditNoReload = true; }")
+            page.fill("#kb-nc-title", "AUDIT v2 UI-сделка")
+            page.fill("#kb-nc-amount", "123,45")
+            with page.expect_response(
+                lambda r: r.request.method == "POST" and r.url.split("?")[0].endswith("/kanban/cards"),
+                timeout=15000,
+            ) as ui_resp:
+                page.locator("#kb-nc-submit").click()
+            body = ui_resp.value.json() if ui_resp.value.ok else {}
+            ui_card = body.get("id")
+            ui_amount = body.get("total_amount")
+            # Тост «Сделка создана» показывается ПОСЛЕ перечитывания данных
+            # (KBData.reload → kb:reloaded → refresh) — ждём его вместо паузы.
+            try:
+                page.wait_for_function(
+                    "() => { const t = document.getElementById('kb-toast');"
+                    " return !!t && !t.hidden && t.textContent.indexOf('Сделка создана') >= 0; }",
+                    timeout=25000,
+                )
+                ui_toast = True
+            except Exception:
+                pass
+            page.wait_for_timeout(300)
+        except Exception as exc:
+            ui_err = str(exc).splitlines()[0][:120]
+            # Оставшаяся открытой модалка заблокировала бы клики следующих шагов.
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+    ui_no_reload = page.evaluate("() => window.__auditNoReload === true")
+    ui_dom = bool(ui_card) and page.locator('.kb-card[data-card="%s"]' % ui_card).count() > 0
+    ui_data = bool(ui_card) and page.evaluate(
+        "(id) => window.KBData.cards.some(c => c.id === String(id))", ui_card)
+    check("6k. Создание сделки с доски (кнопка → диалог → POST → DOM без F5)",
+          ui_btn and not ui_err and len(ui_posts) == 1 and bool(ui_card) and ui_amount == 123.45
+          and ui_toast and ui_no_reload and ui_dom and ui_data,
+          f"кнопка={ui_btn} POST={len(ui_posts)} id={ui_card} сумма={ui_amount} тост={ui_toast} "
+          f"без F5={ui_no_reload} в DOM={ui_dom} в KBData={ui_data}" + (f" | {ui_err}" if ui_err else ""))
+
     # --- 7. Почта: карточка настроек заполняется ---
     page.locator("[data-view=admin]").first.click(timeout=5000)
     page.wait_for_timeout(1200)
@@ -303,7 +391,7 @@ with sync_playwright() as p:
     check("10. Консоль без ошибок", len(console_errors) == 0, "; ".join(e[:80] for e in console_errors[:3]))
 
     # --- id тестовых сущностей для уборки ---
-    print("CLEANUP_IDS card=%s client=%s" % (t["card"], cl))
+    print("CLEANUP_IDS card=%s client=%s ui_card=%s" % (t["card"], cl, ui_card))
     page.screenshot(path=f"{OUT}/80_final.png")
     browser.close()
 
