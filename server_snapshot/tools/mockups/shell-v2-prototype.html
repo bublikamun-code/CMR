@@ -1069,6 +1069,64 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
 (function () {
     'use strict';
     const root = document.getElementById('view-fin');
+    // ==== Отложенная сборка раздела (пункт 3 плана, «Стоимость отрисовки») ====
+    // Содержимое #view-fin строится при ПЕРВОМ входе в «Финансы», а не на
+    // старте оболочки: замер на стенде с копией прод-БД дал 14 912 узлов из
+    // 21 097, и все они лежали в скрытом разделе. Статический каркас (вкладки,
+    // фильтры, пустые таблицы) остаётся в разметке — это 265 узлов.
+    // Подписку на kb:documents/kb:groups держит обёртка, а не сборщик: board.js
+    // рассылает их и до первого открытия финансов (стартовая отрисовка доски),
+    // поэтому последние данные копятся и применяются сразу после сборки —
+    // порядок строк тот же, что и сегодня при «событие после сборки».
+    let fin = null;              // null — раздел ещё не собран
+    let pendingDocuments = null; // detail последнего kb:documents до сборки
+    let pendingGroups = null;    // detail последнего kb:groups до сборки
+    function build() {
+        if (fin) return;
+        fin = buildFin();
+        if (pendingDocuments !== null) {
+            const detail = pendingDocuments;
+            pendingDocuments = null;
+            fin.applyDocuments(detail);
+        }
+        if (pendingGroups !== null) {
+            const detail = pendingGroups;
+            pendingGroups = null;
+            fin.applyGroups(detail);
+        }
+    }
+    document.addEventListener('kb:documents', (event) => {
+        if (!fin) { pendingDocuments = event.detail; return; }
+        fin.applyDocuments(event.detail);
+    });
+    document.addEventListener('kb:groups', (event) => {
+        if (!fin) { pendingGroups = event.detail; return; }
+        fin.applyGroups(event.detail);
+    });
+    // Раздел показывает navigation.js — он снимает hidden с #view-fin и вешает
+    // .active (клик по меню, hash, back/forward, глубокая ссылка #fin).
+    // Наблюдатель закрывает все эти пути одним местом и не требует правок в
+    // навигации. Колбэк — микрозадача после смены атрибутов, поэтому сборка
+    // проходит до первой отрисовки раздела и пустого кадра не видно.
+    // isShown() смотрит на ОБА атрибута: `.view.active { display: flex }` из
+    // авторских стилей перебивает дефолтное `[hidden] { display: none }`, так
+    // что раздел показан, если снят hidden ИЛИ навешан .active.
+    // Имя — isShown, а не visible: внутри сборщика уже есть свой `visible`.
+    const isShown = () => !root.hidden || root.classList.contains('active');
+    if (isShown()) {
+        build();
+    } else {
+        const observer = new MutationObserver(() => {
+            if (!isShown()) return;
+            observer.disconnect();
+            build();
+        });
+        observer.observe(root, { attributes: true, attributeFilter: ['hidden', 'class'] });
+    }
+
+    // Тело сборщика сохраняет исходные отступы: переформатирование утопило бы
+    // правку в 500 строках пробелов и её нельзя было бы отревьюить по diff'у.
+    function buildFin() {
     const $ = (selector) => root.querySelector(selector);
     const $$ = (selector) => Array.from(root.querySelectorAll(selector));
     // Единый источник исходящих: одна полная ТН на карточку, суммы в копейках.
@@ -1256,12 +1314,14 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     let docSort = 'desc';
     const byId = new Map(outgoing.map((r) => [r.id, r]));
     // Kanban documents are session-local too; one row per partial invoice.
-    document.addEventListener('kb:documents', (event) => {
+    // Подписку на kb:documents держит обёртка в начале скрипта — она должна
+    // срабатывать и до первой сборки раздела.
+    function applyDocuments(detail) {
         $$('#fin-document-rows tr[data-kanban]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
         // Одна вставка вместо N: каждая insertAdjacentHTML — отдельный парсинг
         // и мутация DOM, а реестр ТН перестраивается на каждое kb:documents.
         const kanbanRows = [];
-        event.detail.forEach((card) => card.docs.forEach((doc, index) => {
+        (detail || []).forEach((card) => card.docs.forEach((doc, index) => {
             const id = 'kb-' + card.id + '-' + index;
             const r = { id, cardId: card.id, index, docTxId: doc.txId, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
             byId.set(id, r);
@@ -1273,17 +1333,21 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         }));
         if (kanbanRows.length) $('#fin-document-rows').insertAdjacentHTML('beforeend', kanbanRows.join(''));
         updateDocuments();
-    });
+    }
     // Групповые ТН: одна накладная на несколько карточек (аналог групп списаний).
-    document.addEventListener('kb:groups', (event) => {
+    function applyGroups(detail) {
         $$('#fin-document-rows tr[data-group], #fin-journal-rows tr[data-group]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
         // Две таблицы — две сборки и две вставки вместо 2N.
         const groupDocRows = [];
         const groupJournalRows = [];
-        (event.detail || []).forEach((g) => {
+        (detail || []).forEach((g) => {
             const id = 'kbg-' + g.id;
             const cardsText = g.covers.map((cov) => cov.cardId).join(', ');
-            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, tnHere: false, billHere: false, billRequired: false };
+            // P0-хотфикс 23.09 (часть D): флаги группы — флаги её записи-документа
+            // (boot отдаёт docTxId/tnHere/billHere). Без docTxId галочка «ТН у нас»
+            // у групповой ТН не уходила на сервер (doc-flag) и терялась при
+            // перечитывании, хотя у одиночных ТН работала штатно.
+            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, docTxId: g.docTxId || null, tnHere: Boolean(g.tnHere), billHere: Boolean(g.billHere), billRequired: false };
             byId.set(id, r);
             groupDocRows.push(`<tr data-group data-record="${id}">
                 <td><b>${esc(g.client)}</b><small>${esc(r.card)}: ${esc(cardsText)}</small></td>
@@ -1300,7 +1364,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         if (groupJournalRows.length) $('#fin-journal-rows').insertAdjacentHTML('beforeend', groupJournalRows.join(''));
         updateDocuments();
         updateJournal();
-    });
+    }
     function visibleRows(selector, predicate, keepFocused) {
         const visible = [];
         $$(selector + ' tr').forEach((row) => {
@@ -1572,6 +1636,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     updatePayments();
     updateDocuments();
     updateJournal();
+    // Обёртка вызывает их сама, проигрывая kb:documents/kb:groups, которые
+    // board.js успел разослать до первого открытия раздела.
+    return { applyDocuments: applyDocuments, applyGroups: applyGroups };
+    }
 })();
 </script>
 </body>

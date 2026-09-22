@@ -72,6 +72,27 @@
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--r-md); padding: var(--s2) var(--s3);
     box-shadow: var(--sh-1); transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
+    /* Пункт 3 («Стоимость отрисовки»): плитки вне полосы прокрутки колонки не
+       раскладываются и не красятся. `auto` (а не `hidden`) обязателен: элемент
+       остаётся в дереве доступности, а фокус внутри плитки заставляет браузер
+       её отрисовать — таб-навигация по колонке не ломается.
+       contain-intrinsic-size — высота плейсхолдера. `auto <длина>` просит
+       браузер подставлять ЗАПОМНЕННЫЙ реальный размер после первой отрисовки
+       плитки, поэтому оценка работает только для ещё ни разу не показанных
+       карточек (первая строка — откат для браузеров без remembered size).
+       Ширина не страдает: у .kb-card задано width: 100%, а встроенный размер
+       подменяет только auto-размер, то есть высоту.
+       Числа — расчёт по этому файлу (паддинги + строки заголовка/чипов/итога),
+       их стоит уточнить замером offsetHeight на стенде. */
+    content-visibility: auto;
+    contain-intrinsic-size: 160px;
+    contain-intrinsic-size: auto 160px;
+}
+/* В «обычной» плотности плитка выше: паддинги --s3/--s4 вместо --s2/--s3,
+   видна пилюля ответственного (в компактной она скрыта) и больше отступов. */
+.kb-root.kb-normal .kb-card {
+    contain-intrinsic-size: 180px;
+    contain-intrinsic-size: auto 180px;
 }
 .kb-card:hover { border-color: var(--border-strong); box-shadow: var(--sh-2); }
 .kb-card-title { font-size: var(--font-body); font-weight: 700; line-height:1.35; overflow-wrap: anywhere; padding-right: 26px; }
