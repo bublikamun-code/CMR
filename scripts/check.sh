@@ -26,7 +26,10 @@ PYTHON="$("$PYTHON" -c 'import sys; print(sys.executable)')" || fail 'Python н�
 [[ -x "$PYTHON" ]] || fail "Python не исполняемый: $PYTHON"
 [[ -x "$JSC" ]] || fail "нужен macOS JavaScriptCore: $JSC; JS syntax не пропускается"
 node --version >/dev/null || fail 'node не запускается'
-for file in tools/check_js.sh tools/check_handlers.js tools/stamp_assets.py server_snapshot/tests/conftest.py; do
+for file in tools/check_js.sh tools/check_handlers.js tools/stamp_assets.py \
+            server_snapshot/tests/conftest.py \
+            server_snapshot/tools/build_site_v2.py \
+            server_snapshot/tools/check_site_v2_fresh.py; do
     [[ -f "$ROOT/$file" ]] || fail "нет $file"
 done
 "$PYTHON" - <<'PY' || fail 'в выбранном Python отсутствуют зависимости (автоустановка отключена)'
@@ -75,6 +78,13 @@ check_handlers() {
     [[ "$output" != *'NOT RESOLVED:'* && "$output" =~ total\ handlers:\ [0-9]+\ unresolved:\ 0$ ]]
 }
 run 'data-handler (статическая эвристика)' check_handlers
+# site-v2 — генерируемый артефакт (tools/mockups + шаблоны api/boot). В git он
+# лежит обычными файлами, поэтому правка источника без пересборки расходится
+# молча: deploy.sh v2 пересобирает на месте, а docker-образ и ручная выкладка
+# берут устаревший каталог. Гейт собирает эталон во временный каталог и сверяет
+# его с артефактом — рабочее дерево не меняется.
+run 'Свежесть site-v2 (mockups ↔ артефакт)' \
+    "$PYTHON" "$ROOT/server_snapshot/tools/check_site_v2_fresh.py"
 run 'Версии статики (только проверка)' "$PYTHON" "$ROOT/tools/stamp_assets.py" --check
 
 # conftest изолирует БД/uploads до импорта main. Дополнительно изолируем cwd,

@@ -17,13 +17,16 @@ JSC = Path('/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current
 def gate_sandbox(tmp_path):
     root = tmp_path / 'project with spaces'
     for name in ('scripts', 'tools', 'server_snapshot/scripts', 'server_snapshot/tests',
-                 'server_snapshot/.venv/bin', 'bin'):
+                 'server_snapshot/tools', 'server_snapshot/.venv/bin', 'bin'):
         (root / name).mkdir(parents=True)
     script = root / 'scripts/check.sh'
     shutil.copyfile(ROOT / 'scripts/check.sh', script)
     (root / 'server_snapshot/tests/conftest.py').touch()
     (root / 'tools/check_handlers.js').touch()
     (root / 'tools/stamp_assets.py').touch()
+    # Gate требует наличия сборщика v2 и гейта свежести ещё в preflight.
+    (root / 'server_snapshot/tools/build_site_v2.py').touch()
+    (root / 'server_snapshot/tools/check_site_v2_fresh.py').touch()
     (root / 'tools/check_js.sh').write_text('exit "${JS_EXIT:-0}"\n')
     # Исполнение обслуживаемого shell-скрипта вместо bash -n сломает тест.
     (root / 'server_snapshot/scripts/backup.sh').write_text('exit 99\n')
@@ -47,7 +50,15 @@ if sys.argv[1] == '-c':
 source = sys.stdin.read() if sys.argv[1] == '-' else ''
 if 'import importlib.util' in source:
     raise SystemExit(int(os.environ.get('PREREQ_EXIT', '0')))
-step = 'pytest' if sys.argv[1] == '-' else 'stamp'
+# Этапы различаются первым аргументом: '-' — heredoc с pytest,
+# check_site_v2_fresh.py — свежесть site-v2, прочее — stamp_assets.py.
+script = Path(sys.argv[1]).name
+if sys.argv[1] == '-':
+    step = 'pytest'
+elif script == 'check_site_v2_fresh.py':
+    step = 'v2fresh'
+else:
+    step = 'stamp'
 with open(os.environ['GATE_LOG'], 'a') as log:
     log.write(json.dumps({'step': step, 'args': sys.argv[1:]}) + '\\n')
 raise SystemExit(int(os.environ.get(step.upper() + '_EXIT', '0')))
@@ -74,6 +85,8 @@ raise SystemExit(int(os.environ.get(step.upper() + '_EXIT', '0')))
     ({'JS_EXIT': '7'}, 7),
     ({'NODE_EXIT': '8'}, 8),
     ({'UNRESOLVED': '24'}, 1),
+    ({'V2FRESH_EXIT': '4'}, 4),
+    ({'V2FRESH_EXIT': '1', 'PYTEST_EXIT': '5'}, 1),
     ({'STAMP_EXIT': '3'}, 3),
     ({'PYTEST_EXIT': '5'}, 5),
     ({'JS_EXIT': '7', 'PYTEST_EXIT': '5'}, 7),
@@ -82,8 +95,10 @@ def test_gate_runs_all_checks_and_preserves_failure(gate_sandbox, overrides, cod
     root, run = gate_sandbox
     result, calls = run(**overrides)
     assert result.returncode == code, result.stdout + result.stderr
-    assert [call['step'] for call in calls] == ['stamp', 'pytest']
-    assert calls[0]['args'] == [str(root / 'tools/stamp_assets.py'), '--check']
+    assert [call['step'] for call in calls] == ['v2fresh', 'stamp', 'pytest']
+    assert calls[0]['args'] == [
+        str(root / 'server_snapshot/tools/check_site_v2_fresh.py')]
+    assert calls[1]['args'] == [str(root / 'tools/stamp_assets.py'), '--check']
     assert f'Локальный gate завершён: exit {code}' in result.stdout
 
 
@@ -122,4 +137,20 @@ def test_shell_syntax_failure_is_reported_without_execution(gate_sandbox):
     result, calls = run()
     assert result.returncode != 0
     assert 'FAIL: shell syntax: scripts/broken.sh' in result.stderr
-    assert [call['step'] for call in calls] == ['stamp', 'pytest']
+    assert [call['step'] for call in calls] == ['v2fresh', 'stamp', 'pytest']
+
+
+@pytest.mark.skipif(not os.access(JSC, os.X_OK), reason='Gate явно требует macOS JavaScriptCore')
+@pytest.mark.parametrize('missing', [
+    'server_snapshot/tools/build_site_v2.py',
+    'server_snapshot/tools/check_site_v2_fresh.py',
+])
+def test_missing_v2_freshness_tools_fail_preflight(gate_sandbox, missing):
+    """Без сборщика/гейта v2 проверка свежести невозможна — это предпосылка,
+    а не «пропустили этап»: gate обязан упасть до запуска проверок."""
+    root, run = gate_sandbox
+    (root / missing).unlink()
+    result, calls = run()
+    assert result.returncode == 2
+    assert f'нет {missing}' in result.stderr
+    assert calls == []
