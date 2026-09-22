@@ -792,10 +792,17 @@
         if (!drawer) return;
         var clientId = numeric(drawer.dataset.clientId);
         var body = drawer.querySelector('.drawer-body');
-        if (!body || body.dataset.balanceDone === clientId + '') return;
+        if (!body) return;
+        // Этот колбэк висит на MutationObserver того же поддерева, которое сам
+        // и меняет (old.remove() + вставка блока). Без метки «в работе» каждый
+        // виток заново запускает наблюдателя, очередь микротасков не иссякает —
+        // страница перестаёт отвечать и сыплет запросами баланса до перезагрузки.
+        // Метка снимается при сбое, чтобы ошибка не кешировалась пустотой (B2).
+        if (body.dataset.balanceDone === clientId + '' || body.dataset.balanceLoading === clientId + '') return;
         var old = body.querySelector('[data-cl-balance-block]');
         if (old) old.remove();
         if (!clientId) return;
+        body.dataset.balanceLoading = clientId + '';
         var block = document.createElement('div');
         block.setAttribute('data-cl-balance-block', '1');
         block.innerHTML = '<p class="fin-note" data-cl-balance>Баланс кассы: загружается…</p>' +
@@ -808,11 +815,13 @@
         // иначе при сетевом сбое «баланс: » кешируется как пустота и не ретраится.
         window.V2Api.api('/clients/' + clientId + '/balance').then(function (bal) {
             body.dataset.balanceDone = clientId + '';
+            delete body.dataset.balanceLoading;
             var el = block.querySelector('[data-cl-balance]');
             el.textContent = 'Баланс кассы: ' + fmtKop(Math.round(bal.balance * 100)) + ' BYN' +
                 (bal.balance > 0 ? ' — переплата клиента' : bal.balance < 0 ? ' — долг клиента' : '');
         }).catch(function (err) {
             // B1 fix: не глотаем ошибку — показываем состояние и даём повторить.
+            delete body.dataset.balanceLoading;
             var el = block.querySelector('[data-cl-balance]');
             if (el) el.textContent = 'Не удалось загрузить баланс' + (err && err.message ? ': ' + err.message : '');
         });
