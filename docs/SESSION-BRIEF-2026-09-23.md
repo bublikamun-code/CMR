@@ -6,8 +6,8 @@
 
 ## 0. Координаты и порядок работы
 
-- Рабочее репо: `/Users/yaroslav/Documents/crm-svetvdome`, ветка `main` @ `939652f`,
-  **ahead `origin/main` на 12 коммитов — пуш не выполнен** (решение владельца).
+- Рабочее репо: `/Users/yaroslav/Documents/crm-svetvdome`, ветка `main` @ `1f4e0bf`,
+  **ahead `origin/main` на 17 коммитов — пуш не выполнен** (решение владельца).
   **Деплой блока 0 выполнен 23.09**: `tools/deploy.sh v2` (только статика `site-v2`,
   без рестарта); прод на штампе `4d896ae8e3`, маркеры фиксов проверены curl'ом
   (`balanceLoading`, `kb-new-card`, `KBData.reload`). Бэкенд в блоке 0 не менялся,
@@ -15,7 +15,14 @@
 - Порядок: **один пункт плана = одна сессия**. Закрыл пункт → прогнал его критерий
   готовности → атомарный коммит → строка в журнале плана. Упёрся в решение
   владельца — не гадать, остановить пункт и зафиксировать в журнале.
-- **Первая задача новой сессии: пункт 1 плана** (CSP `blob:` + тест заголовка).
+- **Пункт 1 закрыт 22.09**: `b361fd9` (CSP `blob:` в `img-src` + тест
+  `tests/test_security_headers.py`) и `1f4e0bf` (отметка и журнал плана).
+  Прод всё ещё на старом CSP — деплой бэка (`tools/deploy.sh back main.py`
+  + рестарт PM2) ждёт слова владельца.
+- **Первая задача новой сессии: пункт 2 плана** (производительность
+  взаимодействий доски). Учтите: коммит `75a8682` (поле поставщика без
+  нативного datalist) уже изменил `mockups/shell-v2-board.js` и пересобрал
+  `site-v2` — читать актуальное дерево, а не строки из плана.
 - Параллельные сессии: worktree `/private/tmp/crm-item4`, ветка `v2-item4-drag` —
   ведёт **пункт 4** (drag&drop). Пункт 4 не трогать. Конфликты в `site-v2` при
   мердже решать пересборкой, а не ручным слиянием. Пересборку `site-v2` в main
@@ -27,6 +34,8 @@
 - Поднят: `http://127.0.0.1:8126/v2/` (uvicorn main:app, `CRM_DATA_DIR=/tmp/v2-audit-prod`,
   `CRM_UPLOADS_DIR=/tmp/v2-audit-prod/uploads`). Вход: `audit_admin` / `Audit-2026!`
   (роль admin) и `audit_manager` / тот же пароль (роль manager).
+  Перезапущен 22.09 23:08 на коде с CSP `blob:` (пункт 1); лог этого прогона —
+  `/tmp/v2-audit-prod/stand-item1.log`.
 - Если упал, поднять заново:
   `cd server_snapshot && CRM_DATA_DIR=/tmp/v2-audit-prod CRM_UPLOADS_DIR=/tmp/v2-audit-prod/uploads ./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8126`
 - **Порт 8125 не использовать и не убивать**: там чужой старый стенд на устаревших
@@ -79,6 +88,11 @@
   матрицы ширина×тема); выводы `toolout/*.txt|json`; Performance-трейсы
   `traces/trace-{idle-15s,active-10s}.zip`; лог стенда `stand.log`; состояния
   логинов `state-admin.json`, `state-manager.json`.
+- Пункт 1 (CSP `blob:`): перепись после фикса — `toolout/census-item1/`
+  (census.json + скриншоты), проверка миниатюр — `scripts/s12_csp_blob_thumbs.py`
+  (сводка `toolout/census-item1/csp-blob-thumbs.json`, кадры
+  `incoming-thumbs-{light,dark}.png`). Тест заголовка —
+  `server_snapshot/tests/test_security_headers.py`.
 - `/tmp/verify-0-block.py` — быстрая регрессия блока 0 (клиенты + комбобокс
   поставщика): запускать после любой пересборки.
 - Штатные проверки: `tools/v2_error_census.py --base http://127.0.0.1:8126/v2/`,
