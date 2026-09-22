@@ -229,6 +229,32 @@
         if (!inCol.length && !empty) list.innerHTML = '<p class="kb-empty">Пусто</p>';
         else if (inCol.length && empty) empty.remove();
     }
+    // Точечная синхронизация одной карточки вместо refresh(): плитка
+    // перестраивается из cardHTML(), шапка её колонки и очередь
+    // пересчитываются. Полный renderBoard() на одну галочку закупки стоил
+    // ~2000 мутаций DOM и 60-70 мс блокировки (аудит 22.09, V2-UI-AUDIT F1).
+    // opts.documents — дополнительно разослать kb:documents: нужно, когда
+    // изменились деньги, клиент, название или документы (их читают финансы
+    // и календарь), и не нужно для флагов закупки ordered/received.
+    function syncCard(card, opts) {
+        var o = opts || {};
+        var tile = boardEl.querySelector('.kb-card[data-card="' + card.id + '"]');
+        var visible = visibleCards().indexOf(card) >= 0;
+        if (tile && !visible) tile.remove();
+        else if (tile) {
+            var holder = document.createElement('div');
+            holder.innerHTML = cardHTML(card);
+            if (holder.firstElementChild) tile.parentNode.replaceChild(holder.firstElementChild, tile);
+        } else if (visible) {
+            // Плитки нет, хотя карточка теперь видна (сменился этап или фильтр) —
+            // вставка с соблюдением порядка колонок дороже полной перерисовки.
+            refresh();
+            return;
+        }
+        updateColumnHead(card.stage);
+        renderQueue();
+        if (o.documents) dispatchDocuments();
+    }
     var drag = null;
     var dragFrame = 0;
     var suppressCardClick = false;
@@ -329,8 +355,9 @@
         cleanupDrag();
         if (changedStage) { updateColumnHead(fromStage); updateColumnHead(toStage); }
         renderQueue();
-        document.dispatchEvent(new CustomEvent('kb:documents', { detail: cards }));
-        document.dispatchEvent(new CustomEvent('kb:groups', { detail: KBData.groups }));
+        // Перенос между колонками меняет сделку, но не состав групповых ТН —
+        // kb:groups здесь был мёртвым грузом (перестройка строк групп в финансах).
+        dispatchDocuments();
         apiMutate('status', { id: cardId, status: status }).then(function (ok) {
             if (ok === false) refresh(); // сервер отказал: тост уже показан boot-слоем
         });
@@ -357,7 +384,7 @@
     storeEl.addEventListener('change', function() {
         state.store = storeEl.value;
         writeBoardParams({ store: state.store === 'all' ? '' : state.store });
-        refresh();
+        refresh({ view: true });
     });
     // Debounce: полная перерисовка доски (сотни карточек) не должна бежать
     // на каждый символ — ждём паузу в вводе 150 мс.
@@ -369,7 +396,7 @@
         searchToggle.setAttribute('aria-expanded', String(open));
         searchToggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
         if (open) searchEl.focus();
-        else { clearTimeout(searchTimer); searchEl.value = ''; state.search = ''; writeBoardParams({ q: '' }); refresh(); searchToggle.focus(); }
+        else { clearTimeout(searchTimer); searchEl.value = ''; state.search = ''; writeBoardParams({ q: '' }); refresh({ view: true }); searchToggle.focus(); }
     }
     searchToggle.onclick = function() { toggleSearch(searchToggle.getAttribute('aria-expanded') !== 'true'); };
     document.getElementById('kb-search-close').onclick = function() { toggleSearch(false); };
@@ -378,7 +405,10 @@
         state.search = searchEl.value;
         writeBoardParams({ q: state.search });
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(refresh, 150);
+        // Явная обёртка: setTimeout не передаёт аргументы, а ссылку на
+        // refresh(opts) вообще нельзя отдавать колбэкам событий — у Event есть
+        // собственное свойство view (Window), оно попало бы в opts.view.
+        searchTimer = setTimeout(function () { refresh({ view: true }); }, 150);
     });
     document.getElementById('kb-density').onclick = function() { setDensity(!state.compact); };
     function setDensity(compact) {
@@ -411,12 +441,26 @@
     }
     // Esc закрывает через тот же выход: гасим нативный cancel и идём сами.
     dialog.addEventListener('cancel', function (e) { e.preventDefault(); closeDialog(); });
-    function refresh() {
+    // Рассылка данных соседним разделам. События дорогие: kb:documents тянет
+    // renderDay() + renderCalendar() (insights.js) и перестройку строк ТН
+    // (финансовый блок прототипа), kb:groups — перестройку строк групп.
+    // Шлём только когда соответствующие данные действительно изменились.
+    function dispatchDocuments() {
+        document.dispatchEvent(new CustomEvent('kb:documents', { detail: cards }));
+    }
+    function dispatchGroups() {
+        document.dispatchEvent(new CustomEvent('kb:groups', { detail: KBData.groups }));
+    }
+    // opts.view — перерисовка только вида (фильтр, поиск, плотность): данные не
+    // менялись, финансам и календарю события не нужны.
+    function refresh(opts) {
+        var viewOnly = !!(opts && opts.view === true);
         var scroll = Array.from(boardEl.querySelectorAll('.kb-cards')).map(function(el) { return el.scrollTop; });
         renderBoard(); renderQueue();
         boardEl.querySelectorAll('.kb-cards').forEach(function(el, i) { el.scrollTop = scroll[i] || 0; });
-        document.dispatchEvent(new CustomEvent('kb:documents', { detail: cards }));
-        document.dispatchEvent(new CustomEvent('kb:groups', { detail: KBData.groups }));
+        if (viewOnly) return;
+        dispatchDocuments();
+        dispatchGroups();
     }
     // Перечитать данные с сервера без F5. Если загрузчик недоступен (прототип
     // на демо-данных) или не зарегистрирован — хотя бы перерисовываем доску.
@@ -1875,7 +1919,8 @@
                     notify('Флаг не сохранён: ошибка сети.');
                 });
             }
-            refresh();
+            // Флаг документа изменился — строка ТН в финансах должна обновиться.
+            syncCard(activeCard, { documents: true });
             return;
         }
         if (input.matches('[data-deal-field]')) {
@@ -1912,7 +1957,7 @@
                     activeCard.clientId = null;
                     activeCard.client = '';
                     apiMutate('card', { id: Number(activeCard.id), fields: { client_id: null } });
-                    refresh();
+                    syncCard(activeCard, { documents: true });
                     return;
                 }
                 var match = KBData.clients.filter(function (cl) {
@@ -1922,7 +1967,7 @@
                     activeCard.clientId = match.id;
                     activeCard.client = match.name;
                     apiMutate('card', { id: Number(activeCard.id), fields: { client_id: numericClientIdValue(match.id) } });
-                    refresh();
+                    syncCard(activeCard, { documents: true });
                 } else {
                     // Клиента нет в справочнике — НЕ создаём побочно.
                     // Возвращаем поле к предыдущему значению.
@@ -1948,7 +1993,10 @@
                 apiMutate('card', { id: Number(activeCard.id), fields: { owner_id: ownerId } });
             }
             else if (key === 'stage') apiMutate('status', { id: Number(activeCard.id), status: stageName(value) });
-            refresh();
+            // Переезд в другую колонку точечно не обновить: плитка должна
+            // сменить колонку и место в порядке — тут полная перерисовка.
+            if (key === 'stage') refresh();
+            else syncCard(activeCard, { documents: true });
             if (key === 'stage' || key === 'amount') {
                 openCard(activeCard);
                 var control = dialog.querySelector('[data-deal-field="' + key + '"]');
@@ -1969,7 +2017,9 @@
             window.V2Api.api('/checklists/' + rawId, { method: 'PATCH', body: body })
                 .catch(function (e2) { notify('Статус закупки не сохранён: ' + (e2.detail || e2.message || 'ошибка')); });
         }
-        openCard(activeCard); refresh();
+        // Флаги ordered/received финансы и календарь не читают — kb:documents
+        // на галочку закупки не шлём, плитка и очередь обновляются точечно.
+        openCard(activeCard); syncCard(activeCard);
         // Item #12: focus safe — после перерендера элемент мог исчезнуть.
         var focusTarget = dialog.querySelector('[data-check="' + index + '"][data-flag="' + flag + '"]');
         if (focusTarget) focusTarget.focus();

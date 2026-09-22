@@ -190,37 +190,46 @@
     // Kanban documents are session-local too; one row per partial invoice.
     document.addEventListener('kb:documents', (event) => {
         $$('#fin-document-rows tr[data-kanban]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
+        // Одна вставка вместо N: каждая insertAdjacentHTML — отдельный парсинг
+        // и мутация DOM, а реестр ТН перестраивается на каждое kb:documents.
+        const kanbanRows = [];
         event.detail.forEach((card) => card.docs.forEach((doc, index) => {
             const id = 'kb-' + card.id + '-' + index;
             const r = { id, cardId: card.id, index, docTxId: doc.txId, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
             byId.set(id, r);
-            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
+            kanbanRows.push(`<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
                 <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
                 <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
                 <td class="num">${money(doc.amount)}</td><td>${checkbox({...r, card: card.id, client: card.client}, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
             </tr>`);
         }));
+        if (kanbanRows.length) $('#fin-document-rows').insertAdjacentHTML('beforeend', kanbanRows.join(''));
         updateDocuments();
     });
     // Групповые ТН: одна накладная на несколько карточек (аналог групп списаний).
     document.addEventListener('kb:groups', (event) => {
         $$('#fin-document-rows tr[data-group], #fin-journal-rows tr[data-group]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
+        // Две таблицы — две сборки и две вставки вместо 2N.
+        const groupDocRows = [];
+        const groupJournalRows = [];
         (event.detail || []).forEach((g) => {
             const id = 'kbg-' + g.id;
             const cardsText = g.covers.map((cov) => cov.cardId).join(', ');
             const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, tnHere: false, billHere: false, billRequired: false };
             byId.set(id, r);
-            $('#fin-document-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
+            groupDocRows.push(`<tr data-group data-record="${id}">
                 <td><b>${esc(g.client)}</b><small>${esc(r.card)}: ${esc(cardsText)}</small></td>
                 <td>${esc(g.series + ' ' + g.number)}<small>${esc(g.date)}</small></td>
                 <td class="num">${money(g.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
             </tr>`);
-            $('#fin-journal-rows').insertAdjacentHTML('beforeend', `<tr data-group data-record="${id}">
+            groupJournalRows.push(`<tr data-group data-record="${id}">
                 <td>${esc(g.series + ' ' + g.number)}</td><td class="num">${esc(g.date)}</td>
                 <td><details><summary>${esc(r.card)}</summary><p>${esc(g.client)} · ${esc(g.store)}</p><p>Карточки: ${esc(cardsText)}.</p><p>Одна накладная на всю группу; отмена возвращает остаток каждой карточке.</p></details></td>
                 <td class="num">${money(g.amount)}</td>
             </tr>`);
         });
+        if (groupDocRows.length) $('#fin-document-rows').insertAdjacentHTML('beforeend', groupDocRows.join(''));
+        if (groupJournalRows.length) $('#fin-journal-rows').insertAdjacentHTML('beforeend', groupJournalRows.join(''));
         updateDocuments();
         updateJournal();
     });
