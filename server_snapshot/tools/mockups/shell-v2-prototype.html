@@ -1343,7 +1343,11 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         (detail || []).forEach((g) => {
             const id = 'kbg-' + g.id;
             const cardsText = g.covers.map((cov) => cov.cardId).join(', ');
-            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, tnHere: false, billHere: false, billRequired: false };
+            // P0-хотфикс 23.09 (часть D): флаги группы — флаги её записи-документа
+            // (boot отдаёт docTxId/tnHere/billHere). Без docTxId галочка «ТН у нас»
+            // у групповой ТН не уходила на сервер (doc-flag) и терялась при
+            // перечитывании, хотя у одиночных ТН работала штатно.
+            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, docTxId: g.docTxId || null, tnHere: Boolean(g.tnHere), billHere: Boolean(g.billHere), billRequired: false };
             byId.set(id, r);
             groupDocRows.push(`<tr data-group data-record="${id}">
                 <td><b>${esc(g.client)}</b><small>${esc(r.card)}: ${esc(cardsText)}</small></td>

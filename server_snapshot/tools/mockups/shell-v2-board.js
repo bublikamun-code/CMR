@@ -1826,17 +1826,109 @@
                     var groupInvoicesTab = document.getElementById('kb-tab-invoices');
                     if (groupInvoicesTab) groupInvoicesTab.click();
                 };
-                // Item #3: отмена группы не должна быть молча локальной.
+                var groupLabel = ((group.series ? group.series + ' ' : '') + (group.number || '')).trim() || 'без номера';
+                // Кнопка уже «взведена» (data-armed): на время запроса гасим её,
+                // а при отказе возвращаем в исходное — повторить одним кликом.
+                var disarmCancel = function () {
+                    cancel.disabled = false;
+                    delete cancel.dataset.armed;
+                    cancel.textContent = 'Отменить';
+                };
+                // P0-хотфикс 23.09 (часть C): выписанную группу разматывает
+                // только серверный POST /writeoffs/groups/{id}/annul. Прежний
+                // annul-tx (DELETE /payments/transactions/{id}) по документу
+                // группы с card_id=NULL не снимал written_off и не возвращал
+                // карточки из «Закрыто», а UI рапортовал «остатки возвращены»
+                // (дефект 2 реестра V2-WORKPLAN-2026-09-22).
+                if (group.writtenOff && group.serverId) {
+                    if (!window.V2Api || !window.V2Api.api) {
+                        notify('Отмена групповой ТН недоступна: CRM API не подключён.', true);
+                        return;
+                    }
+                    cancel.disabled = true;
+                    window.V2Api.api('/writeoffs/groups/' + group.serverId + '/annul', { method: 'POST' })
+                        .then(function (unwound) {
+                            // Число карточек — из ответа сервера (он разматывал).
+                            var count = (unwound && unwound.cards && unwound.cards.length) || group.covers.length;
+                            // Источник правды — сервер: локальный пересчёт
+                            // остатков не дублируем, перечитываем данные и
+                            // рапортуем только после успешного перечитывания.
+                            reloadData()
+                                .then(function () {
+                                    notify('Групповая ТН ' + groupLabel + ' отменена, остатки возвращены ' + count + ' карточкам.');
+                                    var groupInvoicesTab = document.getElementById('kb-tab-invoices');
+                                    if (groupInvoicesTab) groupInvoicesTab.click();
+                                })
+                                .catch(function (e2) {
+                                    refresh();
+                                    notify('Групповая ТН ' + groupLabel + ' отменена на сервере, но данные не обновились: ' + ((e2 && (e2.detail || e2.message)) || 'ошибка'), true);
+                                });
+                        })
+                        .catch(function (err) {
+                            disarmCancel();
+                            var status = err && err.status;
+                            // Причина сервера идёт в середину русской фразы —
+                            // конечную пунктуацию срезаем, чтобы не было «..».
+                            var reason = String((err && (err.detail || err.message)) || 'ошибка').replace(/[.!?]+$/, '');
+                            // 403 — следствие матрицы ролей (пункт 17): отмена
+                            // групповой ТН админская, как и одиночная. Не обходим
+                            // и не маскируем: без прав состояние не меняется.
+                            if (status === 403) {
+                                notify('Отмена групповой ТН доступна только администратору.', true);
+                                return;
+                            }
+                            // 400/404 — клиент разошёлся с сервером (группу уже
+                            // отменили, или она не закрыта накладной, или её
+                            // нет): перечитываем данные, локально не гадаем.
+                            if (status === 400 || status === 404) {
+                                notify('Отмена групповой ТН не выполнена: ' + reason + '. Данные перечитаны с сервера.', true);
+                                reloadData().catch(function () { refresh(); });
+                                return;
+                            }
+                            // Сеть/401: отмена не подтверждена — данные не трогаем.
+                            notify('Отмена групповой ТН не прошла: ' + reason + '. Данные не изменились.', true);
+                        });
+                    return;
+                }
+                if (group.writtenOff) {
+                    // Выписанная группа без serverId (штатно не случается: boot
+                    // и issueGroup его дают). Локально разматывать нельзя —
+                    // сервер останется закрытым, а UI соврёт про остатки.
+                    notify('Отмена групповой ТН доступна после обновления страницы.', true);
+                    return;
+                }
+                // Фолбэк: одиночный документ группы БЕЗ written_off — annul-tx
+                // бьёт точно по нему (serverTxId после части A — id документа).
                 if (group.serverTxId) {
                     apiMutate('annul-tx', { txId: group.serverTxId }).then(function (ok) {
                         if (ok === false) { notify('Отмена группы не прошла на сервере — обновите страницу.'); return; }
-                        doCancelGroupLocal();
+                        // Группа остаётся на сервере (written_off не менялся,
+                        // карточки в ней) — перечитываем, а не вычёркиваем
+                        // группу из локального кэша.
+                        reloadData()
+                            .then(function () { notify('Документ группы ' + groupLabel + ' удалён. Данные перечитаны с сервера.'); })
+                            .catch(function () {
+                                refresh();
+                                notify('Документ группы ' + groupLabel + ' удалён, но данные не обновились.', true);
+                            });
                     }).catch(function (err) {
                         notify('Отмена группы не прошла: ' + (err.detail || err.message || 'ошибка'));
                     });
+                } else if (group.serverId) {
+                    // Группа есть на сервере, но не закрыта накладной и своего
+                    // документа не имеет — разматывать на сервере нечего.
+                    // Локально вычёркивать группу нельзя: сервер её хранит,
+                    // после перечитывания она вернётся (ложная кнопка,
+                    // дефект 2 реестра). Перечитывание лечит расхождение.
+                    reloadData()
+                        .then(function () { notify('Групповая ТН не выписана — отменять нечего. Данные перечитаны с сервера.', true); })
+                        .catch(function () {
+                            refresh();
+                            notify('Групповая ТН не выписана — отменять нечего.', true);
+                        });
                 } else {
-                    // Группа без serverTxId — не была сохранена на сервере,
-                    // локальная отмена безопасна (создана в этой сессии).
+                    // Группы нет на сервере (демо-сессия прототипа) — локальная
+                    // отмена безопасна.
                     doCancelGroupLocal();
                 }
                 return;
@@ -2239,9 +2331,19 @@
                     method: 'POST',
                     body: { invoice_number: number, invoice_date: date, amount: totalAmount / 100 }
                 }).then(function (result) {
-                    // Обновляем локальный кэш групп
+                    // Обновляем локальный кэш групп.
+                    // P0-хотфикс 23.09 (часть A): serverTxId — НАСТОЯЩИЙ id
+                    // записи-документа группы из ответа сервера, а не id группы.
+                    // Раньше здесь лежал g.id, и отмена групповой ТН в той же
+                    // сессии слала DELETE /payments/transactions/{id группы},
+                    // снося постороннюю запись реестра с совпавшим номером
+                    // (дефект 1 реестра V2-WORKPLAN-2026-09-22). Тот же id —
+                    // docTxId для флагов «ТН у нас»/«Счёт у нас» в финансах
+                    // (часть D): без него галочка группы не сохранялась до F5.
+                    var groupDocTxId = (result && result.invoice_transaction_id) || null;
                     var groupEntry = {
-                        id: 'gr-' + g.id, serverId: g.id, serverTxId: result && result.invoice_number ? g.id : null,
+                        id: 'gr-' + g.id, serverId: g.id, serverTxId: groupDocTxId,
+                        docTxId: groupDocTxId, tnHere: false, billHere: false,
                         name: g.name || 'Группа', client: picks[0].client || '', store: picks[0].store || '',
                         series: '', number: number, date: date, amount: totalAmount,
                         writtenOff: true,
