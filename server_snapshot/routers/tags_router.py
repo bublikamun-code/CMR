@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 import models
 import schemas
-from auth import get_current_user
+from auth import get_current_user, require_role
 from database import get_scoped_session
 from db_utils import cap_list
 
@@ -42,7 +42,13 @@ def create_tag(tag: schemas.TagCreate, db: Session = Depends(_scoped_db), curren
     return new_tag
 
 
-@router.delete("/{tag_id}")
+# V11 (пункт 17 плана v2): удаление тега снимает его со ВСЕХ сделок сразу
+# (каскад по card_tags), то есть это правка справочника, а не своей карточки.
+# Поэтому — админ, как остальные справочники. Создание тега и снятие/установка
+# его на конкретной сделке остаются операционными действиями любого
+# аутентифицированного пользователя.
+@router.delete("/{tag_id}",
+               dependencies=[Depends(require_role("admin", "superadmin"))])
 def delete_tag(tag_id: int, db: Session = Depends(_scoped_db), current_user: models.User = Depends(get_current_user)):
     tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
     if not tag:

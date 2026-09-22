@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session, selectinload
 
 import models
 import schemas
-from auth import get_current_user
+from auth import get_current_user, require_role
 from constants import MONEY_EPSILON
 from database import get_db
+from services.payments import annul_group_writeoff
 from services.writeoffs import card_group_key, recompute_group_total
 
 router = APIRouter(
@@ -225,6 +226,44 @@ def issue_group_invoice(group_id: int, payload: IssueGroupInvoiceRequest, db: Se
         ))
 
     db.commit()
+    db.refresh(group)
+    # P0-хотфикс 23.09 (часть B): настоящий id документа группы в ответе.
+    # Ad-hoc атрибут (колонки у writeoff_groups нет) — pydantic подхватывает
+    # его через from_attributes в WriteoffGroupResponse.invoice_transaction_id.
+    # Без него клиент знал только id группы и отменял групповую ТН через
+    # DELETE /payments/transactions/{id группы}, снося постороннюю запись
+    # реестра с тем же номером (дефект 1 реестра V2-WORKPLAN-2026-09-22).
+    group.invoice_transaction_id = doc.id
+    return group
+
+
+@router.post("/{group_id}/annul", response_model=schemas.WriteoffGroupResponse,
+             dependencies=[Depends(require_role("admin", "superadmin"))])
+def annul_group_invoice(group_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Отмена групповой накладной: разматывает выписку группы целиком.
+
+    P0-хотфикс 23.09 (часть B). До него отмена группы шла общим роутом
+    DELETE /payments/transactions/{id}: документ группы — запись реестра с
+    card_id=NULL, поэтому одиночная отмена не возвращала ни written_off группы,
+    ни карточки из «Закрыто» (дефект 2 реестра), а клиент в сессии выписки
+    вообще слал туда id группы и удалял постороннюю транзакцию (дефект 1).
+
+    Гейт роли — как у одиночной отмены (DELETE /payments/transactions/{id},
+    V11 коммита 5828f2d): групповая операция не может быть шире одиночной.
+    Идемпотентность: повторный вызов для уже разматанной группы — 400 с
+    причиной, а не 500 (см. services.payments.annul_group_writeoff).
+    """
+    group = db.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+    if not group.written_off:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Группа #{group.id} не закрыта накладной — отменять нечего. "
+                    "Повторная отмена не требуется (или групповая ТН ещё не выписана).")
+        )
+
+    annul_group_writeoff(db, group, current_user)
     db.refresh(group)
     return group
 

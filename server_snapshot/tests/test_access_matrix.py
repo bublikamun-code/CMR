@@ -4,14 +4,29 @@
 несогласованность модели доступа — сама по себе дефект, и её надо видеть
 целиком, а не находить по одному случаю.
 
-Карта проверок по коду (2026-09-11, обновлено 2026-09-12 — create-tenant удалён):
-  require_admin()                    auth create/update/delete user, custom_objects, webhooks
+Карта проверок по коду (2026-09-11, обновлено 2026-09-12 — create-tenant удалён,
+2026-09-23 — пункт 17 плана v2 / V11, деструктивные бизнес-операции):
+  require_admin()                    auth create/update/delete user, custom_objects,
+                                     webhooks, workflows, dictionaries
   require_superadmin()               (нет эндпоинтов — create-tenant удалён в Фазе 4)
-  require_role(admin, superadmin)    clients DELETE, kanban cards/{id}/permanent
-  role not in (admin, superadmin)    payments repair-writeoffs, tasks visibility/delete
-  БЕЗ проверки роли                  payments (кроме repair), nakladnye CRUD,
-                                     suppliers DELETE, writeoffs, writeoff_groups,
-                                     kanban create/status/reorder, PATCH /cards/{id}
+  require_role(admin, superadmin)    clients DELETE, clients payments DELETE,
+                                     kanban cards/{id}/permanent,
+                                     payments transactions DELETE,
+                                     payments cards/{id}/writeoff,
+                                     suppliers DELETE, tags/{id} DELETE,
+                                     nakladnye/{id} DELETE
+  require_role(manager, warehouse,   весь роутер email-parser (роль documents
+              admin, superadmin)     к почте не допускается)
+  role not in (admin, superadmin)    payments repair-writeoffs, tasks delete,
+                                     activity (свой комментарий либо админ)
+  БЕЗ проверки роли                  payments (создание/правка записей, выписка,
+                                     дублирование в документы), nakladnye
+                                     create/update/photos, writeoffs, writeoff_groups,
+                                     kanban create/status/reorder/restore,
+                                     PATCH /cards/{id}, теги на сделке,
+                                     уведомления (фильтр по user_id)
+  Полная матрица V11 (кто получает 403 на каждом закрытом роуте) —
+  tests/test_role_gates_v11.py.
 """
 import pytest
 
@@ -194,28 +209,22 @@ def test_admin_can_delete_any_task(client, admin, make_user, db):
 # ---------------------------------------------------------------------------
 # НЕ защищено — документируем несогласованность модели доступа
 # ---------------------------------------------------------------------------
-
-def test_manager_can_delete_supplier_while_client_needs_admin(client, manager, db):
-    """Прямое несоответствие: DELETE /clients требует admin, DELETE /suppliers — нет."""
-    _, h = manager
-    sup = models.Supplier(name="Поставщик")
-    db.add(sup)
-    db.commit()
-    assert client.delete(f"/suppliers/{sup.id}", headers=h).status_code == 200
-
-
-def test_manager_can_delete_nakladnaya(client, manager, db):
-    _, h = manager
-    nak = models.Nakladnaya(doc_series="АБ", doc_number="1", supplier_name="П")
-    db.add(nak)
-    db.commit()
-    assert client.delete(f"/nakladnye/{nak.id}", headers=h).status_code == 200
-
+# Пункт 17 плана v2 (V11) закрыл три несоответствия, которые этот раздел
+# фиксировал раньше: DELETE /suppliers/{id}, DELETE /nakladnye/{id} и
+# DELETE /payments/transactions/{id} стали админскими. Их матрица
+# (manager/warehouse/documents → 403, admin/superadmin → успех) живёт в
+# tests/test_role_gates_v11.py. Здесь остаётся то, что сознательно НЕ закрыто.
 
 def test_manager_can_edit_any_card_money(client, manager, make_user, db, make_card):
-    """Менеджер правит суммы чужой сделки: проверки владельца нет."""
-    owner, _ = make_user("manager", username="card_owner")
+    """Менеджер правит суммы чужой сделки: проверки владельца нет.
+
+    Остаётся открытым сознательно: владелец не принимал решения о том, что
+    менеджер работает только со своими сделками (карточки правят и склад,
+    и документооборот). Если такое решение появится — это отдельный пункт,
+    а не побочный эффект ролевых гейтов V11.
+    """
     _, h = manager
+    owner, _ = make_user("manager", username="card_owner")
     card = make_card(title="Чужая сделка", total_amount=100.0, owner_id=owner.id)
 
     r = client.patch(f"/cards/{card.id}/payment", headers=h, json={"paid_amount": 99.0})
@@ -223,19 +232,6 @@ def test_manager_can_edit_any_card_money(client, manager, make_user, db, make_ca
     _reload(db)
     fresh = db.query(models.Card).filter(models.Card.id == card.id).first()
     assert round(float(fresh.paid_amount), 2) == 99.0
-
-
-def test_manager_can_delete_any_transaction(client, manager, db, make_card):
-    _, h = manager
-    card = make_card(title="Сделка", total_amount=1000.0)
-    tx = models.Transaction(card_id=card.id, company_name="Сделка", amount=1000.0,
-                            is_document=False)
-    db.add(tx)
-    db.commit()
-    tx_id = tx.id
-
-    r = client.delete(f"/payments/transactions/{tx_id}", headers=h)
-    assert r.status_code == 200, r.text
 
 
 # ---------------------------------------------------------------------------

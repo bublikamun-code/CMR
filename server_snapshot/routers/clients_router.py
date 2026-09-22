@@ -1,5 +1,4 @@
 import contextlib
-from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 import models
 import schemas
 from auth import get_current_user, require_role
+from constants import business_today
 from database import get_db
 from db_utils import cap_list
 from versioning import save_version
@@ -43,7 +43,9 @@ def _attach_client_aggregates(clients: list, db: Session):
     )
 
     # Агрегаты по карточкам: сумма сделок и число просроченных.
-    now_date = datetime.now(timezone.utc).date()
+    # Бизнес-день по Минску, а не UTC-дата сервера: граница «просрочки» —
+    # календарный день пользователя (дефект 6 реестра V2-WORKPLAN-2026-09-22).
+    now_date = business_today()
     cards_agg = (
         db.query(
             models.Card.client_id,

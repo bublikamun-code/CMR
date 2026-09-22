@@ -271,7 +271,11 @@ def get_settings(current_user: models.User = Depends(get_current_user)):
         "last_sync": settings.get("last_sync")
     }
 
-@router.post("/settings")
+# Настройки ящика — это адрес, IMAP-сервер и пароль разбора почты CRM:
+# менеджер или склад, перезаписав их, могут увести разбор писем на чужой
+# сервер. Запись — только админ (находка воркера пункта 17, 23.09).
+@router.post("/settings",
+             dependencies=[Depends(require_role("admin", "superadmin"))])
 def update_settings(data: EmailSettingsSchema, current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)

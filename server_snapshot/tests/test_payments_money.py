@@ -254,9 +254,12 @@ def test_issue_document_reuses_existing_document_copy(client, manager, db, make_
 # Удаление и возврат суммы
 # ---------------------------------------------------------------------------
 
-def test_delete_invoice_returns_amount_to_remainder(client, manager, db, make_card):
-    """Удалили накладную — её сумма возвращается в остаток."""
-    _, h = manager
+def test_delete_invoice_returns_amount_to_remainder(client, admin, db, make_card):
+    """Удалили накладную — её сумма возвращается в остаток.
+
+    Роль admin: удаление записи реестра с пункта 17 (V11) — админская операция.
+    """
+    _, h = admin
     card = make_card(total_amount=1000.0, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
     assert _issue(client, h, card.id, "ТТН0006", 400.0).status_code == 200
@@ -272,16 +275,16 @@ def test_delete_invoice_returns_amount_to_remainder(client, manager, db, make_ca
     assert round(float(rest[0].amount), 2) == 1000.0, "остаток должен восстановиться до 1000"
 
 
-def test_delete_last_transaction_returns_card_to_assembly(client, manager, db, make_card):
+def test_delete_last_transaction_returns_card_to_assembly(client, admin, db, make_card):
     """Удалили последнюю запись — сделка возвращается в «Сборку».
 
     И сразу пересоздаётся запись реестра: ensure_registry_remainder вызывается
     намеренно, иначе сделка в «Сборке» пропала бы из «Реестра оплат»
     (фикс от 09.09, кейс «ТрансЛИДИЯсервис»). Поэтому «записей нет» здесь
     НЕ является ожидаемым результатом — ожидаемо ровно одна свежая запись
-    на полную сумму сделки.
+    на полную сумму сделки. Роль admin — см. V11 (пункт 17).
     """
-    _, h = manager
+    _, h = admin
     card = make_card(total_amount=700.0, status="На списание")
     assert _trigger(client, h, card.id).status_code == 200
 
@@ -299,10 +302,10 @@ def test_delete_last_transaction_returns_card_to_assembly(client, manager, db, m
     assert round(float(fresh[0].amount), 2) == 700.0
 
 
-def test_delete_last_transaction_card_without_amount_stays_empty(client, manager, db, make_card):
+def test_delete_last_transaction_card_without_amount_stays_empty(client, admin, db, make_card):
     """Сделка без суммы (total_amount <= 0) запись реестра не получает:
-    ensure_registry_remainder такие пропускает."""
-    _, h = manager
+    ensure_registry_remainder такие пропускает. Роль admin — см. V11 (пункт 17)."""
+    _, h = admin
     card = make_card(total_amount=0.0, status="На списание")
     tx = models.Transaction(card_id=card.id, company_name=card.title, amount=0.0,
                             is_document=False)
@@ -315,15 +318,16 @@ def test_delete_last_transaction_card_without_amount_stays_empty(client, manager
     assert [t for t in _txs(db, card.id) if not t.is_document] == []
 
 
-def test_delete_document_does_not_kill_unrelated_remainder(client, manager, db, make_card):
+def test_delete_document_does_not_kill_unrelated_remainder(client, admin, db, make_card):
     """Документ с нераспознанным номером и чужой суммой не должен тянуть за собой остаток.
 
     Починено в Фазе 2 (2026-09-11): _find_invoice_twins больше не считает
     запись-остаток кандидатом в пары и не объявляет парой «единственного
     кандидата». Раньше при нераспознанном номере и несовпавшей сумме
     удалялась первая попавшаяся запись — так терялся остаток по сделке.
+    Роль admin — см. V11 (пункт 17).
     """
-    _, h = manager
+    _, h = admin
     card = make_card(total_amount=1000.0, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
 
@@ -341,14 +345,15 @@ def test_delete_document_does_not_kill_unrelated_remainder(client, manager, db, 
     assert len(rest) == 1, "запись-остаток не имеет отношения к удалённому документу"
 
 
-def test_delete_one_invoice_does_not_delete_the_other(client, manager, db, make_card):
+def test_delete_one_invoice_does_not_delete_the_other(client, admin, db, make_card):
     """Вторая жертва убранного fallback'а «единственный кандидат — это пара».
 
     У сделки две накладные с разными номерами и суммами. Удаление одной не
     должно трогать вторую — раньше при нераспознанной паре оставшаяся
     накладная объявлялась близнецом и удалялась вместе с ней.
+    Роль admin — см. V11 (пункт 17).
     """
-    _, h = manager
+    _, h = admin
     card = make_card(title="Сделка", total_amount=3000.0, status="Сборка")
     card_id = card.id
     assert _trigger(client, h, card_id).status_code == 200
@@ -371,9 +376,12 @@ def test_delete_one_invoice_does_not_delete_the_other(client, manager, db, make_
         f"копия удалённой накладной должна уйти, копия оставшейся — остаться: {doc_numbers}"
 
 
-def test_delete_invoice_keeps_remainder_of_the_same_amount(client, manager, db, make_card):
-    """Остаток, совпадающий по сумме с удаляемой накладной, не является её парой."""
-    _, h = manager
+def test_delete_invoice_keeps_remainder_of_the_same_amount(client, admin, db, make_card):
+    """Остаток, совпадающий по сумме с удаляемой накладной, не является её парой.
+
+    Роль admin — см. V11 (пункт 17).
+    """
+    _, h = admin
     card = make_card(title="Сделка", total_amount=800.0, status="В работе")
     card_id = card.id
     db.add(models.Transaction(card_id=card_id, company_name="Сделка", amount=400.0,

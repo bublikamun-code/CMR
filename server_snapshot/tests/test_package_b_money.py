@@ -357,14 +357,22 @@ def test_clients_list_has_cash_balance(client, manager, db, make_card):
 
 
 def test_clients_list_overdue_deals(client, manager, db, make_card):
-    """Просроченная сделка (due_date в прошлом) считается в overdue_deals."""
+    """Просроченная сделка (due_date в прошлом) считается в overdue_deals.
+
+    Граница «вчера/сегодня» — бизнес-день по Минску (constants.business_today),
+    а не локальная дата машины теста: до фикса 23.09 роутер сравнивал с
+    UTC-датой и в окне 00:00–03:00 MSK тест падал (дефект 6 реестра
+    V2-WORKPLAN-2026-09-22).
+    """
     _, h = manager
-    from datetime import date, timedelta
+    from datetime import timedelta
+    from constants import business_today
+    today = business_today()
     cl = make_client(db, "Просрочка-тест")
     make_card(total_amount=100.0, client_id=cl.id,
-              due_date=date.today() - timedelta(days=1))
+              due_date=today - timedelta(days=1))
     make_card(total_amount=200.0, client_id=cl.id,
-              due_date=date.today() + timedelta(days=30))
+              due_date=today + timedelta(days=30))
 
     rows = client.get("/clients", headers=h).json()
     row = next(r for r in rows if r["id"] == cl.id)

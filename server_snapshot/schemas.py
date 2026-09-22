@@ -537,6 +537,14 @@ class WriteoffGroupResponse(BaseModel):
     invoice_number: Optional[str] = None
     invoice_date: Optional[str] = None
     written_off: bool
+    # P0-хотфикс 23.09 (часть B): id записи-документа групповой накладной
+    # (transactions: is_document=True, writeoff_group_id=<группа>). Колонки
+    # у writeoff_groups нет и не будет — поле заполняется ad-hoc атрибутом
+    # в ответе issue-invoice, чтобы клиент отменял групповую ТН настоящим
+    # id документа, а не id группы (дефект 1 реестра V2-WORKPLAN: DELETE
+    # /payments/transactions/{id группы} сносил постороннюю запись реестра).
+    # В остальных ответах (список/чтение группы) — None.
+    invoice_transaction_id: Optional[int] = None
     cards: List[WriteoffGroupCard] = []
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)

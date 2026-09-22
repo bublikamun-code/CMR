@@ -44,6 +44,14 @@ def tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, 
         "print_status": t.print_status, "note": t.note,
         "invoice_number": t.invoice_number, "invoice_date": t.invoice_date,
         "is_document": bool(t.is_document),
+        # V7 (пункт 17 плана v2): is_invoice_doc / is_bill_doc — ОРИГИНАЛЫ
+        # документов у нас: «оригинал ТН возвращён» (карточка v2) == «ТН у нас»
+        # (финансы v2) == колонка «ТН» в «Документах» legacy. Один бизнес-факт
+        # под тремя подписями, хранится на записи-документе (is_document=True);
+        # отдельной колонки originals_returned нет и не будет — разбор решения
+        # в docs/audits/V2-PLAN-RECON-2026-09-22.md §6. В кодировке проекта
+        # «invoice» = накладная (invoice_number — № ТН), поэтому имя колонки
+        # читается как «накладная-документ у нас» и не противоречит смыслу.
         "is_invoice_doc": bool(t.is_invoice_doc),
         "is_bill_doc": bool(t.is_bill_doc),
         "is_warehouse_writeoff": bool(t.is_warehouse_writeoff),
@@ -139,6 +147,150 @@ def delete_transaction(session, transaction_id, actor):
 
     session.commit()
     return {"detail": "Запись удалена", "twins_deleted": len(twins), "card_id": card_id}
+
+
+def annul_group_writeoff(session, group, actor):
+    """Отмена групповой накладной — зеркало delete_transaction для группы.
+
+    P0-хотфикс 23.09 (часть B спеки docs/audits/P0-HOTFIX-GROUP-ANNUL-SPEC,
+    дефекты 1 и 2 реестра V2-WORKPLAN-2026-09-22 «Дефекты доски, найденные
+    пунктом 6»). Отдельная функция нужна потому, что документ группы — запись
+    реестра с card_id=NULL, и одиночная отмена на ней обрывается: сумма не
+    возвращается (card_id нет), written_off с группы не снимается, карточки
+    остаются в «Закрыто», а UI рапортует «остатки возвращены».
+
+    Разматывается ровно то, что сделал issue_group_invoice:
+      1. запись-документ группы (is_document=True, writeoff_group_id=group.id)
+         удаляется. Пары «накладная + копия в Документах» здесь нет:
+         find_invoice_twins для card_id=NULL возвращает пустой список, а копия
+         группового документа в штатных сценариях не создаётся;
+      2. group.written_off / invoice_number / invoice_date снимаются;
+      3. с записей карточек группы снимаются флаги, которые групповая выписка
+         подняла скопом на ВСЕХ не-документных строках карточки
+         (is_warehouse_writeoff / is_invoice_issued);
+      4. остаток карточки приводится к инварианту «сумма сделки − выписанное»
+         и к одной записи-остатку на карточку (uq_remainder_per_card,
+         миграция 0004) — тот же порядок, что в repair-writeoffs;
+      5. статус карточки пересчитывается writeoff_status_for: карточка выходит
+         из «Закрыто» в «На списание» (или в «Сборку», если записей не осталось).
+
+    Чего восстановить нельзя: групповая выписка поднимала флаги на всех строках
+    карточки и прежнее состояние не сохраняла, поэтому ручная отметка «списано
+    со склада» на одиночной накладной карточки из группы снимается вместе с
+    групповой. На статус и остатки это не влияет (строка с номером накладной
+    считается выписанной независимо от флажка), а след остаётся в журнале.
+    Ручную галочку «Списание» (is_written_off) не трогаем — как и выписка
+    (фидбек 18.09).
+    """
+    number = (group.invoice_number or "").strip()
+    doc_amount = 0.0
+
+    # 1. Документ группы. Берём все записи-документы группы: штатно она одна,
+    # но повторная выписка поверх старой (или ручная копия) оставляла несколько.
+    docs = session.query(models.Transaction).filter(
+        models.Transaction.writeoff_group_id == group.id,
+        models.Transaction.is_document == True,  # noqa: E712
+    ).order_by(models.Transaction.id.asc()).all()
+    doc_id = docs[0].id if docs else None
+    for d in docs:
+        doc_amount = round(doc_amount + float(d.amount or 0), 2)
+        session.delete(d)
+    session.flush()
+
+    # 2. Состояние группы.
+    group.written_off = False
+    group.invoice_number = None
+    group.invoice_date = None
+
+    cards_report = []
+    for card in list(group.cards):
+        rows = session.query(models.Transaction).filter(
+            models.Transaction.card_id == card.id,
+            models.Transaction.is_document == False,  # noqa: E712
+        ).order_by(models.Transaction.id.asc()).all()
+
+        # «Выписано» после отмены групповой ТН — только настоящие накладные
+        # карточки (строки с номером): групповая выписка своих строк по
+        # карточкам не создавала, она лишь поднимала флаги на существующих.
+        issued = round(sum(float(r.amount or 0) for r in rows
+                           if (r.invoice_number or "").strip()), 2)
+        card_total = float(card.total_amount or 0)
+        # Без суммы сделки эталона остатка нет (как в repair-writeoffs) —
+        # суммы записей не пересчитываем.
+        rest = max(0.0, round(card_total - issued, 2)) if card_total > 0 else None
+
+        # 4. Сначала удаления, потом снятие флагов: uq_remainder_per_card
+        # уникален по «не-документ, без номера, не списан», и UPDATE раньше
+        # DELETE на мгновение дал бы две записи-остатка на карточку.
+        remainders = [r for r in rows if not (r.invoice_number or "").strip()]
+        dropped = []
+        if rest is not None and rest <= MONEY_EPSILON:
+            # остаток покрыт накладными — нулевые записи не оставляем
+            dropped = list(remainders)
+        elif len(remainders) > 1:
+            keep = remainders[0]
+            if rest is None:
+                keep.amount = round(sum(float(r.amount or 0) for r in remainders), 2)
+            dropped = remainders[1:]
+        for r in dropped:
+            session.delete(r)
+        if dropped:
+            session.flush()
+
+        # 3. Снимаем флаги групповой выписки. Строки с номером накладной —
+        # одиночные ТН карточки: у них остаётся «Выписка» (это факт), а
+        # складское списание снимается вместе с групповым.
+        kept = [r for r in rows if r not in dropped]
+        for r in kept:
+            if (r.invoice_number or "").strip():
+                r.is_warehouse_writeoff = False
+                r.is_invoice_issued = True
+            else:
+                r.is_warehouse_writeoff = False
+                r.is_invoice_issued = False
+                if rest is not None:
+                    r.amount = rest
+
+        # Остаток некуда вернуть (записей по карточке не было вовсе), но
+        # непокрытая сумма есть — запись-остаток создаётся, как это делает
+        # delete_transaction: сделка должна быть видна в «Реестре оплат».
+        created = None
+        if rest is not None and rest > MONEY_EPSILON and not [
+                r for r in kept if not (r.invoice_number or "").strip()]:
+            created = models.Transaction(
+                company_name=card.title, amount=rest,
+                store_location=card.store_location or group.store_location,
+                card_id=card.id,
+            )
+            session.add(created)
+            session.flush()
+            kept = kept + [created]
+
+        # 5. Статус — по факту остатка, но только в зонах списания (зеркало
+        # delete_transaction: перенос «Сборка → В работе» не перетираем).
+        if card.status in ("На списание", "Закрыто"):
+            card.status = writeoff_status_for(card, kept)
+
+        session.add(models.ActivityLog(
+            user_id=actor.id, card_id=card.id, tenant_id=actor.tenant_id,
+            action="Групповая накладная отменена",
+            details=(f"{number} на {doc_amount:.2f} BYN (группа #{group.id}) — удалена; "
+                     f"статус «{card.status}»"
+                     + (f", остаток {rest:.2f} BYN" if rest is not None else "")),
+        ))
+        cards_report.append({"id": card.id, "status": card.status,
+                             "rest": rest, "issued": issued})
+
+    session.commit()
+    return {
+        "detail": "Групповая накладная отменена",
+        "group_id": group.id,
+        "invoice_transaction_id": doc_id,
+        "invoice_number": number,
+        "amount": doc_amount,
+        "documents_deleted": len(docs),
+        "cards": cards_report,
+    }
 
 
 def add_invoice(session, card_id, payload, actor=None):
