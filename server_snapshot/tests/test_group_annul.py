@@ -19,6 +19,7 @@ manager / warehouse / documents → 403, admin / superadmin → 200.
 Стиль и фикстуры — tests/test_role_gates_v11.py.
 """
 import pytest
+from sqlalchemy import func
 
 import models
 
@@ -51,6 +52,19 @@ def _group_doc(db, group_id):
         models.Transaction.writeoff_group_id == group_id,
         models.Transaction.is_document == True,  # noqa: E712
     ).first()
+
+
+def _next_free_id(db):
+    """Id, которого нет ни в transactions, ни в writeoff_groups.
+
+    Нужен, чтобы честно воспроизвести коллизию прода: старый путь клиента
+    подставлял id ГРУППЫ в DELETE /payments/transactions/{id}, и номер группы
+    совпадал с номером посторонней записи реестра (rowid в SQLite
+    переиспользуется после удалений, поэтому совпадение — не экзотика).
+    """
+    tx_max = db.query(func.max(models.Transaction.id)).scalar() or 0
+    group_max = db.query(func.max(models.WriteoffGroup.id)).scalar() or 0
+    return max(int(tx_max), int(group_max)) + 1
 
 
 def _mk_cards(client, db, make_card, headers, totals, with_registry=True):
@@ -312,6 +326,102 @@ def test_annul_does_not_touch_foreign_transactions(client, make_user, manager,
             for t in _rows(db, outsider.id)] == outsider_rows
     db.refresh(outsider)
     assert outsider.status == "Сборка"
+
+
+@pytest.mark.integrity
+def test_annul_does_not_touch_transaction_with_same_id(client, make_user, manager, db,
+                                                       make_card, make_transaction,
+                                                       foreign_key_violations):
+    """РЕГРЕССИЯ дефекта 1: коллизия числовых id группы и посторонней записи.
+
+    Соседний test_annul_does_not_touch_foreign_transactions коллизию id не
+    задаёт: там посторонняя запись случайно получает id 1 и группа тоже 1
+    (rowid в чистой базе идут с единицы), поэтому откат к поиску по
+    Transaction.id == group_id он ловит лишь волей нумерации — стоит id
+    разойтись, и тест останется зелёным, хотя annul снесёт чужую запись.
+    Здесь совпадение id группы и id посторонней записи создаётся ЯВНО
+    (_next_free_id + id= при вставке) — ровно картина прода, из-за которой
+    старый DELETE /payments/transactions/{id группы} удалял чужую накладную.
+    Дополнительно фиксируем, что выжила вся запись (сумма, номер, флаги,
+    is_document), а удалён именно документ группы. Отмена ищет его только по
+    writeoff_group_id + is_document, поэтому коллизия безопасна.
+    """
+    _, mh = manager
+    cards = _mk_cards(client, db, make_card, mh, (100.0, 200.0))
+
+    # Посторонняя сделка вне группы и её запись реестра — с id, который
+    # достанется группе (берём свободный номер в обеих таблицах сразу).
+    outsider_card = make_card(title="Посторонняя", total_amount=777.0,
+                              status="На списание", store_location=STORE)
+    shared_id = _next_free_id(db)
+    outsider = make_transaction(outsider_card, id=shared_id, amount=777.0,
+                                store_location=STORE, invoice_number="ТТН9998",
+                                is_invoice_issued=True, is_warehouse_writeoff=True,
+                                is_written_off=True)
+    group = models.WriteoffGroup(id=shared_id, name="Группа-коллизия", client_id=None,
+                                 store_location=STORE, total_amount=300.0)
+    db.add(group)
+    db.commit()
+    for c in cards:
+        c.writeoff_group_id = group.id
+    db.commit()
+    group_id = group.id
+    assert group_id == outsider.id == shared_id, "предусловие: id группы и записи совпали"
+
+    inv = client.post(f"/writeoffs/groups/{group_id}/issue-invoice", headers=mh,
+                      json={"invoice_number": GROUP_TN, "invoice_date": "2026-09-20"})
+    assert inv.status_code == 200, inv.text
+    doc_id = inv.json()["invoice_transaction_id"]
+    assert doc_id is not None and doc_id != group_id, \
+        "документ группы — не та строка, что попадала под старый DELETE"
+
+    _reload(db)
+    before = db.query(models.Transaction).count()
+    outsider_before = [(t.id, round(float(t.amount or 0), 2), t.invoice_number,
+                        bool(t.is_invoice_issued), bool(t.is_warehouse_writeoff),
+                        bool(t.is_written_off), bool(t.is_document))
+                       for t in _rows(db, outsider_card.id)]
+
+    h = _headers(make_user, "admin")
+    r = client.post(f"/writeoffs/groups/{group_id}/annul", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["written_off"] is False
+
+    _reload(db)
+    survived = db.query(models.Transaction).filter(
+        models.Transaction.id == shared_id).first()
+    assert survived is not None, \
+        "ПОСТОРОННЯЯ запись реестра с id группы удалена — это и есть дефект 1"
+    assert survived.card_id == outsider_card.id, "запись осталась у своей карточки"
+    assert round(float(survived.amount or 0), 2) == 777.0
+    assert (survived.invoice_number or "").strip() == "ТТН9998"
+    assert survived.is_invoice_issued is True
+    assert survived.is_warehouse_writeoff is True
+    assert survived.is_written_off is True, "ручную галочку «Списание» не трогаем"
+    assert survived.is_document is False
+    assert [(t.id, round(float(t.amount or 0), 2), t.invoice_number,
+             bool(t.is_invoice_issued), bool(t.is_warehouse_writeoff),
+             bool(t.is_written_off), bool(t.is_document))
+            for t in _rows(db, outsider_card.id)] == outsider_before
+
+    # удалён ровно документ группы, ничего лишнего
+    assert db.query(models.Transaction).filter(
+        models.Transaction.id == doc_id).first() is None, "документ группы не удалён"
+    assert _group_doc(db, group_id) is None
+    assert db.query(models.Transaction).count() == before - 1
+
+    g = db.query(models.WriteoffGroup).filter(
+        models.WriteoffGroup.id == group_id).first()
+    assert g is not None, "группа не удаляется — снимается только закрытие"
+    assert g.written_off is False
+    assert g.invoice_number is None and g.invoice_date is None
+    for c in cards:
+        db.refresh(c)
+        assert c.status == "На списание", f"карточка {c.id}: {c.status}"
+    db.refresh(outsider_card)
+    assert outsider_card.status == "На списание", "посторонняя сделка не меняется"
+
+    assert foreign_key_violations() == []
 
 
 # ---------------------------------------------------------------------------

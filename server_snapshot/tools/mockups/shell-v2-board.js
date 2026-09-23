@@ -2374,13 +2374,47 @@
         refresh();
     });
     // Пульт дня и «Клиент 360» открывают карточки через этот мост.
+    // Раздел переключаем штатным кликом по рейке — приём из gotoTarget()
+    // (management.js): свой обработчик navigation.js отрабатывает синхронно
+    // (pushState + render), поэтому hashchange в очереди задач не остаётся.
+    // Прямая запись location.hash ставила hashchange в очередь, и поздний
+    // render() оболочки закрывал только что открытый дровер: «Открыть
+    // сделку» с Пульта дня и из «Клиент 360» карточку открывала и тут же
+    // захлопывала. after() вызывается уже на доске — карточку открываем
+    // ПОСЛЕ переключения раздела.
+    function switchToBoard(after) {
+        if (/^#board(\?|$)/.test(location.hash)) { after(false); return; }   // уже на доске — лишнего pushState не делаем
+        var link = document.querySelector('.rail [data-view="board"]');
+        if (link) { link.click(); after(true); return; }
+        // Фолбэк: пункт рейки может отсутствовать (например, скрыт по роли).
+        // Тогда hashchange придёт следующим тиком — открываем карточку после
+        // него, иначе render() оболочки её закроет.
+        var once = function () { window.removeEventListener('hashchange', once); after(true); };
+        window.addEventListener('hashchange', once);
+        location.hash = '#board';
+    }
     window.KBBoard = {
         open: function (id) {
             var c = cards.find(function (card) { return card.id === id; });
             if (!c) return;
-            location.hash = '#board';
-            queueMode('board');
-            openCard(c);
+            switchToBoard(function (switched) {
+                // queueMode пишет режим в адрес через writeBoardParams, а тот
+                // не трогает URL, пока активен другой раздел — поэтому вызываем
+                // ПОСЛЕ клика по рейке: итоговый адрес #board (не #day), режим
+                // очереди «Доска», поиск/магазин из state сохраняются.
+                queueMode('board');
+                openCard(c);
+                // render() оболочки следующим кадром утаскивает фокус на
+                // #shell-content, а тот под модальным дровером inert — фокус
+                // проваливается в body. Возвращаем его в дровер тем же
+                // порядком rAF (приём из gotoTarget в management.js).
+                if (!switched) return;
+                requestAnimationFrame(function () {
+                    if (!dialog.open) return;
+                    var f = dialog.querySelector('[autofocus]') || dialog.querySelector('.kb-detail-close');
+                    if (f && document.activeElement !== f) f.focus({ preventScroll: true });
+                });
+            });
         }
     };
     // Восстановление состояния из адреса — после наполнения справочников.
