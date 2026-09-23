@@ -21,7 +21,6 @@ body:has(#view-board.active) .content { flex: 1; min-height: 0; padding-bottom: 
 .kb-board { grid-template-columns: repeat(4, minmax(210px, 1fr)); flex: 1; height: auto; min-height: 0; grid-template-rows: minmax(0, 1fr); }
 .kb-cards { flex: 1; overscroll-behavior: contain; }
 .kb-counter { display: inline-flex; align-items: center; gap: 4px; min-width: 32px; color: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.kb-counter svg { flex: none; color: var(--muted); }
 .kb-drop-placeholder { flex-shrink: 0; border: 2px dashed var(--accent); border-radius: var(--r-md); background: var(--accent-soft); pointer-events: none; }
 .kb-drop-column { border-color: var(--accent); }
 .kb-drag-source { display: none; }

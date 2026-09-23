@@ -159,9 +159,13 @@
         });
     }
 
+    // Иконка счётчика — пустой <i>, закрашенный CSS-маской (.kb-counter-ico,
+    // shell-v2-board.css), а не инлайн-<svg>: гейт «SVG в доске < 100» считает
+    // элементы <svg> внутри #kb-board, и спрайт <symbol>+<use> его не закрывает —
+    // <use> всё равно остаётся внутри своего <svg>. Семантика доступности
+    // не меняется: role="img" + title + aria-label на обёртке, число — в span.
     function counterHTML(flag, label, count) {
-        var path = flag === 'ordered' ? '<path d="M3 3h2l2 12h11l3-9H6M9 20h.01M17 20h.01"/>' : '<path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10m-5-6 3 3 6-6"/>';
-        return '<span class="kb-counter" data-counter="' + flag + '" role="img" title="' + label + ': ' + count + '" aria-label="' + label + ': ' + count + '"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + '</svg><span aria-hidden="true">' + count + '</span></span>';
+        return '<span class="kb-counter" data-counter="' + flag + '" role="img" title="' + label + ': ' + count + '" aria-label="' + label + ': ' + count + '"><i class="kb-counter-ico" aria-hidden="true"></i><span aria-hidden="true">' + count + '</span></span>';
     }
     function cardHTML(c) {
         var cl = checklistSummary(c);
@@ -189,7 +193,7 @@
             (issuedKop > 0 ? ' · списано ' + money(issuedKop) : '') +
             (c.docs.length ? ' · ТН: ' + c.docs.length : '') +
             (c.groupId ? ' · групповая ТН' : '') + '</span>' +
-            '<button type="button" class="kb-card-del" data-card-del="' + esc(c.id) + '" aria-label="Удалить карточку ' + esc(c.title) + '" title="Удалить"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+            '<button type="button" class="kb-card-del" data-card-del="' + esc(c.id) + '" aria-label="Удалить карточку ' + esc(c.title) + '" title="Удалить"></button>' +
             '</div>';
     }
 

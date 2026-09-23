@@ -136,11 +136,47 @@
     border: 1px solid var(--border); border-radius: var(--r-pill);
     opacity: 0; pointer-events: none;
     transition: opacity 140ms var(--ease), color 140ms var(--ease), border-color 140ms var(--ease);
+    /* Крестик — ::before с маской, чтобы HTML кнопки не обрастал узлами.
+       stroke-linecap/linejoin НЕ заданы намеренно: у прежнего инлайн-<svg> их не
+       было (butt-концы), round сделал бы крестик визуально толще. */
+    --kb-ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2'><path d='M6 6l12 12M18 6L6 18'/></svg>");
+}
+.kb-card-del::before {
+    content: '';
+    display: inline-block; width: 14px; height: 14px; vertical-align: middle;
+    background-color: currentColor;
+    -webkit-mask: var(--kb-ico) no-repeat center / contain;
+    mask: var(--kb-ico) no-repeat center / contain;
 }
 .kb-card:hover .kb-card-del,
 .kb-card:focus-within .kb-card-del { opacity: 1; pointer-events: auto; }
 .kb-card-del:hover { color: var(--danger); border-color: var(--danger); }
 @media (hover: none) { .kb-card-del { opacity: 1; pointer-events: auto; } }
+/* Иконки плитки (счётчики закупки + крестик) — CSS-маски, а не инлайн-<svg>:
+   гейт «SVG в доске < 100» считает элементы <svg> внутри #kb-board, и спрайт
+   <symbol>+<use> его не закрывает — на каждый экземпляр всё равно остаётся свой
+   <svg>. Маска красится в currentColor, поэтому цвет ведёт себя как прежний
+   stroke="currentColor" (muted у счётчиков, muted→danger у крестика). Штрих
+   1.8/2 в viewBox 24 при mask-size: contain в 15px/14px даёт ту же толщину, что
+   и <svg width="15" height="15" viewBox="0 0 24 24">. Рисунок лежит data:-URL
+   внутри css: сборщик site-v2 копирует только css/, js/ и fonts/*.woff2,
+   каталога под .svg в артефакте нет; img-src 'self' data: blob: https: их
+   разрешает. */
+.kb-counter-ico {
+    display: inline-block; flex: none; width: 15px; height: 15px;
+    vertical-align: middle; color: var(--muted); background-color: currentColor;
+    /* --kb-ico задаётся ниже селектором по data-counter; порядок правил не важен:
+       подстановка var() происходит на этапе вычисленных значений, где важнее
+       специфичность. */
+    -webkit-mask: var(--kb-ico) no-repeat center / contain;
+    mask: var(--kb-ico) no-repeat center / contain;
+}
+.kb-counter[data-counter="ordered"] .kb-counter-ico {
+    --kb-ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M3 3h2l2 12h11l3-9H6M9 20h.01M17 20h.01'/></svg>");
+}
+.kb-counter[data-counter="received"] .kb-counter-ico {
+    --kb-ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10m-5-6 3 3 6-6'/></svg>");
+}
 .kb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); display: inline-block; }
 .kb-dot.ok { background: var(--ok); }
 .kb-dot.warn { background: var(--warn); }
