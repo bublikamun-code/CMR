@@ -908,14 +908,19 @@ const MGMT_DICT = (() => {
    MGMT_LAZY, карточки помечены data-admin-only через ADMIN_MARKS.
    Сеть — напрямую через window.V2Api.api(): новых видов мутаций в
    boot-шаблон не заводим (файл занят другой задачей).
+   Все правки уходят PATCH'ом с минимальным телом: сервер гейтит намерение по
+   присутствию ключа (model_fields_set) — «нет ключа = не менять», «null =
+   очистить там, где колонка nullable». Отправлять все поля подряд нельзя:
+   это молча стирало бы иконку, описание и подпись.
 
    Контракты сверены с бэком:
    • routers/webhooks_router.py — GET /webhooks/events · GET/POST /webhooks/
      · PATCH/DELETE /webhooks/{id} · POST /webhooks/{id}/test; require_admin()
      стоит зависимостью на всём роутере (:88).
    • routers/custom_objects_router.py — GET/POST /custom/objects ·
-     DELETE /custom/objects/{id} · GET/POST /custom/objects/{id}/fields ·
-     DELETE /custom/fields/{id}; под админом создание и удаление (:53).
+     PATCH/DELETE /custom/objects/{id} · GET/POST /custom/objects/{id}/fields ·
+     PATCH/DELETE /custom/fields/{id}; под админом создание, правка и
+     удаление (:182).
      Записи (/custom/objects/{id}/records, /custom/records/{id}) на экране
      не показаны: это рабочие данные, а не конфигурация.
    • routers/workflows_router.py — GET/POST /workflows/ · PATCH/DELETE
@@ -982,6 +987,10 @@ const MGMT_ADMIN = (function () {
         if (e && e.message) return e.message;
         return 'ошибка сети';
     }
+
+    // Русская деталь сервера («…или сначала очистите записи.») часто приходит
+    // с точкой на конце — вторая от обёртки не нужна.
+    const sentence = (text) => (/[.!?…]$/.test(text) ? text : text + '.');
 
     const busy = new Set();
     // failPrefix — окончание фразы («Не сохранено», «Не удалено»), поэтому для
@@ -1050,7 +1059,11 @@ const MGMT_ADMIN = (function () {
                 (value ? ' checked' : '') + '><span>' + esc(f.label) + '</span></label>';
         }
         return '<input id="' + id + '" name="' + f.key + '" type="' + (f.type || 'text') + '"' + required +
-            ' value="' + esc(value ?? '') + '" maxlength="' + (f.maxlength || 300) + '"' +
+            ' value="' + esc(value ?? '') + '" ' +
+            // maxlength у number-полей невалиден (браузер его игнорирует), а
+            // порядок поля — целое неотрицательное: те же границы, что у поля
+            // «Позиция» в справочнике статусов выше.
+            (f.type === 'number' ? 'min="0" step="1"' : 'maxlength="' + (f.maxlength || 300) + '"') +
             (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
             (f.autocomplete ? ' autocomplete="' + esc(f.autocomplete) + '"' : '') + '>';
     }
@@ -1083,6 +1096,11 @@ const MGMT_ADMIN = (function () {
 
     // Форма-диалог вместо цепочки prompt(): промис с заполненными значениями
     // или null, если закрыли без сохранения.
+    // opts.submit — асинхронная отправка, нужна правкам, где часть проверок
+    // живёт только на сервере (смена типа поля, чужой tenant, занятость имени).
+    // Тогда диалог НЕ закрывается, пока запрос в пути, а 400 показывается в
+    // самой форме: человек правит поле, а не заполняет форму заново. Без opts.submit
+    // поведение прежнее — закрытие по сабмиту и ошибка в общем тосте.
     function formDialog(opts) {
         if (!MGMT_DICT.needNetwork(opts.what || 'Форма')) return Promise.resolve(null);
         const dlg = extDialogEl();
@@ -1093,6 +1111,7 @@ const MGMT_ADMIN = (function () {
         extResolve = settle;
         dlg.innerHTML = '<form id="mgmt-ext-form"><h2 id="mgmt-ext-title">' + esc(opts.title) + '</h2>' +
             '<div class="mgmt-fields">' + opts.fields.map((f) => fieldHtml(f, values[f.key])).join('') + '</div>' +
+            (opts.hint ? '<p class="mgmt-form-hint">' + esc(opts.hint) + '</p>' : '') +
             '<p class="kb-form-error" id="mgmt-ext-error" role="alert"></p>' +
             '<div class="mgmt-actions">' +
             '<button class="btn btn-ghost" type="button" id="mgmt-ext-cancel">Отмена</button>' +
@@ -1107,12 +1126,39 @@ const MGMT_ADMIN = (function () {
             const read = readForm(form, opts.fields);
             const wrong = opts.validate ? opts.validate(read) : '';
             if (wrong) { $('mgmt-ext-error').textContent = wrong; return; }
+            if (opts.submit) {
+                const send = $('mgmt-ext-submit');
+                send.disabled = true;                 // Enter в поле не продублирует запрос
+                $('mgmt-ext-error').textContent = '';
+                Promise.resolve().then(() => opts.submit(read)).then((outcome) => {
+                    const done = extResolve;
+                    extResolve = null;
+                    dlg.close();
+                    if (outcome === 'unchanged') MGMT_TOAST('Ничего не изменилось — запрос не отправлен.');
+                    if (done) done(read);
+                }).catch((e) => {
+                    send.disabled = false;
+                    $('mgmt-ext-error').textContent = 'Не сохранено: ' + sentence(reasonText(e));
+                });
+                return;
+            }
             const done = extResolve;
             extResolve = null;
             dlg.close();
             if (done) done(read);
         };
         return result;
+    }
+
+    // Общий шаг правки: тело уже собрано из изменённых ключей. Пустое тело —
+    // «правка нулевая»: запрос не уходит вовсе (PATCH с {} ничего не меняет,
+    // но крутил бы сеть и показывал бы «сохранено» без изменения).
+    function submitPatch(body, path, done) {
+        if (!Object.keys(body).length) return Promise.resolve('unchanged');
+        return api(path, { method: 'PATCH', body: body }).then((res) => {
+            done(res || {}, body);
+            return 'saved';
+        });
     }
 
     function when(iso) {
@@ -1147,6 +1193,40 @@ const MGMT_ADMIN = (function () {
         if (!values.events.length) return 'Выберите хотя бы одно событие.';
         return '';
     }
+    // Тело PATCH существующего вебхука — только изменённые ключи (webhooks_router.py
+    // переведён на model_fields_set: нет ключа = не трогать). url и events на
+    // сервере NOT NULL, поэтому null в них не шлём никогда; secret наоборот —
+    // единственный способ снять подпись это явный null, пустая строка даёт 400
+    // («чтобы снять подпись, пришлите null»), а незаполненное поле просто
+    // не попадает в тело (см. webhookBody выше).
+    function webhookPatchBody(h, values) {
+        const body = {};
+        const url = values.url.trim();
+        const secret = values.secret.trim();
+        if (url && url !== h.url) body.url = url;
+        const events = Array.isArray(values.events) ? values.events : [];
+        const current = Array.isArray(h.events) ? h.events : [];
+        if (events.join(',') !== current.join(',')) body.events = events;
+        if (values.clear_secret) body.secret = null;
+        else if (secret) body.secret = secret;
+        return body;
+    }
+    // Правка: пустой список событий сервер разрешает («ни на что не подписан»,
+    // webhooks_router.py:179-185) — в отличие от создания, где такой вебхук бессмыслен.
+    function validateWebhookEdit(values) {
+        if (!/^https?:\/\/\S+$/i.test(values.url)) return 'Укажите полный адрес, например https://example.com/crm-hook';
+        if (values.clear_secret && values.secret.trim()) return 'Выберите одно: новый секрет или снятие подписи.';
+        return '';
+    }
+    // Ответ PATCH — «{"message": "Обновлено"}», без данных вебхука, поэтому
+    // строку списка правим на месте по отправленному телу (тот же приём, что у
+    // выключателя вебхука ниже), а не перечитываем раздел запросом.
+    function applyWebhookPatch(h, body) {
+        if ('url' in body) h.url = body.url;
+        if ('events' in body) h.events = body.events;
+        if ('secret' in body) h.secret = body.secret;
+        renderWebhooks();
+    }
     function webhookRow(h) {
         const id = esc(h.id);
         const url = esc(h.url);
@@ -1156,7 +1236,7 @@ const MGMT_ADMIN = (function () {
             '<td>' + url + '</td>' +
             '<td>' + (events.length ? esc(events.join(', ')) : '—') + '</td>' +
             '<td><span class="pill ' + (on ? 'ok' : 'warn') + '">' + (on ? 'Активен' : 'Выключен') + '</span></td>' +
-            '<td><div class="mgmt-acts">' +
+            '<td data-admin-only><div class="mgmt-acts">' +
             '<button type="button" class="btn btn-ghost btn-sm" data-wh-edit="' + id + '" aria-label="Изменить вебхук ' + url + '">Изменить</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-wh-test="' + id + '" aria-label="Проверить вебхук ' + url + '">Тест</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-wh-toggle="' + id + '" aria-label="' + (on ? 'Выключить' : 'Включить') + ' вебхук ' + url + '">' + (on ? 'Выключить' : 'Включить') + '</button>' +
@@ -1167,6 +1247,9 @@ const MGMT_ADMIN = (function () {
         const rows = $('mgmt-wh-rows');
         if (!rows) return;
         rows.innerHTML = WH.items.map(webhookRow).join('');
+        // Строки пересозданы вместе с метками data-admin-only — скрытие
+        // пересчитываем тем же проходом, что и справочники выше.
+        MGMT_ROLE.apply(rows);
         stateLine('mgmt-wh-state', WH.items.length ? 'ok' : 'empty', {
             empty: 'Вебхуков пока нет. Нажмите «+ Новый вебхук» — и CRM начнёт сообщать внешней системе о сделках, клиентах, оплатах и документах.'
         });
@@ -1201,24 +1284,33 @@ const MGMT_ADMIN = (function () {
             loadWebhooks();
             return Promise.resolve();
         }
+        const fields = [
+            { key: 'url', label: 'URL получателя', type: 'url', required: true, maxlength: 500, placeholder: 'https://example.com/crm-hook' },
+            { key: 'secret', label: 'Секрет подписи' + (h ? ' (оставьте пустым, чтобы не менять)' : ' (не обязательно)'), type: 'password', autocomplete: 'new-password', maxlength: 200, placeholder: 'Заголовок X-Webhook-Signature' },
+            { key: 'events', label: 'События, по которым CRM шлёт запрос', type: 'checks', options: WH.events.map((name) => [name, eventLabel(name)]) }
+        ];
+        // Явный жест снятия подписи: GET /webhooks/ секрет не отдаёт
+        // (webhooks_router.py:114-121), поэтому «пустое поле секрета» ничего не
+        // значит и снять подпись можно только отметкой — она шлёт secret: null.
+        if (h) fields.push({ key: 'clear_secret', label: 'Снять подпись: секрет больше не используется', type: 'flag' });
         return formDialog({
             title: h ? 'Вебхук: изменение' : 'Новый вебхук',
             what: 'Сохранение вебхука',
             submitText: 'Сохранить',
-            values: h || {},
-            validate: validateWebhook,
-            fields: [
-                { key: 'url', label: 'URL получателя', type: 'url', required: true, maxlength: 500, placeholder: 'https://example.com/crm-hook' },
-                { key: 'secret', label: 'Секрет подписи' + (h ? ' (оставьте пустым, чтобы не менять)' : ' (не обязательно)'), type: 'password', autocomplete: 'new-password', maxlength: 200, placeholder: 'Заголовок X-Webhook-Signature' },
-                { key: 'events', label: 'События, по которым CRM шлёт запрос', type: 'checks', options: WH.events.map((name) => [name, eventLabel(name)]) }
-            ]
+            values: h ? { url: h.url, secret: '', events: Array.isArray(h.events) ? h.events : [], clear_secret: false } : {},
+            validate: h ? validateWebhookEdit : validateWebhook,
+            hint: h ? 'CRM не показывает текущий секрет — он хранится, чтобы подписывать запросы заголовком X-Webhook-Signature. Оставьте поле пустым, чтобы оставить секрет как есть; чтобы отказаться от подписи совсем, отметьте «Снять подпись». Снять события можно все до нуля: такой вебхук ни на что не реагирует, но остаётся настроенным.' : '',
+            fields: fields,
+            submit: h ? (values) => submitPatch(webhookPatchBody(h, values), '/webhooks/' + h.id, (res, body) => {
+                applyWebhookPatch(h, body);
+                MGMT_TOAST('secret' in body && body.secret === null
+                    ? 'Подпись снята: CRM больше не добавляет к запросам X-Webhook-Signature.'
+                    : 'Вебхук сохранён.');
+            }) : null
         }).then((values) => {
-            if (!values) return null;
-            return run('wh-save:' + (h ? h.id : values.url), button, 'Не сохранено', () =>
-                (h
-                    ? api('/webhooks/' + h.id, { method: 'PATCH', body: webhookBody(values) })
-                    : api('/webhooks/', { method: 'POST', body: webhookBody(values) })
-                ).then(loadWebhooks));
+            if (!values || h) return null;      // правка уже применена в submit
+            return run('wh-save:' + values.url, button, 'Не сохранено', () =>
+                api('/webhooks/', { method: 'POST', body: webhookBody(values) }).then(loadWebhooks));
         });
     }
     function toggleWebhook(h, button) {
@@ -1269,6 +1361,38 @@ const MGMT_ADMIN = (function () {
     const CO = { types: [], fields: [], selected: null, loading: false, loadingId: null, fieldsLoading: false };
     const fieldTypeName = (type) => FIELD_TYPE_RU[type] || type || '—';
     const currentType = () => (CO.selected == null ? null : CO.types.filter((t) => String(t.id) === String(CO.selected))[0] || null);
+    // Набор и порядок — как FIELD_TYPES на сервере (custom_objects_router.py:69).
+    // В форму СОЗДАНИЯ поля «Связь» и «Файл» не попали (для них нужен отдельный
+    // настройщик цели связи), а в форме правки обязаны быть: иначе уже
+    // существующее поле relation показалось бы в селекте текстовым.
+    const FIELD_TYPE_OPTIONS = ['text', 'number', 'currency', 'date', 'boolean', 'select', 'relation', 'file']
+        .map((type) => [type, fieldTypeName(type)]);
+    // Тип вне FIELD_TYPES (запись, созданная не из v2) обязан остаться в
+    // селекте текущим: иначе предзаполнение показало бы «Текст», а сохранение
+    // одной только метки ушло на сервер как смена типа.
+    function fieldTypeOptions(current) {
+        return FIELD_TYPE_OPTIONS.some((pair) => pair[0] === current)
+            ? FIELD_TYPE_OPTIONS
+            : FIELD_TYPE_OPTIONS.concat([[current, fieldTypeName(current)]]);
+    }
+
+    // Варианты списка форма держит простой строкой через запятую, сервер ждёт
+    // массив [{label, value}] — тот же вид, что отправляет создание поля.
+    function splitOptions(text) {
+        return String(text || '').split(',').map((s) => s.trim()).filter(Boolean).map((s) => ({ label: s, value: s }));
+    }
+    // list_fields отдаёт то, что лежит в JSON-колонке: v2 пишет объекты, а
+    // более ранние записи могли остаться голыми строками. Нормализация нужна,
+    // чтобы сравнение «меняли ли варианты» не давало ложную правку на каждый
+    // второй запрос (и чтобы предзаполнение не показывало [object Object]).
+    function normOptions(raw) {
+        if (!Array.isArray(raw)) return [];
+        return raw.map((o) => (o && typeof o === 'object')
+            ? { label: String(o.label ?? o.value ?? ''), value: String(o.value ?? o.label ?? '') }
+            : { label: String(o), value: String(o) });
+    }
+    const optionsText = (raw) => normOptions(raw).map((o) => o.label).join(', ');
+    const optionsKey = (list) => normOptions(list).map((o) => o.label + '\u0000' + o.value).join('\u0001');
 
     function customTypeRow(t) {
         const id = esc(t.id);
@@ -1276,8 +1400,9 @@ const MGMT_ADMIN = (function () {
         return '<tr data-id="' + id + '">' +
             '<td>' + label + '</td>' +
             '<td>' + esc(t.name) + '</td>' +
-            '<td><div class="mgmt-acts">' +
+            '<td data-admin-only><div class="mgmt-acts">' +
             '<button type="button" class="btn btn-ghost btn-sm" data-co-select="' + id + '" aria-label="Показать поля объекта ' + label + '">Поля</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-co-edit="' + id + '" aria-label="Изменить объект ' + label + '">Изменить</button>' +
             '<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-co-del="' + id + '" aria-label="Удалить объект ' + label + '">Удалить</button>' +
             '</div></td></tr>';
     }
@@ -1289,12 +1414,16 @@ const MGMT_ADMIN = (function () {
             '<td>' + esc(f.name) + '</td>' +
             '<td>' + esc(fieldTypeName(f.field_type)) + '</td>' +
             '<td>' + (f.is_required ? '<span class="pill accent">Обязательное</span>' : '<span class="mgmt-note">по желанию</span>') + '</td>' +
-            '<td><button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-co-field-del="' + id + '" aria-label="Удалить поле ' + label + '">Удалить</button></td></tr>';
+            '<td data-admin-only><div class="mgmt-acts">' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-co-field-edit="' + id + '" aria-label="Изменить поле ' + label + '">Изменить</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-co-field-del="' + id + '" aria-label="Удалить поле ' + label + '">Удалить</button>' +
+            '</div></td></tr>';
     }
     function renderCustomTypes() {
         const rows = $('mgmt-co-rows');
         if (!rows) return;
         rows.innerHTML = CO.types.map(customTypeRow).join('');
+        MGMT_ROLE.apply(rows);
         stateLine('mgmt-co-state', CO.types.length ? 'ok' : 'empty', {
             empty: 'Своих типов объектов пока нет. Создайте тип — например «Оборудование», — и добавьте ему поля.'
         });
@@ -1334,6 +1463,7 @@ const MGMT_ADMIN = (function () {
         const title = $('mgmt-co-fields-title');
         if (title) title.textContent = type.label || type.name;
         rows.innerHTML = CO.fields.map(customFieldRow).join('');
+        MGMT_ROLE.apply(rows);
         stateLine('mgmt-co-fields-state', CO.fields.length ? 'ok' : 'empty', {
             empty: 'У этого типа ещё нет полей. Добавьте первое — оно появится в карточках записей этого объекта.'
         });
@@ -1390,6 +1520,57 @@ const MGMT_ADMIN = (function () {
                     .then(() => { MGMT_TOAST('Тип объекта создан.'); return loadCustomTypes(); }));
         });
     }
+    // Тело PATCH типа: только изменённые ключи. Иконка nullable — стёртое поле
+    // уходит как null (сервер читает null и "" одинаково, _text с blank_clears,
+    // custom_objects_router.py:233); name и label на сервере NOT NULL, поэтому
+    // пустые значения в тело не попадают вовсе — их отсекает validate.
+    function customTypePatchBody(t, values) {
+        const body = {};
+        const name = values.name.trim();
+        const label = values.label.trim();
+        const icon = values.icon.trim();
+        if (name && name !== t.name) body.name = name;
+        if (label && label !== (t.label || '')) body.label = label;
+        if (icon !== (t.icon || '')) body.icon = icon || null;
+        return body;
+    }
+    function validateCustomTypeEdit(t) {
+        return (values) => {
+            const name = values.name.trim();
+            const label = values.label.trim();
+            if (!label) return 'Заполните название — его видит пользователь.';
+            if (!NAME_RE.test(name)) return 'Системное имя: латиницей, начинается с буквы, без пробелов — например equipment.';
+            if (CO.types.some((x) => String(x.id) !== String(t.id) && x.name === name)) return 'Тип с таким системным именем уже есть.';
+            return '';
+        };
+    }
+    function openCustomTypeForm(t) {
+        return formDialog({
+            title: 'Тип объекта: изменение',
+            what: 'Изменение типа объекта',
+            submitText: 'Сохранить',
+            values: { label: t.label || '', name: t.name || '', icon: t.icon || '' },
+            validate: validateCustomTypeEdit(t),
+            hint: 'Системное имя — не подпись, а ключ: по нему CRM раскладывает значения записей этого объекта и на него ссылаются поля-связи. При переименовании сервер переставляет ссылки сам, но внешние интеграции могут остаться на старом имени.',
+            fields: [
+                { key: 'label', label: 'Название для пользователя', type: 'text', required: true, maxlength: 200 },
+                { key: 'name', label: 'Системное имя', type: 'text', required: true, maxlength: 100 },
+                { key: 'icon', label: 'Иконка (эмодзи или короткое имя)', type: 'text', maxlength: 50, placeholder: 'например, wrench' }
+            ],
+            submit: (values) => submitPatch(customTypePatchBody(t, values), '/custom/objects/' + t.id, (res, body) => {
+                // PATCH отдаёт полный словарь типа (_object_dict) — обновляем
+                // строку на месте, раздел не перезагружаем.
+                Object.assign(t, res);
+                renderCustomTypes();
+                renderCustomFields();       // заголовок блока полей показывает название
+                // Название и системное имя читают другие разделы (записи,
+                // поля-связи) — просим их перерисоваться тем же событием,
+                // что и справочники админки.
+                if ('name' in body || 'label' in body) document.dispatchEvent(new Event('kb:dictionaries-changed'));
+                MGMT_TOAST('Тип объекта сохранён.');
+            })
+        });
+    }
     function removeCustomType(t) {
         return askConfirm({
             title: 'Удалить тип объекта?',
@@ -1435,11 +1616,87 @@ const MGMT_ADMIN = (function () {
                 position: CO.fields.length
             };
             if (values.field_type === 'select') {
-                body.options = values.options.split(',').map((s) => s.trim()).filter(Boolean).map((s) => ({ label: s, value: s }));
+                body.options = splitOptions(values.options);
             }
             return run('co-field-new:' + type.id + ':' + values.name, button, 'Не создано', () =>
                 api('/custom/objects/' + type.id + '/fields', { method: 'POST', body: body })
                     .then(() => { MGMT_TOAST('Поле добавлено.'); return loadCustomFields(); }));
+        });
+    }
+    // Тело PATCH поля — только изменённые ключи. Особенности контракта
+    // (custom_objects_router.py:310-361): отсутствие ключа = «не трогать»,
+    // options: null очищает варианты списка, is_required: null даёт 400 (флаг
+    // поэтому всегда едет true/false), а position: null сервер сам сводит к 0 —
+    // «очистить» порядок нельзя, пустое поле отправляем как 0.
+    function customFieldPatchBody(f, values) {
+        const body = {};
+        const name = values.name.trim();
+        const label = values.label.trim();
+        if (name && name !== f.name) body.name = name;
+        if (label && label !== (f.label || '')) body.label = label;
+        if (values.field_type !== f.field_type) body.field_type = values.field_type;
+        const options = splitOptions(values.options);
+        if (optionsKey(options) !== optionsKey(f.options)) body.options = options.length ? options : null;
+        const required = values.is_required === true;
+        if (required !== Boolean(f.is_required)) body.is_required = required;
+        const raw = Number(values.position);
+        const position = Number.isFinite(raw) ? Math.trunc(raw) : 0;
+        if (position !== Number(f.position || 0)) body.position = position;
+        return body;
+    }
+    function validateFieldEdit(f) {
+        return (values) => {
+            const name = values.name.trim();
+            const label = values.label.trim();
+            if (!label) return 'Заполните метку — её видит пользователь.';
+            if (!NAME_RE.test(name)) return 'Системное имя: латиницей, начинается с буквы, без пробелов — например power.';
+            if (CO.fields.some((x) => String(x.id) !== String(f.id) && x.name === name)) return 'Поле с таким именем уже есть в этом объекте.';
+            const body = customFieldPatchBody(f, values);
+            const type = ('field_type' in body) ? body.field_type : f.field_type;
+            // Тот же инвариант, что на сервере (:346): «список» обязан иметь
+            // варианты, но проверяется только если запрос реально трогает тип
+            // или варианты — менять метку у select с пустыми вариантами сервер
+            // не запрещает, и клиенту нельзя.
+            if (type === 'select' && ('field_type' in body || 'options' in body)) {
+                const list = ('options' in body) ? body.options : normOptions(f.options);
+                if (!list || !list.length) return 'Для типа «список» укажите варианты через запятую — без них сервер поле не сохранит.';
+            }
+            return '';
+        };
+    }
+    function openCustomFieldForm(f) {
+        return formDialog({
+            title: 'Поле: изменение — ' + (f.label || f.name),
+            what: 'Изменение поля',
+            submitText: 'Сохранить',
+            values: {
+                label: f.label || '', name: f.name || '', field_type: f.field_type,
+                options: optionsText(f.options), is_required: f.is_required === true,
+                position: String(f.position || 0)
+            },
+            validate: validateFieldEdit(f),
+            hint: 'Тип значения можно менять, только пока у поля нет ни одного значения в записях: иначе сервер ответит «нельзя» и назовёт число строк — тогда проще удалить поле и создать заново. Варианты списка хранятся как «метка = значение» и правятся через запятую.',
+            fields: [
+                { key: 'label', label: 'Метка поля', type: 'text', required: true, maxlength: 200 },
+                { key: 'name', label: 'Системное имя', type: 'text', required: true, maxlength: 100 },
+                { key: 'field_type', label: 'Тип значения', type: 'select', required: true, options: fieldTypeOptions(f.field_type) },
+                { key: 'options', label: 'Варианты списка (через запятую)', type: 'text', maxlength: 500, placeholder: 'новое, в ремонте, списано' },
+                { key: 'position', label: 'Порядок в списке полей', type: 'number' },
+                { key: 'is_required', label: 'Обязательное поле', type: 'flag' }
+            ],
+            submit: (values) => submitPatch(customFieldPatchBody(f, values), '/custom/fields/' + f.id, (res, body) => {
+                // Ответ PATCH — полный словарь поля (_field_dict): обновляем
+                // строку таблицы на месте, без перезагрузки полей типа.
+                Object.assign(f, res);
+                MGMT_TOAST('Поле сохранено.');
+                if ('name' in body || 'label' in body) document.dispatchEvent(new Event('kb:dictionaries-changed'));
+                // Кроме самого поля меняется ещё и порядок списка (list_fields
+                // сортирует по position): на месте его честно не переставить,
+                // поэтому при правке порядка перечитываем поля существующим
+                // загрузчиком. В остальных случаях строка обновлена без сети.
+                if ('position' in body) return loadCustomFields();
+                renderCustomFields();
+            })
         });
     }
     function removeCustomField(fieldId) {
@@ -1485,7 +1742,7 @@ const MGMT_ADMIN = (function () {
             '<td>' + name + '</td>' +
             '<td>' + (w.description ? esc(w.description) : '—') + '</td>' +
             '<td><span class="pill ' + (on ? 'ok' : 'warn') + '">' + (on ? 'Включён' : 'Выключен') + '</span></td>' +
-            '<td><div class="mgmt-acts">' +
+            '<td data-admin-only><div class="mgmt-acts">' +
             '<button type="button" class="btn btn-ghost btn-sm" data-wf-open="' + id + '" aria-label="Показать триггеры и шаги сценария ' + name + '">Сценарий</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-wf-edit="' + id + '" aria-label="Изменить сценарий ' + name + '">Изменить</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-wf-toggle="' + id + '" aria-label="' + (on ? 'Выключить' : 'Включить') + ' сценарий ' + name + '">' + (on ? 'Выключить' : 'Включить') + '</button>' +
@@ -1496,6 +1753,7 @@ const MGMT_ADMIN = (function () {
         const rows = $('mgmt-wf-rows');
         if (!rows) return;
         rows.innerHTML = WF.items.map(workflowRow).join('');
+        MGMT_ROLE.apply(rows);
         stateLine('mgmt-wf-state', WF.items.length ? 'ok' : 'empty', {
             empty: 'Автоматизаций пока нет. Создайте сценарий, затем добавьте ему триггер и шаги и включите его.'
         });
@@ -1593,6 +1851,28 @@ const MGMT_ADMIN = (function () {
             { key: 'description', label: 'Описание', type: 'textarea', maxlength: 2000 }
         ];
     }
+    // Тело PATCH сценария — только изменённые ключи (workflows_router.py:80-90):
+    // name NOT NULL и не бывает null в теле, description nullable — стёртое
+    // описание уходит явным null, иначе «очистить» его нельзя было бы (пустая
+    // строка сервером тоже читается как «описания нет», но null честнее: он
+    // говорит о намерении, а не о незаполненном поле формы).
+    function workflowPatchBody(w, values) {
+        const body = {};
+        const name = values.name.trim();
+        if (name && name !== (w.name || '')) body.name = name;
+        const description = values.description.trim();
+        if (description !== (w.description || '')) body.description = description || null;
+        return body;
+    }
+    // Ответ PATCH /workflows/ — «{"message": "Обновлено"}», данных сценария в
+    // нём нет: правим снимок строки по отправленному телу и перерисовываем
+    // список с деталями, не дёргая загрузчик раздела.
+    function applyWorkflowPatch(w, body) {
+        if ('name' in body) w.name = body.name;
+        if ('description' in body) w.description = body.description;
+        renderWorkflows();
+        renderWorkflowDetail();
+    }
     function saveWorkflow(w, button) {
         return formDialog({
             title: w ? 'Сценарий: изменение' : 'Новый сценарий',
@@ -1600,19 +1880,22 @@ const MGMT_ADMIN = (function () {
             submitText: 'Сохранить',
             values: w || {},
             validate: (v) => (v.name ? '' : 'Заполните название сценария.'),
-            fields: workflowFields(w)
+            hint: w ? 'Название очистить нельзя — оно обязательно. Описание можно убрать совсем: для этого достаточно стереть текст.' : '',
+            fields: workflowFields(w),
+            submit: w ? (values) => submitPatch(workflowPatchBody(w, values), '/workflows/' + w.id, (res, body) => {
+                applyWorkflowPatch(w, body);
+                MGMT_TOAST('Сценарий сохранён.');
+            }) : null
         }).then((values) => {
-            if (!values) return null;
-            return run('wf-save:' + (w ? w.id : values.name), button, 'Не сохранено', () =>
-                (w
-                    ? api('/workflows/' + w.id, { method: 'PATCH', body: { name: values.name, description: values.description } })
-                    : api('/workflows/', { method: 'POST', body: { name: values.name, description: values.description } })
-                ).then(() => {
-                    // Новую автоматизацию сервер создаёт выключенной
-                    // (models.py:322), иначе она начала бы реагировать молча.
-                    MGMT_TOAST(w ? 'Сценарий сохранён.' : 'Сценарий создан и выключен — включите его, когда настроите триггер и шаги.');
-                    return loadWorkflows();
-                }));
+            if (!values || w) return null;        // правка уже применена в submit
+            return run('wf-save:' + values.name, button, 'Не сохранено', () =>
+                api('/workflows/', { method: 'POST', body: { name: values.name, description: values.description } })
+                    .then(() => {
+                        // Новую автоматизацию сервер создаёт выключенной
+                        // (models.py:322), иначе она начала бы реагировать молча.
+                        MGMT_TOAST('Сценарий создан и выключен — включите его, когда настроите триггер и шаги.');
+                        return loadWorkflows();
+                    }));
         });
     }
     function toggleWorkflow(w, button) {
@@ -1685,7 +1968,8 @@ const MGMT_ADMIN = (function () {
             const button = target.closest([
                 '[data-mgmt-retry]',
                 '[data-wh-edit]', '[data-wh-test]', '[data-wh-toggle]', '[data-wh-del]',
-                '[data-co-select]', '[data-co-del]', '[data-co-field-del]',
+                '[data-co-select]', '[data-co-edit]', '[data-co-del]',
+                '[data-co-field-edit]', '[data-co-field-del]',
                 '[data-wf-open]', '[data-wf-edit]', '[data-wf-toggle]', '[data-wf-del]',
                 '[data-wf-trigger-del]', '[data-wf-step-del]'
             ].join(', '));
@@ -1711,9 +1995,19 @@ const MGMT_ADMIN = (function () {
                 return;
             }
             if (button.hasAttribute('data-co-select')) { selectCustomType(button.dataset.coSelect); return; }
+            if (button.hasAttribute('data-co-edit')) {
+                const type = CO.types.filter((t) => String(t.id) === String(button.dataset.coEdit))[0];
+                if (type) openCustomTypeForm(type);
+                return;
+            }
             if (button.hasAttribute('data-co-del')) {
                 const type = CO.types.filter((t) => String(t.id) === String(button.dataset.coDel))[0];
                 if (type) removeCustomType(type);
+                return;
+            }
+            if (button.hasAttribute('data-co-field-edit')) {
+                const field = CO.fields.filter((f) => String(f.id) === String(button.dataset.coFieldEdit))[0];
+                if (field) openCustomFieldForm(field);
                 return;
             }
             if (button.hasAttribute('data-co-field-del')) { removeCustomField(button.dataset.coFieldDel); return; }
@@ -1740,22 +2034,44 @@ const MGMT_ADMIN = (function () {
     return {
         stateLine: stateLine,
         reasonText: reasonText,
+        formDialog: formDialog,
+        submitPatch: submitPatch,
         webhookBody: webhookBody,
+        webhookPatchBody: webhookPatchBody,
         validateWebhook: validateWebhook,
+        validateWebhookEdit: validateWebhookEdit,
         webhookRow: webhookRow,
         renderWebhooks: renderWebhooks,
         loadWebhooks: loadWebhooks,
+        openWebhookForm: openWebhookForm,
         toggleWebhook: toggleWebhook,
         testWebhook: testWebhook,
         customTypeRow: customTypeRow,
         customFieldRow: customFieldRow,
+        renderCustomTypes: renderCustomTypes,
+        renderCustomFields: renderCustomFields,
+        customTypePatchBody: customTypePatchBody,
+        validateCustomTypeEdit: validateCustomTypeEdit,
+        openCustomTypeForm: openCustomTypeForm,
+        customFieldPatchBody: customFieldPatchBody,
+        validateFieldEdit: validateFieldEdit,
+        openCustomFieldForm: openCustomFieldForm,
+        splitOptions: splitOptions,
+        normOptions: normOptions,
+        optionsText: optionsText,
+        optionsKey: optionsKey,
         loadCustomTypes: loadCustomTypes,
         loadCustomFields: loadCustomFields,
         selectCustomType: selectCustomType,
         workflowRow: workflowRow,
+        renderWorkflows: renderWorkflows,
+        workflowPatchBody: workflowPatchBody,
+        applyWorkflowPatch: applyWorkflowPatch,
+        saveWorkflow: saveWorkflow,
         loadWorkflows: loadWorkflows,
         openWorkflowDetail: openWorkflowDetail,
         toggleWorkflow: toggleWorkflow,
+        FIELD_TYPE_OPTIONS: FIELD_TYPE_OPTIONS,
         WH: WH,
         CO: CO,
         WF: WF
