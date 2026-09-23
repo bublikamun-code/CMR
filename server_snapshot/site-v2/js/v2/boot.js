@@ -231,11 +231,18 @@
                 // записывала его как настоящий (на проде справочник store_locations
                 // пуст, при этом 674 карточки идут без магазина).
                 store: storeIdByName[String(c.store_location || '').trim()] || '',
+                // Сырое значение магазина — для фильтра «Тип оплаты» (пункт 13):
+                // «Безнал (БН)» в legacy — псевдо-магазин (site/js/constants.js),
+                // отдельного поля оплаты у карточки нет; store выше — id
+                // справочника и для «БН» даёт '' (справочник такого магазина
+                // не содержит).
+                storeRaw: String(c.store_location || '').trim(),
                 manager: manager,
                 amount: kopecks(c.total_amount),
                 paidAmount: kopecks(c.paid_amount),
                 issued: 0, // история выписки подключается на этапе 2.6
                 stage: stageOf[String(c.status || '')] || 'new',
+                priority: Number(c.priority) || 0,
                 deadline: isoToRu(c.due_date),
                 // Возраст сделки нужен вкладке «Контроль» (фин-скрипт): без
                 // created_at «Дней» считался по сроку и пустел на карточках

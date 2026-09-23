@@ -17,7 +17,9 @@
 
     function boardStatuses() { return KBData.boardStatuses(); }
     function writeoffStatus() { return KBData.writeoffStatus(); }
-    var state = { search: '', store: 'all', compact: true, queueMode: 'pending', history: [], hideFilled: false };
+    // priority: 'all'|'0'..'3' (строкой — как в значении селекта), pay: 'all'|'bn'|'cash',
+    // listPage — страница табличных видов, viewId — применённый сохранённый вид.
+    var state = { search: '', store: 'all', compact: true, queueMode: 'pending', history: [], hideFilled: false, priority: 'all', pay: 'all', listPage: 1, viewId: '' };
 
     // Состояние доски в адресе (#board?q=…&store=…&mode=…) — ссылкой на
     // отфильтрованный вид можно поделиться. replaceState: без мусора в истории.
@@ -328,6 +330,17 @@
         return cards.filter(function (c) {
             if (state.store !== 'all' && c.store !== state.store) return false;
             if (q && (c.title + ' ' + c.client + ' ' + c.id).toLowerCase().indexOf(q) === -1) return false;
+            // Приоритет строкой — сравнение как в legacy (site/js/kanban.js:225);
+            // карточки демо-набора без поля считаются «Без приоритета».
+            if (state.priority !== 'all' && String(c.priority || 0) !== state.priority) return false;
+            // «Безнал (БН)» — псевдо-магазин legacy: отдельного поля оплаты нет,
+            // фильтр по сырому store_location (storeRaw из boot). Карточки без
+            // магазина не попадают ни в «БН», ни в «Наличные» — как в legacy.
+            if (state.pay !== 'all') {
+                var raw = String(c.storeRaw || '');
+                if (state.pay === 'bn' && raw !== 'БН') return false;
+                if (state.pay === 'cash' && (raw === '' || raw === 'БН')) return false;
+            }
             return true;
         });
     }
@@ -684,8 +697,213 @@
     storeEl.addEventListener('change', function() {
         state.store = storeEl.value;
         writeBoardParams({ store: state.store === 'all' ? '' : state.store });
+        markViewDirty();
         refresh({ view: true });
     });
+
+    // ---------- Фильтры приоритета и типа оплаты (пункт 13) ----------
+    // Опции строит JS по образцу populateStores; в разметке — placeholder-опция.
+    var priorityEl = document.getElementById('kb-priority-select');
+    var payEl = document.getElementById('kb-pay-select');
+    var PAY_OPTIONS = [['all', 'Вся оплата'], ['bn', 'Безнал (БН)'], ['cash', 'Наличные']];
+    function enhanceSelect(el) {
+        if (window.KBSelect && window.KBSelect.enhance) window.KBSelect.enhance(el);
+    }
+    function priorityOptions() {
+        return [['all', 'Все приоритеты']].concat(NC_PRIORITY.map(function (p) { return [String(p[0]), p[1]]; }));
+    }
+    function priorityLabel(value) {
+        var row = NC_PRIORITY.filter(function (p) { return String(p[0]) === String(value); })[0];
+        return row ? row[1] : String(value);
+    }
+    function payLabel(pay) { return pay === 'bn' ? 'Безнал (БН)' : 'Наличные'; }
+    function populateFilterSelects() {
+        if (priorityEl) { priorityEl.innerHTML = optionsHTML(priorityOptions(), state.priority); enhanceSelect(priorityEl); }
+        if (payEl) { payEl.innerHTML = optionsHTML(PAY_OPTIONS, state.pay); enhanceSelect(payEl); }
+    }
+    if (priorityEl) priorityEl.addEventListener('change', function () {
+        state.priority = priorityEl.value;
+        writeBoardParams({ priority: state.priority === 'all' ? '' : state.priority });
+        markViewDirty();
+        refresh({ view: true });
+    });
+    if (payEl) payEl.addEventListener('change', function () {
+        state.pay = payEl.value;
+        writeBoardParams({ pay: state.pay === 'all' ? '' : state.pay });
+        markViewDirty();
+        refresh({ view: true });
+    });
+
+    // ---------- Сохранённые виды доски (состав — пункт 15, расширение пункта 13) ----------
+    // Хранятся в localStorage с ключом на пользователя; на file:// без хранилища
+    // — тихая деградация: чтение даёт [], запись false, ничего не падает.
+    var VIEW_NONE = '__none';
+    var VIEW_MODES = ['board', 'list', 'archive'];
+    var viewSelectEl = document.getElementById('kb-view-select');
+    var viewSaveBtn = document.getElementById('kb-view-save');
+    function svKey() {
+        return 'v2.savedViews.board.' + ((window.V2Api && window.V2Api.userId && window.V2Api.userId()) || 'anon');
+    }
+    function svRead() {
+        try {
+            var list = JSON.parse(localStorage.getItem(svKey()) || '[]');
+            return Array.isArray(list) ? list : [];
+        } catch (e) { return []; }
+    }
+    function svWrite(list) {
+        try { localStorage.setItem(svKey(), JSON.stringify(list)); return true; } catch (e) { return false; }
+    }
+    // Любой ручной фильтр-доступ (поиск, магазин, приоритет, оплата, сброс,
+    // смена режима) делает применённый вид неактивным.
+    function markViewDirty() {
+        state.viewId = '';
+        if (viewSelectEl && viewSelectEl.value !== VIEW_NONE) {
+            viewSelectEl.value = VIEW_NONE;
+            enhanceSelect(viewSelectEl);
+        }
+    }
+    function populateViewSelect() {
+        if (!viewSelectEl) return;
+        var views = svRead();
+        // Выбранный вид мог быть удалён — тихо считаем вид неактивным.
+        if (state.viewId && !views.some(function (v) { return v.id === state.viewId; })) state.viewId = '';
+        viewSelectEl.innerHTML = optionsHTML([[VIEW_NONE, 'Вид: —']].concat(views.map(function (v) { return [v.id, v.name]; })), state.viewId || VIEW_NONE);
+        enhanceSelect(viewSelectEl);
+    }
+    // Сохранение при существующем имени перезаписывает тот вид (upsert).
+    function savedViewFromState(name) {
+        var list = svRead();
+        var existing = list.filter(function (v) { return v.name === name; })[0] || null;
+        var view = {
+            id: existing ? existing.id : 'sv-' + Date.now().toString(36),
+            name: name,
+            q: state.search,
+            store: state.store,
+            statuses: [],   // задел пункта 15: UI к ним в этом пункте нет
+            assignee: null,
+            mode: VIEW_MODES.indexOf(state.queueMode) >= 0 ? state.queueMode : 'board',
+            priority: state.priority,
+            pay: state.pay
+        };
+        var next = existing ? list.map(function (v) { return v.id === existing.id ? view : v; }) : list.concat([view]);
+        return svWrite(next) ? view : null;
+    }
+    function viewSummary(v) {
+        var parts = [];
+        if (v.q) parts.push('поиск «' + v.q + '»');
+        if (v.store && v.store !== 'all') parts.push('магазин «' + KBData.storeName(v.store) + '»');
+        if (v.priority && v.priority !== 'all') parts.push('приоритет «' + priorityLabel(v.priority) + '»');
+        if (v.pay && v.pay !== 'all') parts.push('оплата «' + payLabel(v.pay) + '»');
+        parts.push({ board: 'Доска', list: 'Список', archive: 'Архив' }[v.mode] || 'Доска');
+        return parts.join(', ');
+    }
+    function applySavedView(view) {
+        // Неизвестные значения (магазин исчез из справочника, битые
+        // priority/pay/mode) применяются тихо по умолчанию; statuses/assignee
+        // из пункта 15 здесь игнорируются — UI к ним в этом пункте нет.
+        state.search = String(view.q || '');
+        searchEl.value = state.search;
+        setSearchPanel(state.search !== '');
+        syncSearchClear();
+        state.store = (view.store && view.store !== 'all' && KBData.stores.some(function (s) { return s.id === view.store; })) ? view.store : 'all';
+        state.priority = /^[0-3]$/.test(String(view.priority)) ? String(view.priority) : 'all';
+        state.pay = (view.pay === 'bn' || view.pay === 'cash') ? view.pay : 'all';
+        state.listPage = 1;
+        state.viewId = view.id;
+        populateStores();
+        populateFilterSelects();
+        // queueMode сам пишет mode в адрес, фильтры — следом отдельным патчем.
+        queueMode(VIEW_MODES.indexOf(view.mode) >= 0 ? view.mode : 'board');
+        writeBoardParams({
+            q: state.search,
+            store: state.store === 'all' ? '' : state.store,
+            priority: state.priority === 'all' ? '' : state.priority,
+            pay: state.pay === 'all' ? '' : state.pay
+        });
+        refresh({ view: true });
+        document.dispatchEvent(new CustomEvent('kb:saved-view-applied', { detail: { id: view.id, name: view.name } }));
+    }
+    var viewsDialog = null;
+    var viewsOpener = null;
+    function ensureViewsDialog() {
+        if (viewsDialog) return viewsDialog;
+        viewsDialog = document.createElement('dialog');
+        viewsDialog.id = 'kb-views-dlg';
+        viewsDialog.className = 'v2-form-dialog';
+        viewsDialog.setAttribute('aria-labelledby', 'kb-views-heading');
+        viewsDialog.addEventListener('close', function () {
+            if (viewsOpener && viewsOpener.isConnected) viewsOpener.focus();
+            viewsOpener = null;
+        });
+        // Делегирование удаления — один раз на диалог: содержимое (и его
+        // слушатели) пересобирается при каждом открытии, слушатель диалога — нет.
+        viewsDialog.addEventListener('click', function (e) {
+            var del = e.target.closest('[data-view-del]');
+            if (!del) return;
+            svWrite(svRead().filter(function (v) { return v.id !== del.dataset.viewDel; }));
+            if (state.viewId === del.dataset.viewDel) markViewDirty();
+            populateViewSelect();
+            openViewsDialog(viewsOpener);
+        });
+        document.body.appendChild(viewsDialog);
+        return viewsDialog;
+    }
+    function openViewsDialog(opener) {
+        var dlg = ensureViewsDialog();
+        viewsOpener = opener || null;
+        var views = svRead();
+        dlg.innerHTML = '<form id="kb-views-form"><h2 id="kb-views-heading">Сохранённые виды</h2>' +
+            '<div class="mgmt-fields">' +
+            '<label for="kb-view-name" style="grid-column:1/-1"><span>Название вида</span>' +
+            '<input id="kb-view-name" type="text" maxlength="40" autocomplete="off"></label>' +
+            '</div>' +
+            '<p id="kb-views-error" class="kb-form-error" role="alert" hidden></p>' +
+            '<div class="mgmt-actions">' +
+            '<button type="button" class="btn btn-ghost" data-views-cancel>Отмена</button>' +
+            '<button type="submit" class="btn btn-primary">Сохранить текущий вид</button>' +
+            '</div>' +
+            '<div class="kb-views-list">' +
+            (views.length ? views.map(function (v) {
+                return '<div class="kb-views-row">' +
+                    '<div class="kb-views-info"><b>' + esc(v.name) + '</b>' +
+                    '<span class="kb-views-sum">' + esc(viewSummary(v)) + '</span></div>' +
+                    '<button type="button" class="btn btn-ghost btn-sm" data-view-del="' + esc(v.id) + '">Удалить</button>' +
+                    '</div>';
+            }).join('') : '<p class="kb-note">Пока нет сохранённых видов.</p>') +
+            '</div></form>';
+        dlg.querySelector('[data-views-cancel]').addEventListener('click', function () { dlg.close(); });
+        dlg.querySelector('#kb-views-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            var input = dlg.querySelector('#kb-view-name');
+            var name = input.value.trim().slice(0, 40);
+            if (!name) {
+                var errorEl = dlg.querySelector('#kb-views-error');
+                errorEl.textContent = 'Введите название вида.';
+                errorEl.hidden = false;
+                input.focus();
+                return;
+            }
+            var view = savedViewFromState(name);
+            if (!view) {
+                // Хранилище недоступно (file://) — остаёмся в диалоге с причиной.
+                var failEl = dlg.querySelector('#kb-views-error');
+                failEl.textContent = 'Хранилище браузера недоступно — вид не сохранён.';
+                failEl.hidden = false;
+                return;
+            }
+            state.viewId = view.id;
+            populateViewSelect();
+            dlg.close();
+        });
+        if (!dlg.open) dlg.showModal();
+        dlg.querySelector('#kb-view-name').focus();
+    }
+    if (viewSelectEl) viewSelectEl.addEventListener('change', function () {
+        if (viewSelectEl.value === VIEW_NONE) { markViewDirty(); return; }
+        var view = svRead().filter(function (v) { return v.id === viewSelectEl.value; })[0];
+        if (view) applySavedView(view); else markViewDirty();
+    });
+    if (viewSaveBtn) viewSaveBtn.addEventListener('click', function () { openViewsDialog(viewSaveBtn); });
     // Debounce: полная перерисовка доски (сотни карточек) не должна бежать
     // на каждый символ — ждём паузу в вводе 150 мс.
     var searchTimer = 0;
@@ -728,6 +946,7 @@
         state.search = '';
         writeBoardParams({ q: '' });
         syncSearchClear();
+        markViewDirty();
         refresh({ view: true });
     }
     function closeSearch() {
@@ -766,6 +985,7 @@
         state.search = searchEl.value;
         writeBoardParams({ q: state.search });
         syncSearchClear();
+        markViewDirty();
         clearTimeout(searchTimer);
         // Явная обёртка: setTimeout не передаёт аргументы, а ссылку на
         // refresh(opts) вообще нельзя отдавать колбэкам событий — у Event есть
@@ -783,6 +1003,8 @@
         var q = state.search.trim();
         if (q) out.push('поиск «' + q + '»');
         if (state.store !== 'all') out.push('магазин «' + KBData.storeName(state.store) + '»');
+        if (state.priority !== 'all') out.push('приоритет «' + priorityLabel(state.priority) + '»');
+        if (state.pay !== 'all') out.push('оплата «' + payLabel(state.pay) + '»');
         return out;
     }
     function filtersActive() { return filterReasons().length > 0; }
@@ -792,10 +1014,20 @@
         state.search = '';
         storeEl.value = 'all';
         state.store = 'all';
-        writeBoardParams({ q: '', store: '' });
+        state.priority = 'all';
+        state.pay = 'all';
+        state.listPage = 1;
+        if (priorityEl) priorityEl.value = 'all';
+        if (payEl) payEl.value = 'all';
+        writeBoardParams({ q: '', store: '', priority: '', pay: '' });
         // Магазин — не голый select: KBSelect показывает свою подпись и её
         // надо пересинхронизировать после программного значения.
-        if (window.KBSelect && window.KBSelect.enhance) window.KBSelect.enhance(storeEl);
+        if (window.KBSelect && window.KBSelect.enhance) {
+            window.KBSelect.enhance(storeEl);
+            if (priorityEl) window.KBSelect.enhance(priorityEl);
+            if (payEl) window.KBSelect.enhance(payEl);
+        }
+        markViewDirty();
         syncSearchClear();
         refresh({ view: true });
         // Кнопка сброса жила внутри подсказки и удалена перерисовкой:
@@ -811,6 +1043,7 @@
         var empty;
         if (state.queueMode === 'board') empty = !visibleCards().length;
         else if (state.queueMode === 'trash') empty = false;
+        else if (state.queueMode === 'list' || state.queueMode === 'archive') empty = !listCards().length;
         else empty = !queueCards().length;
         var show = reasons.length > 0 && empty;
         noResultsEl.hidden = !show;
@@ -821,6 +1054,8 @@
     }
     var resetFiltersBtn = document.getElementById('kb-reset-filters');
     if (resetFiltersBtn) resetFiltersBtn.onclick = resetBoardFilters;
+    var resetToolbarBtn = document.getElementById('kb-reset');
+    if (resetToolbarBtn) resetToolbarBtn.onclick = resetBoardFilters;
     document.getElementById('kb-density').onclick = function() { setDensity(!state.compact); };
     function setDensity(compact) {
         state.compact = compact;
@@ -867,7 +1102,11 @@
     function refresh(opts) {
         var viewOnly = !!(opts && opts.view === true);
         var scroll = Array.from(boardEl.querySelectorAll('.kb-cards')).map(function(el) { return el.scrollTop; });
-        renderBoard(); renderQueue();
+        renderBoard();
+        // Одна точка диспетчеризации: в табличных видах renderQueue со своими
+        // groupPick-чистками не выполняется (скролл колонок доски не трогаем).
+        if (state.queueMode === 'list' || state.queueMode === 'archive') renderList();
+        else renderQueue();
         boardEl.querySelectorAll('.kb-cards').forEach(function(el, i) { el.scrollTop = scroll[i] || 0; });
         if (viewOnly) return;
         dispatchDocuments();
@@ -1030,16 +1269,129 @@
         applyRoleMarks(queueBody);
         syncNoResults();
     }
+    // Режим рабочей области. Имя историческое (queueMode): теперь включает не
+    // только очереди, но и табличные виды «Список»/«Архив» (пункт 13).
     function queueMode(mode) {
         state.queueMode = mode;
+        if (mode === 'list' || mode === 'archive') state.listPage = 1;
         writeBoardParams({ mode: mode === 'board' ? '' : mode });
         boardEl.hidden = mode !== 'board';
-        document.getElementById('kb-queue').hidden = mode === 'board';
+        document.getElementById('kb-queue').hidden = ['pending', 'history', 'trash'].indexOf(mode) < 0;
+        document.getElementById('kb-list').hidden = ['list', 'archive'].indexOf(mode) < 0;
         document.getElementById('kb-q-board').setAttribute('aria-pressed', String(mode === 'board'));
         document.getElementById('kb-q-pending').setAttribute('aria-pressed', String(mode === 'pending'));
         document.getElementById('kb-q-history').setAttribute('aria-pressed', String(mode === 'history'));
-        renderQueue();
+        document.getElementById('kb-q-list').setAttribute('aria-pressed', String(mode === 'list'));
+        document.getElementById('kb-q-archive').setAttribute('aria-pressed', String(mode === 'archive'));
+        if (mode === 'list' || mode === 'archive') renderList();
+        else renderQueue();
     }
+    // ---------- Табличные виды «Список» и «Архив» (пункт 13) ----------
+    // Паритет renderListView() legacy (site/js/kanban.js:1058-1227): все
+    // не-удалённые сделки; «Архив» — только stage === 'done' как ЖИВОЙ фильтр
+    // над KBData.cards (отмена ТН возвращает карточку из архива после
+    // reloadData), без снимка и кэша состава.
+    var LIST_PAGE_SIZE = 25;
+    var listBodyEl = document.getElementById('kb-list-body');
+    var LIST_STAGE_FALLBACK = { 'new': 'Новый запрос', 'work': 'В работе', 'pay': 'Ждет оплаты', 'assembly': 'Сборка', 'writeoff': 'На списание', 'done': 'Закрыто' };
+    var LIST_HEAD = '<thead><tr><th scope="col">Сделка</th><th scope="col">Статус</th><th scope="col">Сумма</th>' +
+        '<th scope="col" class="col-pay">Оплата</th><th scope="col" class="col-store">Магазин</th>' +
+        '<th scope="col" class="col-manager">Менеджер</th><th scope="col">Дедлайн</th>' +
+        '<th scope="col" class="col-priority">Приоритет</th></tr></thead>';
+    // Единая выборка вида: и строки таблицы, и подсказка «Ничего не найдено»
+    // считаются по ней (приём из queueCards — «Найдено: N» не расходится).
+    function listCards() {
+        var list = visibleCards();
+        if (state.queueMode === 'archive') list = list.filter(function (c) { return c.stage === 'done'; });
+        return list;
+    }
+    // 'ДД.ММ.ГГГГ' → число вида ГГГГММДД для сравнения; пустая/битая — null.
+    function ruDateKey(value) {
+        var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value || '').trim());
+        return m ? Number(m[3] + m[2] + m[1]) : null;
+    }
+    function todayKey() {
+        // Как в boot: UTC-дата KBApi.todayUTC; в предпросмотре мокапа —
+        // демо-дата KBData.today, без неё — локальные «сегодня».
+        var iso = window.KBApi && window.KBApi.todayUTC ? window.KBApi.todayUTC() : '';
+        var p = String(iso).split('-');
+        if (p.length === 3) return Number(p[0] + p[1] + p[2]);
+        var t = KBData.today || new Date();
+        return t.getFullYear() * 10000 + (t.getMonth() + 1) * 100 + t.getDate();
+    }
+    function sortListCards(list) {
+        var todayNum = todayKey();
+        return list.map(function (c) {
+            return { card: c, deadline: ruDateKey(c.deadline), created: ruDateKey(c.createdAt) };
+        }).sort(function (a, b) {
+            var aOver = a.deadline !== null && a.deadline < todayNum;
+            var bOver = b.deadline !== null && b.deadline < todayNum;
+            if (aOver !== bOver) return aOver ? -1 : 1; // просроченные наверх
+            // Далее по дате создания — новые сверху; без даты — в конец.
+            if (a.created !== b.created) return (b.created || 0) - (a.created || 0);
+            return 0;
+        }).map(function (row) { return row.card; });
+    }
+    function listStageName(c) {
+        var st = KBData.statuses.filter(function (x) { return x.id === c.stage; })[0];
+        return (st && st.name) || LIST_STAGE_FALLBACK[c.stage] || String(c.stage || '');
+    }
+    // Тот же вывод, что на плитке (payment_status или производный), текстом.
+    function listPayText(c) {
+        var fullyPaid = c.paidAmount >= c.amount && c.amount > 0;
+        return c.payment_status || (fullyPaid ? 'Оплачен' : (c.paidAmount > 0 ? 'Частично' : 'Не оплачен'));
+    }
+    function listRowHTML(c, todayNum) {
+        var deadlineKey = ruDateKey(c.deadline);
+        var overdue = deadlineKey !== null && deadlineKey < todayNum;
+        return '<tr>' +
+            '<td><button type="button" class="kb-list-open" data-card="' + esc(c.id) + '">' + esc(c.id + ' · ' + c.title) + '</button></td>' +
+            '<td>' + esc(listStageName(c)) + '</td>' +
+            '<td class="num">' + esc(money(c.amount)) + ' BYN</td>' +
+            '<td class="col-pay">' + esc(listPayText(c)) + '</td>' +
+            '<td class="col-store">' + esc(KBData.storeName(c.store) || '—') + '</td>' +
+            '<td class="col-manager"' + offUserAttrs(c.manager) + '>' + esc(userNameOff(c.manager)) + '</td>' +
+            '<td class="num' + (overdue ? ' is-overdue' : '') + '">' + esc(c.deadline || '—') + '</td>' +
+            '<td class="col-priority">' + esc(Number(c.priority || 0) ? priorityLabel(c.priority) : '—') + '</td>' +
+            '</tr>';
+    }
+    function renderList() {
+        if (!listBodyEl) return;
+        // Сортировка и пагинация пересчитываются на каждый вызов: данные
+        // (этапы, остатки, состав архива) могли измениться.
+        var list = sortListCards(listCards());
+        var total = list.length;
+        var pages = Math.max(1, Math.ceil(total / LIST_PAGE_SIZE));
+        if (state.listPage > pages) state.listPage = pages;
+        if (state.listPage < 1) state.listPage = 1;
+        var from = (state.listPage - 1) * LIST_PAGE_SIZE;
+        var rows = list.slice(from, from + LIST_PAGE_SIZE);
+        var todayNum = todayKey();
+        var head = '<p class="kb-note">' +
+            (state.queueMode === 'archive' ? 'Только закрытые сделки.' : 'Все сделки, кроме удалённых.') +
+            ' Найдено: ' + total + '</p>';
+        var table = total
+            ? '<table class="kb-list-table">' + LIST_HEAD + '<tbody>' +
+              rows.map(function (c) { return listRowHTML(c, todayNum); }).join('') +
+              '</tbody></table>'
+            : '<p class="kb-note">Сделок нет.</p>';
+        var pager = '';
+        if (total > LIST_PAGE_SIZE) {
+            pager = '<div class="kb-list-pager">' +
+                '<button type="button" class="btn btn-ghost btn-sm" data-list-page="prev"' + (state.listPage <= 1 ? ' disabled' : '') + '>‹ Назад</button>' +
+                '<span class="kb-list-pageinfo num">Показано ' + (from + 1) + '–' + Math.min(from + LIST_PAGE_SIZE, total) + ' из ' + total + '</span>' +
+                '<button type="button" class="btn btn-ghost btn-sm" data-list-page="next"' + (state.listPage >= pages ? ' disabled' : '') + '>Вперёд ›</button>' +
+                '</div>';
+        }
+        listBodyEl.innerHTML = head + table + pager;
+        syncNoResults();
+    }
+    if (listBodyEl) listBodyEl.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-list-page]');
+        if (!btn || btn.disabled) return;
+        state.listPage += btn.dataset.listPage === 'next' ? 1 : -1;
+        renderList();
+    });
     // Фидбек 20.09: тост больше не висит вечно — авто-закрытие через 6 с
     // (достаточно прочитать и успеть нажать «Списано»; вручную — крестик).
     // isError — стиль ошибки (класс toast-error, как в management.js/insights.js)
@@ -3022,9 +3374,13 @@
         var focusTarget = dialog.querySelector('[data-check="' + index + '"][data-flag="' + flag + '"]');
         if (focusTarget) focusTarget.focus();
     });
-    document.getElementById('kb-q-board').onclick = function() { queueMode('board'); };
-    document.getElementById('kb-q-pending').onclick = function() { queueMode('pending'); };
-    document.getElementById('kb-q-history').onclick = function() { queueMode('history'); };
+    document.getElementById('kb-q-board').onclick = function() { markViewDirty(); queueMode('board'); };
+    document.getElementById('kb-q-pending').onclick = function() { markViewDirty(); queueMode('pending'); };
+    document.getElementById('kb-q-history').onclick = function() { markViewDirty(); queueMode('history'); };
+    var listModeBtn = document.getElementById('kb-q-list');
+    if (listModeBtn) listModeBtn.onclick = function() { markViewDirty(); queueMode('list'); };
+    var archiveModeBtn = document.getElementById('kb-q-archive');
+    if (archiveModeBtn) archiveModeBtn.onclick = function() { markViewDirty(); queueMode('archive'); };
     // ---------- Создание сделки с доски ----------
     // Набор полей — как в форме рабочей версии (site/js/kanban.js): название,
     // сумма, клиент, магазин, срок, приоритет. Статус всегда «Новый запрос»,
@@ -3138,7 +3494,7 @@
     var newCardBtn = document.getElementById('kb-new-card');
     if (newCardBtn) newCardBtn.addEventListener('click', function () { openNewCardForm(newCardBtn); });
     var trashBtn = document.getElementById('kb-q-trash');
-    if (trashBtn) trashBtn.onclick = function() { queueMode('trash'); };
+    if (trashBtn) trashBtn.onclick = function() { markViewDirty(); queueMode('trash'); };
     // Делегирование для панели группы: чекбоксы пересобираются при каждой отрисовке.
     document.getElementById('kb-queue-body').addEventListener('click', function (e) {
         var restore = e.target.closest('[data-trash-restore]');
@@ -3478,6 +3834,13 @@
     }
     // Админка правит справочники → доска и фильтры перерисовываются.
     document.addEventListener('kb:dictionaries-changed', function () {
+        // Активный магазин мог исчезнуть из справочника — тихо возвращаем
+        // «Все магазины»; хранилище видов при этом не чистим: при применении
+        // вид с несуществующим магазином применится без него.
+        if (state.store !== 'all' && !KBData.stores.some(function (s) { return s.id === state.store; })) {
+            state.store = 'all';
+            writeBoardParams({ store: '' });
+        }
         populateStores();
         refresh();
     });
@@ -3533,7 +3896,13 @@
     var bp = readBoardParams();
     if (bp.q) { state.search = bp.q; searchEl.value = bp.q; }
     if (bp.store && (bp.store === 'all' || KBData.stores.some(function (s) { return s.id === bp.store; }))) state.store = bp.store;
-    populateStores(); setDensity(true); refresh(); queueMode(['pending', 'history'].indexOf(bp.mode) >= 0 ? bp.mode : 'board');
+    if (/^[0-3]$/.test(bp.priority || '')) state.priority = bp.priority;
+    if (/^(bn|cash)$/.test(bp.pay || '')) state.pay = bp.pay;
+    // Селекты проставляются после восстановления state — populate* читают его.
+    populateStores(); populateFilterSelects(); populateViewSelect();
+    setDensity(true); refresh();
+    // trash из адреса не восстанавливается: корзина — служебный режим сессии.
+    queueMode(['pending', 'history', 'list', 'archive'].indexOf(bp.mode) >= 0 ? bp.mode : 'board');
     // Запрос из ссылки (#board?q=…) раскрываем сразу: свёрнутая лупа за
     // невидимым фильтром выглядела как сломанная доска. Фокус при этом не
     // тянем — страница только что загрузилась, а скролл к тулбару не нужен.

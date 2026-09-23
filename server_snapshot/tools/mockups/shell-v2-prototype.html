@@ -765,6 +765,8 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
               <button type="button" id="kb-q-board" aria-pressed="true">Доска</button>
               <button type="button" id="kb-q-pending" aria-pressed="false">На списание <span id="kb-queue-count" class="num"></span></button>
               <button type="button" id="kb-q-history" aria-pressed="false">Списано</button>
+              <button type="button" id="kb-q-list" aria-pressed="false">Список</button>
+              <button type="button" id="kb-q-archive" aria-pressed="false">Архив</button>
             <button type="button" id="kb-q-trash" aria-pressed="false">Корзина</button>
             </div>
             <div class="kb-tools">
@@ -782,9 +784,20 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
               <div class="kb-store-menu" id="kb-store-menu">
                 <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
               </div>
+              <div class="kb-store-menu">
+                <select id="kb-priority-select" aria-label="Приоритет"><option value="all">Все приоритеты</option></select>
+              </div>
+              <div class="kb-store-menu">
+                <select id="kb-pay-select" aria-label="Тип оплаты"><option value="all">Вся оплата</option></select>
+              </div>
+              <div class="kb-store-menu">
+                <select id="kb-view-select" aria-label="Сохранённый вид"><option value="__none">Вид: —</option></select>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="kb-view-save">Сохранить вид</button>
               <button type="button" class="kb-icon" id="kb-density" aria-pressed="true" aria-label="Компактные карточки" title="Компактные карточки">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
               </button>
+              <button type="button" class="btn btn-ghost btn-sm" id="kb-reset">Сбросить</button>
             </div>
           </div>
           <div class="kb-no-results" id="kb-no-results" role="status" hidden>
@@ -796,6 +809,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           <section class="kb-queue" id="kb-queue" tabindex="0" aria-label="Очередь и история выписки — прокрутка списка" hidden>
             <div id="kb-queue-body"></div>
           </section>
+          <section class="kb-list" id="kb-list" hidden aria-label="Список сделок"><div id="kb-list-body" tabindex="0"></div></section>
         </div>
       </section>
 <!-- ============ ВИД 3: ФИНАНСЫ ============ -->

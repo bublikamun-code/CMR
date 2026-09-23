@@ -5,18 +5,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=a03978df31">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=a03978df31">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=a03978df31">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=a03978df31">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=a03978df31">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=a03978df31">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=a03978df31">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=a03978df31">
-<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="a03978df31"</script>
-<script src="js/v2/api.js?v=a03978df31"></script>
-<script src="js/v2/boot.js?v=a03978df31"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=c9ab4e0133">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=c9ab4e0133">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=c9ab4e0133">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=c9ab4e0133">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=c9ab4e0133">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=c9ab4e0133">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=c9ab4e0133">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=c9ab4e0133">
+<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="c9ab4e0133"</script>
+<script src="js/v2/api.js?v=c9ab4e0133"></script>
+<script src="js/v2/boot.js?v=c9ab4e0133"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=c9ab4e0133">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -181,6 +181,8 @@
               <button type="button" id="kb-q-board" aria-pressed="true">Доска</button>
               <button type="button" id="kb-q-pending" aria-pressed="false">На списание <span id="kb-queue-count" class="num"></span></button>
               <button type="button" id="kb-q-history" aria-pressed="false">Списано</button>
+              <button type="button" id="kb-q-list" aria-pressed="false">Список</button>
+              <button type="button" id="kb-q-archive" aria-pressed="false">Архив</button>
             <button type="button" id="kb-q-trash" aria-pressed="false">Корзина</button>
             </div>
             <div class="kb-tools">
@@ -198,9 +200,20 @@
               <div class="kb-store-menu" id="kb-store-menu">
                 <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
               </div>
+              <div class="kb-store-menu">
+                <select id="kb-priority-select" aria-label="Приоритет"><option value="all">Все приоритеты</option></select>
+              </div>
+              <div class="kb-store-menu">
+                <select id="kb-pay-select" aria-label="Тип оплаты"><option value="all">Вся оплата</option></select>
+              </div>
+              <div class="kb-store-menu">
+                <select id="kb-view-select" aria-label="Сохранённый вид"><option value="__none">Вид: —</option></select>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="kb-view-save">Сохранить вид</button>
               <button type="button" class="kb-icon" id="kb-density" aria-pressed="true" aria-label="Компактные карточки" title="Компактные карточки">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
               </button>
+              <button type="button" class="btn btn-ghost btn-sm" id="kb-reset">Сбросить</button>
             </div>
           </div>
           <div class="kb-no-results" id="kb-no-results" role="status" hidden>
@@ -212,6 +225,7 @@
           <section class="kb-queue" id="kb-queue" tabindex="0" aria-label="Очередь и история выписки — прокрутка списка" hidden>
             <div id="kb-queue-body"></div>
           </section>
+          <section class="kb-list" id="kb-list" hidden aria-label="Список сделок"><div id="kb-list-body" tabindex="0"></div></section>
         </div>
       </section>
 <!-- ============ ВИД 3: ФИНАНСЫ ============ -->
