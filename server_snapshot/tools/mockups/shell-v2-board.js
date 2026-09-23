@@ -116,6 +116,22 @@
     function moneyOrDash(cents) {
         return cents === null || cents === undefined ? '—' : money(cents);
     }
+    // Дефект 7 реестра V2-WORKPLAN-2026-09-22: после локальной отмены ТН деньги
+    // карточки нельзя инвалидировать — без remaining_kop карточка не проходит
+    // hasRemaining и выпадает из очереди «На списание» до перезагрузки.
+    // Пересчитываем из того, что пользователь видит в «Накладных»: суммы docs и
+    // card.amount — целые копейки (шапка файла), issued_total — рубли (cardIssued
+    // умножает на 100), отсечка остатка нулём — как max(0, …) в services/card_money.py.
+    function recalcCardMoney(card) {
+        var issued = Math.round((card.docs || []).reduce(function (a, d) { return a + (d.amount || 0); }, 0));
+        card.issued = issued;
+        card.issued_total = issued / 100;
+        // Сумма сделки неизвестна — остаток выдумывать нечем: оставляем null,
+        // hasRemaining(null) сознательно держит такую карточку вне очереди
+        // (см. комментарий к cardRemaining), подмены серверным расчётом нет.
+        var amountKnown = typeof card.amount === 'number' && isFinite(card.amount);
+        card.remaining_kop = amountKnown ? Math.max(0, Math.round(card.amount - issued)) : null;
+    }
     // 'cl-22' → 22: клиентские id в v2 с префиксом, API ждёт число
     // (фидбек 18.09: Number('cl-22') = NaN ломал баланс и кассу клиента)
     function numericClientId(id) {
@@ -1811,11 +1827,12 @@
                     group.covers.forEach(function (cov) {
                         var card = cards.find(function (x) { return x.id === cov.cardId; });
                         if (!card) return;
-                        card.issued = Math.max(0, card.issued - cov.amount);
                         card.groupId = null;
-                        // Invalidate server money cache
-                        card.remaining_kop = undefined;
-                        card.issued_total = undefined;
+                        // Разбивку группы по карточкам сервер не отдаёт
+                        // (covers[].amount === null в boot), поэтому вычитать
+                        // cov.amount не из чего — деньги берём из оставшихся
+                        // docs, иначе карточка терялась в очереди (дефект 7).
+                        recalcCardMoney(card);
                         var w = writeoffStatus();
                         if (hasRemaining(card) && card.stage === 'done' && w) card.stage = w.id;
                     });
@@ -1939,10 +1956,8 @@
             // Await server before mutating (item #9 — откат при ошибке).
             var doCancelLocal = function () {
                 activeCard.docs.splice(index, 1);
-                activeCard.issued = Math.max(0, activeCard.issued - doc.amount);
-                // Invalidate server money cache so next read recomputes
-                activeCard.remaining_kop = undefined;
-                activeCard.issued_total = undefined;
+                // Пересчёт — уже после splice: отменённой записи в docs нет.
+                recalcCardMoney(activeCard);
                 var writeoff = writeoffStatus();
                 if (activeCard.stage === 'done' && hasRemaining(activeCard) && writeoff) activeCard.stage = writeoff.id;
                 refresh();
