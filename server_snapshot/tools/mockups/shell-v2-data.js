@@ -159,7 +159,7 @@
     };
     KBData.writeoffStatus = function () {
         return KBData.statuses.filter(function (s) { return s.role === 'writeoff'; })
-            .sort(function (a, b) { return a.position - b.position; })[0] || null;
+            .slice().sort(function (a, b) { return a.position - b.position; })[0] || null;
     };
     KBData.storeName = function (id) {
         var store = KBData.stores.filter(function (s) { return s.id === id; })[0];

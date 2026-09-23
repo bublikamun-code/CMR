@@ -299,7 +299,9 @@
         card.issued = issued;
         card.issued_total = issued / 100;
         card.remaining_kop = known ? Math.max(0, Math.round(card.amount - issued)) : null;
-        card.stage = 'done';
+        // Сервер после групповой выписки ведёт карточку в статус «Закрыто» —
+        // это id 'closed', а не псевдо-этап полной выписки 'done' (Р2 пункта 12).
+        card.stage = 'closed';
     }
     // Причина отказа одним текстом: серверные detail идут по-русски и без
     // точки на конце — конечную пунктуацию срезаем, когда вставляем причину
@@ -651,6 +653,16 @@
         e.preventDefault();
         var fromStage = drag.card.stage;
         var toStage = drag.column.dataset.stage;
+        // Р4: колонка статуса, которого нет в справочнике карточек
+        // (canAssign=false), не принимает карточек — сервер ответил бы 422.
+        // Перестановка внутри такой колонки тоже запрещена: этап не меняется,
+        // но карточке в ней жить нельзя.
+        var targetStatus = KBData.statuses.filter(function (st) { return st.id === toStage; })[0];
+        if (targetStatus && targetStatus.canAssign === false) {
+            notify('Статус не из справочника карточек: сервер его не примет', true);
+            cleanupDrag();
+            return;
+        }
         // id и имя статуса — до cleanupDrag(): он обнуляет drag.
         var cardId = Number(drag.card.id);
         var status = stageName(toStage);
@@ -1223,7 +1235,10 @@
     function queueCards() {
         return visibleCards().filter(function (c) {
             if (state.queueMode === 'pending') return c.stage === 'writeoff' && hasRemaining(c);
-            return c.stage === 'done' || (c.stage === 'writeoff' && cardIssued(c) > 0 && !hasRemaining(c));
+            // 'closed' (статус «Закрыто») остаётся в «Списано»: раньше закрытые
+            // и полностью выписанные делили один id 'done' (Р2 пункта 12).
+            return c.stage === 'done' || c.stage === 'closed' ||
+                (c.stage === 'writeoff' && cardIssued(c) > 0 && !hasRemaining(c));
         });
     }
     function renderQueue() {
@@ -1288,12 +1303,15 @@
     }
     // ---------- Табличные виды «Список» и «Архив» (пункт 13) ----------
     // Паритет renderListView() legacy (site/js/kanban.js:1058-1227): все
-    // не-удалённые сделки; «Архив» — только stage === 'done' как ЖИВОЙ фильтр
-    // над KBData.cards (отмена ТН возвращает карточку из архива после
-    // reloadData), без снимка и кэша состава.
+    // не-удалённые сделки; «Архив» — только stage === 'closed' (закрытые по
+    // статусу сделки) как ЖИВОЙ фильтр над KBData.cards (отмена ТН возвращает
+    // карточку из архива после reloadData), без снимка и кэша состава.
     var LIST_PAGE_SIZE = 25;
     var listBodyEl = document.getElementById('kb-list-body');
-    var LIST_STAGE_FALLBACK = { 'new': 'Новый запрос', 'work': 'В работе', 'pay': 'Ждет оплаты', 'assembly': 'Сборка', 'writeoff': 'На списание', 'done': 'Закрыто' };
+    // 'done' — псевдо-этап полной выписки (статус ещё «На списание», остаток
+    // нулевой): в колонке «Статус» ему честно печатается «Списано».
+    // 'closed' — статус сделки «Закрыто».
+    var LIST_STAGE_FALLBACK = { 'new': 'Новый запрос', 'work': 'В работе', 'pay': 'Ждет оплаты', 'assembly': 'Сборка', 'writeoff': 'На списание', 'done': 'Списано', 'closed': 'Закрыто' };
     var LIST_HEAD = '<thead><tr><th scope="col">Сделка</th><th scope="col">Статус</th><th scope="col">Сумма</th>' +
         '<th scope="col" class="col-pay">Оплата</th><th scope="col" class="col-store">Магазин</th>' +
         '<th scope="col" class="col-manager">Менеджер</th><th scope="col">Дедлайн</th>' +
@@ -1302,7 +1320,7 @@
     // считаются по ней (приём из queueCards — «Найдено: N» не расходится).
     function listCards() {
         var list = visibleCards();
-        if (state.queueMode === 'archive') list = list.filter(function (c) { return c.stage === 'done'; });
+        if (state.queueMode === 'archive') list = list.filter(function (c) { return c.stage === 'closed'; });
         return list;
     }
     // 'ДД.ММ.ГГГГ' → число вида ГГГГММДД для сравнения; пустая/битая — null.
@@ -2456,8 +2474,14 @@
         var content = dialog.querySelector('.kb-detail-content');
         var scrollTop = activeCard && activeCard.id === c.id && dialog.open && content ? content.scrollTop : 0;
         activeCard = c;
-        var currentStage = c.stage === 'done' ? 'Списано' : stageName(c.stage);
-        var stages = boardStatuses().concat([writeoffStatus(), { id: 'done', name: 'Списано' }]).filter(Boolean);
+        // 'closed' печатается по-русски и в фолбэке (пустой словарь), где
+        // stageName не найдёт статус в справочнике и вернул бы сырой id.
+        var currentStage = c.stage === 'done' ? 'Списано' : c.stage === 'closed' ? 'Закрыто' : stageName(c.stage);
+        // Псевдо-опции селекта: 'done' — полная выписка, 'closed' — статус
+        // «Закрыто». В справочнике «Закрыто» есть, но колонкой и селектом не
+        // назначается (role archive) — без псевдо-опции у закрытой карточки в
+        // списке этапов не было бы её текущего значения.
+        var stages = boardStatuses().concat([writeoffStatus(), { id: 'done', name: 'Списано' }, { id: 'closed', name: 'Закрыто' }]).filter(Boolean);
         var tabs = [['overview', 'Обзор'], ['procurement', 'Закупка'], ['invoices', 'Накладные'], ['history', 'История']];
         renderingCard = true;
         dialog.innerHTML = '<div class="kb-detail"><header class="kb-detail-head"><div><div class="kb-detail-meta"><span>Сделка ' + esc(c.id) + '</span><span class="kb-detail-badge">' + esc(currentStage) + '</span></div>' +
@@ -2465,13 +2489,13 @@
             '<div class="kb-detail-summary"><dl class="kb-detail-money"><div class="kb-detail-total"><dt>Сумма сделки</dt><dd>' + money(c.amount) + ' <small>BYN</small></dd></div><div><dt>Оплачено</dt><dd>' + money(c.paidAmount) + ' <small>BYN</small></dd></div><div><dt>Выписано</dt><dd>' + money(cardIssued(c)) + ' <small>BYN</small></dd></div><div><dt>Осталось выписать</dt><dd>' + moneyOrDash(cardRemaining(c)) + ' <small>BYN</small></dd></div></dl>' +
             '<div class="kb-detail-controls">' +
             dealSelect('paymentTerms', 'Условия оплаты', [['', 'Не выбраны'], ['deferred', 'Отсрочка'], ['full', 'Оплата 100%'], ['partial_deferred', 'Частичная оплата + отсрочка платежа']], c.paymentTerms) +
-            dealSelect('stage', 'Этап', stages.filter(function(st) { return (st.id !== 'done' || c.stage === 'done') && st.canAssign !== false; }).map(function(st) { return [st.id, st.name]; }), c.stage, c.stage === 'done') +
+            dealSelect('stage', 'Этап', stages.filter(function(st) { return (st.id !== 'done' || c.stage === 'done') && (st.id !== 'closed' || c.stage === 'closed') && st.canAssign !== false; }).map(function(st) { return [st.id, st.name]; }), c.stage, c.stage === 'done' || c.stage === 'closed') +
             '</div></div>' +
             '<div class="kb-detail-tabs" role="tablist" aria-label="Разделы сделки">' + tabs.map(function(tab) {
                 return '<button type="button" role="tab" id="kb-tab-' + tab[0] + '" data-card-tab="' + tab[0] + '" aria-controls="kb-panel-' + tab[0] + '" aria-selected="false" tabindex="-1">' + tab[1] + '</button>';
             }).join('') + '</div><div class="kb-detail-content">' + cardTabContent(c, currentStage) + '</div>' +
             '<footer class="kb-dialog-foot"><div>' +
-            (c.stage !== 'done' ? '<button class="btn btn-ghost" id="kb-pay">Внести оплату</button>' : '') +
+            (c.stage !== 'done' && c.stage !== 'closed' ? '<button class="btn btn-ghost" id="kb-pay">Внести оплату</button>' : '') +
             (c.stage === 'assembly' ? '<button class="btn btn-primary" id="kb-send">В списание</button>' : '') +
             (c.stage === 'writeoff' ? '<button class="btn btn-primary" id="kb-issue">Выписать накладную</button>' : '') +
             '<button class="btn btn-ghost btn-sm kb-card-delete" id="kb-delete">Удалить</button>' +
@@ -3278,7 +3302,12 @@
                 else value = KBData.users.find(function (u) { return u.id === value; }) || null;
             }
             else if (key === 'stage') {
-                if (activeCard.stage === 'done' || !KBData.statuses.some(function(st) { return st.id === value; })) return;
+                // Закрытая и полностью выписанная карточка — readonly. Статуса
+                // вне справочника и неканонического (canAssign=false, Р4) сервер
+                // не примет: селект уже отфильтрован, это защита прямого пути.
+                var targetStatus = KBData.statuses.filter(function(st) { return st.id === value; })[0];
+                if (!targetStatus || activeCard.stage === 'done' || activeCard.stage === 'closed') return;
+                if (targetStatus.canAssign === false) { notify('Статус не из справочника карточек: сервер его не примет', true); return; }
                 moveCard(activeCard, value, null);
             }
             input.setCustomValidity(error);

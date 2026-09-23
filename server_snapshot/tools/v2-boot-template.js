@@ -54,10 +54,6 @@
         ['Сборка', 'assembly', 'ok', 'board'],
         ['На списание', 'writeoff', 'danger', 'writeoff']
     ];
-    const STAGE_OF_STATUS = {
-        'Новый запрос': 'new', 'В работе': 'work', 'Ждет оплаты': 'pay',
-        'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'done'
-    };
     function slug(name) {
         return 'st-' + String(name).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-|-$/g, '');
     }
@@ -116,9 +112,11 @@
               suppliersRaw = payload.suppliers, tasksRaw = payload.tasks;
 
         const statusesRaw = payload.statuses || [];
+        // 'Закрыто' — id 'closed': 'done' остаётся только псевдо-этапом полной
+        // выписки (Р2 пункта 12), иначе закрытые сделки дублировали бы его.
         const CANON_ID = {
             'Новый запрос': 'new', 'В работе': 'work', 'Ждет оплаты': 'pay',
-            'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'done'
+            'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'closed'
         };
         let statuses, stageOf;
         if (statusesRaw.length) {
@@ -131,7 +129,9 @@
                         name: row.name,
                         color: row.color || 'faint',
                         position: row.position || 0,
-                        role: row.name === 'На списание' ? 'writeoff' : 'board',
+                        // Роль выводится из имени (серверной колонки role нет):
+                        // «Закрыто» — не колонка доски, а архив (Р1, пункт 13).
+                        role: row.name === 'На списание' ? 'writeoff' : row.name === 'Закрыто' ? 'archive' : 'board',
                         serverId: row.id,
                         // Бекенд принимает в карточках только канонические статусы
                         // (schemas.CARD_STATUSES); новые статусы колонкой будут,
@@ -141,14 +141,19 @@
                 });
             stageOf = {};
             statuses.forEach(function (s) { stageOf[s.name] = s.id; });
-            stageOf['Закрыто'] = 'done';
+            // Строку храним и когда статус «Закрыто» активен и уже попал выше:
+            // она держит маппинг для ВЫКЛЮЧЕННОГО статуса (is_active=false),
+            // иначе архив и очередь «Списано» потеряли бы карточки. Колонкой
+            // «Закрыто» при этом не становится — ветка достроения ниже её
+            // исключает именем.
+            stageOf['Закрыто'] = 'closed';
         } else {
             statuses = STATUS_MAP.map(function (row, i) {
                 return { id: row[1], name: row[0], color: row[2], position: i, role: row[3] };
             });
             stageOf = {
                 'Новый запрос': 'new', 'В работе': 'work', 'Ждет оплаты': 'pay',
-                'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'done'
+                'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'closed'
             };
         }
 
@@ -218,6 +223,7 @@
         const cards = cardsRaw.map(function (c) {
             const clientObj = c.client ? clientById['cl-' + c.client.id] : null;
             const manager = (c.owner_id && userById['us-' + c.owner_id]) || unassigned;
+            const stName = String(c.status || '');
             return {
                 id: String(c.id),
                 title: c.title || 'Сделка',
@@ -241,7 +247,12 @@
                 amount: kopecks(c.total_amount),
                 paidAmount: kopecks(c.paid_amount),
                 issued: 0, // история выписки подключается на этапе 2.6
-                stage: stageOf[String(c.status || '')] || 'new',
+                // Р6: неизвестный не-пустой статус ведёт карточку в СВОЮ
+                // достроенную колонку (тот же slug, что строит ветка выше),
+                // пустой — в «Новый запрос». Прежний фолбэк на 'new' молча
+                // переезжал карточки отключённого/переименованного статуса
+                // в первую колонку.
+                stage: (stName && (stageOf[stName] || slug(stName))) || 'new',
                 priority: Number(c.priority) || 0,
                 deadline: isoToRu(c.due_date),
                 // Возраст сделки нужен вкладке «Контроль» (фин-скрипт): без
@@ -417,7 +428,8 @@
                 .slice().sort(function (a, b) { return a.position - b.position; });
         };
         window.KBData.writeoffStatus = function () {
-            return window.KBData.statuses.filter(function (s) { return s.role === 'writeoff'; })[0] || null;
+            return window.KBData.statuses.filter(function (s) { return s.role === 'writeoff'; })
+                .slice().sort(function (a, b) { return a.position - b.position; })[0] || null;
         };
         window.KBData.storeName = function (id) {
             const s = stores.filter(function (x) { return x.id === id; })[0];

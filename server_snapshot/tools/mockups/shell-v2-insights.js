@@ -66,7 +66,9 @@
         return s ? s.name : id;
     }
     function activeCards() {
-        return D.cards.filter(function (c) { return c.stage !== 'done'; });
+        // Активная = не закрытая по статусу ('closed') и не выписанная
+        // полностью (псевдо-этап 'done'); раньше 'done' покрывал и то, и другое.
+        return D.cards.filter(function (c) { return c.stage !== 'done' && c.stage !== 'closed'; });
     }
     function debtCards(cards) {
         return cards.filter(function (c) { return c.paidAmount < c.amount; });
@@ -210,7 +212,9 @@
         // Списано и очередь: живое состояние выписки (включая группы)
         var writeoffId = (D.writeoffStatus() || {}).id;
         var inQueue = D.cards.filter(function (c) { return c.stage === writeoffId; });
-        var doneCards = D.cards.filter(function (c) { return c.stage === 'done'; });
+        // «Списано»: и псевдо-этап полной выписки, и статус «Закрыто» — как
+        // раньше, когда оба смысла жили в одном 'done' (Р2 пункта 12).
+        var doneCards = D.cards.filter(function (c) { return c.stage === 'done' || c.stage === 'closed'; });
         var wStats = document.getElementById('day-writeoff-stats');
         if (wStats) wStats.innerHTML =
             statLine('К выписке', inQueue.length + ' · ' + money(inQueue.reduce(function (a, c) { return a + c.amount - c.issued; }, 0))) +
@@ -370,7 +374,7 @@
             return;
         }
         var deals = clientDeals(client.id);
-        var active = deals.filter(function (c) { return c.stage !== 'done'; });
+        var active = deals.filter(function (c) { return c.stage !== 'done' && c.stage !== 'closed'; });
         var paid = deals.reduce(function (a, c) { return a + c.paidAmount; }, 0);
         var overdue = debtCards(active).filter(function (c) { return overdueDays(c) > 0; });
         var dealsHtml = deals.slice(0, 5).map(function (c) {
@@ -608,7 +612,9 @@
         function push(day, ev) { (events[day] = events[day] || []).push(ev); }
         function inMonth(d) { return !!d && d.getFullYear() === cal.y && d.getMonth() === cal.m; }
         D.cards.forEach(function (c) {
-            if (c.stage === 'done') return;
+            // Закрытые по статусу и полностью выписанные в календарь не
+            // попадают — как раньше, под общим 'done'.
+            if (c.stage === 'done' || c.stage === 'closed') return;
             var store = D.storeName ? D.storeName(c.store) : '';
             var d = parseDeadline(c.deadline);
             if (inMonth(d)) {
