@@ -1,6 +1,7 @@
 /* ============================================================
-   Пульт дня и «Клиент 360»: считаются из тех же демо-данных,
-   что и доска (shell-v2-data.js), и обновляются вместе с ней.
+   Пульт дня и «Клиент 360»: считаются из тех же коллекций KBData,
+   что и доска (на собранном сайте — из CRM, в предпросмотре мокапов —
+   из shell-v2-data.js), и обновляются вместе с ней.
    Кнопки «Открыть» переключаются на доску и открывают карточку.
    Превью: задачи, печати и создание сделок остаются образцами.
    ============================================================ */
@@ -9,10 +10,14 @@
     var D = window.KBData;
 
     // «Только мои» (id пользователя или null), активная вкладка «Клиента 360»,
-    // демонстрационный месяц календаря (сентябрь 2026).
+    // показываемый месяц календаря — он открывается на текущем.
     var myUser = null;
     var clTab = 'deals';
-    var cal = { y: 2026, m: 8 };
+    var calStart = todayUTC();
+    var cal = { y: calStart.getUTCFullYear(), m: calStart.getUTCMonth() };
+    // Фильтр списка задач: 'all' | 'overdue' (паритет с legacy
+    // site/js/tasks.js: просрочена невыполненная задача с истёкшим сроком).
+    var taskFilter = 'all';
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -35,8 +40,16 @@
     // часовому поясу. Иначе вечером UTC+3 фильтр «сегодня» уже показывает
     // завтрашний день. Источник истины — общий KBApi.todayUTC() из адаптера;
     // здесь только разбор строки в Date для арифметики dayDiff.
+    // Адаптера нет в предпросмотре мокапов (file://, KBApi живёт в api.js
+    // собранного сайта): без фолбэка renderDay() падал на первом же вызове,
+    // и все последующие рендеры — задачи, клиенты, календарь — не выполнялись.
     function todayUTC() {
-        var parts = window.KBApi.todayUTC().split('-');
+        var iso = (window.KBApi && window.KBApi.todayUTC) ? window.KBApi.todayUTC() : '';
+        var parts = String(iso).split('-');
+        if (parts.length !== 3 || !+parts[0] || !+parts[1] || !+parts[2]) {
+            var now = new Date();
+            return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        }
         return new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
     }
     function dayDiff(a, b) {
@@ -57,6 +70,29 @@
     }
     function debtCards(cards) {
         return cards.filter(function (c) { return c.paidAmount < c.amount; });
+    }
+    // ── Отключённый пользователь (is_active=false, пункт 15 плана) ──────
+    // Исторические сделки и задачи никуда не деваются, поэтому отключённого
+    // из списков не убираем — только приглушаем и подписываем по-русски, чтобы
+    // админ видел, почему ответственный не отвечает. Флаг в справочник кладёт
+    // загрузчик (v2-boot-template.js); в предпросмотре мокапов, в демо-наборе и
+    // у служебного «Не назначен» поля нет — значит «активен», не выдумываем.
+    function isOffUser(u) { return !!u && u.is_active === false; }
+    function userName(u) { return u ? String(u.full_name || u.username || '') : ''; }
+    // Для текстовых подстрочников (задача, событие календаря, чип выбора):
+    // разметку туда нести нельзя, она экранируется целиком.
+    function userNameOff(u) {
+        return userName(u) + (isOffUser(u) ? ' (отключён)' : '');
+    }
+    // Для сборных строк статистики: приглушение цветом токена и подсказка.
+    // Класс добавить нечем — стили .stat-line живут в shell-v2-prototype.html.
+    function offRowAttrs(u) {
+        return isOffUser(u)
+            ? ' style="color:var(--muted)" title="Пользователь отключён: в CRM не входит, ответить не сможет; сделки и задачи на нём остались"'
+            : '';
+    }
+    function offNote(u) {
+        return isOffUser(u) ? ' <span style="font-weight:400;font-size:11px">отключён</span>' : '';
     }
 
     var ICON_ALERT = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
@@ -120,7 +156,7 @@
         var mineBtn = document.getElementById('day-only-mine');
         if (mineBtn) {
             var me = D.users.filter(function (u) { return u.id === myUser; })[0];
-            mineBtn.textContent = me ? 'Мои · ' + (me.full_name || me.username) : 'Только мои';
+            mineBtn.textContent = me ? 'Мои · ' + userNameOff(me) : 'Только мои';
             mineBtn.setAttribute('aria-pressed', String(!!me));
         }
 
@@ -144,7 +180,7 @@
         });
         var deadlinesEl = document.getElementById('day-deadlines');
         if (deadlinesEl) deadlinesEl.innerHTML = D.users.filter(function (u) { return perUser.get(u); }).map(function (u) {
-            return '<div class="stat-line"><span class="row"><span class="avatar sm neutral">' + esc(u.initials || '··') + '</span> ' + esc(u.full_name || u.username) + '</span><b class="num">' + perUser.get(u) + '</b></div>';
+            return '<div class="stat-line"' + offRowAttrs(u) + '><span class="row"><span class="avatar sm neutral">' + esc(u.initials || '··') + '</span> ' + esc(userName(u)) + offNote(u) + '</span><b class="num">' + perUser.get(u) + '</b></div>';
         }).join('') || '<p class="fin-note">Сделок с дедлайном на этой неделе нет.</p>';
 
         // Ближайшие отгрузки: готовые сборки по сроку
@@ -192,8 +228,8 @@
     function taskRow(t, pillClass) {
         var client = D.clientById(t.clientId);
         var user = D.users.filter(function (u) { return u.id === t.assignee; })[0];
-        var sub = (client ? client.name : '') + ' · ' + (user ? (user.full_name || user.username) : '');
-        if (t.done) sub = (t.closed ? t.closed + ' · ' : '') + (user ? (user.full_name || user.username) : '');
+        var sub = (client ? client.name : '') + ' · ' + userNameOff(user);
+        if (t.done) sub = (t.closed ? t.closed + ' · ' : '') + userNameOff(user);
         return '<div class="trow' + (t.done ? ' done' : '') + '">' +
             '<button type="button" class="box" data-task-toggle="' + esc(t.id) + '" aria-pressed="' + !!t.done + '" aria-label="' + (t.done ? 'Вернуть задачу' : 'Отметить выполненной') + ': ' + esc(t.title) + '">' + (t.done ? '✓' : '') + '</button>' +
             '<span class="grow"><span class="t">' + esc(t.title) + '</span>' +
@@ -220,21 +256,29 @@
         var soon = open.filter(function (t) { var d = dueDiff(t); return d <= 0 && d >= -1; });
         var week = open.filter(function (t) { var d = dueDiff(t); return d < -1 && d >= -7; });
         var later = open.filter(function (t) { var d = dueDiff(t); return d < -7; });
-        list.innerHTML =
-            taskGroup('Просрочено', 'danger', overdue) +
-            taskGroup('Сегодня и завтра', 'warn', soon) +
-            taskGroup('На неделе', '', week) +
-            taskGroup('Позже', '', later) +
-            taskGroup('Выполнено', '', done) ||
-            '<p class="fin-note">Задач нет.</p>';
+        // «Просроченные» оставляет в списке только свою группу: цифры сводки
+        // справа при этом остаются по всем открытым задачам — сводка отвечает
+        // на вопрос «сколько всего», фильтр — на «что делать сегодня».
+        var groups = [
+            ['Просрочено', 'danger', overdue],
+            ['Сегодня и завтра', 'warn', soon],
+            ['На неделе', '', week],
+            ['Позже', '', later],
+            ['Выполнено', '', done]
+        ];
+        if (taskFilter === 'overdue') groups = [groups[0]];
+        list.innerHTML = groups.map(function (g) { return taskGroup(g[0], g[1], g[2]); }).join('') ||
+            (taskFilter === 'overdue'
+                ? '<p class="fin-note">Просроченных задач нет. Включите «Все», чтобы увидеть остальные.</p>'
+                : '<p class="fin-note">Задач нет.</p>');
         var progress = document.getElementById('tasks-progress');
         if (progress) progress.textContent = 'выполнено ' + done.length + ' из ' + tasks.length;
 
         var perUser = new Map();
         open.forEach(function (t) { perUser.set(t.assignee, (perUser.get(t.assignee) || 0) + 1); });
         var byAssignee = D.users.filter(function (u) { return perUser.get(u.id); }).map(function (u) {
-            return '<div class="stat-line"><span class="row"><span class="avatar sm neutral">' + esc(u.initials || '··') + '</span> ' +
-                esc(u.full_name || u.username) + '</span><b class="num">' + perUser.get(u.id) + '</b></div>';
+            return '<div class="stat-line"' + offRowAttrs(u) + '><span class="row"><span class="avatar sm neutral">' + esc(u.initials || '··') + '</span> ' +
+                esc(userName(u)) + offNote(u) + '</span><b class="num">' + perUser.get(u.id) + '</b></div>';
         }).join('') || '<p class="fin-note">Открытых задач нет.</p>';
         var summary = document.getElementById('tasks-summary');
         if (summary) summary.innerHTML =
@@ -274,14 +318,6 @@
             }
         } catch (e) { /* не JSON — покажем как есть */ }
         return s;
-    }
-    function contactPhone(raw) {
-        var m = String(raw || '').match(/"phone"\s*:\s*"([^"]+)"/);
-        return m ? m[1] : '';
-    }
-    function contactPhone(raw) {
-        var m = String(raw || '').match(/"phone"\s*:\s*"([^"]+)"/);
-        return m ? m[1] : '';
     }
     function renderClients() {
         var query = (document.getElementById('cl-search').value || '').trim().toLocaleLowerCase('ru');
@@ -466,7 +502,9 @@
             '<div class="kit" style="margin-top:12px">' +
             '<button type="button" class="btn ' + (myUser === null ? 'btn-primary' : 'btn-ghost') + '" data-me="">Все</button>' +
             D.users.map(function (u) {
-                return '<button type="button" class="btn ' + (myUser === u.id ? 'btn-primary' : 'btn-ghost') + '" data-me="' + esc(u.id) + '">' + esc(u.full_name || u.username) + '</button>';
+                // Отключённого оставляем в выборе (его очередь — история), но
+                // подписываем: цвет первичной кнопки перебивать нельзя.
+                return '<button type="button" class="btn ' + (myUser === u.id ? 'btn-primary' : 'btn-ghost') + '" data-me="' + esc(u.id) + '">' + esc(userNameOff(u)) + '</button>';
             }).join('') + '</div>';
         dlg.showModal();
     }
@@ -483,7 +521,7 @@
             '<div class="kb-field wide"><label for="task-title">Что сделать</label><input id="task-title" maxlength="200" required></div>' +
             '<div class="kb-field"><label for="task-due">Срок</label><input id="task-due" type="date" required></div>' +
             '<div class="kb-field"><label for="task-assignee">Исполнитель</label><select id="task-assignee">' +
-            D.users.map(function (u, i) { return '<option value="' + i + '">' + esc(u.full_name || u.username) + '</option>'; }).join('') + '</select></div>' +
+            D.users.map(function (u, i) { return '<option value="' + i + '">' + esc(userNameOff(u)) + '</option>'; }).join('') + '</select></div>' +
             '<div class="kb-field wide"><label for="task-client">Клиент</label><select id="task-client"><option value="">— без клиента —</option>' +
             D.clients.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('') + '</select></div>' +
             '<p class="kb-form-error" id="task-error" role="alert"></p>' +
@@ -537,39 +575,92 @@
         renderCalendar();
     });
 
+    // Фильтры «Все / Просроченные» над списком задач. Нажатое состояние —
+    // aria-pressed, как в фильтрах финансов; список перерисовывается целиком.
+    var taskFilters = document.querySelectorAll('#view-tasks [data-task-filter]');
+    function setTaskFilter(value) {
+        taskFilter = value;
+        taskFilters.forEach(function (other) {
+            other.setAttribute('aria-pressed', String(other.dataset.taskFilter === value));
+        });
+        renderTasks();
+    }
+    taskFilters.forEach(function (button) {
+        button.addEventListener('click', function () { setTaskFilter(button.dataset.taskFilter); });
+    });
+
     // ---------- Календарь из данных ----------
     var MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+    var CAL_TYPES = { a: 'Сделка', b: 'Оплата', c: 'Задача' };
+    var CAL_PILLS = { a: 'accent', b: 'ok', c: 'warn' };
+    // События показываемого месяца — только из уже загруженных коллекций
+    // KBData (их наполняет boot.js при старте страницы): срок активной сделки,
+    // плановая дата оплаты из условий отсрочки и срок открытой задачи.
+    // Своих сетевых запросов календарь не делает. Демо-месяца больше нет:
+    // сетка рисуется для любого месяца, а пустой месяц честно остаётся пустым.
+    function dealLabel(c) {
+        // Карточка без клиента (на проде их большинство) иначе давала бы
+        // пустой чип — берём заголовок сделки.
+        return String(c.client || c.title || ('Сделка ' + c.id));
+    }
+    function calendarEvents() {
+        var events = {};
+        function push(day, ev) { (events[day] = events[day] || []).push(ev); }
+        function inMonth(d) { return !!d && d.getFullYear() === cal.y && d.getMonth() === cal.m; }
+        D.cards.forEach(function (c) {
+            if (c.stage === 'done') return;
+            var store = D.storeName ? D.storeName(c.store) : '';
+            var d = parseDeadline(c.deadline);
+            if (inMonth(d)) {
+                push(d.getDate(), {
+                    cls: 'a', kind: 'card', id: c.id, text: dealLabel(c),
+                    note: [c.id, statusName(c.stage), store].filter(Boolean).join(' · ')
+                });
+            }
+            // Дата оплаты: сохранённые условия отсрочки (payment_due_date с
+            // сервера) или снимок «Деталей оплаты», заданный в текущей сессии.
+            // Пока сделка оплачена полностью, план не показываем — это уже
+            // история, а не то, что календарь должен напоминать.
+            var iso = (c.amount - c.paidAmount > 0)
+                ? String(c.paymentDueDate || (c.paymentDetails && c.paymentDetails.due) || '').slice(0, 10) : '';
+            var pm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+            if (pm) {
+                var pd = new Date(+pm[1], +pm[2] - 1, +pm[3]);
+                if (inMonth(pd)) {
+                    push(pd.getDate(), {
+                        cls: 'b', kind: 'card', id: c.id, text: 'Оплата · ' + dealLabel(c),
+                        note: [c.id, 'к оплате ' + money(Math.max(0, c.amount - c.paidAmount)) + ' BYN'].join(' · ')
+                    });
+                }
+            }
+        });
+        D.tasks.forEach(function (t) {
+            if (t.done) return;
+            var d = parseDeadline(t.due);
+            if (!inMonth(d)) return;
+            var user = D.users.filter(function (u) { return u.id === t.assignee; })[0];
+            push(d.getDate(), {
+                cls: 'c', kind: 'task', id: t.id, text: t.title,
+                note: 'Задача' + (user ? ' · ' + userNameOff(user) : '')
+            });
+        });
+        return events;
+    }
+    // Снимок событий показываемого месяца — по нему же открывается список дня.
+    var calMonthEvents = {};
+    // Подпись дня для aria-атрибутов и заголовка диалога — числовой формат
+    // «05.09.2026»: склонение месяца («5 сентября») в сборном виде ломается.
+    function calDayLabel(day) {
+        return String(day).padStart(2, '0') + '.' + String(cal.m + 1).padStart(2, '0') + '.' + cal.y;
+    }
     function renderCalendar() {
         var grid = document.getElementById('shell-cal-grid');
         if (!grid) return;
         var offset = (new Date(cal.y, cal.m, 1).getDay() + 6) % 7; // Пн = 0
         var days = new Date(cal.y, cal.m + 1, 0).getDate();
         var cells = Math.ceil((offset + days) / 7) * 7;
-        var events = {};
-        if (cal.y === 2026 && cal.m === 8) {
-            D.cards.forEach(function (c) {
-                if (c.stage === 'done') return;
-                var d = parseDeadline(c.deadline);
-                if (!d || d.getMonth() !== cal.m || d.getFullYear() !== cal.y) return;
-                (events[d.getDate()] = events[d.getDate()] || []).push({ cls: 'a', text: c.client });
-                // Дата оплаты из заданных условий отсрочки (paymentDetails.due, ISO)
-                if (c.paymentDetails && c.paymentDetails.due) {
-                    var pm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(c.paymentDetails.due);
-                    if (pm) {
-                        var pd = new Date(+pm[1], +pm[2] - 1, +pm[3]);
-                        if (pd.getMonth() === cal.m && pd.getFullYear() === cal.y) {
-                            (events[pd.getDate()] = events[pd.getDate()] || []).push({ cls: 'b', text: 'Оплата · ' + c.client });
-                        }
-                    }
-                }
-            });
-            D.tasks.forEach(function (t) {
-                if (t.done) return;
-                var d = parseDeadline(t.due);
-                if (!d || d.getMonth() !== cal.m || d.getFullYear() !== cal.y) return;
-                (events[d.getDate()] = events[d.getDate()] || []).push({ cls: 'c', text: t.title });
-            });
-        }
+        calMonthEvents = calendarEvents();
+        var total = 0;
         var html = '<div class="wname">Пн</div><div class="wname">Вт</div><div class="wname">Ср</div><div class="wname">Чт</div><div class="wname">Пт</div><div class="wname we">Сб</div><div class="wname we">Вс</div>';
         for (var i = 0; i < cells; i++) {
             var day = i - offset + 1;
@@ -577,23 +668,157 @@
             // B3: подсветка «сегодня» — по UTC, в соответствии с серверными датами.
             var todayUtc = todayUTC();
             var isToday = todayUtc.getUTCFullYear() === cal.y && todayUtc.getUTCMonth() === cal.m && todayUtc.getUTCDate() === day;
-            var dayEvents = events[day] || [];
+            var dayEvents = calMonthEvents[day] || [];
+            total += dayEvents.length;
             var shown = dayEvents.slice(0, 2);
-            html += '<div class="day' + (isToday ? ' today' : '') + '"><span class="n">' + day + '</span>' +
-                shown.map(function (ev) { return '<span class="ev ' + ev.cls + '" title="' + esc(ev.text) + '">' + esc(ev.text) + '</span>'; }).join('') +
-                (dayEvents.length > shown.length ? '<span class="more">+' + (dayEvents.length - shown.length) + ' ещё</span>' : '') + '</div>';
+            var hidden = dayEvents.length - shown.length;
+            var caption = esc(calDayLabel(day));
+            html += '<div class="day' + (isToday ? ' today' : '') + '"' + (dayEvents.length ? ' data-cal-day="' + day + '"' : '') + '>' +
+                // День с событиями — кнопка: так список дня доступен и с клавиатуры.
+                (dayEvents.length
+                    ? '<button type="button" class="n" aria-label="События дня ' + caption + ': ' + dayEvents.length + '">' + day + '</button>'
+                    : '<span class="n">' + day + '</span>') +
+                shown.map(function (ev) {
+                    return '<button type="button" class="ev ' + ev.cls + '" title="' + esc(ev.text) + '"' +
+                        ' data-cal-kind="' + ev.kind + '" data-cal-id="' + esc(ev.id) + '">' + esc(ev.text) + '</button>';
+                }).join('') +
+                (hidden > 0 ? '<button type="button" class="more" aria-label="Показать все события дня ' + caption + ', ещё ' + hidden + '">+' + hidden + ' ещё</button>' : '') +
+                '</div>';
         }
         grid.innerHTML = html;
         var label = document.getElementById('cal-month');
         if (label) label.textContent = MONTHS[cal.m] + ' ' + cal.y;
         var note = document.getElementById('cal-note');
-        if (note) note.hidden = (cal.y === 2026 && cal.m === 8);
+        if (note) note.hidden = total !== 0;
     }
+    // Переход к объекту — существующими путями v2, своего роутера не заводим:
+    // сделка открывается мостом KBBoard.open (он же у уведомлений, «Пульта
+    // дня» и «Клиента 360»), задача — переходом в раздел «Задачи» с фокусом
+    // на её строке: отдельной карточки задачи в v2 нет, как нет её и в legacy.
+    function taskRowOf(id) {
+        var selector = '#tasks-list [data-task-toggle="' + id + '"]';
+        var row = document.querySelector(selector);
+        // Задача могла быть скрыта фильтром «Просроченные» — снимаем его,
+        // иначе клик по её событию никуда не ведёт.
+        if (!row && taskFilter !== 'all') { setTaskFilter('all'); row = document.querySelector(selector); }
+        return row;
+    }
+    function openCalEvent(kind, id) {
+        if (!id) return;
+        if (kind === 'card') {
+            if (window.KBBoard && window.KBBoard.open) window.KBBoard.open(String(id));
+            return;
+        }
+        var link = document.querySelector('.rail [data-view="tasks"]');
+        // Раздел — штатным кликом по рейке: navigation.js отрабатывает
+        // синхронно, поэтому его rAF (скролл окна в ноль) уже поставлен в
+        // очередь раньше нашего и фокус строки не перебьёт.
+        if (link) link.click();
+        var row = taskRowOf(id);
+        if (!row) return;
+        requestAnimationFrame(function () {
+            row.scrollIntoView({ block: 'center' });
+            row.focus({ preventScroll: true });
+        });
+    }
+    var calDialog = null;
+    var calOpener = null;
+    function ensureCalDialog() {
+        if (calDialog) return calDialog;
+        calDialog = document.createElement('dialog');
+        calDialog.className = 'cal-day-dialog';
+        calDialog.setAttribute('aria-labelledby', 'cal-day-title');
+        calDialog.addEventListener('click', function (e) {
+            if (e.target === calDialog || e.target.closest('[data-cal-close]')) { calDialog.close(); return; }
+            var item = e.target.closest('[data-cal-kind]');
+            if (!item) return;
+            // Возвращать фокус в ячейку не нужно — он уйдёт к открытому объекту.
+            calOpener = null;
+            calDialog.close();
+            openCalEvent(item.dataset.calKind, item.dataset.calId);
+        });
+        calDialog.addEventListener('close', function () {
+            if (calOpener && calOpener.isConnected) calOpener.focus();
+            calOpener = null;
+        });
+        document.body.append(calDialog);
+        return calDialog;
+    }
+    function openDayDialog(day) {
+        var dayEvents = calMonthEvents[day] || [];
+        if (!dayEvents.length) return;
+        var dlg = ensureCalDialog();
+        calOpener = document.activeElement;
+        dlg.innerHTML = '<h2 id="cal-day-title">События ' + esc(calDayLabel(day)) + '</h2>' +
+            '<div class="cal-day-list">' + dayEvents.map(function (ev) {
+                return '<button type="button" class="trow" data-cal-kind="' + ev.kind + '" data-cal-id="' + esc(ev.id) + '"' +
+                    ' aria-label="' + esc(CAL_TYPES[ev.cls] + ': ' + ev.text + (ev.note ? '. ' + ev.note : '')) + '">' +
+                    '<span class="grow"><span class="t">' + esc(ev.text) + '</span>' +
+                    (ev.note ? '<span class="sub">' + esc(ev.note) + '</span>' : '') + '</span>' +
+                    '<span class="pill ' + CAL_PILLS[ev.cls] + '">' + CAL_TYPES[ev.cls] + '</span></button>';
+            }).join('') + '</div>' +
+            '<p class="fin-note">Сделка открывается карточкой на доске, задача — переходом к её строке в списке.</p>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-cal-close>Закрыть</button>';
+        dlg.showModal();
+    }
+    // Клик по дню (мимо чипа) или по «+N ещё» — список событий дня, клик по
+    // чипу — переход к объекту. Один делегированный обработчик: сетка
+    // перерисовывается целиком при каждом изменении данных.
+    var calGrid = document.getElementById('shell-cal-grid');
+    if (calGrid) calGrid.addEventListener('click', function (e) {
+        var chip = e.target.closest('.ev');
+        if (chip) { openCalEvent(chip.dataset.calKind, chip.dataset.calId); return; }
+        var cell = e.target.closest('.day[data-cal-day]');
+        if (cell) openDayDialog(Number(cell.dataset.calDay));
+    });
     document.getElementById('day-only-mine').addEventListener('click', openMeDialog);
     document.getElementById('task-new').addEventListener('click', openTaskDialog);
     document.getElementById('cal-prev').addEventListener('click', function () { cal.m--; if (cal.m < 0) { cal.m = 11; cal.y--; } renderCalendar(); });
     document.getElementById('cal-next').addEventListener('click', function () { cal.m++; if (cal.m > 11) { cal.m = 0; cal.y++; } renderCalendar(); });
     document.getElementById('cal-today').addEventListener('click', function () { var t = todayUTC(); cal = { y: t.getUTCFullYear(), m: t.getUTCMonth() }; renderCalendar(); });
+
+    // ---------- Перечитывание данных без F5 (kb:reloaded) ----------
+    // KBData.reload() (boot: KBApi.all() обновляет коллекции на месте) — единственный
+    // путь, после которого разделы инсайтов остаются на старом снимке. Доску
+    // перерисовывает свой подписчик в board.js, а «Пульт дня» и календарь
+    // догоняют тем же путём: refresh() в board.js рассылает kb:documents, и
+    // обработчик ниже перерисовывает их. Здесь — только задачи и клиенты:
+    // то, чем kb:documents не закрывается (двойной перерисовки того же узла
+    // на одно событие специально избегаем).
+    // Ленивость пункта 3 плана не ломается: скрытый раздел вхолостую не
+    // рисуется, а помечается «устаревшим» и догоняет в момент, когда его
+    // показывают. navigation.js ничего не рассылает (переход — pushState +
+    // синхронная смена hidden/class), поэтому следим за атрибутами тем же
+    // приёмом, что и отложенная сборка #view-fin в прототипе.
+    function viewShown(id) {
+        var view = document.getElementById(id);
+        if (!view) return false;
+        // `.view.active { display: flex }` из авторских стилей перебивает
+        // дефолтное [hidden] { display: none }, так что показан раздел, если
+        // снят hidden ИЛИ навешан .active.
+        return !view.hidden || view.classList.contains('active');
+    }
+    var staleSections = {};
+    function renderSection(name) {
+        delete staleSections[name];
+        if (name === 'clients') renderClients();
+        else if (name === 'tasks') renderTasks();
+    }
+    function refreshSection(name) {
+        if (viewShown('view-' + name)) renderSection(name);
+        else staleSections[name] = true;   // перерисуем при показе
+    }
+    ['tasks', 'clients'].forEach(function (name) {
+        var view = document.getElementById('view-' + name);
+        if (!view || typeof MutationObserver !== 'function') return;
+        new MutationObserver(function () {
+            if (staleSections[name] && viewShown('view-' + name)) renderSection(name);
+        }).observe(view, { attributes: true, attributeFilter: ['hidden', 'class'] });
+    });
+    document.addEventListener('kb:reloaded', function () {
+        refreshSection('tasks');
+        refreshSection('clients');
+    });
 
     document.addEventListener('kb:documents', function () { renderDay(); renderCalendar(); });
     document.addEventListener('kb:payment-saved', function () { renderCalendar(); });
@@ -623,6 +848,13 @@
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
         });
+    }
+    // contactPhone нужен только здесь (кнопка «Позвонить»), поэтому функция
+    // живёт в этом IIFE, а не в первом: вызов из чужей области видимости
+    // падал с ReferenceError, как только у клиента пустой phone.
+    function contactPhone(raw) {
+        var m = String(raw == null ? '' : raw).match(/"phone"\s*:\s*"([^"]+)"/);
+        return m ? m[1] : '';
     }
     function refreshAll() { location.reload(); }
 
@@ -738,8 +970,12 @@
         var call = event.target.closest('[data-cl-call]');
         if (call) {
             var cl = (window.KBData.clients || []).filter(function (c) { return numeric(c.id) === numeric(call.dataset.clCall); })[0];
-            var phone = cl && (cl.phone || contactPhone(cl.contact_person));
-            if (cl && phone) window.open('tel:' + String(phone).replace(/[^+0-9]/g, ''), '_self');
+            var phone = cl ? String(cl.phone || contactPhone(cl.contact_person) || '').trim() : '';
+            // Кнопка без телефона отрисована disabled — ветка страхует любой
+            // случай, где телефон всё-таки пустой (null, «», клиент пришёл без
+            // contact_person): раньше это был молчаливый no-op.
+            if (!phone) { toast(cl ? 'Телефон клиента не указан.' : 'Клиент не найден в загруженных данных.', true); return; }
+            window.open('tel:' + phone.replace(/[^+0-9]/g, ''), '_self');
             return;
         }
         if (event.target.closest('[data-cl-print]')) window.print();

@@ -1,5 +1,75 @@
 /* Local preview only: no credentials, network or production permissions. */
-(() => {
+
+/* Ролевая видимость (пункт 9 плана). V2Api и V2Role появляются только в
+   собранном site-v2: в предпросмотре мокапа их нет — там раздел показан
+   целиком, как и до правки. */
+const MGMT_ROLE = (function () {
+    function isAdmin() { return window.V2Api ? window.V2Api.isAdmin() : true; }
+    function apply(root) { return window.V2Role ? window.V2Role.apply(root) : isAdmin(); }
+    return { isAdmin: isAdmin, apply: apply };
+})();
+
+/* Один тост на весь модуль управления: раньше текст ошибки показывали три
+   копии с таймером (в persist, в почтовом блоке и в новом пункте 15), и
+   первое же из них гасило второй тост раньше времени. */
+const MGMT_TOAST = (function () {
+    let timer = 0;
+    return function toast(text, isError) {
+        const el = document.getElementById('kb-toast');
+        if (!el) return;
+        el.hidden = false;
+        el.textContent = text;
+        el.classList.toggle('toast-error', Boolean(isError));
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            el.hidden = true;
+            el.classList.remove('toast-error');
+        }, 4000);
+    };
+})();
+
+/* ── Ленивые загрузки админских экранов (пункт 15 плана) ────────────────
+   Раздел «Управление» отрисован в разметке целиком, но сетевые списки —
+   пользователи с сервера, вебхуки, кастомные объекты, автоматизации —
+   нужны, только когда раздел действительно открыли: на старте страницы
+   не должно уходить ни одного нового запроса. Отслеживается сам атрибут
+   hidden на #view-admin — его снимает navigation.js и при клике по рейке,
+   и при заходе по адресу #admin, и при «назад» в истории; класс active
+   смотрим вместе с ним, как это уже делает fin-блок прототипа.
+   Под не-админом загрузчики не зовутся вовсе: карточки скрыты, а запрос
+   мелькал бы в сети и в 403. */
+const MGMT_LAZY = (function () {
+    const subs = [];
+    let timer = 0;
+    function host() { return document.getElementById('view-admin'); }
+    function isOpen() {
+        const el = host();
+        return !!el && !el.hidden && el.classList.contains('active');
+    }
+    // «В сети» = есть токен CRM и роль администратора. В предпросмотре
+    // мокапов и под ?demo=1 токена нет — экраны честно об этом пишут.
+    function online() {
+        return !!(window.V2Api && window.V2Api.token() && window.V2Api.isAdmin());
+    }
+    function run() {
+        timer = 0;
+        if (!isOpen()) return;
+        if (window.V2Api && window.V2Api.token() && !window.V2Api.isAdmin()) return;
+        subs.forEach(fn => {
+            try { fn(); } catch (e) { console.warn('[mgmt] загрузчик не отработал:', e && e.message || e); }
+        });
+    }
+    // Один таймер на все перерисовки: hidden и class меняются в одном
+    // проходе render(), а перечитывать список дважды не нужно.
+    function arm() { clearTimeout(timer); timer = setTimeout(run, 0); }
+    const el = host();
+    if (el && typeof MutationObserver === 'function') {
+        new MutationObserver(arm).observe(el, { attributes: true, attributeFilter: ['hidden', 'class'] });
+    }
+    return { onOpen: fn => { subs.push(fn); }, sync: arm, online: online, isOpen: isOpen };
+})();
+
+const MGMT_DICT = (() => {
     'use strict';
     const $ = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,6 +92,12 @@
     };
     const titles = {supplier:'Поставщик', user:'Пользователь', store:'Магазин', status:'Статус сделки'};
     let sequence = 10, editing, opener;
+    // Состояние блока «Доступ пользователя» (низ этого модуля). Объявлено
+    // здесь: render() вызывается при загрузке модуля, а render → isSelfUser
+    // читает selfId, и let-биндинг ниже ещё не был бы инициализирован.
+    let selfId = null;
+    let usersLoading = false;
+    const userBusy = new Set();
     window.KBSuppliers = {list: () => data.supplier.map(s => [s.id, s.name])};
     function apiMutate(kind, payload) {
         if (!KBData.mutate) return Promise.resolve(null);
@@ -49,9 +125,7 @@
             }
         }).catch(function (err) {
             // B1 fix: не глотаем ошибку сохранения — показываем тост.
-            var msg = (err && (err.detail || err.message)) || 'ошибка сохранения';
-            var t = document.getElementById('kb-toast');
-            if (t) { t.hidden = false; t.textContent = 'Не сохранено: ' + msg; t.classList.add('toast-error'); setTimeout(function () { t.hidden = true; t.classList.remove('toast-error'); }, 4000); }
+            MGMT_TOAST('Не сохранено: ' + ((err && (err.detail || err.message)) || 'ошибка сохранения'), true);
         });
     }
     const dialog = document.createElement('dialog');
@@ -71,8 +145,16 @@
         // в списке пользователей админки ему не место.
         const rows = data[kind].filter(r => r.id !== 'us-none')
             .filter(r => Object.values(r).join(' ').toLocaleLowerCase('ru').includes(query));
-        $('mgmt-'+kind+'-rows').innerHTML = rows.map(r => '<tr data-id="'+esc(r.id)+'">'+cells(kind,r).map(v=>'<td>'+esc(v ?? '—')+'</td>').join('')+
-            '<td><button type="button" class="btn btn-ghost btn-sm" data-edit="'+esc(r.id)+'" aria-label="Редактировать '+esc(r.name || r.username)+'">Изменить</button></td></tr>').join('');
+        $('mgmt-'+kind+'-rows').innerHTML = rows.map(r => '<tr data-id="'+esc(r.id)+'"'+(kind === 'user' && isUserOff(r) ? ' class="mgmt-off"' : '')+'>'+cells(kind,r).map(v=>'<td>'+esc(v ?? '—')+'</td>').join('')+
+            (kind === 'user' ? userAccessCell(r) : '')+
+            // «Изменить» — действие администратора в справочниках из ADMIN_MARKS
+            // ниже (на словари и пользователей сервер ставит require_admin).
+            // Поставщики — исключение: POST/PATCH /suppliers открыт и менеджеру
+            // (это его операционная сущность, закупка), там кнопка видна всем.
+            '<td'+(kind === 'supplier' ? '' : ' data-admin-only')+'>'+rowActions(kind,r)+'</td></tr>').join('');
+        // Строки пересозданы вместе с метками — скрытие для них пересчитываем
+        // сразу, иначе под manager оставались бы живые кнопки «Изменить».
+        MGMT_ROLE.apply($('mgmt-'+kind+'-rows'));
         if (kind === 'supplier') {
             $('mgmt-supplier-count').textContent = rows.length;
             $('mgmt-supplier-empty').hidden = rows.length > 0;
@@ -135,8 +217,91 @@
     Object.keys(data).forEach(kind=>{
         render(kind);
         $('mgmt-'+kind+'-new').onclick=e=>open(kind,null,e.currentTarget);
-        $('mgmt-'+kind+'-rows').onclick=e=>{const button=e.target.closest('[data-edit]');if(button) open(kind,button.dataset.edit,button);};
+        $('mgmt-'+kind+'-rows').onclick=e=>{
+            const button=e.target.closest('[data-edit], [data-user-toggle], [data-user-del]');
+            if (!button) return;
+            if (button.hasAttribute('data-user-toggle')) toggleUserAccess(button);
+            else if (button.hasAttribute('data-user-del')) removeUser(button);
+            else open(kind, button.dataset.edit, button);
+        };
     });
+
+    /* ── Ролевая модель раздела (пункт 9 плана) ──────────────────────────
+       Скрытое помечается одним атрибутом data-admin-only, а скрывает его одна
+       функция V2Role.apply (v2-boot-template.js) — вместо «if (role)» у каждой
+       кнопки. Список сверен с бэком, require_admin()/require_role
+       ("admin","superadmin") закрывают: пользователей (auth_router), словари
+       магазинов и статусов (dictionaries_router) и почту на запись
+       (email_parser_router — POST /settings и POST /sync). Чтение справочников
+       остаётся всем ролям, поэтому магазины и статусы скрыты только в части
+       правки, а целиком уходят почта и «Пользователи» (список для не-админа =
+       он сам). Поставщики не скрываются вовсе: POST/PATCH /suppliers менеджеру
+       открыт, это его операционная сущность.
+       Пункт 15 плана добавляет в этот же список экраны интеграции: у
+       webhooks_router (routers/webhooks_router.py:88) и workflows_router
+       (routers/workflows_router.py:21) require_admin() стоит зависимостью на
+       всём роутере, то есть и чтение тоже админское; в custom_objects_router
+       (:53) под админом создание/удаление типов и полей, а чтение — общее,
+       поэтому карточка скрывается целиком по решению плана
+       («права — только админ»). */
+    const ADMIN_MARKS = [
+        ['mgmt-mail-card', 'card'],         // вся карточка почты: синхронизация + настройка ящика
+        ['mgmt-user-card', 'card'],         // карточка «Пользователи» целиком (список для не-админа = он сам)
+        ['mgmt-wh-card', 'card'],           // вебхуки: весь роутер закрыт require_admin()
+        ['mgmt-co-card', 'card'],           // кастомные объекты: типы и поля — админские
+        ['mgmt-wf-card', 'card'],           // автоматизации: весь роутер закрыт require_admin()
+        ['mgmt-store-new', 'self'],         // «+ Новый магазин»
+        ['mgmt-status-new', 'self'],        // «+ Новый статус»
+        ['mgmt-user-table', 'action'],      // колонка «Действия» — чтобы не висела пустой
+        ['mgmt-store-table', 'action'],
+        ['mgmt-status-table', 'action']
+    ];
+    function markAdminOnly(el) {
+        if (el) el.setAttribute('data-admin-only', '');
+    }
+    ADMIN_MARKS.forEach(([id, what]) => {
+        const anchor = $(id);
+        if (!anchor) return;
+        if (what === 'card') markAdminOnly(anchor.closest('.card'));
+        else if (what === 'self') markAdminOnly(anchor);
+        else {
+            const head = anchor.querySelector('thead tr');
+            markAdminOnly(head ? head.lastElementChild : null);
+        }
+    });
+    // Подсказка вместо скрытых действий — раздел не должен выглядеть сломанным
+    // или «недоделанным»: создаём один раз и только под не-админом.
+    function ensureRoleNote(id, text, host) {
+        let note = $(id);
+        if (!note) {
+            if (!host || MGMT_ROLE.isAdmin()) return;
+            note = document.createElement('p');
+            note.id = id;
+            note.className = 'mgmt-role-note';
+            note.textContent = text;
+            host.insertBefore(note, host.firstChild);
+        }
+        note.hidden = MGMT_ROLE.isAdmin();
+    }
+    function refreshRoleUi() {
+        ensureRoleNote('mgmt-role-notice',
+            'Править справочники, пользователей, настройки почты и интеграции может только администратор. Здесь можно сменить свой пароль.',
+            $('view-admin'));
+        MGMT_ROLE.apply($('view-admin'));
+    }
+    // Вход под другим пользователем без F5 (bootApi() повторяется, модули уже
+    // исполнены): справочники перечитываются из обновлённого KBData, скрытие
+    // пересчитывается — иначе оно залипает в состоянии прошлого сеанса.
+    document.addEventListener('v2:role', () => {
+        Object.keys(data).forEach(kind => render(kind));
+        refreshRoleUi();
+        // Раздел мог быть открыт и до смены роли: админские списки
+        // перечитываются тем же проходом, что и при обычном открытии.
+        MGMT_LAZY.sync();
+    });
+    refreshRoleUi();
+    MGMT_LAZY.onOpen(loadUsers);
+
     // Debounce: rebuild таблицы поставщиков не должен бежать на каждый
     // символ — ждём паузу в вводе 150 мс.
     let supplierSearchTimer = 0;
@@ -144,6 +309,255 @@
         clearTimeout(supplierSearchTimer);
         supplierSearchTimer = setTimeout(()=>render('supplier'),150);
     });
+
+    /* ── Доступ пользователя: деактивация и удаление (пункт 15 плана) ────
+       Контракт сверен с routers/auth_router.py: GET /auth/users (:72) и
+       GET /auth/me (:101) отдают is_active (schemas.py:22-29); переключение —
+       PATCH /auth/users/{id} (:156) телом {"is_active": bool} под
+       require_admin, «Нельзя отключить самого себя» — 400 (:171); удаление —
+       DELETE /auth/users/{id} (:129), 400 на суперадмине и на себе, 404 на
+       несуществующем. is_active загрузчик переносит в KBData.users сам
+       (v2-boot-template.js), поэтому список при открытии раздела перечитывается
+       с сервера только ради свежих данных — mergeUsers сливает их в ТОТ ЖЕ
+       массив: доска, фильтры и «Клиент 360» держат ссылку на него (applyInPlace
+       в boot.js), подменять его нельзя.
+       «Свой» id берётся из V2Api.userId() — boot подтвердил его /auth/me при
+       старте, второго запроса на каждое открытие раздела не нужно.
+       В PATCH уходит одно поле is_active: UserUpdate трактует отсутствие
+       поля как «не менять», так что переключатель не затирает роль и пароль.
+       selfId/usersLoading/userBusy объявлены в начале модуля (TDZ). */
+    function isUserOff(record) { return Boolean(record) && record.is_active === false; }
+    // selfId === null (предпросмотр мокапа, ?demo=1, сбой /auth/me) — «это я»
+    // не различить, поэтому защита двойная: кнопка не рисуется только когда id
+    // известен, а отказ в обработчике плюс серверный 400 держат себя в целости
+    // в любом случае.
+    function isSelfUser(record) { return selfId != null && numericId(record.id) === selfId; }
+    // Сервер не даёт обычному админу править учётку суперадмина (403 в
+    // update_user и 400 в delete_user) — не показываем заведомо мёртвые кнопки.
+    function canEditOwner() {
+        return Boolean(window.V2Api && window.V2Api.currentRole && window.V2Api.currentRole() === 'superadmin');
+    }
+
+    function userErrorText(e) {
+        if (e && e.unauthorized) return 'срок сеанса истёк — войдите заново';
+        // Тексты auth_router уже русские («Нельзя отключить самого себя»,
+        // «Нельзя изменить суперадмина») — показываем их причиной без перевода.
+        if (e && typeof e.detail === 'string' && e.detail) return e.detail;
+        if (e && e.status === 403) return 'недостаточно прав: пользователей правит только администратор';
+        if (e && e.status === 404) return 'пользователь не найден — обновите список';
+        // message у адаптера — «HTTP 500», пользователю это ничего не говорит:
+        // код отдаём в развёрнутом виде, а message — только для сетевых сбоев
+        // без статуса (fetch упал, DOM-ошибка и т. п.).
+        if (e && e.status) return 'ошибка сервера (код ' + e.status + ')';
+        if (e && e.message) return e.message;
+        return 'ошибка сети';
+    }
+
+    // Строка состояния карточки: загрузка / предпросмотр / ошибка. В «ок»
+    // прячется, чтобы не спорить с таблицей; вечной «Загрузки…» не остается.
+    function usersState(mode, reason) {
+        const el = $('mgmt-user-state');
+        if (!el) return;
+        el.classList.toggle('mgmt-hint-error', mode === 'error');
+        if (mode === 'ok') { el.hidden = true; el.textContent = ''; return; }
+        el.hidden = false;
+        if (mode === 'loading') { el.textContent = 'Загрузка списка пользователей из CRM…'; return; }
+        if (mode === 'preview') {
+            el.textContent = 'В предпросмотре макета сети нет: список и переключатели доступа работают только в собранной CRM.';
+            return;
+        }
+        el.innerHTML = 'Не удалось получить список пользователей: ' + esc(reason || 'ошибка сети') + '.' +
+            ' <button type="button" class="btn btn-ghost btn-sm" data-mgmt-retry="user">Повторить</button>';
+    }
+
+    function mergeUsers(list) {
+        const rows = Array.isArray(list) ? list : [];
+        let added = 0;
+        rows.forEach(su => {
+            if (!su || su.id == null) return;
+            const id = 'us-' + su.id;
+            let record = data.user.find(r => r.id === id);
+            if (!record) {
+                // Учётку могли создать в другой сессии, когда KBData уже
+                // собран: добавляем в справочник, иначе доска и фильтры
+                // не знают имени ответственного.
+                record = {
+                    id: id,
+                    username: su.username || String(su.id),
+                    full_name: su.username || '',
+                    initials: String(su.username || '··').slice(0, 2).toUpperCase(),
+                    role: su.role || 'manager'
+                };
+                data.user.push(record);
+                added += 1;
+            }
+            if (su.username) record.username = su.username;
+            if (su.role) record.role = su.role;
+            record.is_active = su.is_active !== false;
+        });
+        return added;
+    }
+
+    async function loadUsers() {
+        if (!$('mgmt-user-rows')) return;
+        if (!MGMT_LAZY.online()) { usersState('preview'); return; }
+        if (usersLoading) return;
+        usersLoading = true;
+        usersState('loading');
+        try {
+            // «Это я» отличаем по id, который boot подтвердил /auth/me при старте
+            // (V2Api.userId): сервер на переключение своей учётки отвечает 400,
+            // так что без него лучше не показывать кнопку вовсе. Отдельного
+            // /auth/me на каждое открытие раздела больше нет.
+            selfId = (window.V2Api && window.V2Api.userId) ? window.V2Api.userId() : null;
+            const list = await window.V2Api.api('/auth/users');
+            const added = mergeUsers(list);
+            usersState('ok');
+            render('user');
+            if (added) document.dispatchEvent(new Event('kb:dictionaries-changed'));
+        } catch (e) {
+            usersState('error', userErrorText(e));
+            render('user');   // остаёмся на локальном снимке справочника
+        } finally {
+            usersLoading = false;
+        }
+    }
+
+    function userAccessCell(record) {
+        const off = isUserOff(record);
+        return '<td><span class="pill ' + (off ? 'warn' : 'ok') + '">' + (off ? 'Отключён' : 'Активен') + '</span>' +
+            (isSelfUser(record) ? ' <span class="mgmt-note">это вы</span>' : '') + '</td>';
+    }
+
+    function editButton(record, name) {
+        return '<button type="button" class="btn btn-ghost btn-sm" data-edit="' + esc(record.id) +
+            '" aria-label="Редактировать ' + name + '">Изменить</button>';
+    }
+
+    function rowActions(kind, record) {
+        if (kind !== 'user') return editButton(record, esc(record.name || record.username));
+        const name = esc(record.username);
+        if (record.role === 'superadmin' && !canEditOwner()) {
+            return '<span class="mgmt-note">Учётка владельца — правит только суперадмин</span>';
+        }
+        const buttons = [editButton(record, 'пользователя ' + name)];
+        // Себя сервер не даст ни отключить (400 «Нельзя отключить самого
+        // себя»), ни удалить (400 «Нельзя удалить самого себя») — кнопки нет.
+        if (!isSelfUser(record)) {
+            const off = isUserOff(record);
+            buttons.push('<button type="button" class="btn btn-ghost btn-sm" data-user-toggle="' + esc(record.id) +
+                '" aria-label="' + (off ? 'Включить' : 'Отключить') + ' пользователя ' + name + '">' +
+                (off ? 'Включить' : 'Отключить') + '</button>');
+            buttons.push('<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-user-del="' + esc(record.id) +
+                '" aria-label="Удалить пользователя ' + name + '">Удалить</button>');
+        }
+        return '<div class="mgmt-acts">' + buttons.join('') + '</div>';
+    }
+
+    function needNetwork(what) {
+        if (window.V2Api && window.V2Api.token()) return true;
+        MGMT_TOAST(what + ' недоступно в предпросмотре макета: нужен вход в CRM.', true);
+        return false;
+    }
+    // Подтверждение опасного действия — тот же диалог, что у доски
+    // (KBConfirm.ask, shell-v2-board.js): форма-диалог, не confirm() и не
+    // prompt(); фокус после закрытия возвращается в строку таблицы.
+    function askConfirm(opts) {
+        if (!window.KBConfirm || !window.KBConfirm.ask) {
+            MGMT_TOAST('Диалог подтверждения не открылся — обновите страницу.', true);
+            return Promise.resolve(false);
+        }
+        return window.KBConfirm.ask(opts);
+    }
+
+    async function toggleUserAccess(button) {
+        const id = button.dataset.userToggle;
+        const record = data.user.find(r => r.id === id);
+        if (!record || userBusy.has(id) || !needNetwork('Смена доступа')) return;
+        // Кнопки своей строки не рисуем, но проверка здесь — чтобы защита не
+        // зависела от того, успел ли отработать рендер (selfId подтверждён
+        // /auth/me на старте и может оказаться null — тогда себя различить
+        // нечем, и остаётся этот отказ плюс серверный 400).
+        if (isSelfUser(record)) { MGMT_TOAST('Нельзя отключить самого себя: в CRM должен остаться администратор.', true); return; }
+        const numeric = numericId(id);
+        if (numeric == null) { MGMT_TOAST('Пользователь ещё не сохранён в CRM — сначала создайте его.', true); return; }
+        userBusy.add(id);
+        button.disabled = true;
+        const turnOff = !isUserOff(record);
+        try {
+            const ok = await askConfirm({
+                title: turnOff ? 'Отключить пользователя?' : 'Включить пользователя?',
+                message: turnOff
+                    ? 'Учётка «' + record.username + '» перестанет входить в CRM. Карточки, задачи и история останутся на месте; включить можно этим же переключателем.'
+                    : 'Учётка «' + record.username + '» снова сможет входить в CRM.',
+                confirmText: turnOff ? 'Отключить' : 'Включить',
+                cancelText: 'Отмена'
+            });
+            if (!ok) { button.disabled = false; return; }
+            const res = await window.V2Api.api('/auth/users/' + numeric, { method: 'PATCH', body: { is_active: !turnOff } });
+            record.is_active = (res && typeof res.is_active === 'boolean') ? res.is_active : !turnOff;
+            render('user');
+            // Флаг поменялся в общем справочнике KBData.users — тем же объектом
+            // пользуются доска и «Пульт дня», где отключённый ответственный
+            // приглушён: перерисовываем их уже привычным событием (его шлют
+            // создание и удаление учётки), без своего канала.
+            document.dispatchEvent(new Event('kb:dictionaries-changed'));
+            MGMT_TOAST(turnOff
+                ? 'Пользователь «' + record.username + '» отключён: вход закрыт, данные остались.'
+                : 'Пользователь «' + record.username + '» снова активен.');
+        } catch (e) {
+            button.disabled = false;
+            MGMT_TOAST('Не переключено: ' + userErrorText(e), true);
+        } finally {
+            userBusy.delete(id);
+        }
+    }
+
+    async function removeUser(button) {
+        const id = button.dataset.userDel;
+        const record = data.user.find(r => r.id === id);
+        if (!record || userBusy.has(id) || !needNetwork('Удаление пользователя')) return;
+        if (isSelfUser(record)) { MGMT_TOAST('Нельзя удалить самого себя — удаление учётки необратимо.', true); return; }
+        const numeric = numericId(id);
+        if (numeric == null) { MGMT_TOAST('Пользователь ещё не сохранён в CRM.', true); return; }
+        userBusy.add(id);
+        button.disabled = true;
+        try {
+            const ok = await askConfirm({
+                title: 'Удалить пользователя?',
+                message: 'Учётка «' + record.username + '» будет удалена безвозвратно: её снимут с карточек, задач и ленты событий. Если нужно только закрыть доступ — выберите «Отмена» и отключите пользователя.',
+                confirmText: 'Удалить',
+                cancelText: 'Отмена'
+            });
+            if (!ok) { button.disabled = false; return; }
+            await window.V2Api.api('/auth/users/' + numeric, { method: 'DELETE' });
+            const index = data.user.indexOf(record);
+            if (index >= 0) data.user.splice(index, 1);
+            render('user');
+            document.dispatchEvent(new Event('kb:dictionaries-changed'));
+            MGMT_TOAST('Пользователь «' + record.username + '» удалён.');
+        } catch (e) {
+            button.disabled = false;
+            MGMT_TOAST('Не удалено: ' + userErrorText(e), true);
+        } finally {
+            userBusy.delete(id);
+        }
+    }
+
+    return {
+        data: data,
+        render: render,
+        loadUsers: loadUsers,
+        mergeUsers: mergeUsers,
+        userErrorText: userErrorText,
+        userAccessCell: userAccessCell,
+        rowActions: rowActions,
+        isUserOff: isUserOff,
+        askConfirm: askConfirm,
+        needNetwork: needNetwork,
+        toggleUserAccess: toggleUserAccess,
+        removeUser: removeUser
+    };
 })();
 
 /* ============================================================
@@ -155,12 +569,7 @@
     const $ = (id) => document.getElementById(id);
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     function toast(text, isError) {
-        const t = $('kb-toast');
-        if (!t) return;
-        t.hidden = false;
-        t.textContent = text;
-        t.classList.toggle('toast-error', Boolean(isError));
-        setTimeout(() => { t.hidden = true; t.classList.remove('toast-error'); }, 4000);
+        MGMT_TOAST(text, isError);
     }
 
     /* --- Почта: настройки + ручная синхронизация --- */
@@ -172,7 +581,11 @@
         sel.innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
     }
     async function loadMail() {
-        if (!window.V2Api.token()) return;
+        if (!window.V2Api || !window.V2Api.token()) return;
+        // Карточка почты — админская и скрыта (метки data-admin-only в первом
+        // модуле файла): под manager запрос настроек не нужен и не должен
+        // мелькать в сети и в ошибках.
+        if (!window.V2Api.isAdmin()) return;
         try {
             const s = await window.V2Api.api('/email-parser/settings');
             const body = $('mgmt-email-body');
@@ -482,12 +895,869 @@
         if (panel && !panel.hidden && (panel.contains(document.activeElement) || document.activeElement === bell)) closePanel(true);
     });
 
-    // Первичная загрузка: колокольчик сразу, карточка почты — при входе в Admin.
+    // Первичная загрузка: колокольчик сразу, карточка почты — при входе в Admin
+    // (тот же ленивый пропуск, что и для экранов пункта 15: см. MGMT_LAZY).
     refreshBellCount();
     setInterval(refreshBellCount, 60000);
-    document.addEventListener('click', (event) => {
-        const adminLink = event.target.closest('[data-view="admin"]');
-        if (adminLink) setTimeout(loadMail, 300);
-    });
-    window.addEventListener('hashchange', () => { if (location.hash.includes('admin')) setTimeout(loadMail, 300); });
+    MGMT_LAZY.onOpen(loadMail);
+})();
+
+/* ============================================================
+   Пункт 15 плана: экраны интеграции — вебхуки, кастомные объекты,
+   автоматизации. Все три админские и ленивые: загрузчики регистрирует
+   MGMT_LAZY, карточки помечены data-admin-only через ADMIN_MARKS.
+   Сеть — напрямую через window.V2Api.api(): новых видов мутаций в
+   boot-шаблон не заводим (файл занят другой задачей).
+
+   Контракты сверены с бэком:
+   • routers/webhooks_router.py — GET /webhooks/events · GET/POST /webhooks/
+     · PATCH/DELETE /webhooks/{id} · POST /webhooks/{id}/test; require_admin()
+     стоит зависимостью на всём роутере (:88).
+   • routers/custom_objects_router.py — GET/POST /custom/objects ·
+     DELETE /custom/objects/{id} · GET/POST /custom/objects/{id}/fields ·
+     DELETE /custom/fields/{id}; под админом создание и удаление (:53).
+     Записи (/custom/objects/{id}/records, /custom/records/{id}) на экране
+     не показаны: это рабочие данные, а не конфигурация.
+   • routers/workflows_router.py — GET/POST /workflows/ · PATCH/DELETE
+     /workflows/{id} · GET /workflows/{id}/triggers|steps|runs ·
+     DELETE /workflows/triggers/{id} · DELETE /workflows/steps/{id}.
+     Роутера с запуском сценария на сервере нет (есть только журнал запусков),
+     поэтому «запустить» в UI тоже нет.
+   ============================================================ */
+const MGMT_ADMIN = (function () {
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const api = (path, opts) => window.V2Api.api(path, opts);
+    const online = () => MGMT_LAZY.online();
+    const askConfirm = (opts) => MGMT_DICT.askConfirm(opts);
+
+    /* ── Общая обвязка состояний, ошибок и форм ──────────────────────── */
+
+    // mode: 'loading' | 'empty' | 'preview' | 'error' | 'ok'. В 'ok' строка
+    // прячется, в остальных случаях текст обязателен — «Загрузка…» навсегда
+    // не остаётся, потому что каждый загрузчик обязан вызвать stateLine и
+    // в ветке успеха, и в catch.
+    function stateLine(id, mode, texts) {
+        const el = $(id);
+        if (!el) return;
+        const t = texts || {};
+        el.classList.toggle('mgmt-hint-error', mode === 'error');
+        if (mode === 'ok') { el.hidden = true; el.textContent = ''; return; }
+        el.hidden = false;
+        if (mode === 'loading' || mode === 'empty' || mode === 'preview') {
+            el.textContent = t[mode] || 'Данных нет.';
+            return;
+        }
+        el.innerHTML = '<span>' + esc(t.error || 'Запрос не прошёл.') + '</span>' +
+            (t.retry ? ' <button type="button" class="btn btn-ghost btn-sm" data-mgmt-retry="' + esc(t.retry) + '">Повторить</button>' : '');
+    }
+
+    // Серверные тексты интеграционных роутов частично английские (валидация
+    // SSRF в webhooks_router) — подписываем их по-русски, остальное отдаем как
+    // есть: там, где деталь есть, она честнее любого перевода.
+    const RU_DETAIL = [
+        [/must use http or https/i, 'адрес должен быть на http или https'],
+        [/hostname is not allowed/i, 'такой хост запрещён: внутренние и служебные адреса CRM вызывать не должны'],
+        [/private\/reserved IP/i, 'адрес указывает во внутренний или зарезервированный IP — такой вебхук сервер не примет'],
+        [/could not be resolved/i, 'имя хоста не распознано — проверьте адрес'],
+        [/не найден/i, null]
+    ];
+    function reasonText(e) {
+        if (e && e.unauthorized) return 'срок сеанса истёк — войдите заново';
+        const detail = (e && typeof e.detail === 'string') ? e.detail : '';
+        for (let i = 0; i < RU_DETAIL.length; i += 1) {
+            if (detail && RU_DETAIL[i][0].test(detail)) {
+                const mapped = RU_DETAIL[i][1];
+                if (mapped) return mapped + ' (' + detail + ')';
+                break;
+            }
+        }
+        if (detail) return detail;
+        if (e && e.status === 403) return 'недостаточно прав: экран только для администратора';
+        if (e && e.status === 404) return 'запись не найдена — обновите список';
+        // message у адаптера — «HTTP 500»: код отдаём развёрнуто, а message
+        // оставляем для сбоев без статуса (упал fetch, ошибка сети).
+        if (e && e.status) return 'ошибка сервера (код ' + e.status + ')';
+        if (e && e.message) return e.message;
+        return 'ошибка сети';
+    }
+
+    const busy = new Set();
+    // failPrefix — окончание фразы («Не сохранено», «Не удалено»), поэтому для
+    // офлайн-ветки он не годится: там своё, законченное сообщение.
+    function run(key, button, failPrefix, action) {
+        if (!window.V2Api || !window.V2Api.token()) {
+            MGMT_TOAST('Действие недоступно без входа в CRM: предпросмотр макета работает без сети.', true);
+            return Promise.resolve();
+        }
+        if (busy.has(key)) return Promise.resolve();   // защита от двойного клика
+        busy.add(key);
+        if (button) button.disabled = true;
+        return Promise.resolve()
+            .then(action)
+            .catch((e) => {
+                if (button) button.disabled = false;
+                MGMT_TOAST(failPrefix + ': ' + reasonText(e), true);
+            })
+            .then(() => { busy.delete(key); });
+    }
+
+    let extDialog = null;
+    let extResolve = null;
+    let extOpener = null;
+    function extDialogEl() {
+        if (extDialog) return extDialog;
+        extDialog = document.createElement('dialog');
+        extDialog.id = 'mgmt-ext-dialog';
+        extDialog.className = 'v2-form-dialog';
+        extDialog.setAttribute('aria-labelledby', 'mgmt-ext-title');
+        extDialog.addEventListener('close', () => {
+            const settle = extResolve;
+            extResolve = null;
+            if (settle) settle(null);         // закрыли без сохранения: Esc или «Отмена»
+            if (extOpener && extOpener.isConnected) extOpener.focus();
+            extOpener = null;
+            // Тот же B4-паттерн, что у #mgmt-dialog: форму чистим, иначе
+            // скрытые required-поля блокируют следующий сабмит.
+            extDialog.innerHTML = '';
+            if (window.KBSelect) window.KBSelect.close();
+        });
+        document.body.append(extDialog);
+        return extDialog;
+    }
+
+    function controlHtml(f, value) {
+        const id = 'mgmt-ext-' + f.key;
+        const required = f.required ? ' required' : '';
+        if (f.type === 'select') {
+            return '<select id="' + id + '" name="' + f.key + '"' + required + '>' +
+                f.options.map((pair) => '<option value="' + esc(pair[0]) + '"' +
+                    (String(pair[0]) === String(value ?? '') ? ' selected' : '') + '>' + esc(pair[1]) + '</option>').join('') +
+                '</select>';
+        }
+        if (f.type === 'textarea') {
+            return '<textarea id="' + id + '" name="' + f.key + '" rows="3" maxlength="2000">' + esc(value ?? '') + '</textarea>';
+        }
+        if (f.type === 'checks') {
+            const picked = Array.isArray(value) ? value : [];
+            return '<div class="mgmt-checks">' + f.options.map((pair) =>
+                '<label class="mgmt-check"><input type="checkbox" name="' + f.key + '" value="' + esc(pair[0]) + '"' +
+                (picked.indexOf(pair[0]) >= 0 ? ' checked' : '') + '><span>' + esc(pair[1]) + '</span></label>').join('') + '</div>';
+        }
+        if (f.type === 'flag') {
+            return '<label class="mgmt-check"><input type="checkbox" id="' + id + '" name="' + f.key + '"' +
+                (value ? ' checked' : '') + '><span>' + esc(f.label) + '</span></label>';
+        }
+        return '<input id="' + id + '" name="' + f.key + '" type="' + (f.type || 'text') + '"' + required +
+            ' value="' + esc(value ?? '') + '" maxlength="' + (f.maxlength || 300) + '"' +
+            (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
+            (f.autocomplete ? ' autocomplete="' + esc(f.autocomplete) + '"' : '') + '>';
+    }
+
+    function fieldHtml(f, value) {
+        const control = controlHtml(f, value);
+        if (f.type === 'flag') return control;
+        if (f.type === 'checks') {
+            // Группу чекбоксов в <label for> не оборачиваем: общей цели у
+            // такой подписи нет, а у каждого пункта она уже внутри.
+            return '<div class="mgmt-span"><span class="mgmt-span-label">' + esc(f.label) + '</span>' + control + '</div>';
+        }
+        return '<label for="mgmt-ext-' + esc(f.key) + '"><span>' + esc(f.label) + '</span>' + control + '</label>';
+    }
+
+    function readForm(form, fields) {
+        const out = {};
+        fields.forEach((f) => {
+            if (f.type === 'checks') {
+                out[f.key] = [].slice.call(form.querySelectorAll('input[name="' + f.key + '"]:checked')).map((cb) => cb.value);
+                return;
+            }
+            const el = form.elements[f.key];
+            if (!el) { out[f.key] = f.type === 'flag' ? false : ''; return; }
+            if (f.type === 'flag') { out[f.key] = el.checked === true; return; }
+            out[f.key] = String(el.value).trim();
+        });
+        return out;
+    }
+
+    // Форма-диалог вместо цепочки prompt(): промис с заполненными значениями
+    // или null, если закрыли без сохранения.
+    function formDialog(opts) {
+        if (!MGMT_DICT.needNetwork(opts.what || 'Форма')) return Promise.resolve(null);
+        const dlg = extDialogEl();
+        extOpener = document.activeElement;
+        const values = opts.values || {};
+        let settle;
+        const result = new Promise((resolve) => { settle = resolve; });
+        extResolve = settle;
+        dlg.innerHTML = '<form id="mgmt-ext-form"><h2 id="mgmt-ext-title">' + esc(opts.title) + '</h2>' +
+            '<div class="mgmt-fields">' + opts.fields.map((f) => fieldHtml(f, values[f.key])).join('') + '</div>' +
+            '<p class="kb-form-error" id="mgmt-ext-error" role="alert"></p>' +
+            '<div class="mgmt-actions">' +
+            '<button class="btn btn-ghost" type="button" id="mgmt-ext-cancel">Отмена</button>' +
+            '<button class="btn btn-primary" type="submit" id="mgmt-ext-submit">' + esc(opts.submitText || 'Сохранить') + '</button>' +
+            '</div></form>';
+        dlg.showModal();
+        if (window.KBSelect) window.KBSelect.enhance(dlg);
+        const form = $('mgmt-ext-form');
+        $('mgmt-ext-cancel').onclick = () => dlg.close();
+        form.onsubmit = (event) => {
+            event.preventDefault();
+            const read = readForm(form, opts.fields);
+            const wrong = opts.validate ? opts.validate(read) : '';
+            if (wrong) { $('mgmt-ext-error').textContent = wrong; return; }
+            const done = extResolve;
+            extResolve = null;
+            dlg.close();
+            if (done) done(read);
+        };
+        return result;
+    }
+
+    function when(iso) {
+        if (!iso) return '';
+        const date = new Date(iso);
+        return isNaN(date.getTime()) ? String(iso) : date.toLocaleString('ru-RU');
+    }
+    const NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+    /* ── Вебхуки ──────────────────────────────────────────────────────── */
+
+    const EVENT_RU = {
+        'card.created': 'Сделка создана', 'card.updated': 'Сделка изменена', 'card.deleted': 'Сделка удалена',
+        'client.created': 'Клиент создан', 'client.updated': 'Клиент изменён', 'client.deleted': 'Клиент удалён',
+        'supplier.created': 'Поставщик создан', 'supplier.updated': 'Поставщик изменён', 'supplier.deleted': 'Поставщик удалён',
+        'payment.created': 'Оплата проведена', 'payment.updated': 'Оплата изменена',
+        'document.created': 'Документ выписан', 'document.updated': 'Документ изменён'
+    };
+    const eventLabel = (name) => EVENT_RU[name] || name;
+    const WH = { items: [], events: [], loading: false };
+
+    // Тело запроса: secret отправляем только заполненным — на сервере
+    // «нет поля = не менять» (webhooks_router.py:149-152), пустая строка
+    // стёрла бы существующую подпись.
+    function webhookBody(values) {
+        const body = { url: values.url, events: values.events };
+        if (values.secret) body.secret = values.secret;
+        return body;
+    }
+    function validateWebhook(values) {
+        if (!/^https?:\/\/\S+$/i.test(values.url)) return 'Укажите полный адрес, например https://example.com/crm-hook';
+        if (!values.events.length) return 'Выберите хотя бы одно событие.';
+        return '';
+    }
+    function webhookRow(h) {
+        const id = esc(h.id);
+        const url = esc(h.url);
+        const events = (Array.isArray(h.events) ? h.events : []).map(eventLabel);
+        const on = h.is_active !== false;
+        return '<tr data-id="' + id + '">' +
+            '<td>' + url + '</td>' +
+            '<td>' + (events.length ? esc(events.join(', ')) : '—') + '</td>' +
+            '<td><span class="pill ' + (on ? 'ok' : 'warn') + '">' + (on ? 'Активен' : 'Выключен') + '</span></td>' +
+            '<td><div class="mgmt-acts">' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-wh-edit="' + id + '" aria-label="Изменить вебхук ' + url + '">Изменить</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-wh-test="' + id + '" aria-label="Проверить вебхук ' + url + '">Тест</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-wh-toggle="' + id + '" aria-label="' + (on ? 'Выключить' : 'Включить') + ' вебхук ' + url + '">' + (on ? 'Выключить' : 'Включить') + '</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-wh-del="' + id + '" aria-label="Удалить вебхук ' + url + '">Удалить</button>' +
+            '</div></td></tr>';
+    }
+    function renderWebhooks() {
+        const rows = $('mgmt-wh-rows');
+        if (!rows) return;
+        rows.innerHTML = WH.items.map(webhookRow).join('');
+        stateLine('mgmt-wh-state', WH.items.length ? 'ok' : 'empty', {
+            empty: 'Вебхуков пока нет. Нажмите «+ Новый вебхук» — и CRM начнёт сообщать внешней системе о сделках, клиентах, оплатах и документах.'
+        });
+    }
+    function loadWebhooks() {
+        const rows = $('mgmt-wh-rows');
+        if (!rows) return Promise.resolve();
+        if (!online()) {
+            rows.innerHTML = '';
+            stateLine('mgmt-wh-state', 'preview', { preview: 'В предпросмотре макета сети нет: список и настройки вебхуков работают только в собранной CRM.' });
+            return Promise.resolve();
+        }
+        if (WH.loading) return Promise.resolve();
+        WH.loading = true;
+        stateLine('mgmt-wh-state', 'loading', { loading: 'Загрузка вебхуков…' });
+        return Promise.all([api('/webhooks/'), api('/webhooks/events').catch(() => [])])
+            .then((res) => {
+                WH.items = Array.isArray(res[0]) ? res[0] : [];
+                WH.events = Array.isArray(res[1]) ? res[1] : [];
+                renderWebhooks();
+            })
+            .catch((e) => {
+                WH.items = [];
+                rows.innerHTML = '';
+                stateLine('mgmt-wh-state', 'error', { error: 'Не удалось загрузить вебхуки: ' + reasonText(e) + '.', retry: 'wh' });
+            })
+            .then(() => { WH.loading = false; });
+    }
+    function openWebhookForm(h, button) {
+        if (!WH.events.length) {
+            MGMT_TOAST('Список событий не получен — обновите раздел и попробуйте снова.', true);
+            loadWebhooks();
+            return Promise.resolve();
+        }
+        return formDialog({
+            title: h ? 'Вебхук: изменение' : 'Новый вебхук',
+            what: 'Сохранение вебхука',
+            submitText: 'Сохранить',
+            values: h || {},
+            validate: validateWebhook,
+            fields: [
+                { key: 'url', label: 'URL получателя', type: 'url', required: true, maxlength: 500, placeholder: 'https://example.com/crm-hook' },
+                { key: 'secret', label: 'Секрет подписи' + (h ? ' (оставьте пустым, чтобы не менять)' : ' (не обязательно)'), type: 'password', autocomplete: 'new-password', maxlength: 200, placeholder: 'Заголовок X-Webhook-Signature' },
+                { key: 'events', label: 'События, по которым CRM шлёт запрос', type: 'checks', options: WH.events.map((name) => [name, eventLabel(name)]) }
+            ]
+        }).then((values) => {
+            if (!values) return null;
+            return run('wh-save:' + (h ? h.id : values.url), button, 'Не сохранено', () =>
+                (h
+                    ? api('/webhooks/' + h.id, { method: 'PATCH', body: webhookBody(values) })
+                    : api('/webhooks/', { method: 'POST', body: webhookBody(values) })
+                ).then(loadWebhooks));
+        });
+    }
+    function toggleWebhook(h, button) {
+        const next = h.is_active === false;
+        return run('wh-toggle:' + h.id, button, 'Не переключено', () =>
+            api('/webhooks/' + h.id, { method: 'PATCH', body: { is_active: next } })
+                .then(() => {
+                    h.is_active = next;
+                    renderWebhooks();
+                    MGMT_TOAST(next ? 'Вебхук включён.' : 'Вебхук выключен: запросы не отправляются, настройки сохранены.');
+                }));
+    }
+    function testWebhook(h, button) {
+        // Подпись кнопки не меняем: сервер ждёт ответа до 10 секунд, а при
+        // неудаче строка не перерисовывается — осталась бы «Отправляем…».
+        // Достаточно того, что кнопка заблокирована на время запроса (run()),
+        // а о начале говорит отдельный тост.
+        MGMT_TOAST('Отправляем тестовый запрос на ' + h.url + '…');
+        return run('wh-test:' + h.id, button, 'Проверка не прошла', () =>
+            api('/webhooks/' + h.id + '/test', { method: 'POST' }).then((res) => {
+                const result = res || {};
+                const code = result.status ? ' (код ' + result.status + ')' : '';
+                if (result.success) MGMT_TOAST('Вебхук ответил: получатель принял тестовый запрос' + code + '.');
+                else MGMT_TOAST('Вебхук не ответил' + code + ': ' + (result.error ? reasonText({ detail: String(result.error) }) : 'получатель вернул ошибку'), true);
+            }));
+    }
+    function removeWebhook(h, button) {
+        return askConfirm({
+            title: 'Удалить вебхук?',
+            message: 'CRM перестанет слать запросы на ' + h.url + '. Настройки восстановить нельзя — если интеграция нужна позже, проще выключить вебхук.',
+            confirmText: 'Удалить',
+            cancelText: 'Отмена'
+        }).then((ok) => {
+            if (!ok) return null;
+            return run('wh-del:' + h.id, button, 'Не удалено', () =>
+                api('/webhooks/' + h.id, { method: 'DELETE' }).then(() => {
+                    WH.items = WH.items.filter((x) => String(x.id) !== String(h.id));
+                    renderWebhooks();
+                    MGMT_TOAST('Вебхук удалён.');
+                }));
+        });
+    }
+    const findWebhook = (id) => WH.items.filter((x) => String(x.id) === String(id))[0];
+
+    /* ── Кастомные объекты: типы и их поля ───────────────────────────── */
+
+    const FIELD_TYPE_RU = { text: 'Текст', number: 'Число', currency: 'Сумма', date: 'Дата', boolean: 'Да / нет', select: 'Список', relation: 'Связь', file: 'Файл' };
+    const CO = { types: [], fields: [], selected: null, loading: false, loadingId: null, fieldsLoading: false };
+    const fieldTypeName = (type) => FIELD_TYPE_RU[type] || type || '—';
+    const currentType = () => (CO.selected == null ? null : CO.types.filter((t) => String(t.id) === String(CO.selected))[0] || null);
+
+    function customTypeRow(t) {
+        const id = esc(t.id);
+        const label = esc(t.label || t.name);
+        return '<tr data-id="' + id + '">' +
+            '<td>' + label + '</td>' +
+            '<td>' + esc(t.name) + '</td>' +
+            '<td><div class="mgmt-acts">' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-co-select="' + id + '" aria-label="Показать поля объекта ' + label + '">Поля</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-co-del="' + id + '" aria-label="Удалить объект ' + label + '">Удалить</button>' +
+            '</div></td></tr>';
+    }
+    function customFieldRow(f) {
+        const id = esc(f.id);
+        const label = esc(f.label || f.name);
+        return '<tr data-id="' + id + '">' +
+            '<td>' + label + '</td>' +
+            '<td>' + esc(f.name) + '</td>' +
+            '<td>' + esc(fieldTypeName(f.field_type)) + '</td>' +
+            '<td>' + (f.is_required ? '<span class="pill accent">Обязательное</span>' : '<span class="mgmt-note">по желанию</span>') + '</td>' +
+            '<td><button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-co-field-del="' + id + '" aria-label="Удалить поле ' + label + '">Удалить</button></td></tr>';
+    }
+    function renderCustomTypes() {
+        const rows = $('mgmt-co-rows');
+        if (!rows) return;
+        rows.innerHTML = CO.types.map(customTypeRow).join('');
+        stateLine('mgmt-co-state', CO.types.length ? 'ok' : 'empty', {
+            empty: 'Своих типов объектов пока нет. Создайте тип — например «Оборудование», — и добавьте ему поля.'
+        });
+    }
+    function loadCustomTypes() {
+        if (!$('mgmt-co-rows')) return Promise.resolve();
+        if (!online()) {
+            $('mgmt-co-rows').innerHTML = '';
+            stateLine('mgmt-co-state', 'preview', { preview: 'В предпросмотре макета сети нет: типы объектов и их поля работают только в собранной CRM.' });
+            return Promise.resolve();
+        }
+        if (CO.loading) return Promise.resolve();
+        CO.loading = true;
+        stateLine('mgmt-co-state', 'loading', { loading: 'Загрузка типов объектов…' });
+        return api('/custom/objects')
+            .then((list) => {
+                CO.types = Array.isArray(list) ? list : [];
+                renderCustomTypes();
+                // Выбранный тип мог быть удалён в другой сессии.
+                if (CO.selected != null && !currentType()) { CO.selected = null; CO.fields = []; renderCustomFields(); }
+                else if (CO.selected != null) { loadCustomFields(); }
+            })
+            .catch((e) => {
+                CO.types = [];
+                $('mgmt-co-rows').innerHTML = '';
+                stateLine('mgmt-co-state', 'error', { error: 'Не удалось загрузить типы объектов: ' + reasonText(e) + '.', retry: 'co' });
+            })
+            .then(() => { CO.loading = false; });
+    }
+    function renderCustomFields() {
+        const box = $('mgmt-co-fields');
+        const rows = $('mgmt-co-field-rows');
+        if (!box || !rows) return;
+        const type = currentType();
+        box.hidden = !type;
+        if (!type) { rows.innerHTML = ''; return; }
+        const title = $('mgmt-co-fields-title');
+        if (title) title.textContent = type.label || type.name;
+        rows.innerHTML = CO.fields.map(customFieldRow).join('');
+        stateLine('mgmt-co-fields-state', CO.fields.length ? 'ok' : 'empty', {
+            empty: 'У этого типа ещё нет полей. Добавьте первое — оно появится в карточках записей этого объекта.'
+        });
+    }
+    function loadCustomFields() {
+        const type = currentType();
+        if (!type || !online()) return Promise.resolve();
+        const id = type.id;
+        // Тот же порядок, что у деталей сценария: повторный клик по живому
+        // запросу отбивается, а переключение на другой тип даёт новый запрос —
+        // и опоздавший ответ прежнего типа отбрасывается по id.
+        if (CO.fieldsLoading && String(CO.loadingId) === String(id)) return Promise.resolve();
+        CO.fieldsLoading = true;
+        CO.loadingId = id;
+        stateLine('mgmt-co-fields-state', 'loading', { loading: 'Загрузка полей…' });
+        return api('/custom/objects/' + id + '/fields')
+            .then((list) => {
+                if (String(CO.selected) !== String(id)) return;
+                CO.fields = Array.isArray(list) ? list : [];
+                renderCustomFields();
+            })
+            .catch((e) => {
+                if (String(CO.selected) !== String(id)) return;
+                CO.fields = [];
+                renderCustomFields();
+                stateLine('mgmt-co-fields-state', 'error', {
+                    error: 'Не удалось загрузить поля: ' + reasonText(e) + '.',
+                    retry: 'co-fields'
+                });
+            })
+            .then(() => { CO.fieldsLoading = false; CO.loadingId = null; });
+    }
+    function selectCustomType(id) {
+        CO.selected = id;
+        CO.fields = [];
+        renderCustomFields();
+        return loadCustomFields();
+    }
+    function createCustomType(button) {
+        return formDialog({
+            title: 'Новый тип объекта',
+            what: 'Создание типа',
+            submitText: 'Создать',
+            validate: (v) => (!v.label.trim() ? 'Заполните название — его видит пользователь.'
+                : (!NAME_RE.test(v.name) ? 'Системное имя: латиницей, начинается с буквы, без пробелов — например equipment.' : '')),
+            fields: [
+                { key: 'label', label: 'Название для пользователя', type: 'text', required: true, maxlength: 200, placeholder: 'Оборудование' },
+                { key: 'name', label: 'Системное имя', type: 'text', required: true, maxlength: 100, placeholder: 'equipment' }
+            ]
+        }).then((values) => {
+            if (!values) return null;
+            return run('co-new:' + values.name, button, 'Не создано', () =>
+                api('/custom/objects', { method: 'POST', body: { name: values.name, label: values.label } })
+                    .then(() => { MGMT_TOAST('Тип объекта создан.'); return loadCustomTypes(); }));
+        });
+    }
+    function removeCustomType(t) {
+        return askConfirm({
+            title: 'Удалить тип объекта?',
+            message: 'Вместе с типом удалятся его поля и все записи этого объекта. Отменить нельзя.',
+            confirmText: 'Удалить',
+            cancelText: 'Отмена'
+        }).then((ok) => {
+            if (!ok) return null;
+            return run('co-del:' + t.id, null, 'Не удалено', () =>
+                api('/custom/objects/' + t.id, { method: 'DELETE' }).then(() => {
+                    if (String(CO.selected) === String(t.id)) { CO.selected = null; CO.fields = []; }
+                    CO.types = CO.types.filter((x) => String(x.id) !== String(t.id));
+                    renderCustomTypes();
+                    renderCustomFields();
+                    MGMT_TOAST('Тип объекта удалён.');
+                }));
+        });
+    }
+    function createCustomField(button) {
+        const type = currentType();
+        if (!type) return Promise.resolve();
+        return formDialog({
+            title: 'Новое поле: ' + (type.label || type.name),
+            what: 'Создание поля',
+            submitText: 'Создать',
+            validate: (v) => (!v.label.trim() ? 'Заполните метку — её видит пользователь.'
+                : (!NAME_RE.test(v.name) ? 'Системное имя: латиницей, начинается с буквы, без пробелов — например power.'
+                    : (v.field_type === 'select' && !v.options.trim() ? 'Для списка укажите варианты через запятую.' : ''))),
+            fields: [
+                { key: 'label', label: 'Метка поля', type: 'text', required: true, maxlength: 200 },
+                { key: 'name', label: 'Системное имя', type: 'text', required: true, maxlength: 100 },
+                { key: 'field_type', label: 'Тип значения', type: 'select', required: true, options: [['text', 'Текст'], ['number', 'Число'], ['currency', 'Сумма, BYN'], ['date', 'Дата'], ['boolean', 'Да / нет'], ['select', 'Выпадающий список']] },
+                { key: 'options', label: 'Варианты списка (через запятую)', type: 'text', maxlength: 500, placeholder: 'новое, в ремонте, списано' },
+                { key: 'is_required', label: 'Обязательное поле', type: 'flag' }
+            ]
+        }).then((values) => {
+            if (!values) return null;
+            const body = {
+                name: values.name,
+                label: values.label,
+                field_type: values.field_type,
+                is_required: values.is_required,
+                position: CO.fields.length
+            };
+            if (values.field_type === 'select') {
+                body.options = values.options.split(',').map((s) => s.trim()).filter(Boolean).map((s) => ({ label: s, value: s }));
+            }
+            return run('co-field-new:' + type.id + ':' + values.name, button, 'Не создано', () =>
+                api('/custom/objects/' + type.id + '/fields', { method: 'POST', body: body })
+                    .then(() => { MGMT_TOAST('Поле добавлено.'); return loadCustomFields(); }));
+        });
+    }
+    function removeCustomField(fieldId) {
+        const type = currentType();
+        if (!type) return Promise.resolve();
+        const field = CO.fields.filter((f) => String(f.id) === String(fieldId))[0];
+        return askConfirm({
+            title: 'Удалить поле?',
+            message: 'Поле «' + ((field && field.label) || fieldId) + '» и его значения в записях объекта будут удалены.',
+            confirmText: 'Удалить',
+            cancelText: 'Отмена'
+        }).then((ok) => {
+            if (!ok) return null;
+            return run('co-field-del:' + fieldId, null, 'Не удалено', () =>
+                api('/custom/fields/' + fieldId, { method: 'DELETE' }).then(() => {
+                    CO.fields = CO.fields.filter((f) => String(f.id) !== String(fieldId));
+                    renderCustomFields();
+                    MGMT_TOAST('Поле удалено.');
+                    return loadCustomFields();
+                }));
+        });
+    }
+
+    /* ── Автоматизации (Workflows) ───────────────────────────────────── */
+
+    const TRIGGER_RU = { record_event: 'Изменение записи', schedule: 'По расписанию', webhook: 'Внешний вызов', manual: 'Вручную' };
+    const STEP_RU = { action: 'Действие', condition: 'Условие', delay: 'Задержка' };
+    const ACTION_RU = { create_record: 'Создать запись', update_record: 'Изменить запись', send_email: 'Отправить письмо', http_request: 'HTTP-запрос', code: 'Код' };
+    const RUN_RU = { success: 'Успешно', error: 'С ошибкой', running: 'Выполняется', pending: 'В очереди' };
+    const WF = { items: [], selected: null, loading: false, detailLoading: false, loadingId: null, triggers: [], steps: [], runs: [] };
+    const currentWorkflow = () => (WF.selected == null ? null : WF.items.filter((w) => String(w.id) === String(WF.selected))[0] || null);
+    const configNote = (config) => {
+        if (!config || (typeof config === 'object' && !Object.keys(config).length)) return '';
+        const text = typeof config === 'string' ? config : JSON.stringify(config);
+        return text.length > 160 ? text.slice(0, 160) + '…' : text;
+    };
+
+    function workflowRow(w) {
+        const id = esc(w.id);
+        const name = esc(w.name);
+        const on = w.is_active === true;
+        return '<tr data-id="' + id + '">' +
+            '<td>' + name + '</td>' +
+            '<td>' + (w.description ? esc(w.description) : '—') + '</td>' +
+            '<td><span class="pill ' + (on ? 'ok' : 'warn') + '">' + (on ? 'Включён' : 'Выключен') + '</span></td>' +
+            '<td><div class="mgmt-acts">' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-wf-open="' + id + '" aria-label="Показать триггеры и шаги сценария ' + name + '">Сценарий</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-wf-edit="' + id + '" aria-label="Изменить сценарий ' + name + '">Изменить</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-wf-toggle="' + id + '" aria-label="' + (on ? 'Выключить' : 'Включить') + ' сценарий ' + name + '">' + (on ? 'Выключить' : 'Включить') + '</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-wf-del="' + id + '" aria-label="Удалить сценарий ' + name + '">Удалить</button>' +
+            '</div></td></tr>';
+    }
+    function renderWorkflows() {
+        const rows = $('mgmt-wf-rows');
+        if (!rows) return;
+        rows.innerHTML = WF.items.map(workflowRow).join('');
+        stateLine('mgmt-wf-state', WF.items.length ? 'ok' : 'empty', {
+            empty: 'Автоматизаций пока нет. Создайте сценарий, затем добавьте ему триггер и шаги и включите его.'
+        });
+        const wf = currentWorkflow();
+        if (!wf) { WF.selected = null; renderWorkflowDetail(); }
+    }
+    function loadWorkflows() {
+        if (!$('mgmt-wf-rows')) return Promise.resolve();
+        if (!online()) {
+            $('mgmt-wf-rows').innerHTML = '';
+            stateLine('mgmt-wf-state', 'preview', { preview: 'В предпросмотре макета сети нет: автоматизации работают только в собранной CRM.' });
+            return Promise.resolve();
+        }
+        if (WF.loading) return Promise.resolve();
+        WF.loading = true;
+        stateLine('mgmt-wf-state', 'loading', { loading: 'Загрузка автоматизаций…' });
+        return api('/workflows/')
+            .then((list) => {
+                WF.items = Array.isArray(list) ? list : [];
+                renderWorkflows();
+                // Блок деталей открыт и сценарий жив — перечитаем его, чтобы
+                // триггеры/шаги/журнал не оставались прошлым снимком.
+                if (WF.selected != null && currentWorkflow()) openWorkflowDetail(WF.selected);
+            })
+            .catch((e) => {
+                WF.items = [];
+                $('mgmt-wf-rows').innerHTML = '';
+                stateLine('mgmt-wf-state', 'error', { error: 'Не удалось загрузить автоматизации: ' + reasonText(e) + '.', retry: 'wf' });
+            })
+            .then(() => { WF.loading = false; });
+    }
+    function li(mainHtml, noteHtml, buttonHtml) {
+        return '<li>' + mainHtml + (buttonHtml || '') + (noteHtml || '') + '</li>';
+    }
+    function renderWorkflowDetail() {
+        const box = $('mgmt-wf-detail');
+        if (!box) return;
+        const wf = currentWorkflow();
+        box.hidden = !wf;
+        if (!wf) return;
+        const title = $('mgmt-wf-detail-title');
+        if (title) title.textContent = wf.name;
+        $('mgmt-wf-triggers').innerHTML = WF.triggers.length
+            ? WF.triggers.map((t) => li('<span class="mgmt-li-main">' + esc(TRIGGER_RU[t.trigger_type] || t.trigger_type) + '</span>',
+                configNote(t.config) ? '<span class="mgmt-li-note">' + esc(configNote(t.config)) + '</span>' : '',
+                '<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-wf-trigger-del="' + esc(t.id) + '" aria-label="Удалить триггер">Удалить</button>')).join('')
+            : '<li><span class="mgmt-li-note">Триггеров нет — сценарий ни на что не реагирует.</span></li>';
+        $('mgmt-wf-steps').innerHTML = WF.steps.length
+            ? WF.steps.map((s) => li('<span class="mgmt-li-main">' + esc(STEP_RU[s.step_type] || s.step_type) +
+                (s.action_type ? ' · ' + esc(ACTION_RU[s.action_type] || s.action_type) : '') + '</span>',
+                configNote(s.config) ? '<span class="mgmt-li-note">' + esc(configNote(s.config)) + '</span>' : '',
+                '<button type="button" class="btn btn-ghost btn-sm mgmt-danger" data-wf-step-del="' + esc(s.id) + '" aria-label="Удалить шаг">Удалить</button>')).join('')
+            : '<li><span class="mgmt-li-note">Шагов нет — сценарию нечего выполнять.</span></li>';
+        $('mgmt-wf-runs').innerHTML = WF.runs.length
+            ? WF.runs.map((r) => li('<span class="mgmt-li-main">' + esc(RUN_RU[r.status] || r.status || '—') + '</span>',
+                '<span class="mgmt-li-note">' + esc(when(r.started_at) || 'без времени запуска') +
+                (r.completed_at ? ' → ' + esc(when(r.completed_at)) : '') + (r.error ? ' · ' + esc(r.error) : '') + '</span>')).join('')
+            : '<li><span class="mgmt-li-note">Запусков ещё не было.</span></li>';
+    }
+    function openWorkflowDetail(id) {
+        WF.selected = id;
+        WF.triggers = []; WF.steps = []; WF.runs = [];
+        renderWorkflowDetail();
+        const box = $('mgmt-wf-detail');
+        if (box) box.scrollIntoView({ block: 'nearest' });
+        // Повторный клик по тому же сценарию, пока ответ в пути, — лишний
+        // запрос; переключение на ДРУГОЙ должен дать новый запрос, а
+        // опоздавший ответ первого отсекает проверка WF.selected ниже.
+        if (WF.detailLoading && String(WF.loadingId) === String(id)) return Promise.resolve();
+        WF.detailLoading = true;
+        WF.loadingId = id;
+        stateLine('mgmt-wf-detail-state', 'loading', { loading: 'Загрузка сценария…' });
+        return Promise.all([
+            api('/workflows/' + id + '/triggers'),
+            api('/workflows/' + id + '/steps'),
+            api('/workflows/' + id + '/runs')
+        ]).then((res) => {
+            if (String(WF.selected) !== String(id)) return;   // переключились — ответ чужой
+            WF.triggers = Array.isArray(res[0]) ? res[0] : [];
+            WF.steps = Array.isArray(res[1]) ? res[1] : [];
+            WF.runs = Array.isArray(res[2]) ? res[2] : [];
+            renderWorkflowDetail();
+            stateLine('mgmt-wf-detail-state', 'ok');
+        }).catch((e) => {
+            if (String(WF.selected) !== String(id)) return;
+            stateLine('mgmt-wf-detail-state', 'error', { error: 'Не удалось загрузить сценарий: ' + reasonText(e) + '.', retry: 'wf-detail' });
+        }).then(() => {
+            WF.detailLoading = false;
+            WF.loadingId = null;
+        });
+    }
+    function workflowFields(w) {
+        return [
+            { key: 'name', label: 'Название', type: 'text', required: true, maxlength: 200 },
+            { key: 'description', label: 'Описание', type: 'textarea', maxlength: 2000 }
+        ];
+    }
+    function saveWorkflow(w, button) {
+        return formDialog({
+            title: w ? 'Сценарий: изменение' : 'Новый сценарий',
+            what: 'Сохранение сценария',
+            submitText: 'Сохранить',
+            values: w || {},
+            validate: (v) => (v.name ? '' : 'Заполните название сценария.'),
+            fields: workflowFields(w)
+        }).then((values) => {
+            if (!values) return null;
+            return run('wf-save:' + (w ? w.id : values.name), button, 'Не сохранено', () =>
+                (w
+                    ? api('/workflows/' + w.id, { method: 'PATCH', body: { name: values.name, description: values.description } })
+                    : api('/workflows/', { method: 'POST', body: { name: values.name, description: values.description } })
+                ).then(() => {
+                    // Новую автоматизацию сервер создаёт выключенной
+                    // (models.py:322), иначе она начала бы реагировать молча.
+                    MGMT_TOAST(w ? 'Сценарий сохранён.' : 'Сценарий создан и выключен — включите его, когда настроите триггер и шаги.');
+                    return loadWorkflows();
+                }));
+        });
+    }
+    function toggleWorkflow(w, button) {
+        const next = w.is_active !== true;
+        return run('wf-toggle:' + w.id, button, 'Не переключено', () =>
+            api('/workflows/' + w.id, { method: 'PATCH', body: { is_active: next } })
+                .then(() => {
+                    w.is_active = next;
+                    renderWorkflows();
+                    MGMT_TOAST(next ? 'Автоматизация включена.' : 'Автоматизация выключена: триггеры больше не срабатывают.');
+                }));
+    }
+    function removeWorkflow(w, button) {
+        return askConfirm({
+            title: 'Удалить автоматизацию?',
+            message: 'Сценарий «' + w.name + '», его триггеры, шаги и журнал запусков будут удалены.',
+            confirmText: 'Удалить',
+            cancelText: 'Отмена'
+        }).then((ok) => {
+            if (!ok) return null;
+            return run('wf-del:' + w.id, button, 'Не удалено', () =>
+                api('/workflows/' + w.id, { method: 'DELETE' }).then(() => {
+                    if (String(WF.selected) === String(w.id)) WF.selected = null;
+                    WF.items = WF.items.filter((x) => String(x.id) !== String(w.id));
+                    renderWorkflows();
+                    renderWorkflowDetail();
+                    MGMT_TOAST('Автоматизация удалена.');
+                }));
+        });
+    }
+    function removeWorkflowPart(kind, id, button) {
+        // kind: 'triggers' | 'steps' — DELETE /workflows/triggers/{id} и
+        // DELETE /workflows/steps/{id}; после удаления список перечитывается
+        // целиком, чтобы порядок шагов и вложенность пришли с сервера.
+        const wf = currentWorkflow();
+        if (!wf) return Promise.resolve();
+        const title = kind === 'triggers' ? 'Удалить триггер?' : 'Удалить шаг?';
+        const label = kind === 'triggers' ? 'Триггер' : 'Шаг';
+        return askConfirm({
+            title: title,
+            message: label + ' будет удалён из сценария «' + wf.name + '». Остальные шаги останутся на месте.',
+            confirmText: 'Удалить',
+            cancelText: 'Отмена'
+        }).then((ok) => {
+            if (!ok) return null;
+            return run('wf-part:' + kind + ':' + id, button, 'Не удалено', () =>
+                api('/workflows/' + (kind === 'triggers' ? 'triggers/' : 'steps/') + id, { method: 'DELETE' })
+                    .then(() => { MGMT_TOAST(label + ' удалён.'); return openWorkflowDetail(wf.id); }));
+        });
+    }
+
+    /* ── Развязка кликов: карточки скрыты у не-админа, но слушатель один ─ */
+
+    function bind() {
+        const view = $('view-admin');
+        if (!view) return;
+        const NEW_BUTTONS = [
+            ['mgmt-wh-new', (button) => openWebhookForm(null, button)],
+            ['mgmt-co-new', (button) => createCustomType(button)],
+            ['mgmt-co-field-new', (button) => createCustomField(button)],
+            ['mgmt-wf-new', (button) => saveWorkflow(null, button)]
+        ];
+        NEW_BUTTONS.forEach((pair) => {
+            const button = $(pair[0]);
+            if (button) button.onclick = (event) => { pair[1](event.currentTarget); };
+        });
+        view.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!target || !target.closest) return;
+            const button = target.closest([
+                '[data-mgmt-retry]',
+                '[data-wh-edit]', '[data-wh-test]', '[data-wh-toggle]', '[data-wh-del]',
+                '[data-co-select]', '[data-co-del]', '[data-co-field-del]',
+                '[data-wf-open]', '[data-wf-edit]', '[data-wf-toggle]', '[data-wf-del]',
+                '[data-wf-trigger-del]', '[data-wf-step-del]'
+            ].join(', '));
+            if (!button) return;
+            if (button.hasAttribute('data-mgmt-retry')) {
+                const key = button.dataset.mgmtRetry;
+                if (key === 'user') MGMT_DICT.loadUsers();
+                else if (key === 'wh') loadWebhooks();
+                else if (key === 'co') loadCustomTypes();
+                else if (key === 'co-fields') loadCustomFields();
+                else if (key === 'wf') loadWorkflows();
+                else if (key === 'wf-detail' && WF.selected != null) openWorkflowDetail(WF.selected);
+                return;
+            }
+            const wh = button.dataset.whEdit || button.dataset.whTest || button.dataset.whToggle || button.dataset.whDel;
+            if (wh) {
+                const hook = findWebhook(wh);
+                if (!hook) return;
+                if (button.hasAttribute('data-wh-edit')) openWebhookForm(hook, button);
+                else if (button.hasAttribute('data-wh-test')) testWebhook(hook, button);
+                else if (button.hasAttribute('data-wh-toggle')) toggleWebhook(hook, button);
+                else removeWebhook(hook, button);
+                return;
+            }
+            if (button.hasAttribute('data-co-select')) { selectCustomType(button.dataset.coSelect); return; }
+            if (button.hasAttribute('data-co-del')) {
+                const type = CO.types.filter((t) => String(t.id) === String(button.dataset.coDel))[0];
+                if (type) removeCustomType(type);
+                return;
+            }
+            if (button.hasAttribute('data-co-field-del')) { removeCustomField(button.dataset.coFieldDel); return; }
+            const wfId = button.dataset.wfOpen || button.dataset.wfEdit || button.dataset.wfToggle || button.dataset.wfDel;
+            if (wfId) {
+                const wf = WF.items.filter((w) => String(w.id) === String(wfId))[0];
+                if (!wf) return;
+                if (button.hasAttribute('data-wf-open')) openWorkflowDetail(wf.id);
+                else if (button.hasAttribute('data-wf-edit')) saveWorkflow(wf, button);
+                else if (button.hasAttribute('data-wf-toggle')) toggleWorkflow(wf, button);
+                else removeWorkflow(wf, button);
+                return;
+            }
+            if (button.hasAttribute('data-wf-trigger-del')) removeWorkflowPart('triggers', button.dataset.wfTriggerDel, button);
+            else if (button.hasAttribute('data-wf-step-del')) removeWorkflowPart('steps', button.dataset.wfStepDel, button);
+        });
+    }
+
+    MGMT_LAZY.onOpen(loadWebhooks);
+    MGMT_LAZY.onOpen(loadCustomTypes);
+    MGMT_LAZY.onOpen(loadWorkflows);
+    bind();
+
+    return {
+        stateLine: stateLine,
+        reasonText: reasonText,
+        webhookBody: webhookBody,
+        validateWebhook: validateWebhook,
+        webhookRow: webhookRow,
+        renderWebhooks: renderWebhooks,
+        loadWebhooks: loadWebhooks,
+        toggleWebhook: toggleWebhook,
+        testWebhook: testWebhook,
+        customTypeRow: customTypeRow,
+        customFieldRow: customFieldRow,
+        loadCustomTypes: loadCustomTypes,
+        loadCustomFields: loadCustomFields,
+        selectCustomType: selectCustomType,
+        workflowRow: workflowRow,
+        loadWorkflows: loadWorkflows,
+        openWorkflowDetail: openWorkflowDetail,
+        toggleWorkflow: toggleWorkflow,
+        WH: WH,
+        CO: CO,
+        WF: WF
+    };
 })();

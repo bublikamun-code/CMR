@@ -4,6 +4,14 @@
     'use strict';
     const TOKEN_KEY = 'crm_token';
     const ROLE_KEY = 'crm_role';
+    // Подтверждённая /auth/me роль держится и в памяти модуля: браузер с
+    // заблокированным localStorage входит по httpOnly-куке, и без памяти
+    // админ увидел бы скрытым собственный раздел «Управление».
+    let roleMemory = null;
+    // Подтверждённый /auth/me id текущего пользователя — только в памяти, в
+    // localStorage его нет: прошлый id пережил бы выход и ошибся бы при входе
+    // под другим человеком без F5, а boot перечитывает /auth/me на каждом старте.
+    let userIdMemory = null;
     // База API: на проде фронт и API за одним nginx — пустая строка (same-origin).
     // Для локального стенда задаётся в localStorage: crm_api_base=http://127.0.0.1:8125
     const API_BASE = (function () {
@@ -13,7 +21,14 @@
     function token() {
         try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; }
     }
-    function save(tokenValue, role) {
+    function save(tokenValue, role, meId) {
+        if (role) roleMemory = role;
+        // Третий аргумент — id из /auth/me (boot читает его на каждом старте).
+        // Ответ /auth/login id не отдаёт, поэтому «значения нет» означает
+        // «не менять»: подтверждённый id не затирается догадками.
+        if (meId !== undefined && meId !== null && meId !== '' && isFinite(Number(meId))) {
+            userIdMemory = Number(meId);
+        }
         try {
             localStorage.setItem(TOKEN_KEY, tokenValue);
             if (role) localStorage.setItem(ROLE_KEY, role);
@@ -21,6 +36,8 @@
         } catch (e) { /* без хранилища — только httpOnly-кука */ }
     }
     function clear() {
+        roleMemory = null;
+        userIdMemory = null;
         try {
             localStorage.removeItem(TOKEN_KEY);
             localStorage.removeItem(ROLE_KEY);
@@ -28,6 +45,29 @@
         } catch (e) { /* ignore */ }
         document.cookie = 'crm_token=; path=/; max-age=0';
     }
+    // ── Роль (пункт 9 плана: ролевая модель в UI) ──────────────────────
+    // Единственная точка чтения роли для всего интерфейса: то же значение,
+    // которое boot кладёт сюда после /auth/me через save() (B6), с падением
+    // в localStorage — серверная роль подтверждена при каждом старте.
+    function currentRole() {
+        if (roleMemory) return roleMemory;
+        try { return localStorage.getItem(ROLE_KEY); } catch (e) { return null; }
+    }
+    // Совпадает с серверным require_admin() (auth.py): права администратора
+    // только у admin и superadmin. Роль неизвестна — предпросмотр мокапа по
+    // file:// или ?demo=1, где сеанса нет: ничего не скрываем, там UI показан
+    // целиком намеренно. Есть токен, но нет роли — считаем не-админом.
+    function isAdmin() {
+        const role = currentRole();
+        if (!role) return !token();
+        return role === 'admin' || role === 'superadmin';
+    }
+    // ── Свой id (пункт 15 плана: «себя не отключить и не удалить») ───────
+    // Единственная точка чтения «это я или нет» — то же значение, которое boot
+    // кладёт сюда после /auth/me через save() (там же, где роль). Отдельного
+    // запроса ради этого не делаем. Сеанса нет (предпросмотр мокапа по file://,
+    // ?demo=1) или /auth/me не ответил — null; потребители обязаны это переживать.
+    function userId() { return userIdMemory; }
     async function api(path, opts) {
         opts = opts || {};
         const headers = Object.assign({}, opts.headers || {});
@@ -110,6 +150,9 @@
         token: token,
         save: save,
         clear: clear,
+        currentRole: currentRole,
+        isAdmin: isAdmin,
+        userId: userId,
         api: api,
         download: download,
         upload: upload,

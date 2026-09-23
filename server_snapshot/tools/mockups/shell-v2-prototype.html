@@ -422,6 +422,11 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
     padding: var(--s4) 0 var(--s1); display: flex; align-items: center; gap: 6px;
 }
 .group-hd .cnt { background: var(--surface-3); border-radius: var(--r-pill); padding: 1px 7px; }
+/* Фильтры «Все / Просроченные». Подсветка нажатой кнопки повторяет правило
+   #view-fin button[aria-pressed="true"]: общего стиля для
+   .btn-ghost[aria-pressed] в v2 нет, он изолирован по разделам. */
+#view-tasks .task-filters { display: flex; align-items: center; gap: var(--s2); }
+#view-tasks [data-task-filter][aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 /* ============ КАЛЕНДАРЬ ============ */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
@@ -438,6 +443,31 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 .ev.b { background: var(--ok-soft); color: var(--ok); }
 .ev.c { background: var(--warn-soft); color: var(--warn); }
 .cal .more { font-size: 9.5px; color: var(--muted); margin-top: 2px; }
+/* Чип события, номер дня и «+N ещё» — настоящие кнопки: переход к объекту и
+   список событий дня должны доставаться с клавиатуры. Глобальный сброс
+   `button { border: none; background: none }` уже есть, поэтому здесь только
+   растяжка, выравнивание и состояния. */
+.cal .day[data-cal-day] { cursor: pointer; }
+.cal .day[data-cal-day]:hover { background: var(--surface-3); }
+.cal .day button { display: block; width: 100%; text-align: left; }
+/* Специфичность выше, чем у `.cal .day .n` и `.cal .more`, иначе подсветка
+   ховера не перебивала бы базовый цвет. */
+.cal .day button.n:hover, .cal .day button.more:hover { color: var(--accent); }
+.cal .day button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Диалог «События дня» — открывается кликом по дню или «+N ещё». */
+.cal-day-dialog {
+    margin: auto; width: min(460px, 92vw); max-height: 80dvh; overflow: auto;
+    padding: var(--s5); border: 1px solid var(--border); border-radius: var(--r-lg);
+    background: var(--surface); color: var(--text); box-shadow: var(--sh-2);
+}
+.cal-day-dialog::backdrop { background: rgba(23, 26, 23, .45); }
+html[data-theme="dark"] .cal-day-dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.cal-day-dialog h2 { margin: 0 0 var(--s3); font-size: var(--font-h2); letter-spacing: -.2px; }
+.cal-day-dialog .trow { width: 100%; text-align: left; }
+.cal-day-dialog .trow .t, .cal-day-dialog .trow .sub { display: block; }
+.cal-day-dialog .trow:hover .t { color: var(--accent); }
+.cal-day-dialog .fin-note { margin: var(--s3) 0 var(--s4); }
+.cal-day-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ============ ВИТРИНА КОМПОНЕНТОВ ============ */
 .kit { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
@@ -446,18 +476,6 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
     width: 100%; margin-top: var(--s3);
 }
 .kit-label:first-child { margin-top: 0; }
-.swatch { width: 92px; }
-.swatch i { display: block; height: 46px; border-radius: var(--r-md); border: 1px solid var(--border); }
-.swatch b { font-size: 10px; font-weight: 700; display: block; margin-top: 5px; }
-.swatch span { font-size: 9.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; }
-.surface-demo { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); width: 100%; }
-.surface-demo > div {
-    border-radius: var(--r-lg); border: 1px solid var(--border); padding: var(--s4) var(--s3);
-    font-size: var(--font-ui); font-weight: 700;
-}
-.s1 { background: var(--bg); }
-.s2 { background: var(--surface); }
-.s3 { background: var(--surface-3); }
 
 /* Адаптивность превью: прокручиваются таблицы и вкладки, не вся страница. */
 .viewbar { overflow-x: auto; }
@@ -481,7 +499,6 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
     .drawer-body .field { flex: 1 1 150px; min-width: 0; }
     .field .val { overflow-wrap: anywhere; }
     .q-meta, .q-actions { flex-wrap: wrap; }
-    .surface-demo { grid-template-columns: minmax(0, 1fr); }
     .palette-row { flex-wrap: wrap; }
     .cal .day { padding: 3px; }
     .cal .ev { white-space: normal; overflow-wrap: anywhere; padding: 2px; }
@@ -537,7 +554,6 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin .fin-search .kb-quiet { flex: 0 0 auto; min-height: 32px; min-width: 32px; }
 #view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-#view-fin .fin-demo { font-size: var(--font-ui); font-weight: 700; padding: 6px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); }
 #view-fin .fin-note { color: var(--fin-muted); font-size: var(--font-ui); margin-top: var(--s3); max-width: 85ch; }
 #view-fin .fin-table { min-width: 1140px; }
 #view-fin .fin-table-compact { min-width: 780px; }
@@ -652,7 +668,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     <main class="content" id="shell-content" tabindex="-1" aria-labelledby="shell-title">
 
       <!-- ============ ВИД 1: ПУЛЬТ ДНЯ ============ -->
-      <!-- Значения KPI и очередь заполняет shell-v2-insights.js из демо-данных доски. -->
+      <!-- Значения KPI и очередь заполняет shell-v2-insights.js из данных доски. -->
       <section class="view" id="view-day" hidden>
         <div class="card">
           <div class="kpi">
@@ -704,10 +720,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           <div style="display:flex;flex-direction:column;gap:var(--s4);min-width:0">
             <div class="card card-dark">
             <div class="card-head">
-              <span class="card-title">Воронка · сентябрь</span>
+              <span class="card-title">Воронка · активные сделки</span>
               <div class="right"><span class="card-sub" id="day-funnel-sub"></span></div>
             </div>
-            <div class="heat">
+            <div class="heat" aria-hidden="true">
               <i class="l1"></i><i class="l2"></i><i></i><i class="l1"></i><i class="l3"></i><i></i><i></i>
               <i class="l2"></i><i class="l3"></i><i class="l1"></i><i></i><i class="l1"></i><i class="l2"></i><i></i>
               <i></i><i class="l3"></i><i class="l2"></i><i class="l1"></i><i class="on"></i><i></i><i class="l1"></i>
@@ -784,6 +800,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <button type="button" class="btn btn-ghost" data-fin-tab="payments" aria-pressed="true" aria-controls="fin-payments">Реестр оплат</button>
             <button type="button" class="btn btn-ghost" data-fin-tab="documents" aria-pressed="false" aria-controls="fin-documents">Документы</button>
             <button type="button" class="btn btn-ghost" data-fin-tab="incoming" aria-pressed="false" aria-controls="fin-incoming">Входящие накладные</button>
+            <button type="button" class="btn btn-ghost" data-fin-tab="control" aria-pressed="false" aria-controls="fin-control">Контроль</button>
           </div>
 
         </div>
@@ -841,6 +858,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
               <option value="desc">Сначала новые</option>
               <option value="asc">Сначала старые</option>
             </select>
+            <button type="button" class="btn btn-ghost btn-sm" id="fin-document-export">Экспорт CSV</button>
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Возврат оригиналов — горизонтальная прокрутка">
             <table class="tbl fin-table fin-table-compact" id="fin-document-table">
@@ -867,12 +885,39 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
               </div>
             </div>
           </div>
-          <div class="table-scroll" role="region" tabindex="0" aria-label="Демо входящих накладных — горизонтальная прокрутка">
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Входящие накладные — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-incoming-table">
               <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>
               <tbody id="fin-incoming-rows"></tbody>
             </table>
           </div>
+        </div>
+
+        <!-- Вкладка «Контроль» (паритет с legacy site/js/control.js): дебиторка по
+             сделкам в сборке и в ожидании оплаты. Строки строит fin-скрипт при
+             ПЕРВОМ открытии вкладки — на ленивость раздела это не влияет. -->
+        <div class="card" id="fin-control" data-fin-panel hidden>
+          <h2 class="card-title">Контроль</h2>
+
+          <div class="card-head">
+            <span class="card-title">Дебиторка</span>
+            <span class="pill" id="fin-control-debt-summary">…</span>
+          </div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Дебиторка — горизонтальная прокрутка">
+            <table class="tbl fin-table fin-table-compact" id="fin-control-table">
+              <thead><tr><th scope="col">Клиент / карточка</th><th scope="col">Магазин</th><th scope="col">Статус</th><th scope="col">Сумма, BYN</th><th scope="col">Оплачено, BYN</th><th scope="col">Остаток, BYN</th><th scope="col" title="Возраст сделки с даты создания; если даты нет — просрочка по сроку сделки">Дней</th></tr></thead>
+              <tbody id="fin-control-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-control-empty" class="fin-note" hidden></p>
+          <p id="fin-control-limit" class="fin-note" hidden></p>
+          <p id="fin-control-total" class="fin-total" role="status" aria-live="polite"></p>
+
+          <div class="card-head">
+            <span class="card-title">Не списано в учётной программе</span>
+            <div class="right"><button type="button" class="btn btn-ghost btn-sm" id="fin-control-show-unposted">Показать в реестре оплат</button></div>
+          </div>
+          <p id="fin-control-queue" class="fin-note" role="status"></p>
         </div>
 
         <details class="card" id="fin-journal">
@@ -926,13 +971,18 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
       </section>
 
       <!-- ============ ВИД 6: ЗАДАЧИ И КАЛЕНДАРЬ ============ -->
-      <!-- Список и сводка заполняются из демо-набора задач (shell-v2-data.js). -->
+      <!-- Список и сводка заполняются задачами из KBData (в предпросмотре
+           мокапов их даёт shell-v2-data.js, на собранном сайте — boot.js из CRM). -->
       <section class="view" id="view-tasks" hidden>
         <div class="grid-2">
           <div class="card">
             <div class="card-head">
               <span class="card-title">Задачи</span>
               <span class="pill" id="tasks-progress">…</span>
+              <div class="task-filters" role="group" aria-label="Фильтр задач">
+                <button type="button" class="btn btn-ghost btn-sm" data-task-filter="all" aria-pressed="true">Все</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-task-filter="overdue" aria-pressed="false">Просроченные</button>
+              </div>
               <div class="right">
                 <span class="pill accent">Список</span>
                 <button class="btn btn-primary btn-sm" id="task-new" type="button">+ Задача</button>
@@ -953,15 +1003,15 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
 
         <div class="card" id="shell-calendar" tabindex="-1" role="region" aria-label="Календарь">
           <div class="card-head">
-            <span class="card-title">Календарь · <span id="cal-month">сентябрь 2026</span></span>
+            <span class="card-title">Календарь · <span id="cal-month">…</span></span>
             <div class="right">
               <button class="btn btn-ghost btn-sm" id="cal-prev" type="button">← Назад</button>
-              <button class="pill accent" id="cal-today" type="button" title="Вернуться к демонстрационному месяцу">Сегодня</button>
+              <button class="pill accent" id="cal-today" type="button" title="Перейти к текущему месяцу">Сегодня</button>
               <button class="btn btn-ghost btn-sm" id="cal-next" type="button">Вперёд →</button>
             </div>
           </div>
           <div class="cal" id="shell-cal-grid"></div>
-          <p class="fin-note" id="cal-note" hidden>Демо-события есть только в сентябре 2026.</p>
+          <p class="fin-note" id="cal-note" hidden>В этом месяце событий нет. Здесь появляются сроки сделок, даты оплат и сроки задач.</p>
           <div class="row wrap mt2" style="gap:12px;font-size:11px;color:var(--muted);margin-top:14px">
             <span class="row" style="gap:5px"><span class="pill accent" style="padding:0 6px"></span>Сделка</span>
             <span class="row" style="gap:5px"><span class="pill ok" style="padding:0 6px"></span>Оплата</span>
@@ -1007,6 +1057,12 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
               <label class="mgmt-field" for="mgmt-email-status"><span>Статус новых карточек из писем</span><select id="mgmt-email-status"></select></label>
             </div>
           </div>
+          <!-- Пункт 15 плана: авто-синк почты в v2 делает не браузер, а
+               сервер — внешний cron (scripts/watchdog_crm.sh:47-55) раз в
+               5 минут зовёт POST /email-parser/sync-all. Клиентский таймер
+               legacy (site/js/email_parser.js:184) был бы вторым, лишним
+               путём; здесь только пояснение и ручная кнопка. -->
+          <p class="mgmt-hint">Автоимпорт писем выполняет сервер: он забирает почту сам, раз в 5 минут. Кнопка «Синхронизировать сейчас» нужна, чтобы проверить ящик немедленно, не дожидаясь очереди.</p>
         </div>
         <div class="card" id="mgmt-profile-card">
           <div class="card-head"><span class="card-title">Профиль — смена пароля</span></div>
@@ -1021,16 +1077,17 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <button class="btn btn-primary btn-sm" type="submit">Сменить пароль</button>
           </form>
         </div>
-        <div class="card">
+        <div class="card" id="mgmt-user-card">
           <div class="card-head"><span class="card-title">Пользователи</span>
             <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-user-new" type="button">+ Новый пользователь</button></div>
           </div>
           <div class="table-scroll" role="region" aria-label="Пользователи — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-user-table">
-              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th style="width:104px">Действия</th></tr></thead>
+              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th style="width:112px">Доступ</th><th style="width:252px">Действия</th></tr></thead>
               <tbody id="mgmt-user-rows"></tbody>
             </table>
           </div>
+          <p class="mgmt-hint" id="mgmt-user-state" role="status" aria-live="polite" hidden></p>
         </div>
         <div class="card">
           <div class="card-head"><span class="card-title">Магазины</span>
@@ -1054,6 +1111,79 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             </table>
           </div>
 
+        </div>
+
+        <!-- Пункт 15 плана: экраны интеграции. Карточки живут в этом же
+             разделе и подгружаются лениво (см. MGMT_LAZY в
+             shell-v2-management.js), доступ — только админу, метки
+             data-admin-only проставляет ADMIN_MARKS. -->
+        <div class="card" id="mgmt-wh-card">
+          <div class="card-head"><span class="card-title">Вебхуки</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-wh-new" type="button">+ Новый вебхук</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Вебхуки — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-wh-table">
+              <thead><tr><th style="width:34%">URL</th><th>События</th><th style="width:112px">Состояние</th><th style="width:268px">Действия</th></tr></thead>
+              <tbody id="mgmt-wh-rows"></tbody>
+            </table>
+          </div>
+          <p class="mgmt-hint" id="mgmt-wh-state" role="status" aria-live="polite">Список ещё не загружен.</p>
+        </div>
+
+        <div class="card" id="mgmt-co-card">
+          <div class="card-head"><span class="card-title">Кастомные объекты</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-co-new" type="button">+ Новый тип</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Кастомные объекты — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-co-table">
+              <thead><tr><th style="width:34%">Название</th><th>Системное имя</th><th style="width:208px">Действия</th></tr></thead>
+              <tbody id="mgmt-co-rows"></tbody>
+            </table>
+          </div>
+          <p class="mgmt-hint" id="mgmt-co-state" role="status" aria-live="polite">Список ещё не загружен.</p>
+          <div class="mgmt-sub" id="mgmt-co-fields" hidden>
+            <div class="card-head"><span class="card-title">Поля: <span id="mgmt-co-fields-title">—</span></span>
+              <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-co-field-new" type="button">+ Новое поле</button></div>
+            </div>
+            <div class="table-scroll" role="region" aria-label="Поля кастомного объекта — горизонтальная прокрутка" tabindex="0">
+              <table class="tbl" id="mgmt-co-fields-table">
+                <thead><tr><th style="width:26%">Метка</th><th>Системное имя</th><th style="width:132px">Тип</th><th style="width:128px">Обязательность</th><th style="width:110px">Действия</th></tr></thead>
+                <tbody id="mgmt-co-field-rows"></tbody>
+              </table>
+            </div>
+            <p class="mgmt-hint" id="mgmt-co-fields-state" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <div class="card" id="mgmt-wf-card">
+          <div class="card-head"><span class="card-title">Автоматизации (Workflows)</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-wf-new" type="button">+ Новый воркфлоу</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Автоматизации — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-wf-table">
+              <thead><tr><th style="width:26%">Название</th><th>Описание</th><th style="width:112px">Состояние</th><th style="width:280px">Действия</th></tr></thead>
+              <tbody id="mgmt-wf-rows"></tbody>
+            </table>
+          </div>
+          <p class="mgmt-hint" id="mgmt-wf-state" role="status" aria-live="polite">Список ещё не загружен.</p>
+          <div class="mgmt-sub" id="mgmt-wf-detail" hidden>
+            <div class="card-head"><span class="card-title">Сценарий: <span id="mgmt-wf-detail-title">—</span></span></div>
+            <p class="mgmt-hint" id="mgmt-wf-detail-state" role="status" aria-live="polite"></p>
+            <div class="mgmt-cols">
+              <div class="mgmt-col">
+                <h3 class="mgmt-sub-h">Триггеры</h3>
+                <ul class="mgmt-list" id="mgmt-wf-triggers"></ul>
+              </div>
+              <div class="mgmt-col">
+                <h3 class="mgmt-sub-h">Шаги</h3>
+                <ul class="mgmt-list" id="mgmt-wf-steps"></ul>
+              </div>
+              <div class="mgmt-col">
+                <h3 class="mgmt-sub-h">Журнал запусков</h3>
+                <ul class="mgmt-list" id="mgmt-wf-runs"></ul>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1133,6 +1263,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     // Только память страницы: ни сети, ни хранилища, ни каскадов статусов.
     // Источник данных финансов: в прототипе — демо-массивы ниже; в site-v2
     // загрузчик (boot.js) кладёт сюда данные из CRM API до подключения скрипта.
+    // На боевой базе резерв не срабатывает никогда: KB_FIN_SOURCE существует
+    // всегда (пустые массивы — тоже объект), а сбой загрузки показывает экран
+    // ошибки, а не раздел на выдуманных сделках. Демо-массивы живут ровно в
+    // предпросмотре мокапов и в режиме ?demo=1.
     const finSource = window.KB_FIN_SOURCE || {
         outgoing: [
         { id: 'c104', cardId: 'K-104', card: 'К-104 · Освещение офиса', date: '16.09.2026', client: 'ООО «РемонтСити»', amount: 440000, paid: 440000, store: 'БН', estimate: 'ПР-104', tn: null, calculated: false, posted: false, tnHere: false, billHere: false, print: 'Печать организации при получении', authority: 'Доверенность ещё не передана', note: 'ТН не оформлена. № и дата оформляются в карточке; здесь только просмотр.' },
@@ -1168,16 +1302,33 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         <td>${checkbox(r, 'posted', 'Списано')}</td>
         <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" style="width:100%" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
     </tr>`).join('');
-    const issued = outgoing.filter((r) => r.tn);
-    // Месяцы выписки ТН — для фильтра документов
-    const docMonths = [...new Set(issued.map((r) => r.tn.date).filter((d) => /^\d{2}\.\d{2}\.\d{4}$/.test(d)).map((d) => d.slice(6, 10) + '-' + d.slice(3, 5)))].sort().reverse();
+    // Одна ТН — одна строка. В «Документы» она приходит из двух мест: строкой
+    // реестра (последняя ТН сделки в KB_FIN_SOURCE — с магазином, счётом,
+    // печатью и живым «ТН у нас») и строкой с доски (card.docs — только номер,
+    // дата и сумма). Строка реестра полнее, поэтому документ, уже показанный
+    // ею, второй раз не добавляем: на копии прод-БД из 395 строк 194 были
+    // дублями, то есть счётчик «Видимых документов» оказывался завышен вдвое.
+    // Дубли бывают и внутри самого реестра: у сделки с двумя не-документными
+    // записями обе строки ссылаются на одну и ту же последнюю ТН.
+    const registryDocTxIds = new Set();
+    const issued = outgoing.filter((r) => {
+        if (!r.tn) return false;
+        // Строки без ссылки на документ (демо-каркас прототипа) сопоставить
+        // не с чем — они проходят как есть.
+        if (r.docTxId === null || r.docTxId === undefined) return true;
+        if (registryDocTxIds.has(r.docTxId)) return false;
+        registryDocTxIds.add(r.docTxId);
+        return true;
+    });
+    // Месяцы выписки ТН для фильтра документов собирает syncDocMonths() —
+    // после того, как к строкам реестра добавятся ТН с доски и групповые.
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
         <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
         <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
     </tr>`).join('');
     $('#fin-journal-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
         <td>${esc(r.tn.number)}</td><td class="num">${r.tn.date}</td>
-        <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление №/даты — в карточке сделки. Здесь демо просмотра, редактирование не реализовано.</p></details></td>
+        <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление № и даты — в карточке сделки, журнал здесь только для просмотра.</p></details></td>
         <td class="num">${money(r.amount)}</td>
     </tr>`).join('');
     // Фидбек 20.09: статусы входящих — живые галочки, а не текст «Да/Нет»; правка уходит в PATCH /nakladnye.
@@ -1313,6 +1464,17 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     let docMonth = 'all';
     let docSort = 'desc';
     const byId = new Map(outgoing.map((r) => [r.id, r]));
+    // Порядок документа в карточке: на доске его уже нет (строки документов с
+    // доски уходят под строку реестра), а fin:originals ищет запись именно по
+    // индексу. Строка реестра индекса не знает — находим его по docTxId.
+    // -1, если документ в карточке не ищется: board.js такой индекс игнорирует.
+    function docIndexOf(r) {
+        if (r.index !== null && r.index !== undefined) return r.index;
+        const card = ((window.KBData && window.KBData.cards) || []).filter((c) => String(c.id) === String(r.cardId))[0];
+        const docs = (card && card.docs) || [];
+        if (r.docTxId === null || r.docTxId === undefined) return -1;
+        return docs.findIndex((d) => d.txId === r.docTxId);
+    }
     // Kanban documents are session-local too; one row per partial invoice.
     // Подписку на kb:documents держит обёртка в начале скрипта — она должна
     // срабатывать и до первой сборки раздела.
@@ -1321,17 +1483,41 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         // Одна вставка вместо N: каждая insertAdjacentHTML — отдельный парсинг
         // и мутация DOM, а реестр ТН перестраивается на каждое kb:documents.
         const kanbanRows = [];
+        // Проход собирается заново при каждом kb:documents, поэтому список
+        // «уже показанных» документов начинаем со строк реестра.
+        const listedDocs = new Set(registryDocTxIds);
         (detail || []).forEach((card) => card.docs.forEach((doc, index) => {
+            // Номер и дата в этом проходе уже есть (строка реестра или второй
+            // документ той же карточки) — дубль не добавляем. index при этом
+            // берётся из исходного массива, поэтому fin:originals продолжает
+            // попадать в нужный документ карточки.
+            if (doc.txId !== null && doc.txId !== undefined) {
+                if (listedDocs.has(doc.txId)) return;
+                listedDocs.add(doc.txId);
+            }
             const id = 'kb-' + card.id + '-' + index;
-            const r = { id, cardId: card.id, index, docTxId: doc.txId, tnHere: doc.originalsReturned, billHere: false, billRequired: false };
+            // Запись документа с доски описываем теми же полями, что и строку
+            // реестра (client, card, date, store, tn, amount). Без них поиск по
+            // документам и фильтр «месяц выписки» работали только по строкам
+            // реестра, aria-label галочки читался «undefined», а экспорт CSV
+            // не мог назвать ни клиента, ни номер ТН.
+            const r = {
+                id, cardId: card.id, index, docTxId: doc.txId,
+                tnHere: doc.originalsReturned, billHere: false, billRequired: false,
+                client: card.client, card: card.id + ' · ' + card.title, date: doc.date,
+                store: storeLabel(card.store), estimate: '',
+                tn: { number: doc.series + ' ' + doc.number, date: doc.date, bill: '' },
+                amount: doc.amount
+            };
             byId.set(id, r);
             kanbanRows.push(`<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
                 <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
                 <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
-                <td class="num">${money(doc.amount)}</td><td>${checkbox({...r, card: card.id, client: card.client}, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
+                <td class="num">${money(doc.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
             </tr>`);
         }));
         if (kanbanRows.length) $('#fin-document-rows').insertAdjacentHTML('beforeend', kanbanRows.join(''));
+        syncDocMonths();
         updateDocuments();
     }
     // Групповые ТН: одна накладная на несколько карточек (аналог групп списаний).
@@ -1362,6 +1548,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         });
         if (groupDocRows.length) $('#fin-document-rows').insertAdjacentHTML('beforeend', groupDocRows.join(''));
         if (groupJournalRows.length) $('#fin-journal-rows').insertAdjacentHTML('beforeend', groupJournalRows.join(''));
+        syncDocMonths();
         updateDocuments();
         updateJournal();
     }
@@ -1453,6 +1640,42 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
     });
+    // Экспорт документов — тем же способом, что реестр оплат: ';' + BOM и
+    // ровно видимый набор (поиск, фильтр возврата, месяц выписки).
+    // Одна и та же ТН попадает в таблицу дважды: строкой реестра (из
+    // KB_FIN_SOURCE, с печатью и счётом) и строкой с доски (card.docs) —
+    // на проде 194 из 197 документов. В выгрузке дубли бухгалтерии не нужны,
+    // поэтому на документ (docTxId) остаётся одна запись, более полная.
+    // С 23.09 дубли убраны и на уровне строк таблицы, так что здесь эта
+    // страховка молчит — оставлена намеренно: экспорт не должен рассыпаться,
+    // если источник снова начнёт приносить одну ТН дважды.
+    $('#fin-document-export').addEventListener('click', () => {
+        const byDoc = new Map();
+        lastVisibleDocs.forEach((r) => {
+            const key = (r.docTxId === null || r.docTxId === undefined) ? 'id' + r.id : 'tx' + r.docTxId;
+            const held = byDoc.get(key);
+            if (!held || (!held.txId && r.txId)) byDoc.set(key, r);
+        });
+        const rows = [...byDoc.values()];
+        if (!rows.length) { alert('Нечего экспортировать — список пуст.'); return; }
+        const headers = ['Клиент', 'Карточка', 'Магазин', 'Сумма (BYN)', '№ ТН', 'Дата ТН', '№ счёта', 'ТН у нас', 'Счёт у нас', 'Печать/доверенность'];
+        const escCsv = (v) => { const s = (v === null || v === undefined) ? '' : String(v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+        const lines = [headers.join(';')].concat(rows.map((r) => [
+            r.client, r.card, r.store, money(r.amount),
+            // Номер на доске склеен как series + ' ' + number, а серия не
+            // хранится (boot кладёт '') — на выходе висел бы ведущий пробел.
+            r.tn ? String(r.tn.number).trim() : '', r.tn ? r.tn.date : '', r.tn ? String(r.tn.bill).trim() : '',
+            r.tnHere ? 'да' : 'нет',
+            r.billHere ? 'да' : (r.billRequired === false ? 'не оформлен' : 'нет'),
+            r.print || ''
+        ].map(escCsv).join(';')));
+        const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'dokumenty.csv';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    });
     function docSortKey(r) {
         const d = r.tn ? r.tn.date : '';
         return /^\d{2}\.\d{2}\.\d{4}$/.test(d) ? d.slice(6, 10) + '-' + d.slice(3, 5) + '-' + d.slice(0, 2) : '0000-00-00';
@@ -1468,12 +1691,16 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         });
         trs.forEach((tr) => tbody.appendChild(tr));
     }
+    // Видимый набор документов — тот же смысл, что lastVisibleRows для реестра:
+    // экспорт отдаёт ровно то, что сейчас показывает фильтр.
+    let lastVisibleDocs = [];
     function updateDocuments(keepFocused = false) {
         sortDocRows();
         const rows = visibleRows('#fin-document-rows', (r) => (documentFilter === 'all' ||
             (documentFilter === 'returned' ? r.tnHere && (r.billHere || r.billRequired === false) : !r.tnHere || (!r.billHere && r.billRequired !== false))) &&
             matches(r, $('#fin-document-search').value) &&
             (docMonth === 'all' || (r.tn && /^\d{2}\.\d{2}\.\d{4}$/.test(r.tn.date) && r.tn.date.slice(6, 10) + '-' + r.tn.date.slice(3, 5) === docMonth)), keepFocused);
+        lastVisibleDocs = rows;
         $('#fin-document-count').textContent = `Видимых документов: ${rows.length} · Все оформленные оригиналы у нас: ${rows.filter((r) => r.tnHere && (r.billHere || r.billRequired === false)).length}`;
         $('#fin-document-empty').hidden = rows.length !== 0;
     }
@@ -1482,14 +1709,124 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         $('#fin-journal-total').textContent = `Исходящих ТН: ${rows.length} · Сумма ${money(rows.reduce((sum, r) => sum + r.amount, 0))} BYN`;
         $('#fin-journal-empty').hidden = rows.length !== 0;
     }
+    // Месяцы выписки — по всем строкам документов, а не только по строкам
+    // реестра: месяц групповой накладной или второй ТН карточки иначе просто
+    // не появляется в фильтре. Выбранный месяц сохраняем, если он остался.
+    function syncDocMonths() {
+        const sel = document.getElementById('fin-doc-month');
+        if (!sel) return;
+        const months = [...new Set([...byId.values()]
+            .filter((r) => r.tn && /^\d{2}\.\d{2}\.\d{4}$/.test(r.tn.date))
+            .map((r) => r.tn.date.slice(6, 10) + '-' + r.tn.date.slice(3, 5)))].sort().reverse();
+        const names = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+        sel.innerHTML = '<option value="all">Все месяцы</option>' + months.map((ym) => {
+            const parts = ym.split('-');
+            return `<option value="${ym}">${names[Number(parts[1]) - 1]} ${parts[0]}</option>`;
+        }).join('');
+        if (docMonth !== 'all' && !months.includes(docMonth)) docMonth = 'all';
+        sel.value = docMonth;
+    }
     function pressed(selector, selected) {
         $$(selector).forEach((button) => button.setAttribute('aria-pressed', String(button === selected)));
     }
+    // ==== Вкладка «Контроль» (паритет с legacy site/js/control.js) ====
+    // Строки строим при открытии вкладки, а не на сборке раздела: раздел ленив,
+    // и дебиторка меняется переносом карточки между колонками и оплатой —
+    // держать её строки в DOM с первой сборки смысла нет.
+    // ДАННЫЕ: только то, что уже лежит в window.KBData.cards (сумма и оплачено
+    // считает бэкенд). Новых запросов вкладка не делает.
+    // «Дней» — возраст сделки с created_at, как в legacy site/js/control.js.
+    // Дату переносит в KBData загрузчик (v2-boot-template.js); если её нет
+    // (демо-набор прототипа, карточка без даты), колонка откатывается к
+    // прежнему смыслу — просрочке по сроку сделки (cards.deadline).
+    const DEBT_STAGES = ['pay', 'assembly'];   // id этапов, сравнение не по названию
+    const DEBT_LIMIT = 60;                     // потолок отрисовки: порядок по остатку долга
+    const ruDate = (value) => {
+        const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value || ''));
+        return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
+    };
+    const statusName = (stageId) => {
+        const st = ((window.KBData && window.KBData.statuses) || []).filter((s) => s.id === stageId)[0];
+        return st ? st.name : String(stageId || '');
+    };
+    const storeLabel = (id) => (window.KBData && window.KBData.storeName ? window.KBData.storeName(id) : String(id || ''));
+    // Долг в копейках; «> 1» — то же правило, что в legacy (долг больше копейки).
+    // Суммы берём через `|| 0`: пропущенное значение не должно превращать
+    // строку в NaN и молча выбрасывать сделку из списка.
+    const debtOf = (c) => (c.amount || 0) - (c.paidAmount || 0);
+    // Возраст сделки в днях (legacy) — от created_at; срок сделки (deadline)
+    // остаётся фолбэком для карточек без даты создания.
+    const ageOf = (c, today) => {
+        const from = ruDate(c.createdAt) || ruDate(c.deadline);
+        return from ? Math.max(0, Math.floor((today - from) / 86400000)) : null;
+    };
+    // Пороги цвета — как в legacy (30 и 60 дней); до 30 — обычное число.
+    const ageCell = (days) => (days === null ? '—'
+        : days >= 30 ? `<span class="pill ${days >= 60 ? 'danger' : 'warn'}">${days}</span>`
+        : String(days));
+    function debtList() {
+        const D = window.KBData;
+        if (!D || !Array.isArray(D.cards)) return null;   // данных нет вовсе — не путать с «долгов нет»
+        const today = D.today instanceof Date ? D.today : new Date();
+        return D.cards
+            .filter((c) => DEBT_STAGES.indexOf(c.stage) >= 0 && debtOf(c) > 1)
+            .map((c) => ({ c, debt: debtOf(c), days: ageOf(c, today) }))
+            .sort((a, b) => b.debt - a.debt);
+    }
+    function renderControl() {
+        const body = $('#fin-control-rows');
+        if (!body) return;
+        const empty = $('#fin-control-empty');
+        const limit = $('#fin-control-limit');
+        const rows = debtList();
+        const shown = rows ? rows.slice(0, DEBT_LIMIT) : [];
+        const sum = (list) => money(list.reduce((acc, x) => acc + x.debt, 0));
+        body.innerHTML = shown.map(({ c, debt, days }) => `<tr${c.id ? ` data-card="${esc(c.id)}"` : ''}>
+            <td><b>${esc(c.client || 'Без клиента')}</b><small>${esc(c.id + ' · ' + c.title)}</small></td>
+            <td>${esc(storeLabel(c.store))}</td><td><span class="fin-status">${esc(statusName(c.stage))}</span></td>
+            <td class="num">${money(c.amount || 0)}</td><td class="num">${money(c.paidAmount || 0)}</td>
+            <td class="num" style="font-weight:800">${money(debt)}</td>
+            <td class="num">${ageCell(days)}</td>
+        </tr>`).join('');
+        // «Нет данных» (сбой) и «долгов нет» (норма) — разные состояния.
+        $('#fin-control-debt-summary').textContent = rows ? (rows.length ? rows.length + ' · ' + sum(rows) : 'нет') : '—';
+        $('#fin-control-total').textContent = rows && rows.length ? `Долг по всем строкам: ${rows.length} сделок · ${sum(rows)} BYN` : '';
+        empty.hidden = !rows ? false : rows.length !== 0;
+        // Названия этапов подставляем из справочника по id — на сервере канон
+        // пишется «Ждет оплаты» без «ё», и хардкод разошёлся бы с колонкой.
+        empty.textContent = !rows ? 'Данные сделок не загружены — обновите страницу.'
+            : (!rows.length ? `Долгов нет: в статусах «${statusName('assembly')}» и «${statusName('pay')}» всё оплачено.` : '');
+        limit.hidden = !rows || rows.length <= shown.length;
+        limit.textContent = `Показаны ${shown.length} из ${rows ? rows.length : 0} — порядок по остатку долга.`;
+        renderControlQueue();
+    }
+    // Вторая строка контроля — то же количество, что у фильтра «Не списано»
+    // в реестре (ручная отметка о списании в учётной программе).
+    function renderControlQueue() {
+        const el = $('#fin-control-queue');
+        if (!el) return;
+        const unposted = outgoing.filter((r) => !r.posted);
+        el.textContent = unposted.length
+            ? `Записей без отметки «Списано» — ${unposted.length} на ${money(unposted.reduce((sum, r) => sum + r.amount, 0))} BYN. Это ровно выборка фильтра «Не списано» в реестре оплат.`
+            : 'Все записи реестра отмечены как списанные.';
+    }
+    const controlUnposted = $('#fin-control-show-unposted');
+    if (controlUnposted) controlUnposted.addEventListener('click', () => {
+        const tab = $('[data-fin-tab="payments"]');
+        const filter = $('[data-payment-filter="unposted"]');
+        pressed('[data-fin-tab]', tab);
+        $$('[data-fin-panel]').forEach((panel) => { panel.hidden = panel.id !== 'fin-payments'; });
+        paymentFilter = 'unposted';
+        pressed('[data-payment-filter]', filter);
+        updatePayments();
+        filter.focus();
+    });
     $$('[data-fin-tab]').forEach((button) => button.addEventListener('click', () => {
         pressed('[data-fin-tab]', button);
         $$('[data-fin-panel]').forEach((panel) => { panel.hidden = panel.id !== button.getAttribute('aria-controls'); });
         updatePayments();
         updateDocuments();
+        if (button.dataset.finTab === 'control') renderControl();
     }));
     $$('[data-payment-filter]').forEach((button) => button.addEventListener('click', () => {
         paymentFilter = button.dataset.paymentFilter;
@@ -1552,7 +1889,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             }
         }
         if (r.cardId && input.dataset.field === 'tnHere') document.dispatchEvent(new CustomEvent('fin:originals', {
-            detail: { cardId: r.cardId, index: r.index, field: 'originalsReturned', checked: input.checked }
+            detail: { cardId: r.cardId, index: docIndexOf(r), field: 'originalsReturned', checked: input.checked }
         }));
         if (input.dataset.field === 'posted') updatePayments(true);
         else updateDocuments(true);
@@ -1566,16 +1903,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     // Документы: месяцы выписки и сортировка (селекты заполняются здесь —
     // после объявления docMonth/docSort, чтобы не ловить TDZ)
     const docMonthSel = document.getElementById('fin-doc-month');
-    if (docMonthSel) {
-        const names = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
-        docMonthSel.innerHTML = '<option value="all">Все месяцы</option>' + docMonths.map((ym) => {
-            const parts = ym.split('-');
-            return `<option value="${ym}">${names[Number(parts[1]) - 1]} ${parts[0]}</option>`;
-        }).join('');
-        docMonthSel.value = docMonth;
-        if (docMonth !== 'all' && !docMonths.includes(docMonth)) docMonth = 'all';
-        docMonthSel.value = docMonth;
-    }
+    syncDocMonths();
     const docSortSel = document.getElementById('fin-doc-sort');
     if (docSortSel) docSortSel.value = docSort;
     // Месячный фильтр — как месячный фильтр рабочей версии
