@@ -2,11 +2,11 @@ import contextlib
 import os
 import sqlite3
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,6 +15,7 @@ import schemas
 from auth import get_current_user, require_role
 from constants import MONEY_EPSILON
 from database import get_db
+from db_utils import PAGE_MAX_SIZE, resolve_page, set_page_headers
 from services.invoices import find_duplicate_invoice, find_invoice_twins, norm_invoice_number
 from services.payments import add_invoice as add_invoice_svc
 from services.payments import delete_transaction as delete_transaction_svc
@@ -82,6 +83,20 @@ class InvoiceCreateRequest(BaseModel):
     invoice_date: str | None = None
 
 
+class TransactionPage(BaseModel):
+    """Страница реестра оплат — пункт 16 плана (дефект B11: 132 КБ одним куском).
+
+    Включается только явным limit/offset; без них роут возвращает прежний
+    плоский массив, поэтому v2-boot-template.js (грузит реестр целиком)
+    продолжает работать без правок. Единица `items` — та же, что и без
+    пагинации: при grouped=True это строка сделки, при grouped=False — сырая
+    запись, поэтому total всегда считает то, что реально лежит в items."""
+    items: List[schemas.TransactionResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 @router.post("/trigger_from_card/{card_id}", response_model=schemas.TransactionResponse)
 def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
@@ -142,8 +157,11 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
         db.close()
 
 
-@router.get("/transactions", response_model=List[schemas.TransactionResponse])
-def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
+@router.get("/transactions", response_model=Union[TransactionPage, List[schemas.TransactionResponse]])
+def get_transactions(grouped: bool = True,
+                     limit: Optional[int] = Query(None, ge=1, le=PAGE_MAX_SIZE),
+                     offset: Optional[int] = Query(None, ge=0),
+                     db: Session = Depends(get_db),
                      current_user: models.User = Depends(get_current_user),
                      response: Response = None):
     """Реестр оплат.
@@ -155,8 +173,15 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
     а не отгрузками, поэтому части схлопываются обратно в одну строку.
 
     grouped=False — сырые записи (нужны доске списания и карточке).
+
+    Пагинация (пункт 16 плана, дефект B11) включается явным limit ИЛИ offset
+    и возвращает {items, total, limit, offset}. Без параметров ответ прежний —
+    плоский массив и прежние заголовки, поэтому клиент можно перевести на
+    страницы отдельным шагом. `total` всегда считает те же единицы, что лежат
+    в `items`: строки таблицы при grouped=False и строки сделок при grouped=True.
     """
     try:
+        page = resolve_page(limit, offset)
         # Фидбек 19.09: карточки из корзины (is_deleted) не должны показываться
         # в реестре — иначе удалённая карточка «оставалась» в реестре и не
         # открывалась. При восстановлении карточки записи возвращаются.
@@ -168,17 +193,33 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
                 models.Transaction.card_id.is_(None),
             )
         ).filter(models.Transaction.is_document == False)
-        rows = query.options(selectinload(models.Transaction.card)).order_by(
+        ordered = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
-        ).limit(REGISTRY_HARD_LIMIT).all()
-        if response is not None:
+        )
+        total = None
+        if page is not None and not grouped:
+            # Сырой режим: элемент ответа = строка таблицы, поэтому и общее число,
+            # и сам кусок считаются в SQL. COUNT — один запрос по ТОМУ ЖЕ фильтру
+            # и до применения limit/offset. LEFT JOIN на cards не размножает
+            # строки (cards.id — первичный ключ), так что count честный.
+            total = query.with_entities(func.count()).scalar() or 0
+            ordered = ordered.limit(page.limit).offset(page.offset)
+        else:
+            ordered = ordered.limit(REGISTRY_HARD_LIMIT)
+        rows = ordered.all()
+        if page is None and response is not None:
             response.headers["X-Total-Count"] = str(len(rows))
             if len(rows) >= REGISTRY_HARD_LIMIT:
                 response.headers["X-Truncated"] = "true"
 
         if not grouped:
             # UI FIX 2026-08-31: dict вместо ORM — сессия закроется в finally
-            return [tx_dict(r) for r in rows]
+            items = [tx_dict(r) for r in rows]
+            if page is None:
+                return items
+            set_page_headers(response, total)
+            return {"items": items, "total": total,
+                    "limit": page.limit, "offset": page.offset}
 
         # ВАЖНО: чек-лист карточки — это ЗАКУПКА У ПОСТАВЩИКОВ
         # (кому и сколько мы должны заплатить за товар для этого заказа).
@@ -238,7 +279,19 @@ def get_transactions(grouped: bool = True, db: Session = Depends(get_db),
         # Сортировка по дате: в базе даты и с таймзоной, и без — прямое
         # сравнение datetime уронило бы эндпоинт, поэтому сортируем по строке.
         result.sort(key=lambda x: (x["date"].isoformat() if x.get("date") else ""), reverse=True)
-        return result
+        if page is None:
+            return result
+        # Групповой режим: элемент ответа — строка СДЕЛКИ, а не строка таблицы,
+        # поэтому резать в SQL нельзя без смены порядка. Порядок выше задаётся
+        # сортировкой по строковой дате в Python (форматы дат в базе смешанные,
+        # и SQL ORDER BY дал бы другую последовательность — страницы начали бы
+        # перекрываться на стыках). Группируем и сортируем ровно как раньше,
+        # а уже готовый список режем: клиент видит тот же порядок, что и до
+        # пагинации, и total считает строки сделок, а не транзакции.
+        total = len(result)
+        set_page_headers(response, total)
+        return {"items": result[page.offset:page.offset + page.limit],
+                "total": total, "limit": page.limit, "offset": page.offset}
     finally:
         db.close()
 
