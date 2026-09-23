@@ -73,22 +73,96 @@ const MGMT_DICT = (() => {
     'use strict';
     const $ = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    // Те же справочники, что читают доска и пульт (shell-v2-data.js):
-    // правки здесь меняют доску, фильтры и «Клиент 360» через событие
-    // kb:dictionaries-changed. Превью: до перезагрузки, без сети.
+    /* ── Статусы сделок: полный список из API (пункт 12, Р3/Р5) ──────────
+       Раздел грузит статусы ПРЯМЫМ GET /dictionaries/statuses: роут
+       возвращает ВСЕ строки, включая is_active=false, — а boot кладёт в
+       общий KBData.statuses только активных (v2-boot-template.js,
+       buildKbData), и выключенный статус иначе исчезал бы из админки без
+       возможности включить его обратно. Загрузка ленивая — при открытии
+       раздела (MGMT_LAZY.onOpen ниже), перечитывание — после каждого
+       сохранения (saveStatus → loadStatuses). */
+
+    // Канонические статусы сделок — schemas.CARD_STATUSES (schemas.py:243),
+    // тот же список, что CANON_ID в v2-boot-template.js. Сделки хранят статус
+    // именем, а сервер принимает только канонические имена (422) — поэтому
+    // имя канонического статуса закрыто для правки (Р3): переименование
+    // оставило бы карточки без колонки.
+    const CANON_NAMES = ['Новый запрос', 'В работе', 'Ждет оплаты', 'Сборка', 'На списание', 'Закрыто'];
+    // id канонических статусов — CANON_ID из v2-boot-template.js; «Закрыто» —
+    // 'closed' (Р2), чтобы не спорить с псевдо-этапом полной выписки 'done'.
+    const CANON_IDS = {
+        'Новый запрос': 'new', 'В работе': 'work', 'Ждет оплаты': 'pay',
+        'Сборка': 'assembly', 'На списание': 'writeoff', 'Закрыто': 'closed'
+    };
+    const isCanonName = name => CANON_NAMES.indexOf(name) >= 0;
+    // Роли на сервере нет (DealStatusResponse отдаёт только id/name/position/
+    // color/is_active) — выводим из имени тем же правилом, что boot (Р1).
+    function statusRole(name) {
+        return name === 'На списание' ? 'writeoff' : name === 'Закрыто' ? 'archive' : 'board';
+    }
+    // Тот же slug, что в v2-boot-template.js (функция slug), — id
+    // неканонического статуса должен совпасть с тем, что boot построит при
+    // следующей загрузке страницы.
+    function statusSlug(name) {
+        return 'st-' + String(name).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-|-$/g, '');
+    }
+    // Запись раздела из строки API — совместима с persist(): serverId —
+    // числовой id сервера, is_active — видимость на доске, canonical —
+    // блокировка имени в форме (Р3).
+    function statusRecordFromApi(row) {
+        return {
+            id: 'st-' + row.id,
+            serverId: row.id,
+            name: row.name,
+            color: row.color || '',
+            position: row.position || 0,
+            is_active: row.is_active !== false,
+            canonical: isCanonName(row.name)
+        };
+    }
+    // Режим строки состояния списка статусов: '' | 'loading' | 'preview' |
+    // 'error'. Объявлен ДО стартового render('status') (инициализация ниже
+    // зовёт render по всем видам) — иначе let-переменные попали бы в TDZ.
+    let statusesLoading = false;
+    let statusStateMode = '';
+    let statusStateReason = '';
+    // Состояние раздела до первой ленивой загрузки — снимок KBData.statuses,
+    // чтобы предпросмотр макета и ?demo=1 не пустовали. serverId нет только
+    // у демо/фолбэк-статусов — числовой id сервера не придумываем: правка
+    // такой записи уйдёт в POST, как и раньше.
+    function statusRecordFromKb(s) {
+        return {
+            id: s.serverId != null ? 'st-' + s.serverId : 'local-' + s.id,
+            serverId: s.serverId != null ? s.serverId : null,
+            name: s.name,
+            color: s.color || '',
+            position: s.position || 0,
+            is_active: true,
+            canonical: isCanonName(s.name)
+        };
+    }
+    // Остальные справочники — те же, что читают доска и пульт
+    // (shell-v2-data.js): правки меняют доску, фильтры и «Клиент 360» через
+    // событие kb:dictionaries-changed. Превью: до перезагрузки, без сети.
+    // Статусы — НЕ ссылка на KBData.statuses (см. блок выше): у раздела свой
+    // массив, до первой ленивой загрузки — снимок общего справочника; в
+    // общий справочник свежий список переносит syncKbStatuses().
     const data = {
         supplier: KBData.suppliers,
         user: KBData.users,
         store: KBData.stores,
-        status: KBData.statuses
+        status: (KBData.statuses || []).map(statusRecordFromKb)
     };
     const roles = {manager:'Менеджер', admin:'Администратор', superadmin:'Владелец (полный доступ)', warehouse:'Склад', documents:'Документы'};
-    const roleLabels = {board: 'Колонка доски', writeoff: 'Очередь списания'};
+    // Роль отображается из имени (statusRole, Р1) — на сервере поля role нет.
+    const roleLabels = {board: 'Колонка доски', writeoff: 'Очередь списания', archive: 'Архив'};
     const fields = {
         supplier: [['name','Название','text',true],['unp','УНП'],['contact_person','Контактное лицо'],['phone','Телефон','tel'],['email','Email','email'],['address','Адрес'],['note','Примечание','textarea']],
         user: [['username','Логин','text',true],['password','Пароль (минимум 8 символов; обязателен при создании)','password'],['role','Роль','select',true]],
         store: [['name','Название','text',true],['address','Адрес'],['phone','Телефон','tel']],
-        status: [['name','Название','text',true],['color','Цвет','color'],['position','Позиция','number',true]]
+        // is_active (Р5) — переключатель видимости: снятый флаг убирает
+        // колонку с доски; для нового статуса включён по умолчанию.
+        status: [['name','Название','text',true],['color','Цвет','color'],['position','Позиция','number',true],['is_active','Активен','checkbox']]
     };
     const titles = {supplier:'Поставщик', user:'Пользователь', store:'Магазин', status:'Статус сделки'};
     let sequence = 10, editing, opener;
@@ -110,12 +184,14 @@ const MGMT_DICT = (() => {
         return m ? Number(m[1]) : null;
     }
     // Сохранение в CRM (site-v2): id из ответа возвращается локальной записи,
-    // чтобы последующие правки попадали в ту же строку сервера.
+    // чтобы последующие правки попадали в ту же строку сервера. Цепочка
+    // возвращается наружу: saveStatus дожидается её, чтобы перечитать
+    // список из API уже после записи на сервер.
     function persist(kind, record, values) {
         const prefix = {supplier:'sup', user:'us', store:'store', status:'st'}[kind];
         const numeric = numericId(record && record.id);
         const payload = { id: kind === 'status' ? (record && record.serverId) || numeric : numeric, fields: values };
-        apiMutate(kind + '-save', payload).then(function (saved) {
+        return apiMutate(kind + '-save', payload).then(function (saved) {
             if (saved && saved.id != null && record && String(record.id).startsWith('local-')) {
                 record.id = prefix + '-' + saved.id;
                 if (saved.slug) record.id = saved.slug;
@@ -136,7 +212,10 @@ const MGMT_DICT = (() => {
         if (kind === 'supplier') return [record.name, record.unp, [record.contact_person,record.phone,record.email].filter(Boolean).join(' · '), record.address];
         if (kind === 'user') return [record.username, record.full_name, roles[record.role]];
         if (kind === 'store') return [record.name, record.address, record.phone];
-        return [record.name, record.color, record.position, roleLabels[record.role] || 'Колонка доски'];
+        // Роль и признак «Отключён» для статусов рисует statusStateCell:
+        // колонке «Назначение» нужен живой HTML (пилюля), а не esc-строка.
+        if (kind === 'status') return [record.name, record.color, record.position];
+        return [];
     }
     function render(kind) {
         const query = kind === 'supplier' ? $('mgmt-supplier-search').value.trim().toLocaleLowerCase('ru') : '';
@@ -145,8 +224,11 @@ const MGMT_DICT = (() => {
         // в списке пользователей админки ему не место.
         const rows = data[kind].filter(r => r.id !== 'us-none')
             .filter(r => Object.values(r).join(' ').toLocaleLowerCase('ru').includes(query));
-        $('mgmt-'+kind+'-rows').innerHTML = rows.map(r => '<tr data-id="'+esc(r.id)+'"'+(kind === 'user' && isUserOff(r) ? ' class="mgmt-off"' : '')+'>'+cells(kind,r).map(v=>'<td>'+esc(v ?? '—')+'</td>').join('')+
+        // «Погашение» строки отключённой записи — общее для пользователей и
+        // статусов (is_active === false), css: [data-mgmt] tr.mgmt-off td.
+        $('mgmt-'+kind+'-rows').innerHTML = rows.map(r => '<tr data-id="'+esc(r.id)+'"'+(isUserOff(r) ? ' class="mgmt-off"' : '')+'>'+cells(kind,r).map(v=>'<td>'+esc(v ?? '—')+'</td>').join('')+
             (kind === 'user' ? userAccessCell(r) : '')+
+            (kind === 'status' ? statusStateCell(r) : '')+
             // «Изменить» — действие администратора в справочниках из ADMIN_MARKS
             // ниже (на словари и пользователей сервер ставит require_admin).
             // Поставщики — исключение: POST/PATCH /suppliers открыт и менеджеру
@@ -159,18 +241,31 @@ const MGMT_DICT = (() => {
             $('mgmt-supplier-count').textContent = rows.length;
             $('mgmt-supplier-empty').hidden = rows.length > 0;
         }
+        if (kind === 'status') appendStatusStateRow();
     }
 
     function open(kind, id, button) {
         const record = data[kind].find(r=>r.id===id) || {role:'manager', color:'#626962', position:data.status.length};
+        // Р3: имя канонического статуса — только чтение (см. CANON_NAMES выше);
+        // цвет и позиция правятся свободно.
+        const lockedName = kind === 'status' && isCanonName(record.name);
         editing = {kind, id}; opener = button;
         dialog.innerHTML = '<form id="mgmt-form"><h2 id="mgmt-title">'+titles[kind]+'</h2><div class="mgmt-fields">'+fields[kind].map(([key,label,type='text',required])=>{
             const attrs = ' id="mgmt-'+key+'" name="'+key+'"'+(required?' required':'');
             let control;
             if (type==='select') control='<select'+attrs+'>'+Object.entries(roles).map(([value,text])=>'<option value="'+value+'"'+(record[key]===value?' selected':'')+'>'+text+'</option>').join('')+'</select>';
             else if (type==='textarea') control='<textarea'+attrs+' maxlength="2000" rows="3">'+esc(record[key])+'</textarea>';
-            else control='<input'+attrs+' type="'+type+'" value="'+esc(record[key])+'"'+(type==='number'?' min="0" max="999" step="1"':' maxlength="300"')+'>';
-            return '<label for="mgmt-'+key+'"><span>'+label+'</span>'+control+'</label>';
+            else if (type==='checkbox') {
+                // Р5: тот же вид переключателя, что в формах вебхуков
+                // (.mgmt-check); для новой записи флаг включён по умолчанию.
+                return '<label class="mgmt-check" for="mgmt-'+key+'"><input'+attrs+' type="checkbox"'+(record[key]!==false?' checked':'')+'><span>'+label+'</span></label>';
+            }
+            else control='<input'+attrs+' type="'+type+'" value="'+esc(record[key])+'"'+(type==='number'?' min="0" max="999" step="1"':' maxlength="300"')+(lockedName && key==='name'?' readonly':'')+'>';
+            // Подсказка «почему нельзя» — под полем имени канонического статуса.
+            const hint = lockedName && key==='name'
+                ? '<span class="mgmt-note">Имя изменить нельзя: сделки хранят статус именем, сервер принимает только канонические имена (422), а переименование оставило бы карточки без колонки. Цвет и позиция правятся свободно.</span>'
+                : '';
+            return '<label for="mgmt-'+key+'"><span>'+label+'</span>'+control+hint+'</label>';
         }).join('')+'</div><p id="mgmt-error" role="alert"></p><div class="mgmt-actions"><button class="btn btn-ghost" type="button" id="mgmt-cancel">Отмена</button><button class="btn btn-ghost" id="mgmt-save" type="submit">Сохранить</button></div></form>';
         $('mgmt-cancel').onclick=()=>dialog.close();
         $('mgmt-form').onsubmit=save;
@@ -193,7 +288,11 @@ const MGMT_DICT = (() => {
         if (data[kind].some(r=>r.id!==id && r[key].toLocaleLowerCase('ru')===values[key].toLocaleLowerCase('ru'))) {
             $('mgmt-error').textContent='Такая запись уже есть.'; return;
         }
-        if (kind==='status') values.position=Number(values.position);
+        // Статусы — отдельный путь (пункт 12): тело для сервера собирает
+        // saveStatus (имя канона не отправляется, is_active отправляется),
+        // после записи список перечитывается из API. catch — чтобы отказ
+        // не превращался в необработанный rejection.
+        if (kind==='status') { saveStatus(id, values).catch(e => console.warn('[mgmt] сохранение статуса не удалось:', e)); return; }
         // full_name в модели/schemas сервера нет — не выдумываем поле.
         delete values.full_name;
         const record=data[kind].find(r=>r.id===id);
@@ -225,6 +324,197 @@ const MGMT_DICT = (() => {
             else open(kind, button.dataset.edit, button);
         };
     });
+
+    /* ── Раздел «Статусы сделок»: ленивая загрузка и сохранение (пункт 12) ─
+       Источник раздела — прямой GET /dictionaries/statuses, он возвращает и
+       неактивные строки (см. блок у data.status). Своего элемента состояния
+       у карточки нет (в отличие от #mgmt-user-state), поэтому «Загрузка…»,
+       подсказка превью и ошибка с «Повторить» рисуются строкой таблицы;
+       сами режимы (statusesLoading/statusStateMode/statusStateReason)
+       объявлены вверху модуля — до стартового render('status'). */
+    function statusState(mode, reason) {
+        statusStateMode = mode;
+        statusStateReason = reason || '';
+    }
+    function appendStatusStateRow() {
+        const host = $('mgmt-status-rows');
+        if (!host) return;
+        const old = document.getElementById('mgmt-status-state-row');
+        if (old) old.remove();
+        if (!statusStateMode) return;
+        const tr = document.createElement('tr');
+        tr.id = 'mgmt-status-state-row';
+        const td = document.createElement('td');
+        td.colSpan = 5;
+        if (statusStateMode === 'loading') {
+            td.className = 'mgmt-note';
+            td.textContent = 'Загрузка статусов из CRM…';
+        } else if (statusStateMode === 'preview') {
+            td.className = 'mgmt-note';
+            td.textContent = 'В предпросмотре макета сети нет: показан локальный снимок справочника. Полный список статусов, включая отключённые, работает только в собранной CRM.';
+        } else {
+            // Те же классы состояния, что у строки ошибки пользователей:
+            // красный текст + «Повторить» (делегирование клика — в bind()
+            // модуля MGMT_ADMIN ниже, ключ data-mgmt-retry="status").
+            td.className = 'mgmt-hint mgmt-hint-error';
+            td.innerHTML = '<span>Не удалось загрузить статусы из CRM: ' + esc(statusStateReason || 'ошибка сети') + '.</span>' +
+                ' <button type="button" class="btn btn-ghost btn-sm" data-mgmt-retry="status">Повторить</button>';
+        }
+        tr.append(td);
+        host.append(tr);
+    }
+    // Колонка «Назначение»: роль выводится из имени тем же правилом, что в
+    // boot (Р1), неактивный статус помечается пилюлей (Р5).
+    function statusStateCell(r) {
+        const role = esc(roleLabels[statusRole(r.name)] || 'Колонка доски');
+        return '<td>' + (r.is_active === false ? role + ' <span class="pill warn">Отключён</span>' : role) + '</td>';
+    }
+    // Новая (или включённая заново) запись общего справочника — тот же вид,
+    // что у boot при сборке (v2-boot-template.js, buildKbData): id по
+    // CANON_ID/statusSlug, роль из имени (Р1), назначать сделки можно только
+    // каноническим — на неканоническое имя сервер отвечает 422.
+    function kbStatusFromApi(row) {
+        const canon = CANON_IDS[row.name] || null;
+        return {
+            id: canon || statusSlug(row.name),
+            name: row.name,
+            color: row.color || 'faint',
+            position: row.position || 0,
+            role: statusRole(row.name),
+            serverId: row.id,
+            canAssign: Boolean(canon)
+        };
+    }
+    /* Перенос полного списка из API в общий KBData.statuses «на месте»: доска,
+       фильтры и «Пульт дня» держат ссылку на этот массив (подменять его
+       нельзя — см. комментарий у mergeUsers про applyInPlace), а событие
+       kb:dictionaries-changed после сохранения просит их перерисоваться уже
+       по свежим данным. У существующих записей id сохраняется, чтобы колонка
+       переименованного (неканонического) статуса не «прыгала» на новый slug
+       до перезагрузки страницы. */
+    function syncKbStatuses(rows) {
+        const kb = window.KBData && window.KBData.statuses;
+        // Пустой список не трогаем: boot тогда сам собирает статусы из
+        // хардкода STATUS_MAP (ветка пустого словаря) — стирать их нечего.
+        if (!Array.isArray(kb) || !rows.length) return;
+        const byServerId = {};
+        kb.forEach(s => { if (s && s.serverId != null) byServerId[String(s.serverId)] = s; });
+        const fresh = [];
+        rows.forEach(row => {
+            if (!row || row.id == null || row.is_active === false) return;
+            const existing = byServerId[String(row.id)];
+            if (existing) {
+                existing.name = row.name;
+                existing.color = row.color || 'faint';
+                existing.position = row.position || 0;
+                fresh.push(existing);
+            } else {
+                fresh.push(kbStatusFromApi(row));
+            }
+        });
+        // Тот же порядок, что задаёт boot: position, затем id сервера.
+        fresh.sort((a, b) => (a.position || 0) - (b.position || 0) || (a.serverId || 0) - (b.serverId || 0));
+        kb.length = 0;
+        fresh.forEach(s => kb.push(s));
+    }
+    // Полный список → данные раздела. Массив чистится «на месте»: render и
+    // open читают data.status по ссылке.
+    function applyStatusList(list) {
+        const rows = Array.isArray(list) ? list : [];
+        data.status.length = 0;
+        rows.forEach(row => {
+            if (row && row.id != null) data.status.push(statusRecordFromApi(row));
+        });
+        syncKbStatuses(rows);
+    }
+    async function fetchStatuses() {
+        // Прямой GET: роут отдаёт ВСЕ строки, включая is_active=false
+        // (dictionaries_router.list_statuses, сортировка по position, id).
+        const list = await window.V2Api.api('/dictionaries/statuses');
+        applyStatusList(list);
+    }
+    async function loadStatuses(force) {
+        const host = $('mgmt-status-rows');
+        if (!host) return;
+        if (!MGMT_LAZY.online()) {
+            // Предпросмотр макета и ?demo=1: сети нет — остаётся локальный
+            // снимок KBData (см. data.status), раздел честно пишет об этом.
+            statusState('preview');
+            render('status');
+            return;
+        }
+        // Повторный вызов при открытом запросе отбивается; saveStatus идёт
+        // с force — перечитать после записи нужно обязательно.
+        if (statusesLoading && !force) return;
+        statusesLoading = true;
+        statusState('loading');
+        render('status');
+        try {
+            await fetchStatuses();
+            statusState('');
+        } catch (e) {
+            statusState('error', userErrorText(e));
+        } finally {
+            statusesLoading = false;
+            render('status');
+        }
+    }
+    /* ── Сохранение статуса (пункт 12) ──────────────────────────────────
+       Отличия от общего пути save(): имя канонического статуса в fields не
+       отправляется (PATCH без ключа сервер трактует как «не менять», Р3),
+       is_active отправляется всегда (Р5); оптимистичная правка касается
+       только списка раздела, а общий KBData.statuses синхронизирует
+       syncKbStatuses() по свежему ответу API — доска, фильтры и «Пульт
+       дня» видят согласованный список (с учётом включения/выключения),
+       а не промежуточное состояние. */
+    async function saveStatus(id, values) {
+        const record = data.status.find(r => r.id === id) || null;
+        const creating = !record;
+        const canonical = Boolean(record && record.canonical);
+        const fields = {
+            color: values.color || null,
+            position: Number(values.position) || 0,
+            // Чекбокс попадает в FormData только в отмеченном виде ('on').
+            is_active: values.is_active != null
+        };
+        if (!canonical) fields.name = values.name;
+        let local = record;
+        if (local) {
+            Object.assign(local, {
+                name: canonical ? local.name : values.name,
+                color: fields.color,
+                position: fields.position,
+                is_active: fields.is_active
+            });
+        } else {
+            local = { id: 'local-' + sequence++, serverId: null, name: values.name, color: fields.color, position: fields.position, is_active: fields.is_active, canonical: false };
+            data.status.push(local);
+        }
+        render('status');
+        dialog.close();
+        try {
+            await persist('status', local, fields);
+            // POST /dictionaries/statuses создаёт статус активным: в
+            // DealStatusCreate (schemas.py:863) поля is_active нет, модель
+            // ставит is_active=True. Снятый при создании флаг доводим
+            // отдельным PATCH, иначе перечитывание показало бы «Активен»
+            // вопреки форме.
+            if (creating && fields.is_active === false && local.serverId != null) {
+                await apiMutate('status-save', { id: local.serverId, fields: { is_active: false } });
+            }
+        } finally {
+            // Перечитываем в любом случае: после успешной записи приходят
+            // свежие данные, после ошибки — серверная правда вместо
+            // оптимистичной правки.
+            await loadStatuses(true);
+            // Доска, фильтры и «Пульт дня» читают общий справочник — просим
+            // перерисоваться тем же событием, что и раньше.
+            document.dispatchEvent(new Event('kb:dictionaries-changed'));
+        }
+    }
+    // Раздел открыли — тянем полный список с сервера: тот же ленивый пропуск,
+    // что у пользователей (MGMT_LAZY зовёт загрузчик при показе #view-admin).
+    MGMT_LAZY.onOpen(loadStatuses);
 
     /* ── Ролевая модель раздела (пункт 9 плана) ──────────────────────────
        Скрытое помечается одним атрибутом data-admin-only, а скрывает его одна
@@ -548,6 +838,7 @@ const MGMT_DICT = (() => {
         data: data,
         render: render,
         loadUsers: loadUsers,
+        loadStatuses: loadStatuses,
         mergeUsers: mergeUsers,
         userErrorText: userErrorText,
         userAccessCell: userAccessCell,
@@ -1977,6 +2268,7 @@ const MGMT_ADMIN = (function () {
             if (button.hasAttribute('data-mgmt-retry')) {
                 const key = button.dataset.mgmtRetry;
                 if (key === 'user') MGMT_DICT.loadUsers();
+                else if (key === 'status') MGMT_DICT.loadStatuses();
                 else if (key === 'wh') loadWebhooks();
                 else if (key === 'co') loadCustomTypes();
                 else if (key === 'co-fields') loadCustomFields();
