@@ -69,14 +69,30 @@ def create_workflow(wf: WorkflowCreate, db: Session = Depends(get_db), current_u
 
 @router.patch("/{wf_id}")
 def update_workflow(wf_id: int, wf: WorkflowUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    # 23.09 (пункт 15 плана v2): model_fields_set вместо `is not None` — тот же
+    # перевод, что в webhooks_router.update_webhook и update_task: отсутствие
+    # ключа не трогает значение, null очищает там, где колонка nullable.
     w = db.query(models.Workflow).filter(
         models.Workflow.id == wf_id, models.Workflow.tenant_id == current_user.tenant_id
     ).first()
     if not w:
         raise HTTPException(status_code=404, detail="Воркфлоу не найден")
-    if wf.name is not None: w.name = wf.name
-    if wf.description is not None: w.description = wf.description
-    if wf.is_active is not None: w.is_active = wf.is_active
+    if 'name' in wf.model_fields_set:
+        # name — NOT NULL (models.py:320): null не очищает, а отвергается,
+        # иначе commit дал бы IntegrityError и 500 в середине применения.
+        name = (wf.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=400,
+                                detail="Укажите название сценария — оно не может быть пустым")
+        w.name = name
+    if 'description' in wf.model_fields_set:
+        # nullable: null и пустая строка — одно и то же «описания нет»
+        w.description = (wf.description or "").strip() or None
+    if 'is_active' in wf.model_fields_set:
+        if wf.is_active is None:
+            raise HTTPException(status_code=400,
+                                detail="Признак активности не может быть null: true или false")
+        w.is_active = bool(wf.is_active)
     db.commit()
     return {"message": "Обновлено"}
 

@@ -102,6 +102,11 @@ def _card_field_changes(session, card, old: dict) -> list:
             return _short_log(rec.username, 30) if rec else "—"
 
         changes.append(f'Ответственный: {_user_name(old.get("owner_id"))} → {_user_name(card.owner_id)}')
+    if (card.sender_email or None) != (old.get("sender_email") or None):
+        # Адрес — ключ, по которому «История» подбирает письма сделки
+        # (email_parser_router.related_emails): менеджер обязан видеть, что
+        # ключ переставили, иначе пустой список писем выглядит как их отсутствие.
+        changes.append(f'Почта отправителя: {old.get("sender_email") or "—"} → {card.sender_email or "—"}')
     return changes
 
 
@@ -366,6 +371,20 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             raise HTTPException(
                 status_code=400,
                 detail=f"Пользователь #{card_update.owner_id} не найден")
+    # FIX 2026-09-23 (пункт 5 плана v2): sender_email был в CardUpdate, но
+    # роутер его не применял — PATCH отвечал 200, а адрес не менялся.
+    # Формат здесь НЕ проверяется: фронт уже валидирует input[type=email], а
+    # жёсткая серверная проверка отвергла бы исторические значения, которые
+    # parser писал как есть. Ограничена только длина колонки: SQLite не следит
+    # за VARCHAR(255), поэтому длиннее — молча легло бы в БД и пропало бы при
+    # переносе на движок, который следит. Обрезать адрес по 255 символам —
+    # значит сохранить заведомо чужой адрес, поэтому 400 без мутаций.
+    _sender_email_max = models.Card.__table__.columns['sender_email'].type.length
+    if ('sender_email' in card_update.model_fields_set
+            and len((card_update.sender_email or '').strip()) > _sender_email_max):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Адрес отправителя длиннее {_sender_email_max} символов")
     # Снимок значений до мутаций — по нему строим запись «Изменение» в ленту
     _old = {
         "title": card.title,
@@ -374,6 +393,7 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         "store_location": card.store_location,
         "client_id": card.client_id,
         "owner_id": card.owner_id,
+        "sender_email": card.sender_email,
     }
     if card_update.title is not None:
         card.title = card_update.title
@@ -485,6 +505,10 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         # Условие оплаты (Этап 2.4 плана замены фронта) — не факт оплаты:
         # paid_amount/payment_status этим полем не меняются.
         card.payment_terms = card_update.payment_terms
+    if 'sender_email' in card_update.model_fields_set:
+        # Пустая строка и строка из пробелов = «адреса нет»: колонка nullable,
+        # и NULL (адрес не указан) должен быть отличим от ''.
+        card.sender_email = (card_update.sender_email or '').strip() or None
     if 'tag_ids' in card_update.model_fields_set:
         tags = db.query(models.Tag).filter(models.Tag.id.in_(card_update.tag_ids)).all()
         card.tags = tags

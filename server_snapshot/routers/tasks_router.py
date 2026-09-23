@@ -140,6 +140,22 @@ def _validate_link(db: Session, model, obj_id, label: str):
         raise HTTPException(status_code=404, detail=f"{label} не найдена")
 
 
+def _validate_assignee(db: Session, user_id):
+    """Ответственный обязан существовать — иначе 400, а не 500.
+
+    assignee_id — FK users.id (models.py:410), а PRAGMA foreign_keys=ON
+    (database.py:39) превращает несуществующий id в IntegrityError на flush и
+    глобальную ошибку вместо внятной причины. Формулировка — как у owner_id в
+    card_details_router.update_card: тот же случай (человек выбран в форме, но
+    был удалён), тот же код. None не проверяется: он снимает ответственного.
+    """
+    if not user_id:
+        return
+    if db.get(models.User, user_id) is None:
+        raise HTTPException(status_code=400,
+                            detail=f"Пользователь #{user_id} не найден")
+
+
 @router.post("", response_model=schemas.TaskResponse)
 def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
                 current_user: models.User = Depends(get_current_user)):
@@ -149,6 +165,7 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="Недопустимый статус")
     _validate_link(db, models.Card, data.card_id, "Сделка")
     _validate_link(db, models.Client, data.client_id, "Клиент")
+    _validate_assignee(db, data.assignee_id)
 
     task = models.Task(
         title=data.title.strip()[:255],
@@ -197,25 +214,48 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
     old_due = task.due_date
     old_status = task.status
 
-    if data.title is not None and data.title.strip():
+    # 23.09 (пункт 6.1): гейт переведён с `data.X is not None` на
+    # `'X' in data.model_fields_set`, по образцу card_details_router.update_card.
+    # Пока поле было не-null-гейтировано, null в теле означал «не прислали», и
+    # снять срок / ответственного / привязку к сделке или клиенту было нельзя:
+    # legacy-форма (site/js/tasks.js:525, payload строится на 498-520) шлёт null
+    # именно как «пользователь очистил поле» и получала 200 без изменений —
+    # тот же тихий no-op, что оказался у sender_email в карточке. Теперь
+    # намерение задаёт присутствие ключа, а значение null — это очистка.
+    if 'title' in data.model_fields_set:
+        # title — NOT NULL и в модели (models.py:404), и в бою
+        # (tests/fixtures/prod_schema.sql:337), поэтому null не очищает, а
+        # отвергается: до commit'а колонка осталась бы пустой и SQLite вернул
+        # бы IntegrityError -> 500 вместо внятной причины.
+        if not (data.title or '').strip():
+            raise HTTPException(status_code=400, detail="Укажите название задачи")
         task.title = data.title.strip()[:255]
-    if data.description is not None:
+    if 'description' in data.model_fields_set:
         task.description = data.description
-    if data.due_date is not None:
+    if 'due_date' in data.model_fields_set:
         task.due_date = data.due_date
-    # дефект 13: приоритет задачи можно было только прочитать (TaskResponse),
-    # но не сохранить. None означает «поле не прислали» — не трогаем.
-    if data.priority is not None:
-        task.priority = data.priority
-    if data.assignee_id is not None:
-        task.assignee_id = data.assignee_id or None
-    if data.card_id is not None:
-        _validate_link(db, models.Card, data.card_id or None, "Сделка")
-        task.card_id = data.card_id or None
-    if data.client_id is not None:
-        _validate_link(db, models.Client, data.client_id or None, "Клиент")
-        task.client_id = data.client_id or None
-    if data.status is not None:
+    if 'priority' in data.model_fields_set:
+        # Приоритет нельзя обнулить как NULL: TaskResponse объявляет
+        # priority: int, а 0 — и есть «без приоритета» (тот же приём в
+        # create_task). null в теле = сброс на 0.
+        task.priority = data.priority if data.priority is not None else 0
+    if 'assignee_id' in data.model_fields_set:
+        # nullable + FK ondelete="SET NULL" — снять ответственного можно (null).
+        # Проверка существования — до присваивания: без неё чужой id доходил до
+        # FK на flush и давал 500 вместо 400 (пункт 15 плана v2, 23.09).
+        _validate_assignee(db, data.assignee_id)
+        task.assignee_id = data.assignee_id
+    if 'card_id' in data.model_fields_set:
+        _validate_link(db, models.Card, data.card_id, "Сделка")
+        task.card_id = data.card_id
+    if 'client_id' in data.model_fields_set:
+        _validate_link(db, models.Client, data.client_id, "Клиент")
+        task.client_id = data.client_id
+    if 'status' in data.model_fields_set:
+        # Статус — не nullable по смыслу: вне TASK_STATUSES задача выпадает из
+        # всех фильтров list_tasks, а NULL ломает TaskResponse (status: str).
+        if data.status is None:
+            raise HTTPException(status_code=400, detail="Статус задачи не может быть пустым")
         if data.status not in schemas.TASK_STATUSES:
             raise HTTPException(status_code=400, detail="Недопустимый статус")
         task.status = data.status
@@ -227,8 +267,11 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
     db.flush()
     db.refresh(task)
 
-    # Обновить снимки названий при смене привязки
-    if data.card_id is not None or data.client_id is not None:
+    # Обновить снимки названий при смене привязки. Гейт — те же
+    # model_fields_set: раньше он стоял на `is not None` и очистка
+    # (card_id=null) до него не доходила, в записи оставался снимок названия
+    # уже несуществующей связи.
+    if 'card_id' in data.model_fields_set or 'client_id' in data.model_fields_set:
         if task.card_id:
             task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id)
         else:
@@ -240,18 +283,21 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
     db.commit()
     db.refresh(task)
 
-    # Уведомления об изменениях (пишутся в базу получателя)
-    if data.assignee_id is not None and task.assignee_id and task.assignee_id != old_assignee:
+    # Уведомления об изменениях (пишутся в базу получателя). Гейты — по тому же
+    # признаку присутствия поля, иначе снятие срока молча не уведомляло бы:
+    # ветка с details="срок снят" была написана именно под очистку, но до
+    # перевода гейта никогда не срабатывала.
+    if 'assignee_id' in data.model_fields_set and task.assignee_id and task.assignee_id != old_assignee:
         notify(db, [task.assignee_id], actor_id=current_user.id,
                type="task_assigned", title=f"Вам поручена задача: {task.title}",
                entity_type="task", entity_id=task.id)
-    if data.due_date is not None and task.due_date != old_due:
+    if 'due_date' in data.model_fields_set and task.due_date != old_due:
         notify(db, list({task.assignee_id, task.creator_id}),
                actor_id=current_user.id,
                type="task_due", title=f"Изменён срок задачи: {task.title}",
                details=task.due_date.strftime("%d.%m.%Y %H:%M") if task.due_date else "срок снят",
                entity_type="task", entity_id=task.id)
-    if data.status is not None and data.status == "done" and old_status != "done":
+    if 'status' in data.model_fields_set and data.status == "done" and old_status != "done":
         # Автору задачи сообщают о выполнении его поручения
         notify(db, [task.creator_id], actor_id=current_user.id,
                type="task_done", title=f"Задача выполнена: {task.title}",
@@ -308,10 +354,19 @@ def add_checklist_item(task_id: int, data: schemas.TaskChecklistItemCreate,
 def update_checklist_item(item_id: int, data: schemas.TaskChecklistItemUpdate,
                           db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     item = _get_item_or_404(db, item_id, current_user)
-    if data.title is not None and data.title.strip():
+    # Тот же перевод гейта, что и в update_task (23.09, пункт 6.1): раньше
+    # `{"title": ""}` и `{"is_done": null}` молча возвращались 200 без
+    # изменений — снять отметку с пункта было нельзя.
+    if 'title' in data.model_fields_set:
+        # title — NOT NULL (models.py:433, prod_schema.sql:388): пустое значение
+        # отвергаем, а не пишем, иначе commit дал бы IntegrityError -> 500.
+        if not (data.title or '').strip():
+            raise HTTPException(status_code=400, detail="Укажите название пункта")
         item.title = data.title.strip()[:255]
-    if data.is_done is not None:
-        item.is_done = data.is_done
+    if 'is_done' in data.model_fields_set:
+        # null = «отметки нет», то есть невыполнен: пустого состояния у флага
+        # нет, а TaskChecklistItemResponse.is_done объявлен bool.
+        item.is_done = bool(data.is_done)
     db.commit()
     db.refresh(item)
     return item

@@ -137,19 +137,60 @@ def create_webhook(wh: WebhookCreate, db: Session = Depends(get_db), current_use
 
 @router.patch("/{wh_id}")
 def update_webhook(wh_id: int, wh: WebhookUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    if wh.url is not None:
-        _validate_webhook_url(wh.url)
-
+    # 23.09 (пункт 15 плана v2): гейт переведён с `is not None` на
+    # model_fields_set — по образцу update_card и update_task. Пока поле
+    # гейтилось не-null-гейтом, null в теле читался как «поле не прислали», и
+    # PATCH не мог ни снять подпись, ни отключить вебхук очисткой: клиент
+    # получал 200 без изменений. Теперь намерение задаёт присутствие ключа.
+    # Проверки идут до записи в объект, а commit — один в конце: отвергнутый
+    # запрос не оставляет следа (сессия закрывается get_db без commit'а).
     h = db.query(models.Webhook).filter(
         models.Webhook.id == wh_id,
         models.Webhook.tenant_id == current_user.tenant_id
     ).first()
     if not h:
         raise HTTPException(status_code=404, detail="Webhook не найден")
-    if wh.url is not None: h.url = wh.url
-    if wh.secret is not None: h.secret = wh.secret
-    if wh.events is not None: h.events = json.dumps(wh.events)
-    if wh.is_active is not None: h.is_active = wh.is_active
+
+    if 'url' in wh.model_fields_set:
+        # url — NOT NULL (models.py:369): null не очищает, а отвергается.
+        url = (wh.url or "").strip()
+        if not url:
+            raise HTTPException(status_code=400,
+                                detail="Укажите URL получателя — он не может быть пустым")
+        h.url = _validate_webhook_url(url)
+    if 'secret' in wh.model_fields_set:
+        # secret хранится открытым текстом и в момент отправки из него считают
+        # HMAC-SHA256 подпись (test_webhook, notify_webhooks) — это не хэш
+        # пароля, а общий секретный ключ. Колонка nullable, поэтому снять
+        # подпись МОЖНО: для этого в теле обязано лежать {"secret": null}.
+        # Пустая строка отвергнута нарочно: форма, которая шлёт незаполненное
+        # поле как "", молча лишила бы получателя проверки подписи, а ошибка
+        # была бы видна только на его стороне. Клиент v2 пустой secret не
+        # присылает вообще (shell-v2-management.js:1142), так что явный жест —
+        # только null.
+        if wh.secret is None:
+            h.secret = None
+        elif not wh.secret.strip():
+            raise HTTPException(status_code=400, detail=(
+                "Секрет не может быть пустой строкой: чтобы снять подпись, "
+                "пришлите null"))
+        else:
+            h.secret = wh.secret.strip()
+    if 'events' in wh.model_fields_set:
+        # events — NOT NULL JSON-колонка: null отвергается. Пустой список [] —
+        # допустимое «ни на что не подписан» (доставка просто не срабатывает).
+        if wh.events is None:
+            raise HTTPException(status_code=400,
+                                detail="Список событий не может быть пустым (null)")
+        h.events = json.dumps(wh.events)
+    if 'is_active' in wh.model_fields_set:
+        # У флага нет третьего состояния: NULL в колонке клиент прочитает как
+        # false, а notify_webhooks фильтрует `is_active == True` — вебхук
+        # выглядел бы включённым в UI и молча не отправлял бы ничего.
+        if wh.is_active is None:
+            raise HTTPException(status_code=400,
+                                detail="Признак активности не может быть null: true или false")
+        h.is_active = bool(wh.is_active)
     db.commit()
     return {"message": "Обновлено"}
 
