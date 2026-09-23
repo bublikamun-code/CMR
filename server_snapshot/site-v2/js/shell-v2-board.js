@@ -525,6 +525,19 @@
     // страховка; вне перетаскивания чистить пустой Map ничего не стоит.
     window.addEventListener('scroll', invalidateRects, true);
     window.addEventListener('resize', invalidateRects);
+    // Пункт 16: скролл доски/очереди/списка подкидывает дозагрузку карточек
+    // (фаза 2 загрузчика) — для медленной сети, когда автозапуск ещё не всё
+    // добрал. Троттлинг 300 мс: scroll-событий десятки в секунду, а кик
+    // идемпотентен и защищён внутри загрузчика. На предпросмотре мокапа
+    // KBData.ensureCardsLoaded отсутствует — молчим.
+    var cardsKickAt = 0;
+    function kickCardsLoader() {
+        var now = Date.now();
+        if (now - cardsKickAt < 300) return;
+        cardsKickAt = now;
+        if (window.KBData && typeof KBData.ensureCardsLoaded === 'function') KBData.ensureCardsLoaded();
+    }
+    window.addEventListener('scroll', kickCardsLoader, true);
     // Флаг занятого слота: повторные requestDrop() в том же кадре игнорируются.
     var dropFramePending = false;
     function requestDrop() {

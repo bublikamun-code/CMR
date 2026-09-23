@@ -107,6 +107,20 @@
         return target;
     }
 
+    // Состояние двухфазной загрузки карточек (пункт 16). cardCtx —
+    // справочники для сборки батчей, его заполняет buildKbData; dataGen —
+    // поколение данных (каждый _loadAndApplyData инвалидирует предыдущее);
+    // cardsLoadingGen — поколение, для которого фаза 2 идёт прямо сейчас
+    // (0 — не идёт; цикл прошлого поколения не блокирует новый).
+    let cardCtx = null;
+    let dataGen = 0;
+    let cardsLoadingGen = 0;
+    // Сырые ответы финансовой тройки фазы 1 (/payments/transactions,
+    // /payments/documents, /nakladnye): они грузятся целиком и не делятся на
+    // страницы, а пересборка KB_FIN_SOURCE после дозагрузки карточек идёт по
+    // ним же — хранить отдельным запросом не нужно.
+    let phaseResults = { transactions: null, documents: null, nakladnye: null };
+
     function buildKbData(payload) {
         const cardsRaw = payload.cards, clientsRaw = payload.clients, usersRaw = payload.users,
               suppliersRaw = payload.suppliers, tasksRaw = payload.tasks;
@@ -191,28 +205,13 @@
             .map(function (s) { return { id: 'store-' + s.id, name: s.name, address: s.address || '', phone: s.phone || '' }; });
         const storeIdByName = {};
         stores.forEach(function (s) { storeIdByName[s.name] = s.id; });
-        cardsRaw.forEach(function (c) {
-            const name = String(c.store_location || '').trim();
-            if (name && !storeIdByName[name]) {
-                storeIdByName[name] = name;
-                stores.push({ id: name, name: name });
-            }
-        });
+        // Неявные магазины из карточек (discovery) перенесены в buildCardBatch:
+        // фаза 2 обязана находить их и в батчах, а не только на первой странице.
 
         const userById = {};
         users.forEach(function (u) { userById['us-' + u.id.replace('us-', '')] = u; });
         const clientById = {};
         clients.forEach(function (c) { clientById[c.id] = c; });
-
-        // Неизвестные статусы (если появятся) — дополнительные колонки.
-        cardsRaw.forEach(function (c) {
-            const status = String(c.status || '');
-            if (status && !stageOf[status] && status !== 'Закрыто') {
-                const id = slug(status);
-                stageOf[status] = id;
-                statuses.push({ id: id, name: status, color: 'faint', position: 100 + statuses.length, role: 'board' });
-            }
-        });
 
         const docsByCard = {};
         (payload.documents || []).forEach(function (d) {
@@ -220,125 +219,23 @@
             (docsByCard[d.card_id] = docsByCard[d.card_id] || []).push(d);
         });
 
-        const cards = cardsRaw.map(function (c) {
-            const clientObj = c.client ? clientById['cl-' + c.client.id] : null;
-            const manager = (c.owner_id && userById['us-' + c.owner_id]) || unassigned;
-            const stName = String(c.status || '');
-            return {
-                id: String(c.id),
-                title: c.title || 'Сделка',
-                clientId: clientObj ? clientObj.id : null,
-                // Клиента нет — значит нет. Раньше сюда подставлялось название
-                // сделки, и сохранение карточки привязывало/создавало клиента
-                // с именем сделки (на проде 994 карточки без клиента).
-                client: clientObj ? clientObj.name : '',
-                // Магазин — только фактический. Подстановка stores[0] при пустом
-                // или неизвестном значении показывала чужой магазин, а сохранение
-                // записывала его как настоящий (на проде справочник store_locations
-                // пуст, при этом 674 карточки идут без магазина).
-                store: storeIdByName[String(c.store_location || '').trim()] || '',
-                // Сырое значение магазина — для фильтра «Тип оплаты» (пункт 13):
-                // «Безнал (БН)» в legacy — псевдо-магазин (site/js/constants.js),
-                // отдельного поля оплаты у карточки нет; store выше — id
-                // справочника и для «БН» даёт '' (справочник такого магазина
-                // не содержит).
-                storeRaw: String(c.store_location || '').trim(),
-                manager: manager,
-                amount: kopecks(c.total_amount),
-                paidAmount: kopecks(c.paid_amount),
-                issued: 0, // история выписки подключается на этапе 2.6
-                // Р6: неизвестный не-пустой статус ведёт карточку в СВОЮ
-                // достроенную колонку (тот же slug, что строит ветка выше),
-                // пустой — в «Новый запрос». Прежний фолбэк на 'new' молча
-                // переезжал карточки отключённого/переименованного статуса
-                // в первую колонку.
-                stage: (stName && (stageOf[stName] || slug(stName))) || 'new',
-                priority: Number(c.priority) || 0,
-                deadline: isoToRu(c.due_date),
-                // Возраст сделки нужен вкладке «Контроль» (фин-скрипт): без
-                // created_at «Дней» считался по сроку и пустел на карточках
-                // без due_date — на копии прод-БД их 1023 из 1064.
-                createdAt: isoToRu(c.created_at),
-                note: c.description || '',
-                // Почта отправителя (пункт 5): её показывает и правит дровер,
-                // по ней же блок «Письма отправителя» подбирает переписку.
-                // null → '' осознанно: «адрес известен и он пуст» — так доска
-                // не шлёт заведомо пустой запрос писем (loadRelatedEmails).
-                sender_email: c.sender_email || '',
-                paymentTerms: c.payment_terms || '',
-                paymentDueDate: String(c.payment_due_date || '').slice(0, 10),
-                payment_status: c.payment_status || '',
-                paymentDetails: null,
-                groupId: c.writeoff_group_id ? 'gr-' + c.writeoff_group_id : null,
-                // A12: серверные поля остатка и статуса списания (пакет B).
-                // Если сервер ещё не отдаёт — undefined (доска покажет «—»).
-                // Никакого fallback на клиентский расчёт.
-                remaining: c.remaining !== undefined ? c.remaining : undefined,
-                remaining_kop: c.remaining_kop !== undefined ? c.remaining_kop : undefined,
-                writeoff_status: c.writeoff_status !== undefined ? c.writeoff_status : undefined,
-                issued_total: c.issued_total !== undefined ? c.issued_total : undefined,
-                checklist: (c.checklists || []).map(function (item) {
-                    return {
-                        id: 'ck-' + item.id,
-                        label: (item.supplier && item.supplier.name) || item.company_name || 'Позиция',
-                        supplier_id: item.supplier_id ? 'sup-' + item.supplier_id : null,
-                        note: item.note || '',
-                        invFile: item.invoice_file_name || null,
-                        // Флаги закупки и сумма пункта — с сервера (миграция 0009,
-                        // ChecklistResponse.ordered/received/amount). Здесь был
-                        // хардкод false и отсутствие amount: галочки «Заказано» /
-                        // «Получено» и сумма слетали после перезагрузки страницы.
-                        amount: item.amount === null || item.amount === undefined ? '' : Number(item.amount),
-                        ordered: Boolean(item.ordered),
-                        received: Boolean(item.received)
-                    };
-                }),
-                attachments: (c.attachments || []).map(function (a) {
-                    return { id: a.id, name: a.file_name, path: a.file_path };
-                }),
-                docs: (docsByCard[c.id] || []).map(function (d) {
-                    // invoice_number в БД хранится целиком («ТН 0002351», «ТН ТТН4881042»,
-                    // встречаются ТТН) — показываем как записано, без склейки серии.
-                    return { txId: d.id, series: '', number: String(d.invoice_number || ''), date: isoToRu(d.invoice_date || d.date), amount: kopecks(d.amount), originalsReturned: Boolean(d.is_invoice_doc) };
-                })
-            };
-        });
         // «К выписке» — ровно как считает прод (writeoff-status): из
         // не-документных транзакций карточки выписанными частями являются
         // только складские списания и записи с номером накладной. Оплаты
-        // и неоформленные остатки в выписанное не входят.
-        const issuedByCard = {};
-        (payload.transactions || []).forEach(function (t) {
-            if (t.is_document || t.card_id == null) return;
-            // Фидбек 18.09 («Рацио Домус»): сгруппированная строка реестра
-            // агрегирует номер первой накладной и несёт ВСЮ сумму сделки —
-            // брать её amount нельзя, выписано считалось полной суммой
-            // (57 046,38 вместо 38 824,52). Честная сумма — invoiced_amount
-            // из бэкенда; старый разбор частей оставлен как запасной путь.
-            if (t.invoiced_amount !== undefined && t.invoiced_amount !== null) {
-                issuedByCard[t.card_id] = kopecks(t.invoiced_amount);
-                return;
-            }
-            if (!t.is_warehouse_writeoff && !(t.invoice_number || '').trim()) return;
-            issuedByCard[t.card_id] = (issuedByCard[t.card_id] || 0) + kopecks(t.amount);
-        });
-        cards.forEach(function (c) {
-            const issued = issuedByCard[Number(c.id)];
-            c.issued = issued !== undefined ? Math.min(issued, c.amount)
-                : c.docs.reduce(function (a, d) { return a + d.amount; }, 0);
-            // Условия оплаты, сохранённые в CRM (payment_terms), восстанавливаются
-            // как снимок: датой оплаты из payment_due_date, предоплата — пустая.
-            if (c.paymentTerms) {
-                c.paymentDetails = {
-                    terms: c.paymentTerms,
-                    mode: c.paymentDueDate ? 'date' : '',
-                    due: c.paymentDueDate || '',
-                    start: '',
-                    days: null,
-                    prepay: null
-                };
-            }
-        });
+        // и неоформленные остатки в выписанное не входят. Карта считается
+        // один раз и живёт в контексте: батчи фазы 2 (пункт 16) пересчитывают
+        // по ней же деньги дописанных карточек — реестр оплат загружен
+        // целиком уже в фазе 1.
+        const issuedByCard = buildIssuedByCard(payload.transactions);
+        // Контекст сборки карточек: нужен здесь и дозагрузчику фазы 2 — батчи
+        // маппятся на тех же справочниках, что и первая страница. Ссылок
+        // достаточно: reload пересобирает контекст целиком вместе с KBData.
+        cardCtx = {
+            clientById: clientById, userById: userById, unassigned: unassigned,
+            stageOf: stageOf, statuses: statuses, stores: stores,
+            storeIdByName: storeIdByName, docsByCard: docsByCard, issuedByCard: issuedByCard
+        };
+        const cards = buildCardBatch(cardsRaw, cardCtx);
 
         const tasks = tasksRaw.map(function (t) {
             return {
@@ -440,12 +337,238 @@
         };
     }
 
+    // «К выписке» по карточкам из реестра оплат. Вынесено из buildKbData,
+    // чтобы батчи фазы 2 (пункт 16) считали деньги тем же кодом. Считается
+    // ровно как прод (writeoff-status): из не-документных транзакций
+    // карточки выписанными частями являются только складские списания и
+    // записи с номером накладной; оплаты и неоформленные остатки — нет.
+    function buildIssuedByCard(transactions) {
+        const issuedByCard = {};
+        (transactions || []).forEach(function (t) {
+            if (t.is_document || t.card_id == null) return;
+            // Фидбек 18.09 («Рацио Домус»): сгруппированная строка реестра
+            // агрегирует номер первой накладной и несёт ВСЮ сумму сделки —
+            // брать её amount нельзя, выписано считалось полной суммой
+            // (57 046,38 вместо 38 824,52). Честная сумма — invoiced_amount
+            // из бэкенда; старый разбор частей оставлен как запасной путь.
+            if (t.invoiced_amount !== undefined && t.invoiced_amount !== null) {
+                issuedByCard[t.card_id] = kopecks(t.invoiced_amount);
+                return;
+            }
+            if (!t.is_warehouse_writeoff && !(t.invoice_number || '').trim()) return;
+            issuedByCard[t.card_id] = (issuedByCard[t.card_id] || 0) + kopecks(t.amount);
+        });
+        return issuedByCard;
+    }
+
+    // Сборка батча сырых карточек в формы v2 — вынесено из buildKbData
+    // (пункт 16): фаза 2 собирает дописываемые страницы тем же кодом и на
+    // тех же справочниках, что и первую страницу, иначе дописанные карточки
+    // отличались бы магазином, клиентом, остатками и «к выписке». Контекст
+    // собирает buildKbData; discovery батча (неявные магазины и неизвестные
+    // статусы) дописывает в его массивы — на копии прода справочник stores
+    // пуст, магазины известны только из карточек.
+    function buildCardBatch(cardsRaw, ctx) {
+        // Неявные магазины батча (как для первой страницы в buildKbData).
+        cardsRaw.forEach(function (c) {
+            const name = String(c.store_location || '').trim();
+            if (name && !ctx.storeIdByName[name]) {
+                ctx.storeIdByName[name] = name;
+                ctx.stores.push({ id: name, name: name });
+            }
+        });
+        // Неизвестные статусы батча (если появятся) — дополнительные колонки.
+        cardsRaw.forEach(function (c) {
+            const status = String(c.status || '');
+            if (status && !ctx.stageOf[status] && status !== 'Закрыто') {
+                const id = slug(status);
+                ctx.stageOf[status] = id;
+                ctx.statuses.push({ id: id, name: status, color: 'faint', position: 100 + ctx.statuses.length, role: 'board' });
+            }
+        });
+        const cards = cardsRaw.map(function (c) {
+            const clientObj = c.client ? ctx.clientById['cl-' + c.client.id] : null;
+            const manager = (c.owner_id && ctx.userById['us-' + c.owner_id]) || ctx.unassigned;
+            const stName = String(c.status || '');
+            return {
+                id: String(c.id),
+                title: c.title || 'Сделка',
+                clientId: clientObj ? clientObj.id : null,
+                // Клиента нет — значит нет. Раньше сюда подставлялось название
+                // сделки, и сохранение карточки привязывало/создавало клиента
+                // с именем сделки (на проде 994 карточки без клиента).
+                client: clientObj ? clientObj.name : '',
+                // Магазин — только фактический. Подстановка stores[0] при пустом
+                // или неизвестном значении показывала чужой магазин, а сохранение
+                // записывала его как настоящий (на проде справочник store_locations
+                // пуст, при этом 674 карточки идут без магазина).
+                store: ctx.storeIdByName[String(c.store_location || '').trim()] || '',
+                // Сырое значение магазина — для фильтра «Тип оплаты» (пункт 13):
+                // «Безнал (БН)» в legacy — псевдо-магазин (site/js/constants.js),
+                // отдельного поля оплаты у карточки нет; store выше — id
+                // справочника и для «БН» даёт '' (справочник такого магазина
+                // не содержит).
+                storeRaw: String(c.store_location || '').trim(),
+                manager: manager,
+                amount: kopecks(c.total_amount),
+                paidAmount: kopecks(c.paid_amount),
+                issued: 0, // пересчитывается ниже по issuedByCard
+                // Р6: неизвестный не-пустой статус ведёт карточку в СВОЮ
+                // достроенную колонку (тот же slug, что строит ветка выше),
+                // пустой — в «Новый запрос». Прежний фолбэк на 'new' молча
+                // переезжал карточки отключённого/переименованного статуса
+                // в первую колонку.
+                stage: (stName && (ctx.stageOf[stName] || slug(stName))) || 'new',
+                priority: Number(c.priority) || 0,
+                deadline: isoToRu(c.due_date),
+                // Возраст сделки нужен вкладке «Контроль» (фин-скрипт): без
+                // created_at «Дней» считался по сроку и пустел на карточках
+                // без due_date — на копии прод-БД их 1023 из 1064.
+                createdAt: isoToRu(c.created_at),
+                note: c.description || '',
+                // Почта отправителя (пункт 5): её показывает и правит дровер,
+                // по ней же блок «Письма отправителя» подбирает переписку.
+                // null → '' осознанно: «адрес известен и он пуст» — так доска
+                // не шлёт заведомо пустой запрос писем (loadRelatedEmails).
+                sender_email: c.sender_email || '',
+                paymentTerms: c.payment_terms || '',
+                paymentDueDate: String(c.payment_due_date || '').slice(0, 10),
+                payment_status: c.payment_status || '',
+                paymentDetails: null,
+                groupId: c.writeoff_group_id ? 'gr-' + c.writeoff_group_id : null,
+                // A12: серверные поля остатка и статуса списания (пакет B).
+                // Если сервер ещё не отдаёт — undefined (доска покажет «—»).
+                // Никакого fallback на клиентский расчёт.
+                remaining: c.remaining !== undefined ? c.remaining : undefined,
+                remaining_kop: c.remaining_kop !== undefined ? c.remaining_kop : undefined,
+                writeoff_status: c.writeoff_status !== undefined ? c.writeoff_status : undefined,
+                issued_total: c.issued_total !== undefined ? c.issued_total : undefined,
+                checklist: (c.checklists || []).map(function (item) {
+                    return {
+                        id: 'ck-' + item.id,
+                        label: (item.supplier && item.supplier.name) || item.company_name || 'Позиция',
+                        supplier_id: item.supplier_id ? 'sup-' + item.supplier_id : null,
+                        note: item.note || '',
+                        invFile: item.invoice_file_name || null,
+                        // Флаги закупки и сумма пункта — с сервера (миграция 0009,
+                        // ChecklistResponse.ordered/received/amount). Здесь был
+                        // хардкод false и отсутствие amount: галочки «Заказано» /
+                        // «Получено» и сумма слетали после перезагрузки страницы.
+                        amount: item.amount === null || item.amount === undefined ? '' : Number(item.amount),
+                        ordered: Boolean(item.ordered),
+                        received: Boolean(item.received)
+                    };
+                }),
+                attachments: (c.attachments || []).map(function (a) {
+                    return { id: a.id, name: a.file_name, path: a.file_path };
+                }),
+                docs: (ctx.docsByCard[c.id] || []).map(function (d) {
+                    // invoice_number в БД хранится целиком («ТН 0002351», «ТН ТТН4881042»,
+                    // встречаются ТТН) — показываем как записано, без склейки серии.
+                    return { txId: d.id, series: '', number: String(d.invoice_number || ''), date: isoToRu(d.invoice_date || d.date), amount: kopecks(d.amount), originalsReturned: Boolean(d.is_invoice_doc) };
+                })
+            };
+        });
+        // Деньги батча: «к выписке» с кэпом суммой сделки (фолбэк — документы)
+        // и снимок условий оплаты. Тот же пересчёт, что и для первой страницы:
+        // без него очередь «На списание» у дописанных карточек показывала «—».
+        cards.forEach(function (c) {
+            const issued = ctx.issuedByCard[Number(c.id)];
+            c.issued = issued !== undefined ? Math.min(issued, c.amount)
+                : c.docs.reduce(function (a, d) { return a + d.amount; }, 0);
+            // Условия оплаты, сохранённые в CRM (payment_terms), восстанавливаются
+            // как снимок: датой оплаты из payment_due_date, предоплата — пустая.
+            if (c.paymentTerms) {
+                c.paymentDetails = {
+                    terms: c.paymentTerms,
+                    mode: c.paymentDueDate ? 'date' : '',
+                    due: c.paymentDueDate || '',
+                    start: '',
+                    days: null,
+                    prepay: null
+                };
+            }
+        });
+        return cards;
+    }
+
     const APP_SCRIPTS = [
         'js/shell-v2-select.js', 'js/shell-v2-payment.js', 'js/shell-v2-management.js',
         'js/shell-v2-fin.js', 'js/shell-v2-board.js', 'js/shell-v2-insights.js',
         'js/shell-v2-navigation.js'
     ];
     const DEMO_SCRIPTS = ['js/shell-v2-data.js'].concat(APP_SCRIPTS);
+
+    // Пункт 16, фаза 2: дозагрузка остальных страниц карточек. Кик двойной —
+    // автозапуск после первой отрисовки и скролл доски (медленная сеть);
+    // кики идемпотентны. Порядок карточек сохраняется сам: страницы сервера
+    // последовательны (position, id desc) и дописываются в конец KBData.cards.
+    async function loadRemainingCards() {
+        const kb = window.KBData;
+        // Плоский ответ фазы 1 (старый сервер) и маленькая БД дают
+        // cardsComplete=true — ни одного запроса и ни одного kb:reloaded.
+        if (!kb || !window.V2Api || kb.cardsComplete) return;
+        const gen = kb.dataGen;
+        if (!gen || cardsLoadingGen === gen) return;
+        const total = Number(kb.cardsTotal) || 0;
+        let loaded = Number(kb.cardsLoaded) || 0;
+        if (!(loaded < total) || !cardCtx) return;
+        // applyInPlace при reload пересобрал массивы KBData: discovery батчей
+        // (неявные магазины, неизвестные статусы) обязан идти в живые массивы,
+        // а не в локальные списки последней сборки.
+        cardCtx.stores = kb.stores;
+        cardCtx.statuses = kb.statuses;
+        cardsLoadingGen = gen;
+        let appended = 0;
+        try {
+            while (loaded < total) {
+                const batchRaw = await window.V2Api.api('/kanban/cards?limit=80&offset=' + loaded);
+                // Пагинация исчезла посреди цикла (откат сервера) — дописывать
+                // нельзя: плоский ответ игнорирует offset, получились бы дубли.
+                if (!batchRaw || Array.isArray(batchRaw) || !Array.isArray(batchRaw.items)) {
+                    console.warn('Дозагрузка карточек: ответ без страниц, цикл остановлен');
+                    break;
+                }
+                // Reload пересобрал KBData — батч прошлого поколения не дописывается:
+                // свежий _loadAndApplyData сам запустит свой цикл.
+                if (kb.dataGen !== gen) return;
+                const items = batchRaw.items;
+                // Пустая страница при тотале-остатке (рассинхрон после удалений)
+                // иначе зациклила бы дозагрузку: loaded не растёт.
+                if (!items.length) {
+                    console.warn('Дозагрузка карточек: пустая страница, цикл остановлен');
+                    break;
+                }
+                const batch = buildCardBatch(items, cardCtx);
+                kb.cards.push.apply(kb.cards, batch);
+                appended += batch.length;
+                loaded += items.length;
+                kb.cardsLoaded = loaded;
+                kb.cardsComplete = loaded >= total;
+            }
+        } catch (err) {
+            // Сбой фазы 2 не роняет интерфейс: остаёмся на загруженном, повтор —
+            // следующим киком скролла или reload. Ошибку не глотаем (warn).
+            console.warn('Дозагрузка карточек не удалась:', err);
+        } finally {
+            // Сбрасываем только свой флаг: цикл нового поколения не трогаем.
+            if (cardsLoadingGen === gen) cardsLoadingGen = 0;
+        }
+        if (appended > 0) {
+            // Один сигнал на весь цикл: доска, пульс и очередь перерисуются.
+            document.dispatchEvent(new Event('kb:reloaded'));
+            // Фин-реестр собран в фазе 1 на первых 80 карточках — строки сделок
+            // за её пределами держат фолбэк-лейбл по транзакции. Пересобираем
+            // источник на месте по полным карточкам (transactions/documents/
+            // nakladnye загружены целиком в фазе 1 и на страницы не делятся),
+            // затем kb:documents — fin-модуль перестроит строки. Дописки после
+            // смены поколения не бывает (return в try), значит phaseResults
+            // здесь своего поколения.
+            const fin = buildFinSource(window.KBData.cards, phaseResults.transactions, phaseResults.documents, phaseResults.nakladnye);
+            if (window.KB_FIN_SOURCE) applyInPlace(window.KB_FIN_SOURCE, fin);
+            document.dispatchEvent(new CustomEvent('kb:documents', { detail: window.KBData.cards }));
+        }
+    }
 
     async function bootDemo() {
         setText('Демо-данные');
@@ -472,12 +595,18 @@
     // в KBApi.all()). Возвращает { KBData, KB_FIN_SOURCE } или бросает
     // ошибку (B2: ошибка пробрасывается, не кешируется пустотой).
     async function _loadAndApplyData() {
+        // Поколение данных (пункт 16): каждый прогон инвалидирует идущую
+        // дозагрузку карточек прошлого поколения — её батчи не дописываются
+        // в пересобранный applyInPlace массив.
+        dataGen++;
         // Загружаем всё разом, но через allSettled: при сбое нужно назвать,
         // какой именно раздел не ответил. Данные при этом НЕ применяем частично —
         // неполная картина молча выглядит как настоящая (так работала старая
         // ветка с переходом на демо). Ошибка пробрасывается наверх, в showFatal.
         const sources = [
-            ['сделки', function () { return window.V2Api.api('/kanban/cards'); }],
+            // Пункт 16, фаза 1: только первая страница карточек (~88 КБ вместо
+            // 496 КБ на копии прода); остальное добирает фаза 2 после отрисовки.
+            ['сделки', function () { return window.V2Api.api('/kanban/cards?limit=80&offset=0'); }],
             ['клиенты', function () { return window.V2Api.api('/clients'); }],
             ['пользователи', function () { return window.V2Api.users(); }],
             ['поставщики', function () { return window.V2Api.api('/suppliers'); }],
@@ -507,7 +636,25 @@
             throw err;
         }
         const results = settled.map(function (s) { return s.value; });
-        buildKbData({ cards: results[0], clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5], groups: results[10] });
+        phaseResults = { transactions: results[5], documents: results[6], nakladnye: results[9] };
+        // Пункт 16: нормализация ответа сделок. Сервер с пагинацией отдаёт
+        // {items,total,limit,offset}; старый — плоский массив (карточки
+        // полные: cardsComplete=true, дозагрузчик молчит).
+        let cardsRaw = results[0], cardsTotal;
+        if (cardsRaw && !Array.isArray(cardsRaw) && Array.isArray(cardsRaw.items)) {
+            cardsTotal = Number(cardsRaw.total);
+            if (!isFinite(cardsTotal)) cardsTotal = cardsRaw.items.length;
+            cardsRaw = cardsRaw.items;
+        } else {
+            cardsTotal = cardsRaw.length;
+        }
+        buildKbData({ cards: cardsRaw, clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5], groups: results[10] });
+        // Счётчики пагинации для фазы 2 (пункт 16) и поколение данных:
+        // дозагрузчик сверяет поколение перед каждой допиской страницы.
+        window.KBData.cardsTotal = cardsTotal;
+        window.KBData.cardsLoaded = cardsRaw.length;
+        window.KBData.cardsComplete = cardsRaw.length >= cardsTotal;
+        window.KBData.dataGen = dataGen;
         // Фин-модуль захватывает и объект, и его массивы (`const finSource =
         // window.KB_FIN_SOURCE`, `const outgoing = finSource.outgoing`) —
         // поэтому реестры тоже обновляются на месте, а не подменой.
@@ -535,6 +682,13 @@
         if (window.KBApi && window.KBApi._setFetcher) {
             window.KBApi._setFetcher(_loadAndApplyData);
         }
+        // Пункт 16: кик дозагрузки для скролла доски. В демо и на предпросмотре
+        // мокапа загрузчика нет — board.js зовёт его, только если он есть.
+        window.KBData.ensureCardsLoaded = loadRemainingCards;
+        // Фаза 2: дозагрузка остальных страниц после первой отрисовки.
+        // KBData.reload выше не трогаем — он идёт через _loadAndApplyData,
+        // фаза 2 перезапускается сама и поколением же гасит прошлый цикл.
+        setTimeout(loadRemainingCards, 0);
         return window.KBData;
     }
 
