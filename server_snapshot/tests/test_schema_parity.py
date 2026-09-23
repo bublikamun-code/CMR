@@ -92,6 +92,9 @@ SERVER_MANAGED = {
     },
     ("User", "UserCreate"): {
         "hashed_password",       # создаётся из `password` через get_password_hash
+        # Новый пользователь всегда активен; отключают его отдельным PATCH
+        # /auth/users/{id} (пункт 15 плана v2, миграция 0014).
+        "is_active",
     },
     ("User", "UserUpdate"): {
         "hashed_password",       # только через отдельную смену пароля

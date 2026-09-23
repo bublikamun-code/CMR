@@ -27,6 +27,9 @@ class User(Base):
     hashed_password = Column(String)
     role = Column(String, default="manager")
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    # Пункт 15 плана v2: отключение вместо удаления. NOT NULL и дефолт 1 —
+    # «отключён» должно быть явным действием администратора (миграция 0014).
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     cards = relationship("Card", back_populates="owner")

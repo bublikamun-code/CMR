@@ -23,11 +23,17 @@ class UserResponse(UserBase):
     id: int
     role: str
     tenant_id: Optional[int] = None
+    # Пункт 15 плана v2: админская карточка пользователя показывает, включён
+    # он или отключён. Дефолт True — POST /auth/users отвечает словарём без
+    # этого поля, а созданный пользователь заведомо активен.
+    is_active: bool = True
     model_config = ConfigDict(from_attributes=True)
 
 class UserUpdate(BaseModel):
     role: Optional[str] = None
     password: Optional[str] = None
+    # None — «не менять»; False/True — явное переключение активности.
+    is_active: Optional[bool] = None
 
     @field_validator("password")
     @classmethod

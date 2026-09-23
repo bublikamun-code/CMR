@@ -93,6 +93,15 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
         raise credentials_exception
+    # Пункт 15 плана v2: отключение действует сразу, без ожидания истечения
+    # токена. 401 (а не 403) — чтобы фронт отработал существующим хуком
+    # «сбросить токен → экран входа» и в v2, и в legacy.
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь отключён. Обратитесь к администратору.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     # UI FIX 2026-08-26: claim pv (password version) — первые 8 символов
     # текущего bcrypt-хэша. Токены, выпущенные ДО смены пароля, получают 401.
     # Токены без pv (старые, до внедрения) считаются валидными — иначе

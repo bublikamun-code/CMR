@@ -13,10 +13,14 @@
                                      kanban cards/{id}/permanent,
                                      payments transactions DELETE,
                                      payments cards/{id}/writeoff,
-                                     suppliers DELETE, tags/{id} DELETE,
-                                     nakladnye/{id} DELETE
-  require_role(manager, warehouse,   весь роутер email-parser (роль documents
-              admin, superadmin)     к почте не допускается)
+                                     suppliers DELETE (V11; POST/PATCH —
+                                     операционные, см. V12 ниже),
+                                     tags/{id} DELETE, nakladnye/{id} DELETE,
+                                     email-parser POST /settings (V11) и
+                                     POST /sync (V12 — пункт 9)
+  require_role(manager, warehouse,   весь роутер email-parser, кроме записи
+              admin, superadmin)     настроек и запуска синка (см. выше); роль
+                                     documents к почте не допускается
   role not in (admin, superadmin)    payments repair-writeoffs, tasks delete,
                                      activity (свой комментарий либо админ)
   БЕЗ проверки роли                  payments (создание/правка записей, выписка,
@@ -24,9 +28,12 @@
                                      create/update/photos, writeoffs, writeoff_groups,
                                      kanban create/status/reorder/restore,
                                      PATCH /cards/{id}, теги на сделке,
+                                     поставщики create/update (справочник
+                                     операционный — решение по пункту 9),
                                      уведомления (фильтр по user_id)
   Полная матрица V11 (кто получает 403 на каждом закрытом роуте) —
-  tests/test_role_gates_v11.py.
+  tests/test_role_gates_v11.py. Матрица V12 (справочники, пользователи, почта;
+  пункты 9 и 15 плана v2) — tests/test_role_gates_admin.py.
 """
 import pytest
 

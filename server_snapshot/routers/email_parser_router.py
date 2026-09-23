@@ -537,7 +537,13 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                 mail.logout()
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(require_role("admin", "superadmin"))])
+# V12 (пункт 9 плана v2): запуск синхронизации — вместе с настройками ящика
+# (POST /settings, V11) под админом. Синк забирает ВСЮ переписку ящика и сам
+# создаёт карточки в реестре; кнопка «Синхронизировать» на «Управлении» от
+# manager скрыта, так что сервер должен отвечать так же, а не только прятать
+# кнопку. По почтам по-прежнему проходят GET (вкладка «Письма отправителя» в
+# карточке сделки, пункт 8) и POST /link (связка дубля со своей сделкой).
 # FIX 2026-09-06 (аудит С3): синк ходит на внешний IMAP и может зваться
 # многократно подряд из UI — ограничиваем. За nginx должен быть включён
 # proxy-headers, иначе лимит общий на всех (см. P0-HTTPS).
@@ -624,18 +630,18 @@ def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = 
     if not src or not dst:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
 
-        stamp = src.created_at.strftime("%d.%m.%Y %H:%M") if src.created_at else ""
-        addition = f"\n\n--- Письмо от {stamp} ---\n{src.title}\n{src.description or ''}"
-        dst.description = (dst.description or "") + addition
-        dst.updated_at = datetime.now(timezone.utc)
+    stamp = src.created_at.strftime("%d.%m.%Y %H:%M") if src.created_at else ""
+    addition = f"\n\n--- Письмо от {stamp} ---\n{src.title}\n{src.description or ''}"
+    dst.description = (dst.description or "") + addition
+    dst.updated_at = datetime.now(timezone.utc)
 
-        db.add(models.ActivityLog(
-            user_id=current_user.id,
-            card_id=dst.id,
-            action="Связано письмо",
-            details=f"Письмо из карточки #{src.id} перенесено в сделку #{dst.id}",
-            tenant_id=current_user.tenant_id,
-        ))
-        src.is_deleted = True
-        db.commit()
-        return {"success": True, "target_card_id": dst.id, "message": f"Письмо добавлено в сделку #{dst.id}"}
+    db.add(models.ActivityLog(
+        user_id=current_user.id,
+        card_id=dst.id,
+        action="Связано письмо",
+        details=f"Письмо из карточки #{src.id} перенесено в сделку #{dst.id}",
+        tenant_id=current_user.tenant_id,
+    ))
+    src.is_deleted = True
+    db.commit()
+    return {"success": True, "target_card_id": dst.id, "message": f"Письмо добавлено в сделку #{dst.id}"}

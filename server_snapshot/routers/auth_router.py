@@ -25,6 +25,15 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
         logger.warning(f"Failed login: {form_data.username}")
         raise HTTPException(status_code=401, detail="Неверное имя пользователя или пароль")
 
+    # Пункт 15 плана v2: отключённый пользователь не входит. Проверка стоит
+    # ПОСЛЕ сверки пароля намеренно: неверный пароль и неизвестный логин
+    # по-прежнему дают один и тот же 401, так что «пользователь отключён»
+    # узнаёт только тот, кто уже знает правильный пароль, — канал
+    # перечисления аккаунтов не появляется.
+    if not user.is_active:
+        logger.warning(f"Login rejected (user disabled): {user.username}")
+        raise HTTPException(status_code=403, detail="Пользователь отключён. Обратитесь к администратору.")
+
     logger.info(f"Login: {user.username} (role={user.role})")
     # pv (password version) — первые 8 символов хэша: смена пароля
     # инвалидирует все ранее выданные токены (проверка в get_current_user).
@@ -154,9 +163,16 @@ def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(ge
     # UI FIX 2026-08-26: тенант-проверка убрана (компания одна)
     if data.role and current_user.role != "superadmin" and data.role in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Только суперадмин может назначать роли admin/superadmin")
+    # Пункт 15 плана v2: отключение вместо удаления. Зеркало DELETE — себя
+    # отключить нельзя, иначе админ лишает себя доступа одним неверным
+    # переключателем, и в CRM некому будет включить его обратно.
+    if data.is_active is not None:
+        if not data.is_active and target.id == current_user.id:
+            raise HTTPException(status_code=400, detail="Нельзя отключить самого себя")
+        target.is_active = data.is_active
     if data.role:
         target.role = data.role
     if data.password:
         target.hashed_password = auth.get_password_hash(data.password)
     db.commit()
-    return {"detail": "Пользователь обновлён"}
+    return {"detail": "Пользователь обновлён", "is_active": bool(target.is_active)}
