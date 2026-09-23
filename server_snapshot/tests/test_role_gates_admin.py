@@ -1,10 +1,12 @@
-"""Пункт 9 и пункт 15 плана v2 — V12: серверные гейты на административных мутациях.
+"""Пункт 9, пункт 15 и пункт 17 плана v2 — V12/V17: серверные гейты на админских мутациях.
 
 Пункт 9 требует, чтобы мутации раздела «Управление» под ролью manager давали 403:
 клиентскую половину (скрыть карточки и кнопки) делают по роли из /auth/me, эта
 половина закрывает то же на сервере — правка из консоли не должна проходить.
 Пункт 15 добавляет деактивацию пользователя: её имеет право переключать только
-админ, а отключённый не входит и не держит активную сессию.
+админ, а отключённый не входит и не держит активную сессию. Пункт 17 (V17,
+решение владельца 23.09) закрывает админом роспуск группы списаний — и ровно
+роспуск: состав группы остаётся операционной ручкой.
 
 МАТРИЦА АДМИН-МУТАЦИЙ (2026-09-23). Критерий пункта 9 перечисляет конкретно:
 «+ Новый пользователь/магазин/статус», «Изменить», «Синхронизировать».
@@ -18,16 +20,19 @@
 | Настройки почтового ящика (запись)   | POST /email-parser/settings       | admin (V11)        | admin (регрессия, v11)    |
 | Запуск синхронизации почты           | POST /email-parser/sync           | любая роль кроме  | admin, superadmin (V12)   |
 |                                      |                                   | documents          |                           |
-| Кастомные объекты (типы и поля)      | POST/DELETE /custom/objects,      | admin              | admin (регрессия)         |
+| Кастомные объекты (типы и поля)      | POST/PATCH/DELETE /custom/objects,| admin              | admin (регрессия)         |
 |                                      | /custom/fields                    |                    |                           |
 | Воркфлоу (конфигурация)              | /workflows (весь роутер)          | admin              | admin (регрессия)         |
+| Вебхуки (конфигурация)               | /webhooks (весь роутер)           | admin              | admin + PATCH-кейс (V15)  |
+| Роспуск группы списаний              | DELETE /writeoffs/groups/{id}     | любая роль         | admin, superadmin (V17)   |
 
 ОПЕРАЦИОННЫЕ ручки гейтом не покрыты намеренно — второй раздел файла защищает и
 от обратного перегиба: чтение справочников и поставщиков, история писем сделки
 (GET /email-parser/related — вкладка «Письма отправителя», пункт 8 плана),
 связка письма-дубля (POST /email-parser/link), клиент (POST/PATCH — менеджер
 ведёт клиентов каждый день), тег (создание и навешивание на сделку, решение
-V11), накладные, группы списания, выписка и галочки реестра (пункт 17).
+V11), накладные, состав группы списаний (прикрепить карточку и выйти из неё —
+V17 закрыла только роспуск), выписка и галочки реестра (пункт 17).
 
 СПОРНОЕ, оставлено открытым по решению главного агента (23.09):
   - POST /suppliers и PATCH /suppliers/{id}. Справочник поставщиков — не
@@ -39,9 +44,15 @@ V11), накладные, группы списания, выписка и га�
     поставленный разведкой на эти ручки, ложный: дыра — это админское
     действие, доступное не-админу, а не операционное, доступное операционисту.
     DELETE /suppliers остаётся админским (V11) — удаление правит историю.
-  - PATCH /payments/transactions/{id} и DELETE /writeoff_groups/{id}:
-    аннулирование и групповая отмена уже админские (V11), а правка реквизитов
-    ещё не закрытой записи и роспуск открытой группы — работа менеджера.
+  - PATCH /payments/transactions/{id}: правка реквизитов ещё не закрытой
+    записи — работа менеджера; аннулирование уже админское (V11).
+
+ЗАКРЫТО решением владельца 23.09 (V17, пункт 17): DELETE /writeoffs/groups/{id}
+  — роспуск группы. Прежняя формулировка этого списка считала роспуск «работой
+  менеджера»; владелец решил иначе: роспуск снимает writeoff_group_id сразу у
+  всех карточек и над чужой группой, сборка теряется. Гейт ровно на роспуске —
+  состав группы (POST и DELETE /writeoffs/groups/{id}/cards/{card_id}) остаётся
+  операционным, это закреплено тестом test_group_composition_stays_operational.
 """
 import pytest
 
@@ -66,13 +77,32 @@ def targets(db):
         hashed_password=auth.get_password_hash("Passw0rd!23"),
         role="manager",
     )
-    db.add_all([supplier, store, status, victim])
+    # Тип кастомного объекта и его поле: поле ссылается на тип по id, поэтому
+    # между ними flush.
+    ctype = models.CustomObjectType(name="opros", label="Опросы")
+    db.add_all([supplier, store, status, victim, ctype])
+    db.flush()
+    cfield = models.CustomFieldDef(object_type_id=ctype.id, name="variant",
+                                   label="Вариант", field_type="text")
+    hook = models.Webhook(url="https://example.com/hook", events='["card.created"]')
+    flow = models.Workflow(name="Напоминание по оплате")
+    # Группа списаний для роспуска (DELETE /writeoffs/groups/{id}). Состав
+    # группы — добавление и выход карточки — остаётся операционным, ему
+    # посвящён отдельный тест ниже, поэтому здесь группа открытая и с двумя
+    # карточками: роспуск обязан их отпустить.
+    group = models.WriteoffGroup(name="Группа «Люстры»", store_location="Матусевича",
+                                 written_off=False)
+    db.add_all([cfield, hook, flow, group])
+    db.flush()
+    db.add_all([models.Card(title=f"Сделка группы {i}", total_amount=100.0,
+                            status="Сборка", store_location="Матусевича",
+                            writeoff_group_id=group.id) for i in (1, 2)])
     db.commit()
-    db.refresh(supplier)
-    db.refresh(store)
-    db.refresh(status)
-    db.refresh(victim)
-    return {"supplier": supplier, "store": store, "status": status, "victim": victim}
+    for row in (supplier, store, status, victim, ctype, cfield, hook, flow, group):
+        db.refresh(row)
+    return {"supplier": supplier, "store": store, "status": status, "victim": victim,
+            "ctype": ctype, "cfield": cfield, "hook": hook, "flow": flow,
+            "sgroup": group}
 
 
 # (id, метод, путь, тело). {store}/{status}/{victim} подставляется из фикстуры
@@ -87,8 +117,16 @@ ADMIN_CASES = [
     ("user_deactivate", "patch", "/auth/users/{victim}", {"is_active": False}),
     ("user_activate", "patch", "/auth/users/{victim}", {"is_active": True}),
     ("user_delete", "delete", "/auth/users/{victim}", None),
-    ("custom_object", "post", "/custom/objects", {"name": "opros", "label": "Опросы"}),
+    ("custom_object", "post", "/custom/objects", {"name": "opros2", "label": "Опросы"}),
+    # правка существующего типа и поля — те же ручки, что «изменить» на экранах
+    # админки v2 (пункт 15), добавлены вместе с ними 23.09
+    ("custom_object_update", "patch", "/custom/objects/{ctype}", {"label": "Опросы клиентов"}),
+    ("custom_field_update", "patch", "/custom/fields/{cfield}", {"label": "Вариант ответа"}),
+    ("webhook_update", "patch", "/webhooks/{hook}", {"events": ["card.updated"]}),
     ("workflow_create", "post", "/workflows/", {"name": "Напоминание по оплате"}),
+    ("workflow_update", "patch", "/workflows/{flow}", {"name": "Памятка о сроке"}),
+    # пункт 17, решение владельца 23.09: роспуск группы списаний — админский
+    ("group_disband", "delete", "/writeoffs/groups/{sgroup}", None),
 ]
 # POST /email-parser/settings в матрицу не включён: она есть в
 # test_role_gates_v11.py::test_email_settings_write_is_admin_only, а запрос
@@ -297,3 +335,98 @@ def test_manager_keeps_operational_writes(client, manager, targets, make_card):
     link = client.post(f"/email-parser/link/{src.id}", headers=h,
                        json={"target_card_id": dst.id})
     assert link.status_code != 403, link.text
+
+
+# ---------------------------------------------------------------------------
+# Пункт 17 (решение владельца 23.09): роспуск группы списаний — админский,
+# состав группы — операционный
+# ---------------------------------------------------------------------------
+#
+# Матрица «admin/superadmin 2xx, manager/warehouse/documents 403» для роспуска
+# стоит выше в ADMIN_CASES (кейс group_disband); здесь — то, чего параметризованная
+# матрица не проверяет: 401 без токена, сохранность данных после 403, порядок
+# «сначала роль, потом статус» на закрытой группе и обратная сторона (состав
+# группы не должен уехать под тот же гейт).
+
+
+def test_group_disband_releases_cards_for_admin(client, admin, targets, db):
+    """Роспуск под админом работает ровно как до гейта: группа уходит, карточки отпускает."""
+    _, h = admin
+    gid = targets["sgroup"].id
+    assert db.query(models.Card).filter(models.Card.writeoff_group_id == gid).count() == 2
+
+    r = client.delete(f"/writeoffs/groups/{gid}", headers=h)
+    assert r.status_code == 200, r.text
+    assert "распущена" in r.json()["detail"].lower(), r.text
+
+    db.expire_all()
+    assert db.get(models.WriteoffGroup, gid) is None
+    assert db.query(models.Card).filter(models.Card.writeoff_group_id == gid).count() == 0
+
+
+@pytest.mark.parametrize("role", NON_ADMIN_ROLES)
+def test_group_disband_denied_leaves_group_and_cards_intact(client, make_user, targets, db, role):
+    """403 под не-админом — и ни карточка, ни группа не тронуты."""
+    _, h = make_user(role)
+    gid = targets["sgroup"].id
+
+    r = client.delete(f"/writeoffs/groups/{gid}", headers=h)
+    assert r.status_code == 403, f"{role} распустил чужую группу: {r.status_code} {r.text}"
+
+    db.expire_all()
+    assert db.get(models.WriteoffGroup, gid) is not None, f"{role}: группа всё-таки удалена"
+    assert db.query(models.Card).filter(models.Card.writeoff_group_id == gid).count() == 2, \
+        f"{role}: роспуск-отказ отпустил карточки"
+
+
+def test_group_disband_without_token_is_401(client, targets):
+    assert client.delete(f"/writeoffs/groups/{targets['sgroup'].id}").status_code == 401
+
+
+def test_closed_group_disband_role_checked_before_status(client, admin, make_user, targets, db):
+    """Закрытая группа: не-админ получает 403, админ — прежнюю 400 с причиной.
+
+    Гейт роли — зависимость роута, он отрабатывает до тела хендлера, поэтому
+    склад не может по различию «400/403» ничего лишнего ни узнать, ни сделать.
+    Для админа поведение закрытой группы не изменилось.
+    """
+    _, wh = make_user("warehouse", username="clerk_warehouse")
+    closed = models.WriteoffGroup(name="Закрытая группа", store_location="Матусевича",
+                                  written_off=True, invoice_number="ТН-77")
+    db.add(closed)
+    db.commit()
+
+    denied = client.delete(f"/writeoffs/groups/{closed.id}", headers=wh)
+    assert denied.status_code == 403, denied.text
+
+    _, ah = admin
+    r = client.delete(f"/writeoffs/groups/{closed.id}", headers=ah)
+    assert r.status_code == 400, r.text
+    assert "распустить" in r.json()["detail"], r.text
+    db.expire_all()
+    assert db.get(models.WriteoffGroup, closed.id) is not None
+
+
+@pytest.mark.parametrize("role", ["manager", "warehouse"])
+def test_group_composition_stays_operational(client, make_user, targets, make_card, db, role):
+    """Защита от перегиба: прикрепление и выход из группы — по-прежнему 2xx.
+
+    Владелец закрыл ровно роспуск. Состав группы — ежедневная работа менеджера
+    и склада (пересобрать комплектацию, вывести сделку из-под общей накладной),
+    ничего не удаляется и отменяется обратным действием; тест нужен, чтобы
+    следующий исполнитель не расширил гейт на соседние ручки.
+    """
+    _, h = make_user(role, username=f"group_{role}")
+    gid = targets["sgroup"].id
+    card = make_card(title="Сделка на прицеп", total_amount=50.0, status="Сборка",
+                     store_location="Матусевича")
+
+    added = client.post(f"/writeoffs/groups/{gid}/cards/{card.id}", headers=h)
+    assert added.status_code == 200, f"{role} не может прикрепить: {added.text}"
+    db.expire_all()
+    assert db.get(models.Card, card.id).writeoff_group_id == gid
+
+    removed = client.delete(f"/writeoffs/groups/{gid}/cards/{card.id}", headers=h)
+    assert removed.status_code == 200, f"{role} не может выйти из группы: {removed.text}"
+    db.expire_all()
+    assert db.get(models.Card, card.id).writeoff_group_id is None

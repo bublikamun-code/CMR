@@ -268,7 +268,17 @@ def annul_group_invoice(group_id: int, db: Session = Depends(get_db), current_us
     return group
 
 
-@router.delete("/{group_id}")
+# FIX 2026-09-23 (пункт 17, решение владельца): роспуск группы — админская
+# ручка, тот же механизм и тот же уровень, что у /annul выше. Роспуск
+# разрушителен и притом над чужой группой: он снимает writeoff_group_id у всех
+# карточек сразу, и сборка «кто что складывал в одну накладную» теряется —
+# восстанавливать её приходится переносом по одной. Прикрепление
+# (POST /{group_id}/cards/{card_id}) и выход из группы
+# (DELETE /{group_id}/cards/{card_id}) остаются открытыми всем ролям: это
+# рабочая операция менеджера и склада над составом, она ничего не удаляет и
+# отменяется обратным действием.
+@router.delete("/{group_id}",
+               dependencies=[Depends(require_role("admin", "superadmin"))])
 def disband_group(group_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     group = db.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).filter(models.WriteoffGroup.id == group_id).first()
     if not group:
