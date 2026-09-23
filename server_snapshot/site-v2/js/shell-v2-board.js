@@ -1,14 +1,17 @@
 /* ============================================================
-   Канбан: компактная доска — демо-логика. Превью, не прод:
-   без сети и хранилища, изменения живут до перезагрузки.
-   Выписанные ТН передаются в финансовые документы этой демосессии.
+   Канбан: компактная доска. В собранном виде данные читаются из
+   CRM (KBData), а правки уходят на сервер (KBData.mutate / V2Api);
+   в предпросмотре мокапа (file://, ?demo=1) тех же хуков нет —
+   там доска живёт на наборе shell-v2-data.js до перезагрузки.
+   Выписанные ТН передаются в финансовые документы.
    Реестр оплат остаётся отдельным набором данных.
    Все суммы — целые копейки (integers), форматирование на выводе.
    ============================================================ */
 (function () {
     'use strict';
 
-    // Справочники и карточки — из демо-«сервера» (shell-v2-data.js).
+    // Справочники и карточки — из KBData: на проде её наполняет загрузчик
+    // (js/v2/boot.js, ответы CRM API), в предпросмотре мокапа — shell-v2-data.js.
     // Статусы, магазины и пользователи правятся в админке и управляют доской.
     var cards = KBData.cards;
 
@@ -49,6 +52,15 @@
         if (window.KBData.mutate) return window.KBData.mutate(kind, payload);
         return Promise.resolve(null); // прототип: записи в CRM нет
     }
+    // Ролевая видимость (пункт 9 плана): разрушающие действия, закрытые на
+    // сервере ролью admin, помечаются data-admin-only, а скрывает их одна
+    // функция загрузчика — V2Role.apply (v2-boot-template.js). Вызов
+    // идемпотентен, поэтому повторяется после каждой перестройки своих узлов.
+    // В предпросмотре мокапа (file://, ?demo=1) загрузчика нет — молчим, там
+    // интерфейс показывают целиком намеренно.
+    function applyRoleMarks(root) {
+        if (window.V2Role && window.V2Role.apply) window.V2Role.apply(root);
+    }
     function isoFromRu(value) {
         var m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value || '').trim());
         return m ? m[3] + '-' + m[2] + '-' + m[1] : null;
@@ -83,9 +95,144 @@
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
         });
     }
+    // Аудит F7, вторая половина (V2-UI-AUDIT-2026-09-22): тот же legacy-импорт
+    // приносит имена вторым видом мусора — MIME encoded-word (RFC 2047) из
+    // заголовков писем: «=?windows-1251?B?8OXq4ujn6PL7LTIzMDkyNS5kb2N4?=», а
+    // длинное имя разбито на несколько слов с переносом строки между ними
+    // (разделитель между соседними словами в имя не входит — склеиваем без него).
+    // Расшифровка только для показа: в БД и на диске имя остаётся как лежало.
+    // Исключений наружу не пускаем ни на каком шаге — битый base64, неизвестная
+    // кодировка, браузер без нужного TextDecoder отдадут исходную строку:
+    // иначе у сделки рухнет весь список вложений ради одного мусорного имени.
+    var MIME_WORD = /=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g;
+    var MIME_WORDS = /(?:=\?[^?]+\?[BbQq]\?[^?]*\?=)(?:(?:\r?\n)?[ \t]*(?:=\?[^?]+\?[BbQq]\?[^?]*\?=))*/g;
+    // Байты quoted-printable: «=XX» — hex, «_» — пробел. Всё, что не похоже на
+    // Q-encoding (управляющие символы, не-ASCII), — «не распаковали».
+    function qpToBytes(text) {
+        var out = [];
+        for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i);
+            if (ch === '_') { out.push(32); continue; }
+            if (ch === '=') {
+                var hex = text.substr(i + 1, 2);
+                if (!/^[0-9A-Fa-f]{2}$/.test(hex)) return null;
+                out.push(parseInt(hex, 16));
+                i += 2;
+                continue;
+            }
+            var code = text.charCodeAt(i);
+            if (code < 32 || code > 126) return null;
+            out.push(code);
+        }
+        return new Uint8Array(out);
+    }
+    function mimeWordText(charset, encoding, text) {
+        try {
+            if (typeof TextDecoder !== 'function') return null;
+            var enc = String(encoding).toUpperCase();
+            var bytes = null;
+            if (enc === 'B') {
+                var b64 = String(text).replace(/\s+/g, '');
+                if (!b64.length || b64.length % 4 === 1) return null;
+                var bin = atob(b64);
+                bytes = new Uint8Array(bin.length);
+                for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            } else if (enc === 'Q') {
+                bytes = qpToBytes(String(text));
+            }
+            if (!bytes || !bytes.length) return null;
+            // Неизвестный label (или кодировка, которую браузер не берётся
+            // декодировать) — RangeError, его ловим выше. Битые байты
+            // TextDecoder меняет на U+FFFD молча, но пустое имя хуже исходного
+            // мусора — тоже отказ.
+            var decoded = new TextDecoder(String(charset).trim()).decode(bytes);
+            return decoded.length ? decoded : null;
+        } catch (e) {
+            return null;
+        }
+    }
+    // Вся цепочка слов раскрывается целиком или не раскрывается вовсе: имя,
+    // собранное из куска расшифрованного текста и куска нетронутого base64,
+    // читателю не помогает — оставляем исходное.
+    function decodeMimeWords(raw) {
+        return raw.replace(MIME_WORDS, function (run) {
+            var text = '';
+            var ok = true;
+            run.replace(MIME_WORD, function (word, charset, encoding, body) {
+                var decoded = mimeWordText(charset, encoding, body);
+                if (decoded === null) { ok = false; return word; }
+                text += decoded;
+                return '';
+            });
+            return ok ? text : run;
+        });
+    }
+    // Аудит F7 (V2-UI-AUDIT-2026-09-22): вложения из legacy-импорта лежат в БД с
+    // percent-кодированным именем — в двух видах: честный «%D1%81…» и
+    // санитизированный браузером «_D1_81…» (при скачивании «%» поехал в «_»).
+    // Показываем человекочитаемое имя. Признак мусора — серия hex-пар НЕ младше
+    // двух (одиночные «_00…», «_20…» живут в нормальных именах: «IMGG_0013.pdf»,
+    // «3015_260730151520_001.pdf») и декодируется она в не-ASCII: иначе
+    // «файл_20_23.pdf» превратился бы в «файл #.pdf». decodeURIComponent бросает
+    // URIError на битой последовательности — фолбэк всегда исходная строка.
+    // Порядок проходов: encoded-word раньше percent, и второй проход запускается
+    // только если первый ничего не нашёл, — иначе распаковали бы уже
+    // распакованное (база в Q-кодировке сама состоит из «=XX», а в имени после
+    // MIME-раскодировки могли бы остаться hex-пары).
+    function displayName(name) {
+        var raw = String(name == null ? '' : name);
+        var mime = decodeMimeWords(raw);
+        if (mime !== raw) return mime;
+        var runs = /(?:%[0-9A-Fa-f]{2}){2,}|(?:_[0-9A-Fa-f]{2}){2,}/g;
+        return raw.replace(runs, function (run) {
+            try {
+                var decoded = decodeURIComponent(run.replace(/_/g, '%'));
+                return /[^\x00-\x7F]/.test(decoded) ? decoded : run;
+            } catch (e) {
+                return run;
+            }
+        });
+    }
     function stageName(id) {
         var s = KBData.statuses.find(function (x) { return x.id === id; });
         return s ? s.name : id;
+    }
+    // 1 сделка / 2 сделки / 5 сделок — тосты и подтверждения читают число.
+    function pluralRu(n, forms) {
+        var d = n % 10, h = n % 100;
+        return forms[d === 1 && h !== 11 ? 0 : (d >= 2 && d <= 4 && (h < 10 || h >= 20) ? 1 : 2)];
+    }
+    // Название этапа «Сборка» — из справочника (админка переименовывает
+    // статусы); по-русски и без словаря, чтобы в тексте подтверждения не
+    // лезло служебное «assembly».
+    function assemblyStageName() {
+        var s = KBData.statuses.filter(function (x) { return x.id === 'assembly'; })[0];
+        return (s && s.name) || 'Сборка';
+    }
+    // Название этапа очереди списания — из справочника: админка переименовывает
+    // статусы, а подсказка дровера держала «На списание» хардкодом (аудит F10).
+    function writeoffStageName() {
+        var st = writeoffStatus();
+        return (st && st.name) || 'На списание';
+    }
+    // ── Отключённый пользователь (is_active=false, пункт 15 плана) ────────
+    // Тот же приём, что в «Пульте дня» и задачах (shell-v2-insights.js):
+    // исторические сделки на таком ответственном остаются и должны быть
+    // видны, поэтому из списков он не исчезает — только приглушён цветом
+    // токена и подписан по-русски. Флаг в справочник кладёт загрузчик
+    // (v2-boot-template.js); в демо-наборе и у служебного «Не назначен»
+    // поля нет — значит «активен», не выдумываем.
+    function isOffUser(u) { return !!u && u.is_active === false; }
+    function userNameOff(u) {
+        var name = u ? String(u.full_name || u.username || '') : '';
+        return name + (isOffUser(u) ? ' (отключён)' : '');
+    }
+    // Для разметки, которую собирается перекрасить: пилюля и без того
+    // приглушена (--muted), поэтому отключённый уходит на --faint.
+    function offUserAttrs(u) {
+        return isOffUser(u)
+            ? ' style="color:var(--faint)" title="Пользователь отключён: в CRM не входит, ответить не сможет; сделки на нём остались"'
+            : '';
     }
     // 'cl-22' → 22
     function numericClientIdValue(id) {
@@ -93,14 +240,17 @@
         return isNaN(n) ? null : n;
     }
     // A12: сервер — единственный источник остатка. remaining_kop (int, копейки)
-    // отдаётся в карточке; если серверное поле отсутствует (old cache, demo
-    // без сервера) — null, и вызывающий код показывает «—», а не считает сам.
+    // отдаётся в карточке; если серверное поле отсутствует (старый кэш
+    // загрузчика, предпросмотр мокапа без сервера) — null, и вызывающий код
+    // показывает «—», а не считает сам.
     function cardRemaining(card) {
         if (card.remaining_kop !== undefined && card.remaining_kop !== null) return card.remaining_kop;
         return null;
     }
-    // Выписано в копейках: серверное issued_total (руб→коп) или локальный
-    // сессионный счётчик card.issued (для демо и оптимистичных обновлений).
+    // Выписано в копейках: серверное issued_total (руб→коп), которое доска
+    // синхронно правит при оптимистичной выписке/отмене ТН, или — если сервер
+    // его не отдал — счётчик card.issued: загрузчик собирает его по записям
+    // реестра, а в предпросмотре мокапа он чисто локальный.
     function cardIssued(card) {
         if (card.issued_total !== undefined && card.issued_total !== null) return Math.round(card.issued_total * 100);
         return card.issued || 0;
@@ -132,6 +282,29 @@
         var amountKnown = typeof card.amount === 'number' && isFinite(card.amount);
         card.remaining_kop = amountKnown ? Math.max(0, Math.round(card.amount - issued)) : null;
     }
+    // Симметрия к предыдущему пересчёту (дефект 7 реестра, путь ВЫПИСКИ):
+    // групповая ТН закрывает карточку, а не «оставляет неизвестной». Сервер
+    // поднимает is_warehouse_writeoff на ВСЕХ записях карточки и ведёт её
+    // статус в «Закрыто» (routers/writeoff_groups_router.py, issue-invoice),
+    // значит выписано = вся сумма сделки, остаток = 0. Инвалидация
+    // remaining_kop/issued_total роняла карточку из обеих очередей: без
+    // остатка она не проходила фильтр «На списание», а в «Списано» попадала
+    // только при сохранённом cardIssued > 0. Σ docs здесь неприменим — у
+    // группового документа card_id = NULL и в docs карточки он не лежит.
+    function coverCardByGroupIssue(card) {
+        var known = typeof card.amount === 'number' && isFinite(card.amount);
+        var issued = known ? Math.round(card.amount) : cardIssued(card);
+        card.issued = issued;
+        card.issued_total = issued / 100;
+        card.remaining_kop = known ? Math.max(0, Math.round(card.amount - issued)) : null;
+        card.stage = 'done';
+    }
+    // Причина отказа одним текстом: серверные detail идут по-русски и без
+    // точки на конце — конечную пунктуацию срезаем, когда вставляем причину
+    // в середину фразы.
+    function reasonText(err) {
+        return String((err && (err.detail || err.message)) || 'ошибка').replace(/[.!?]+$/, '');
+    }
     // 'cl-22' → 22: клиентские id в v2 с префиксом, API ждёт число
     // (фидбек 18.09: Number('cl-22') = NaN ломал баланс и кассу клиента)
     function numericClientId(id) {
@@ -159,6 +332,20 @@
         });
     }
 
+    // Плашка пустой колонки (пункт 7 V2-WORKPLAN). «Пусто» — когда колонка
+    // правда пуста; «Нет совпадений» — когда под активный фильтр не попала
+    // ни одна её сделка, а доска в целом что-то показывает; плашки нет —
+    // когда фильтры не оставили ничего вообще: там говорит общий блок
+    // kb-no-results, а не четыре одинаковых.
+    function columnPlateText(nothingAtAll) {
+        if (!filtersActive()) return 'Пусто';
+        return nothingAtAll ? '' : 'Нет совпадений';
+    }
+    function columnPlateHTML(nothingAtAll) {
+        var text = columnPlateText(nothingAtAll);
+        return text ? '<p class="kb-empty">' + text + '</p>' : '';
+    }
+
     // Иконка счётчика — пустой <i>, закрашенный CSS-маской (.kb-counter-ico,
     // shell-v2-board.css), а не инлайн-<svg>: гейт «SVG в доске < 100» считает
     // элементы <svg> внутри #kb-board, и спрайт <symbol>+<use> его не закрывает —
@@ -170,7 +357,7 @@
     function cardHTML(c) {
         var cl = checklistSummary(c);
         var chips = '<span class="pill">' + esc(KBData.storeName(c.store)) + '</span>' +
-            '<span class="pill"><span class="avatar sm">' + esc(c.manager.initials || '··') + '</span>' + esc(c.manager.full_name || c.manager.username || '') + '</span>';
+            '<span class="pill"' + offUserAttrs(c.manager) + '><span class="avatar sm">' + esc(c.manager.initials || '··') + '</span>' + esc(userNameOff(c.manager)) + '</span>';
         chips += counterHTML('ordered', 'Заказано', cl.ordered) + counterHTML('received', 'Получено', cl.received);
         // Статус оплаты — из CRM (payment_status); признак полной оплаты —
         // по серверным полям (paidAmount/amount), не по хардкоду строки.
@@ -213,10 +400,16 @@
                 '<span class="kb-col-count num">' + inCol.length + '</span>' +
                 '<span class="kb-col-sum num">' + money(sum) + '</span></header>' +
                 '<div class="kb-cards">' +
-                (inCol.length ? inCol.map(cardHTML).join('') : '<p class="kb-empty">Пусто</p>') +
+                (inCol.length ? inCol.map(cardHTML).join('') : columnPlateHTML(!list.length)) +
                 '</div>';
             boardEl.appendChild(col);
         });
+        syncNoResults();
+        // Все перестройки колонок идут отсюда: refresh(), kb:reloaded, смена
+        // фильтра и поиска. Плитки — уже другие элементы с другой геометрией,
+        // поэтому кэш rect'ов перетаскивания обнуляем здесь, а не в каждом
+        // месте вызова.
+        invalidateRects();
     }
 
     // Shared order is authoritative, including when a search hides neighbours.
@@ -240,14 +433,21 @@
         var st = KBData.statuses.find(function (x) { return x.id === stageId; });
         var col = boardEl.querySelector('.kb-col[data-stage="' + stageId + '"]');
         if (!st || !col) return;
-        var inCol = visibleCards().filter(function (c) { return c.stage === stageId; });
+        var visible = visibleCards();
+        var inCol = visible.filter(function (c) { return c.stage === stageId; });
         col.querySelector('.kb-col-count').textContent = inCol.length;
         col.querySelector('.kb-col-sum').textContent = money(inCol.reduce(function (a, c) { return a + c.amount; }, 0));
         col.setAttribute('aria-label', st.name + ' — карточек: ' + inCol.length);
         var list = col.querySelector('.kb-cards');
-        var empty = list.querySelector('.kb-empty');
-        if (!inCol.length && !empty) list.innerHTML = '<p class="kb-empty">Пусто</p>';
-        else if (inCol.length && empty) empty.remove();
+        var plate = list.querySelector('.kb-empty');
+        var plateText = inCol.length ? '' : columnPlateText(!visible.length);
+        if (plate && plate.textContent !== plateText) plate.remove();
+        if (plateText && !list.querySelector('.kb-empty')) {
+            list.insertAdjacentHTML('beforeend', '<p class="kb-empty">' + plateText + '</p>');
+        }
+        // Шапка могла сменить высоту (другое число/сумма), «Пусто» — состав
+        // колонки: плитки под ней едут.
+        invalidateRects();
     }
     // Точечная синхронизация одной карточки вместо refresh(): плитка
     // перестраивается из cardHTML(), шапка её колонки и очередь
@@ -271,6 +471,10 @@
             refresh();
             return;
         }
+        // syncCard приходит из async-колбэков (галочка закупки, ответ сервера),
+        // которые вполне успевают выстрелить посреди перетаскивания: плитка
+        // заменена новой — соседние сдвинулись, их rect'ы больше не верны.
+        invalidateRects();
         updateColumnHead(card.stage);
         renderQueue();
         if (o.documents) dispatchDocuments();
@@ -278,6 +482,44 @@
     var drag = null;
     var dragFrame = 0;
     var suppressCardClick = false;
+    // ---------- троттлинг и кэш геометрии перетаскивания ----------
+    // placeDrop() весь построен на чтениях геометрии: elementFromPoint, rect
+    // плейсхолдера и rect каждой плитки колонки в поиске соседа. Каждое чтение
+    // после записи в DOM форсирует синхронный пересчёт layout, а на колонке
+    // в 168 карточек один поиск соседа — это десятки чтений. Хуже того, вызовов
+    // было два на кадр: из обработчика dragover и из rAF-петли автоскролла.
+    // Поэтому: (1) rect читаем из кэша, который живёт от инвалидации до
+    // инвалидации; (2) requestDrop() схлопывает все события кадра в один
+    // пересчёт слота.
+    var rectCache = new Map();
+    function cachedRect(el) {
+        var rect = rectCache.get(el);
+        if (!rect) {
+            rect = el.getBoundingClientRect();
+            rectCache.set(el, rect);
+        }
+        return rect;
+    }
+    function invalidateRects() { rectCache.clear(); }
+    // Сброс всегда полный, а не по одному элементу: плитки .kb-card закрыты
+    // свойством content-visibility: auto, и для внеполосных getBoundingClientRect()
+    // отдаёт оценку из contain-intrinsic-size — она «скачком» становится
+    // настоящей, когда плитка раскрывается при прокрутке.
+    // Плюс rect'ы относительны вьюпорта: браузер сам докручивает страницу у
+    // края окна, а resize меняет геометрию колонок. Capture-слушатели —
+    // страховка; вне перетаскивания чистить пустой Map ничего не стоит.
+    window.addEventListener('scroll', invalidateRects, true);
+    window.addEventListener('resize', invalidateRects);
+    // Флаг занятого слота: повторные requestDrop() в том же кадре игнорируются.
+    var dropFramePending = false;
+    function requestDrop() {
+        if (dropFramePending) return;
+        dropFramePending = true;
+        requestAnimationFrame(function() {
+            dropFramePending = false;
+            if (drag) placeDrop(drag.x, drag.y);
+        });
+    }
     function cleanupDrag() {
         cancelAnimationFrame(dragFrame);
         dragFrame = 0;
@@ -287,27 +529,43 @@
         boardEl.querySelectorAll('.kb-drop-column').forEach(function(col) { col.classList.remove('kb-drop-column'); });
         boardEl.classList.remove('kb-dragging');
         drag = null;
+        // Плейсхолдер убран, плитки вернулись на места — кэш геометрии устарел.
+        invalidateRects();
         setTimeout(function() { suppressCardClick = false; }, 0);
     }
     function placeDrop(x, y) {
         if (!drag) return;
         var hit = document.elementFromPoint(x, y);
         var col = hit && hit.closest('#kb-board .kb-col');
-        boardEl.querySelectorAll('.kb-drop-column').forEach(function(el) { el.classList.toggle('kb-drop-column', el === col); });
-        if (!col) { drag.column = null; drag.placeholder.remove(); return; }
-        col.classList.add('kb-drop-column');
+        // Подсветку колонки пишем только когда она реально сменилась: класс
+        // .kb-drop-column меняет лишь border-color, но проход querySelectorAll
+        // с toggle по всем колонкам на каждое событие dragover — лишний.
+        if (drag.markedColumn !== (col || null)) {
+            if (drag.markedColumn) drag.markedColumn.classList.remove('kb-drop-column');
+            if (col) col.classList.add('kb-drop-column');
+            drag.markedColumn = col || null;
+        }
+        if (!col) {
+            drag.column = null;
+            // Уход курсора с доски возвращает плитки на места — кэш устарел.
+            if (drag.placeholder.parentNode) { drag.placeholder.remove(); invalidateRects(); }
+            return;
+        }
         drag.column = col;
         var list = col.querySelector('.kb-cards');
-        var slotRect = drag.placeholder.getBoundingClientRect();
+        var slotRect = cachedRect(drag.placeholder);
         if (drag.placeholder.parentNode === list && y >= slotRect.top && y <= slotRect.bottom) return;
         var neighbours = Array.from(list.querySelectorAll('.kb-card')).filter(function(el) { return el !== drag.source; });
         var before = neighbours.find(function(el) {
-            var rect = el.getBoundingClientRect();
+            var rect = cachedRect(el);
             return y < rect.top + rect.height / 2;
         });
         // Avoid replacing the slot on every native dragover event.
         if (drag.placeholder.parentNode !== list || drag.placeholder.nextElementSibling !== (before || null)) {
             list.insertBefore(drag.placeholder, before || null);
+            // Плейсхолдер — элемент с border и своей высотой: его перестановка
+            // двигает плитки колонки, значит кэш геометрии больше не верен.
+            invalidateRects();
         }
         drag.beforeId = before ? before.dataset.card : null;
     }
@@ -321,11 +579,20 @@
         if (!drag) return;
         if (drag.column) {
             var list = drag.column.querySelector('.kb-cards');
-            var rect = list.getBoundingClientRect();
-            list.scrollTop += edgeSpeed(drag.y, rect.top, rect.bottom);
-            var boardRect = boardEl.getBoundingClientRect();
-            boardEl.scrollLeft += edgeSpeed(drag.x, boardRect.left, boardRect.right);
-            placeDrop(drag.x, drag.y);
+            var rect = cachedRect(list);
+            var dy = edgeSpeed(drag.y, rect.top, rect.bottom);
+            var boardRect = cachedRect(boardEl);
+            var dx = edgeSpeed(drag.x, boardRect.left, boardRect.right);
+            // Раньше петля звала placeDrop() безусловно — вместе с обработчиком
+            // dragover выходило два пересчёта слота на кадр. Пересчитываем,
+            // только если автоскролл реально сдвинул содержимое: сдвиг меняет
+            // геометрию, поэтому сначала сбрасываем кэш.
+            if (dy || dx) {
+                if (dy) list.scrollTop += dy;
+                if (dx) boardEl.scrollLeft += dx;
+                invalidateRects();
+                requestDrop();
+            }
         }
         dragFrame = requestAnimationFrame(scrollDrag);
     }
@@ -333,11 +600,14 @@
         var source = e.target.closest('.kb-card');
         if (!source || !e.dataTransfer) return;
         cleanupDrag();
+        // Старт с чистого кэша: предыдущее перетаскивание могло оставить rect
+        // элементов, которые с тех пор переехали.
+        invalidateRects();
         var placeholder = document.createElement('div');
         placeholder.className = 'kb-drop-placeholder';
         placeholder.setAttribute('aria-hidden', 'true');
         placeholder.style.height = source.offsetHeight + 'px';
-        drag = { source: source, placeholder: placeholder, card: cards.find(function(c) { return c.id === source.dataset.card; }), column: null, x: e.clientX, y: e.clientY };
+        drag = { source: source, placeholder: placeholder, card: cards.find(function(c) { return c.id === source.dataset.card; }), column: null, markedColumn: null, x: e.clientX, y: e.clientY };
         suppressCardClick = true;
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', source.dataset.card);
@@ -353,8 +623,13 @@
     document.addEventListener('dragover', function(e) {
         if (!drag) return;
         drag.x = e.clientX; drag.y = e.clientY;
-        placeDrop(drag.x, drag.y);
-        if (drag.column) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+        requestDrop();
+        // Слот теперь пересчитывается в следующем кадре, то есть drag.column
+        // отстаёт на кадр. От него зависит preventDefault() — без него браузер
+        // не разрешит drop в этой колонке. Поэтому колонку для разрешения drop
+        // определяем и по e.target: closest() — без чтения геометрии.
+        var overCol = (e.target && e.target.closest && e.target.closest('#kb-board .kb-col')) || drag.column;
+        if (overCol) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
     });
     boardEl.addEventListener('drop', function(e) {
         if (!drag) return;
@@ -379,7 +654,12 @@
         // kb:groups здесь был мёртвым грузом (перестройка строк групп в финансах).
         dispatchDocuments();
         apiMutate('status', { id: cardId, status: status }).then(function (ok) {
-            if (ok === false) refresh(); // сервер отказал: тост уже показан boot-слоем
+            if (ok === false) { refresh(); return; } // сервер отказал: тост уже показан boot-слоем
+            // Успех раньше был молчаливым: оптимистичный переезд плитки выглядит
+            // готовым фактом и не отличался от незаписанного этапа. Тост только
+            // для переноса между колонками — перестановка внутри колонки этап не
+            // меняет и объяснений не требует.
+            if (changedStage) notify('Сделка ' + cardId + ' перенесена в «' + status + '»');
         });
     });
     document.addEventListener('dragend', cleanupDrag);
@@ -409,27 +689,138 @@
     // Debounce: полная перерисовка доски (сотни карточек) не должна бежать
     // на каждый символ — ждём паузу в вводе 150 мс.
     var searchTimer = 0;
+    var searchWrap = document.getElementById('kb-search-wrap');
     var searchToggle = document.getElementById('kb-search-toggle');
-    function toggleSearch(open) {
-        document.getElementById('kb-search-wrap').classList.toggle('is-open', open);
-        document.getElementById('kb-search-field').inert = !open;
+    var searchClear = document.getElementById('kb-search-close');
+    var noResultsEl = document.getElementById('kb-no-results');
+    var noResultsNote = document.getElementById('kb-no-results-note');
+    var searchOpener = null;
+
+    // ---------- Поиск: одно поле, один крестик, один способ закрыть ----------
+    // Пункт 7 V2-WORKPLAN. Крестик в открытом поле один и он же сброс: пока в
+    // поле есть текст — чистит текст (поле остаётся открытым), когда текст уже
+    // пуст — закрывает поиск. Esc закрывает всегда и, как описано в
+    // mockups/README.md, заодно сбрасывает запрос. Подпись кнопки меняется
+    // вместе с содержимым поля, поэтому ни одно нажатие не «вслепую».
+    function searchIsOpen() { return searchWrap.classList.contains('is-open'); }
+    function syncSearchClear() {
+        var hasText = searchEl.value.length > 0;
+        var label = hasText ? 'Очистить поиск' : 'Закрыть поиск';
+        searchClear.setAttribute('aria-label', label);
+        searchClear.title = label;
+    }
+    function setSearchPanel(open) {
+        searchWrap.classList.toggle('is-open', open);
+        searchEl.inert = !open;
         searchToggle.setAttribute('aria-expanded', String(open));
         searchToggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
-        if (open) searchEl.focus();
-        else { clearTimeout(searchTimer); searchEl.value = ''; state.search = ''; writeBoardParams({ q: '' }); refresh({ view: true }); searchToggle.focus(); }
+        syncSearchClear();
     }
-    searchToggle.onclick = function() { toggleSearch(searchToggle.getAttribute('aria-expanded') !== 'true'); };
-    document.getElementById('kb-search-close').onclick = function() { toggleSearch(false); };
-    searchEl.addEventListener('keydown', function(e) { if (e.key === 'Escape') { e.preventDefault(); toggleSearch(false); } });
+    function openSearch() {
+        var from = document.activeElement;
+        searchOpener = from && from !== document.body ? from : searchToggle;
+        if (!searchIsOpen()) setSearchPanel(true);
+        searchEl.focus();
+    }
+    function clearSearchQuery() {
+        clearTimeout(searchTimer);
+        searchEl.value = '';
+        state.search = '';
+        writeBoardParams({ q: '' });
+        syncSearchClear();
+        refresh({ view: true });
+    }
+    function closeSearch() {
+        if (!searchIsOpen()) return;
+        var hadQuery = state.search !== '';
+        setSearchPanel(false);
+        // Перерисовка только если запрос действительно что-то сужал: закрыть
+        // пустое поле — не повод пересобирать сотни плиток.
+        if (hadQuery) clearSearchQuery(); else searchEl.value = '';
+        // Фокус — туда, откуда открывали (лупа к этому моменту снова видна),
+        // а не в body и не на скрытое поле.
+        var back = searchOpener && searchOpener.isConnected ? searchOpener : searchToggle;
+        if (back !== document.activeElement) back.focus();
+        searchOpener = null;
+    }
+    searchToggle.onclick = openSearch;
+    searchClear.onclick = function () {
+        if (searchEl.value.length > 0) { clearSearchQuery(); searchEl.focus(); return; }
+        closeSearch();
+    };
+    // Esc закрывает РОВНО один слой — верхний. Пока открыт модальный <dialog>
+    // (дровер сделки, подтверждение KBConfirm, форма групповой ТН), остальная
+    // страница нативно inert: фокус не может быть в поле поиска, а клавиша
+    // принадлежит диалогу. Страховка здесь — на случай не-модального show().
+    function onSearchEscape(e) {
+        if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeSearch();
+    }
+    // Слушатель на обоих контролах открытого поиска: Esc работает и когда
+    // фокус уже перешёл на крестик (после клика по нему).
+    searchEl.addEventListener('keydown', onSearchEscape);
+    searchClear.addEventListener('keydown', onSearchEscape);
     searchEl.addEventListener('input', function () {
         state.search = searchEl.value;
         writeBoardParams({ q: state.search });
+        syncSearchClear();
         clearTimeout(searchTimer);
         // Явная обёртка: setTimeout не передаёт аргументы, а ссылку на
         // refresh(opts) вообще нельзя отдавать колбэкам событий — у Event есть
         // собственное свойство view (Window), оно попало бы в opts.view.
         searchTimer = setTimeout(function () { refresh({ view: true }); }, 150);
     });
+
+    // ---------- Что сужает выдачу и как это снять ----------
+    // Пункт 13 V2-WORKPLAN («Список»/«Архив», фильтры по приоритету и типу
+    // оплаты, «только мои», кнопка «Сбросить» в тулбаре) дорастает сюда: и
+    // подсказка о пустом результате, и сброс берут список причин из одного
+    // места, а не читают state напрямую.
+    function filterReasons() {
+        var out = [];
+        var q = state.search.trim();
+        if (q) out.push('поиск «' + q + '»');
+        if (state.store !== 'all') out.push('магазин «' + KBData.storeName(state.store) + '»');
+        return out;
+    }
+    function filtersActive() { return filterReasons().length > 0; }
+    function resetBoardFilters() {
+        clearTimeout(searchTimer);
+        searchEl.value = '';
+        state.search = '';
+        storeEl.value = 'all';
+        state.store = 'all';
+        writeBoardParams({ q: '', store: '' });
+        // Магазин — не голый select: KBSelect показывает свою подпись и её
+        // надо пересинхронизировать после программного значения.
+        if (window.KBSelect && window.KBSelect.enhance) window.KBSelect.enhance(storeEl);
+        syncSearchClear();
+        refresh({ view: true });
+        // Кнопка сброса жила внутри подсказки и удалена перерисовкой:
+        // возвращаем фокус в ту же панель инструментов, а не в body.
+        (searchIsOpen() ? searchEl : searchToggle).focus();
+    }
+    // Одна общая подсказка вместо колонок по «Пусто», когда пуст результат
+    // фильтра. Считается по тому виду, который сейчас на экране: доска,
+    // очередь выписки или «Списано» (корзина под поиск не фильтруется).
+    function syncNoResults() {
+        if (!noResultsEl) return;
+        var reasons = filterReasons();
+        var empty;
+        if (state.queueMode === 'board') empty = !visibleCards().length;
+        else if (state.queueMode === 'trash') empty = false;
+        else empty = !queueCards().length;
+        var show = reasons.length > 0 && empty;
+        noResultsEl.hidden = !show;
+        if (show) {
+            noResultsNote.textContent = 'Активные фильтры: ' + reasons.join(', ') +
+                '. Измените их или сбросьте — вернутся все сделки.';
+        }
+    }
+    var resetFiltersBtn = document.getElementById('kb-reset-filters');
+    if (resetFiltersBtn) resetFiltersBtn.onclick = resetBoardFilters;
     document.getElementById('kb-density').onclick = function() { setDensity(!state.compact); };
     function setDensity(compact) {
         state.compact = compact;
@@ -482,9 +873,10 @@
         dispatchDocuments();
         dispatchGroups();
     }
-    // Перечитать данные с сервера без F5. Если загрузчик недоступен (прототип
-    // на демо-данных) или не зарегистрирован — хотя бы перерисовываем доску.
-    // Ошибку загрузки не глотает: её показывает вызывающий код.
+    // Перечитать данные с сервера без F5. Если загрузчика нет (предпросмотр
+    // мокапа на shell-v2-data.js) или он не зарегистрирован — хотя бы
+    // перерисовываем доску. Ошибку загрузки не глотает: её показывает
+    // вызывающий код.
     function reloadData() {
         if (!window.KBData || !window.KBData.reload) { refresh(); return Promise.resolve(null); }
         return window.KBData.reload().then(function (data) {
@@ -574,20 +966,30 @@
             body.innerHTML = '<p class="kb-note">В корзине: ' + trashCache.length + '</p>' + (trashCache.length ? trashCache.map(function (c) {
                 return '<div class="kb-q-row" style="display:flex;align-items:center;gap:8px;cursor:default"><div style="min-width:0"><b>' + esc(c.id + ' · ' + (c.title || '')) + '</b><div>' + esc(c.store_location || '') + '</div></div>' +
                     '<div class="row" style="gap:6px;margin-left:auto">' +
+                    // «Навсегда» — DELETE /kanban/cards/{id}/permanent, закрыт
+                    // require_role admin/superadmin (kanban_router.py:242).
+                    // «Восстановить» не помечено: PATCH /cards/{id}/restore
+                    // (:221) доступен любой аутентифицированной роли.
                     '<button type="button" class="btn btn-ghost btn-sm" data-trash-restore="' + c.id + '">Восстановить</button>' +
-                    '<button type="button" class="btn btn-ghost btn-sm" data-trash-purge="' + c.id + '">Удалить навсегда</button></div></div>';
+                    '<button type="button" class="btn btn-ghost btn-sm" data-trash-purge="' + c.id + '" data-admin-only>Удалить навсегда</button></div></div>';
             }).join('') : '<p class="kb-note">Корзина пуста.</p>');
+            applyRoleMarks(body);
         }).catch(function () { body.innerHTML = '<p class="kb-note">Не удалось загрузить корзину.</p>'; });
     }
-    function renderQueue() {
-        if (state.queueMode === 'trash') { renderTrash(); return; }
-        // Очередь — по остатку к выписке (как на проде): полностью выписанная
-        // карточка не висит в «На списание», даже если статус ещё там же,
-        // а в «Списано» попадает и без смены статуса.
-        var list = visibleCards().filter(function (c) {
+    // Состав очереди — одна выборка и для строк, и для подсказки о пустом
+    // результате: «Найдено: N» и «Ничего не найдено» не должны расходиться.
+    // Очередь — по остатку к выписке (как на проде): полностью выписанная
+    // карточка не висит в «На списание», даже если статус ещё там же,
+    // а в «Списано» попадает и без смены статуса.
+    function queueCards() {
+        return visibleCards().filter(function (c) {
             if (state.queueMode === 'pending') return c.stage === 'writeoff' && hasRemaining(c);
             return c.stage === 'done' || (c.stage === 'writeoff' && cardIssued(c) > 0 && !hasRemaining(c));
         });
+    }
+    function renderQueue() {
+        if (state.queueMode === 'trash') { renderTrash(); syncNoResults(); return; }
+        var list = queueCards();
         document.getElementById('kb-queue-count').textContent = cards.filter(function(c) { return c.stage === 'writeoff' && hasRemaining(c); }).length;
         groupPick = groupPick.filter(function (id) {
             var c = cards.find(function (x) { return x.id === id; });
@@ -597,12 +999,36 @@
         var allPicked = pending && list.length > 0 && list.every(function (c) { return groupPick.indexOf(c.id) >= 0; });
         var toolbar = pending ?
             '<div class="kb-q-toolbar"><label class="kb-q-check"><input type="checkbox" id="kb-group-all"' + (allPicked ? ' checked' : '') + (list.length ? '' : ' disabled') + '> Выбрать все</label>' +
-            '<button type="button" class="btn btn-primary btn-sm" id="kb-group-issue"' + (groupPick.length > 1 ? '' : ' disabled') + '>Накладная на группу' + (groupPick.length > 1 ? ' (' + groupPick.length + ')' : '') + '</button></div>' : '';
-        document.getElementById('kb-queue-body').innerHTML = '<p class="kb-note">Поиск и магазин общие с доской. Найдено: ' + list.length + '</p>' + toolbar + list.map(function(c) {
+            '<div class="row">' +
+            '<button type="button" class="btn btn-primary btn-sm" id="kb-group-issue"' + (groupPick.length > 1 ? '' : ' disabled') + '>Накладная на группу' + (groupPick.length > 1 ? ' (' + groupPick.length + ')' : '') + '</button>' +
+            // Выбрать можно и одну сделку — «убрать из списания» работает и
+            // поштучно, и списком. Кнопка с меткой data-admin-only: роут
+            // DELETE /payments/cards/{id}/writeoff закрыт ролью admin
+            // (payments_router.py:647-648), под другой ролью она отвечала бы
+            // 403 на каждый клик.
+            '<button type="button" class="btn btn-ghost btn-sm" id="kb-q-unwriteoff"' + (groupPick.length ? '' : ' disabled') + ' data-admin-only>Убрать из списания' + (groupPick.length ? ' (' + groupPick.length + ')' : '') + '</button>' +
+            '</div></div>' : '';
+        var queueBody = document.getElementById('kb-queue-body');
+        // Предпросмотр мокапа (file://, ?demo=1) сервера не имеет — действия
+        // очереди там не строим вовсе, а не показываем мёртвые кнопки.
+        var crm = Boolean(window.V2Api && window.V2Api.token());
+        queueBody.innerHTML = '<p class="kb-note">Поиск и магазин общие с доской. Найдено: ' + list.length + '</p>' + toolbar + list.map(function(c) {
             return '<div class="kb-q-row" role="button" tabindex="0" data-card="' + esc(c.id) + '" aria-haspopup="dialog" aria-label="Открыть ' + esc(c.id + ' · ' + c.title) + '">' +
-                (pending ? '<input type="checkbox" class="kb-q-pick" data-group-pick="' + esc(c.id) + '" aria-label="Включить ' + esc(c.id) + ' в групповую накладную"' + (groupPick.indexOf(c.id) >= 0 ? ' checked' : '') + '>' : '') +
-                '<div><b>' + esc(c.id + ' · ' + c.title) + '</b><div>' + esc(KBData.storeName(c.store)) + ' · К выписке ' + moneyOrDash(cardRemaining(c)) + ' BYN</div></div></div>';
+                (pending ? '<input type="checkbox" class="kb-q-pick" data-group-pick="' + esc(c.id) + '" aria-label="Выбрать ' + esc(c.id) + ' для действий очереди"' + (groupPick.indexOf(c.id) >= 0 ? ' checked' : '') + '>' : '') +
+                '<div><b>' + esc(c.id + ' · ' + c.title) + '</b><div>' + esc(KBData.storeName(c.store)) + ' · К выписке ' + moneyOrDash(cardRemaining(c)) + ' BYN</div></div>' +
+                // Поштучный выход из списания — в обоих списках очереди: в
+                // «На списание» попадают сделки с остатком, а полностью
+                // выписанная сделка живёт в «Списано» и по выборке из
+                // «На списание» была бы недостижима (в legacy крестик стоял
+                // на плитке обеих колонок).
+                (crm ? '<div class="kb-q-actions"><button type="button" class="btn btn-ghost btn-sm" data-row-unwriteoff="' + esc(c.id) + '" data-admin-only>Убрать из списания</button></div>' : '') +
+                '</div>';
         }).join('');
+        // Тулбар пересобирается на каждую отрисовку очереди — метки
+        // data-admin-only ставятся здесь же, иначе под не-админом остаётся
+        // живая кнопка, отвечающая 403.
+        applyRoleMarks(queueBody);
+        syncNoResults();
     }
     function queueMode(mode) {
         state.queueMode = mode;
@@ -642,6 +1068,7 @@
     var kbConfirmEl = null;
     var kbConfirmResolve = null;
     var kbConfirmOpener = null; // куда вернуть фокус после закрытия
+    var kbConfirmOpenerAddr = null; // и его адрес: узел могли перестроить вместе с дровером
     function kbConfirmSettle(value) {
         if (!kbConfirmResolve) return;
         var resolve = kbConfirmResolve;
@@ -665,7 +1092,12 @@
                     // очистка в момент закрытия при переоткрытии гоняется с
                     // ask() и оставляла диалог открытым, но пустым.
                     if (kbConfirmOpener && kbConfirmOpener.isConnected) kbConfirmOpener.focus();
+                    // Ответ подтверждён и дровер перестроен (удаление вложения):
+                    // узла-источника больше нет — возвращаем фокус по адресу, а
+                    // не в body (тот же дефект 8, только через KBConfirm).
+                    else if (kbConfirmOpenerAddr) restoreDrawerFocus(kbConfirmOpenerAddr);
                     kbConfirmOpener = null;
+                    kbConfirmOpenerAddr = null;
                 });
             }
             if (kbConfirmEl.open) {
@@ -675,11 +1107,17 @@
                 kbConfirmEl.close();
             }
             kbConfirmOpener = document.activeElement;
+            // Тот же дефект 8 через KBConfirm: подтверждение удаления вложения
+            // перестраивает дровер (openCard), и узел-источник к моменту close()
+            // уже вырезан. Address переживает перестройку.
+            kbConfirmOpenerAddr = drawerFocusAddress();
             kbConfirmEl.innerHTML = '<h2 id="kb-confirm-title">' + esc(opts.title || 'Подтвердите действие') + '</h2>' +
                 (opts.message ? '<p class="kb-confirm-msg">' + esc(opts.message) + '</p>' : '') +
                 '<div class="kb-confirm-foot">' +
                 '<button type="button" class="btn btn-ghost" data-confirm-cancel>' + esc(opts.cancelText || 'Отмена') + '</button>' +
-                '<button type="button" class="btn btn-danger" data-confirm-ok>' + esc(opts.confirmText || 'Удалить') + '</button></div>';
+                // danger:false — неопасное действие (прикрепить к группе):
+                // красная кнопка на нём читается как «удалишь».
+                '<button type="button" class="btn ' + (opts.danger === false ? 'btn-primary' : 'btn-danger') + '" data-confirm-ok>' + esc(opts.confirmText || 'Удалить') + '</button></div>';
             kbConfirmEl.querySelector('[data-confirm-cancel]').onclick = function () { kbConfirmSettle(false); kbConfirmEl.close(); };
             kbConfirmEl.querySelector('[data-confirm-ok]').onclick = function () { kbConfirmSettle(true); kbConfirmEl.close(); };
             kbConfirmEl.showModal();
@@ -689,22 +1127,24 @@
         }
     };
     window.KBConfirm = KBConfirm;
-    // Edits are session-local; issued sums remain controlled by openIssue.
+    // Помощники разметки полей сделки (optionsHTML/dealField/dealInput/dealSelect).
+    // Правка поля не сессионная: она уходит на сервер через apiMutate('card'),
+    // а выписанные суммы меняют только выписка ТН и её отмена.
     function optionsHTML(values, selected) {
         return values.map(function(value) {
             var pair = Array.isArray(value) ? value : [value, value];
             return '<option value="' + esc(pair[0]) + '"' + (String(pair[0]) === String(selected) ? ' selected' : '') + '>' + esc(pair[1]) + '</option>';
         }).join('');
     }
-    function dealField(key, label, control) {
-        return '<label class="kb-edit-field" for="kb-deal-' + key + '"><span>' + label + '</span>' + control + '</label>';
+    function dealField(key, label, control, extraClass) {
+        return '<label class="kb-edit-field' + (extraClass ? ' ' + extraClass : '') + '" for="kb-deal-' + key + '"><span>' + label + '</span>' + control + '</label>';
     }
     function dealInput(c, key, label, type) {
         // Item #12: maxlength 200 = серверный лимит заголовка (schemas.py:249).
         return dealField(key, label, '<input id="kb-deal-' + key + '" data-deal-field="' + key + '" type="' + (type || 'text') + '" value="' + esc(key === 'amount' ? money(c.amount) : c[key]) + '"' + (key === 'amount' ? ' inputmode="decimal"' : ' maxlength="200"') + (key === 'amount' && c.stage === 'done' ? ' disabled' : '') + '>');
     }
-    function dealSelect(key, label, values, selected, disabled) {
-        return dealField(key, label, '<select id="kb-deal-' + key + '" data-deal-field="' + key + '"' + (disabled ? ' disabled' : '') + '>' + optionsHTML(values, selected) + '</select>');
+    function dealSelect(key, label, values, selected, disabled, extraClass) {
+        return dealField(key, label, '<select id="kb-deal-' + key + '" data-deal-field="' + key + '"' + (disabled ? ' disabled' : '') + '>' + optionsHTML(values, selected) + '</select>', extraClass);
     }
     window.KBPayment.escape = esc;
     // Save only validated, normalized values. Raw input remains in KBPayment's
@@ -726,11 +1166,24 @@
         var status = document.getElementById('kb-payment-status');
         if (status) {
             status.dataset.valid = String(result.valid);
-            var suffix = (result.due ? ' · Оплатить до ' + result.due : '') +
-                (result.prepay !== null ? ' · Предоплата ' + money(result.prepay) + ' BYN' : '');
-            status.textContent = result.valid
-                ? (saved ? 'Сохранено' + suffix : 'Условия оплаты' + suffix)
+            // Аудит F6 (V2-UI-AUDIT-2026-09-22): строка состояния печатала
+            // «Условия оплаты» и без выбранного срока, и без сохранённых
+            // деталей — под подсказкой payment.js «Условия оплаты не выбраны.»
+            // вставала вторая такая же подпись, висячая и пустая по смыслу.
+            // Название поля уже есть у контрола в шапке; здесь сообщаем только
+            // изменение и только когда есть что сообщить.
+            var details = [];
+            if (result.due) details.push('Оплатить до ' + result.due);
+            if (result.prepay !== null) details.push('Предоплата ' + money(result.prepay) + ' BYN');
+            var statusText = result.valid
+                ? (saved ? 'Сохранено' + (details.length ? ' · ' + details.join(' · ') : '')
+                         : details.join(' · '))
                 : 'Не сохранено · ' + Object.values(result.errors).join(' ');
+            // Сначала возвращаем строку в дерево (в дровере действует
+            // #kb-dialog [hidden] { display:none !important }), потом меняем
+            // текст — иначе role="status" нечего объявлять.
+            status.hidden = !statusText;
+            status.textContent = statusText;
         }
         // Sync validation on the visible combobox, not only its hidden native.
         var mode = dialog.querySelector('#kb-payment-mode');
@@ -765,8 +1218,9 @@
             if (detailContent) detailContent.scrollTop = 0;
         }
     }
-    // Card-only rendering; documents describe demo issuance, never payment events.
-    // Preview-only supplier IDs and per-item files; no production uploads.
+    // Поля пункта закупки. Файл из этого комплекта живёт только в памяти
+    // вкладки (blob-URL) и на сервер не уходит; загружаемый счёт-фактура —
+    // другой путь, data-inv-up → POST /checklists/{id}/invoice.
     // Item #8: поставщики — из KBData.suppliers (реальный справочник).
     var procurementFiles = new Map();
     function supplierOptions() {
@@ -877,6 +1331,106 @@
         }
     });
 
+    // ---------- Группа списания в дровере (дефекты 5 и 9 реестра) ----------
+    // Роливые гейты состава группы разные, поэтому и метки разные:
+    // attach (:104) и detach (:129) в writeoff_groups_router.py идут с общим
+    // dependencies=[Depends(get_current_user)] — доступны любой роли, кнопки
+    // без data-admin-only. Роспуск DELETE /writeoffs/groups/{sid} (:280-281)
+    // закрыт require_role("admin","superadmin") — решение владельца 23.09, тот
+    // же уровень, что у /annul. Без метки менеджер видел бы живую кнопку,
+    // отвечающую 403 на каждый клик.
+    function cardGroup(c) {
+        if (!c || !c.groupId) return null;
+        return KBData.groups.filter(function (x) { return x.id === c.groupId; })[0] || null;
+    }
+    // «Выписана» = серверный written_off. Отмена (POST …/annul) снимает его и
+    // затирает invoice_number/invoice_date, но НЕ снимает writeoff_group_id с
+    // карточек — поэтому строка «Групповая ТН», нарисованная по одному
+    // c.groupId, была ложной и у разматанной группы, и у группы в «Сборке».
+    function groupIssued(g) {
+        return Boolean(g && g.writtenOff);
+    }
+    function groupInvoiceLabel(g) {
+        var num = ((g.series ? g.series + ' ' : '') + (g.number || '')).trim();
+        return num || 'без номера';
+    }
+    // Разбивки группы по карточкам сервер не отдаёт (covers[].amount === null
+    // в boot), поэтому сумма — либо честная строка из снимка, либо «—»:
+    // money(null) дало бы «0,00», то есть несуществующее покрытие.
+    function groupCoverMoney(c, g) {
+        var own = g.covers.filter(function (x) { return x.cardId === c.id; })[0];
+        if (!own || own.amount === null || own.amount === undefined) return '—';
+        return money(own.amount) + ' <small>BYN</small>';
+    }
+    function groupInvoiceRow(c, g) {
+        // Дозадача к пункту 9: сервер разматывает группу только
+        // администратору (POST /writeoffs/groups/{id}/annul —
+        // require_role admin/superadmin, writeoff_groups_router.py:240),
+        // поэтому под другой ролью кнопка не «мёртвая», а скрытая.
+        return '<li class="kb-detail-doc"><div><b>Групповая ТН ' + esc(groupInvoiceLabel(g)) + '</b><span>' + esc(g.date || '') + '</span>' +
+            '<span class="kb-detail-hint">Группа «' + esc(g.name) + '» · карточек в группе: ' + g.covers.length + '</span></div>' +
+            '<div class="kb-doc-side"><strong>' + groupCoverMoney(c, g) + '</strong>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="group-' + esc(g.id) + '" data-admin-only>Отменить</button></div></li>';
+    }
+    // Группа без выписанной ТН: вместо строки-пустышки с мёртвой «Отменить» —
+    // честный статус и живые действия (serverId есть только у групп, собранных
+    // на сервере; локальная группа предпросмотра его не получает).
+    // Осиротевшая запись-документ (serverTxId при written_off = false — такое
+    // возможно после ручной чистки или старой отмены) остаётся доступной: её
+    // по-прежнему снимает тот же обработчик annul-tx, просто под другим именем
+    // кнопки — без «Отменить» несуществующую ТН.
+    function groupOpenRow(g) {
+        var managed = !(g.serverId === undefined || g.serverId === null) && window.V2Api && window.V2Api.token();
+        var actions = managed ?
+            '<button type="button" class="btn btn-ghost btn-sm" data-group-leave="' + esc(g.id) + '">Выйти из группы</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-group-disband="' + esc(g.id) + '" data-admin-only>Распустить группу</button>' : '';
+        if (managed && g.serverTxId) {
+            actions += '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="group-' + esc(g.id) + '" data-admin-only>Удалить документ группы</button>';
+        }
+        return '<li class="kb-detail-doc"><div><b>Группа «' + esc(g.name) + '»</b>' +
+            '<span class="kb-detail-hint">Карточек в группе: ' + g.covers.length + ' · групповая ТН ещё не выписана.' +
+            ' Состав группы можно менять до выписки — после неё и выход, и роспуск сервер отвергает.</span></div>' +
+            (actions ? '<div class="kb-doc-side">' + actions + '</div>' : '') + '</li>';
+    }
+    // Кандидаты на присоединение — те же проверки, что делает сервер
+    // (writeoff_groups_router.py:108-125): группа не закрыта накладной,
+    // карточка не в другой группе, совпали клиент и магазин, а статус
+    // карточки — «Сборка» или «На списание» (ALLOWED_GROUP_STATUSES).
+    // Клиента сверяет по id — как сервер: имена в базе не уникальны
+    // (на копии прод-БД есть однофамильцы), и по имени список предлагал
+    // чужую группу. Магазин сервер сравнивает строкой (store_location),
+    // поэтому он и здесь остаётся именем.
+    function sameGroupClient(g, c) {
+        // Поля нет вовсе — снимок группы старше этого id (предпросмотр
+        // мокапа или старый кэш загрузчика): остаётся прежнее сравнение имён.
+        if (g.clientId === undefined || c.clientId === undefined) {
+            return (g.client || '') === (c.client || '');
+        }
+        return (g.clientId || null) === (c.clientId || null);
+    }
+    function attachableGroups(c) {
+        if (!c || c.groupId) return [];
+        if (!window.V2Api || !window.V2Api.token()) return [];
+        var w = writeoffStatus();
+        var allowed = ['assembly'];
+        if (w) allowed.push(w.id);
+        if (allowed.indexOf(c.stage) < 0) return [];
+        var store = KBData.storeName(c.store);
+        return KBData.groups.filter(function (g) {
+            if (!g.serverId || g.writtenOff) return false;
+            return sameGroupClient(g, c) && (g.store || '') === store;
+        });
+    }
+    function groupAttachBlock(candidates) {
+        return '<div class="kb-detail-note"><h3>Групповая накладная</h3>' +
+            '<p>Сделку можно присоединить к открытой группе того же клиента и магазина' +
+            ' — тогда по ней выпишут одну ТН на всю группу.</p><div class="kb-group-join">' +
+            dealField('groupjoin', 'Группа', '<select id="kb-deal-groupjoin">' + optionsHTML(candidates.map(function (g) {
+                return [g.id, g.name + ' · карточек: ' + g.covers.length];
+            }), candidates[0].id) + '</select>') +
+            '<button type="button" class="btn btn-primary btn-sm" data-group-join>Прикрепить к группе</button></div></div>';
+    }
+
     function cardTabContent(c, currentStage) {
         var cl = checklistSummary(c);
         // Фидбек 18.09: клиент выбирается из справочника с поиском
@@ -893,16 +1447,29 @@
                 '<input id="kb-deal-client" data-deal-field="client" value="' + esc(clientDisplay) + '" placeholder="Не указан" autocomplete="off" maxlength="200">' +
                 '<datalist id="kb-clients-datalist">' + clientOptions + '</datalist>') +
             dealSelect('store', 'Магазин', [['', 'Не указан']].concat(KBData.stores.map(function (s) { return [s.id, s.name]; })), c.store || '') +
-            // Item #4: менеджер по id, не по индексу массива
-            dealSelect('manager', 'Менеджер', [['', 'Не назначен']].concat(KBData.users.map(function (u) { return [u.id, u.full_name]; })), c.manager ? c.manager.id : '') +
+            // Item #4: менеджер по id, не по индексу массива. Отключённый
+            // (пункт 15) остаётся в списке — исторические сделки на нём
+            // должны читаться, — но подписан в каждой строке выбора, а поле
+            // приглушено, когда такой ответственный выбран.
+            dealSelect('manager', 'Менеджер', [['', 'Не назначен']].concat(KBData.users.map(function (u) {
+                return [u.id, userNameOff(u)];
+            })), c.manager ? c.manager.id : '', false, isOffUser(c.manager) ? 'kb-mgr-off' : '') +
             dealInput(c, 'deadline', 'Срок · ДД.ММ.ГГГГ') + dealInput(c, 'amount', 'Сумма, BYN') +
+            // Пункт 5 плана: почта отправителя. По ней блок «Письма отправителя»
+            // во «Истории» подбирает переписку; id и data-deal-field совпадают с
+            // селектором подсказки senderEmailControl(), иначе кнопка «Перейти к
+            // полю почты» осталась бы без цели.
+            dealField('sender_email', 'Почта отправителя',
+                '<input id="kb-deal-sender_email" data-deal-field="sender_email" type="email" value="' + esc(c.sender_email || '') +
+                '" placeholder="Не указана" autocomplete="off" maxlength="200">') +
             dealField('note', 'Заметка', '<textarea id="kb-deal-note" data-deal-field="note" rows="2" maxlength="4000">' + esc(c.note) + '</textarea>');
         var checks = c.checklist.map(function(item, i) {
             var rawId = String(item.id).replace(/[^0-9]/g, '');
             var done = c.stage === 'done' ? ' disabled' : '';
+            var invName = displayName(item.invFile || '');
             var invFileHtml = item.invFile
-                ? '<a class="kb-inv-dl" href="#" data-inv-dl="' + rawId + '" data-inv-name="' + esc(item.invFile) + '">📎 ' + esc(item.invFile) + '</a>' +
-                  '<button type="button" class="kb-inv-clear" data-inv-clear="' + rawId + '" title="Открепить файл">✕</button>'
+                ? '<a class="kb-inv-dl" href="#" data-inv-dl="' + rawId + '" data-inv-name="' + esc(invName) + '" title="' + esc(invName) + '">📎 ' + esc(invName) + '</a>' +
+                  '<button type="button" class="kb-inv-clear" data-inv-clear="' + rawId + '" title="Открепить файл: ' + esc(invName) + '" aria-label="Открепить файл ' + esc(invName) + '">✕</button>'
                 : '<label class="kb-inv-up">Прикрепить файл<input type="file" class="kb-inv-input" data-inv-up="' + rawId + '" hidden></label>';
             // Компактный пункт: поставщик (с поиском) + сумма + файл в одну
             // строку; примечание ниже. Без дублей имени и нативных селектов.
@@ -934,28 +1501,41 @@
             var whId = c._invIds ? c._invIds[d.number] : null;
             var whOn = c._invFlags ? Boolean(c._invFlags[d.number]) : null;
             var whHtml = !whId ? '' :
-                '<label class="kb-originals"><input type="checkbox" data-wh="' + esc(whId) + '"' + (whOn ? ' checked' : '') + '> Списано со склада</label>';
-            return '<li class="kb-detail-doc"><div><b>' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label>' + whHtml + '</div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' +
+                '<label class="kb-originals"><input type="checkbox" data-wh="' + esc(whId) + '" data-wh-number="' + esc(d.number) + '"' + (whOn ? ' checked' : '') + '> Списано со склада</label>';
+            // Отказ второго шага (копия ТН) остаётся видимым: галочка стоит,
+            // документа нет — без кнопки повтора пользователь с этим уже
+            // ничего не делает до перезагрузки страницы.
+            var copyFail = whId && c._docCopyFailed ? c._docCopyFailed[whId] : '';
+            var copyRetry = !copyFail ? '' :
+                '<button type="button" class="btn btn-ghost btn-sm" data-doc-copy="' + esc(whId) + '" title="Причина отказа: ' + esc(copyFail) + '">Создать копию ТН</button>';
+            return '<li class="kb-detail-doc"><div><b>' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label>' + whHtml + '</div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' + copyRetry +
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit="' + i + '">Изменить</button>' +
-                '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="' + i + '">Отменить</button></div></li>';
+                // Дозадача к пункту 9: одиночная отмена ТН идёт в
+                // DELETE /payments/transactions/{id}, а он закрыт ролью admin
+                // (payments_router.py:356 — V11, удаление необратимо и тянет
+                // пересчёт остатка). Под другой ролью кнопка была видна и
+                // отвечала 403 — прячем её тем же механизмом, что и отмену
+                // групповой ТН ниже.
+                '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="' + i + '" data-admin-only>Отменить</button></div></li>';
         }).join('');
-        var groupEntry = '';
-        if (c.groupId) {
-            var g = KBData.groups.filter(function (x) { return x.id === c.groupId; })[0];
-            if (g) {
-                var own = g.covers.filter(function (x) { return x.cardId === c.id; })[0];
-                groupEntry = '<li class="kb-detail-doc"><div><b>Групповая ТН ' + esc(g.series + ' ' + g.number) + '</b><span>' + esc(g.date) + '</span><span class="kb-detail-hint">Группа «' + esc(g.name) + '» · карточек в группе: ' + g.covers.length + '</span></div><div class="kb-doc-side"><strong>' + money(own ? own.amount : 0) + ' <small>BYN</small></strong>' +
-                    '<button type="button" class="btn btn-ghost btn-sm" data-doc-cancel="group-' + esc(g.id) + '">Отменить</button></div></li>';
-            }
-        }
+        var grp = cardGroup(c);
+        var issuedGroup = groupIssued(grp);
+        var groupEntry = issuedGroup ? groupInvoiceRow(c, grp) : '';
+        var groupOpen = grp && !issuedGroup ? groupOpenRow(grp) : '';
+        var joinable = attachableGroups(c);
+        var groupJoin = !grp && joinable.length ? groupAttachBlock(joinable) : '';
         var history = c.docs.map(function(d) {
             return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Выписана накладная ' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><p>' + esc(d.date) + ' · ' + money(d.amount) + ' BYN</p></div></li>';
         }).join('');
-        if (c.groupId) {
-            var hg = KBData.groups.filter(function (x) { return x.id === c.groupId; })[0];
-            if (hg) {
-                var hcov = hg.covers.filter(function (x) { return x.cardId === c.id; })[0];
-                history += '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Выписана групповая ТН ' + esc(hg.series + ' ' + hg.number) + '</b><p>' + esc(hg.date) + ' · ' + money(hcov ? hcov.amount : 0) + ' BYN · одна накладная на группу из ' + hg.covers.length + ' карточек</p></div></li>';
+        // Та же правка, что и в «Накладных»: «выписана групповая ТН» в
+        // журнале по одному c.groupId приписывало сделку и к группе в
+        // «Сборке», и к уже разматанной.
+        if (grp) {
+            if (issuedGroup) {
+                var hcov = grp.covers.filter(function (x) { return x.cardId === c.id; })[0];
+                history += '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Выписана групповая ТН ' + esc(groupInvoiceLabel(grp)) + '</b><p>' + esc(grp.date || '') + ' · ' + (hcov && hcov.amount !== null && hcov.amount !== undefined ? money(hcov.amount) + ' BYN · ' : '') + 'одна накладная на группу из ' + grp.covers.length + ' карточек</p></div></li>';
+            } else {
+                history += '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Сделка в группе «' + esc(grp.name) + '»</b><p>Карточек в группе: ' + grp.covers.length + ' · групповая ТН ещё не выписана.</p></div></li>';
             }
         }
         return '<section id="kb-panel-overview" role="tabpanel" aria-labelledby="kb-tab-overview" tabindex="0">' + window.KBPayment.render(c) +
@@ -971,11 +1551,12 @@
             '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +
             '<div id="kb-attachments-list">' +
             ((c.attachments || []).length ? c.attachments.map(function (a) {
+                var attName = displayName(a.name || '') || 'Вложение без имени';
                 return '<div class="kb-check-row kb-att-row" data-att-row="' + esc(a.id) + '">' +
-                    '<button type="button" class="kb-att-dl" data-att-id="' + (a.id || '') + '" data-att-name="' + esc(a.name || 'attachment') + '" title="Скачать файл" style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;background:none;border:none;cursor:pointer;padding:4px 0">' +
+                    '<button type="button" class="kb-att-dl" data-att-id="' + (a.id || '') + '" data-att-name="' + esc(attName) + '" title="' + esc(attName) + '" style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;background:none;border:none;cursor:pointer;padding:4px 0">' +
                     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
-                    '<span class="grow trunc">' + esc(a.name || '') + '</span></button>' +
-                    '<button type="button" class="btn btn-ghost btn-sm kb-att-del" data-att-del="' + esc(a.id) + '" data-att-del-name="' + esc(a.name || '') + '" title="Удалить вложение">✕</button>' +
+                    '<span class="grow trunc" title="' + esc(attName) + '">' + esc(attName) + '</span></button>' +
+                    '<button type="button" class="btn btn-ghost btn-sm kb-att-del" data-att-del="' + esc(a.id) + '" data-att-del-name="' + esc(attName) + '" title="Удалить вложение: ' + esc(attName) + '" aria-label="Удалить вложение ' + esc(attName) + '">✕</button>' +
                     '</div>';
             }).join('') : '<p class="kb-detail-empty">Вложений нет.</p>') +
             '</div>' +
@@ -985,13 +1566,14 @@
             '</div>' +
             '</section>' +
             '<section id="kb-panel-invoices" role="tabpanel" aria-labelledby="kb-tab-invoices" tabindex="0" hidden>' +
-            '<h3 class="kb-detail-section-title">Выписанные накладные <span>' + (c.docs.length + (c.groupId ? 1 : 0)) + '</span></h3>' +
-            (groupEntry + docs ? '<ul class="kb-detail-docs">' + groupEntry + docs + '</ul>' : '<div class="kb-detail-empty"><b>Накладных пока нет</b><p>Демо-выписка доступна на этапе «На списание».</p></div>') +
+            '<h3 class="kb-detail-section-title">Выписанные накладные <span>' + (c.docs.length + (groupEntry ? 1 : 0)) + '</span></h3>' +
+            (groupEntry + groupOpen + docs ? '<ul class="kb-detail-docs">' + groupEntry + groupOpen + docs + '</ul>' : '<div class="kb-detail-empty"><b>Накладных пока нет</b><p>ТН выписываются на этапе «' + esc(writeoffStageName()) + '» — кнопка «Выписать накладную» появляется в карточке на этом этапе.</p></div>') +
+            groupJoin +
             '<p class="kb-detail-hint">Выписанные ТН доступны в «Финансы → Документы». Оплата учитывается отдельно.</p></section>' +
             '<section id="kb-panel-history" role="tabpanel" aria-labelledby="kb-tab-history" tabindex="0" hidden>' +
             '<h3 class="kb-detail-section-title">История сделки</h3><div id="kb-history-real"><p class="kb-detail-empty">Журнал загружается…</p></div>' +
-            '<h3 class="kb-detail-section-title">Письма отправителя</h3><div id="kb-email-related"><p class="kb-detail-empty">Загрузка…</p></div>' +
-            '<h3 class="kb-detail-section-title">Выписки этой сессии</h3><ol class="kb-detail-history">' + history +
+            '<h3 class="kb-detail-section-title">Письма отправителя</h3><div id="kb-email-related">' + emailsBoxHTML(c) + '</div>' +
+            '<h3 class="kb-detail-section-title">Выписки по сделке</h3><ol class="kb-detail-history">' + history +
             '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>Текущий этап: ' + esc(currentStage) + '</b><p>Состояние карточки сейчас; время перехода не записывается.</p></div></li></ol></section>';
     }
     // Фидбек 18.09: скачивание вложения сделки (в т.ч. файла из письма) —
@@ -1132,61 +1714,209 @@
             });
         }
     }
-    // ---------- Письма отправителя ----------
-    // GET /email-parser/related/{card_id} — список связанных писем.
-    // Роль documents не имеет доступа к почтовому роутеру — показываем
-    // «недоступно для вашей роли» без запроса.
-    function loadRelatedEmails(c) {
+    // ---------- Письма отправителя (пункт 8 плана V2-WORKPLAN-2026-09-22) ----------
+    // GET /email-parser/related/{card_id} — прошлые сделки того же отправителя
+    // (email_parser_router.py:597). Блок живёт во вкладке «История», но запрос
+    // раньше запускался только из «Связать со сделкой» — то есть при просмотре
+    // никогда, и плейсхолдер «Загрузка…» висел вечно (аудит F3, запросов 0).
+    // Теперь загрузка стартует при открытии вкладки (см. selectTab в openCard) и
+    // кэшируется на объекте карточки: переключение вкладок туда-сюда и перестройки
+    // дровера сервер не дёргают, перечитывает только явное действие — «Обновить»
+    // / «Повторить» или смена почты в «Обзоре» (пункт 5). «Связать со сделкой»
+    // снимок не пересилает: там сервер удаляет открытую карточку, поэтому
+    // перечитываются все данные (reloadData). KBData.reload создаёт
+    // карточки заново, поэтому после перечитывания данных кэш сам пустеет.
+    // Состояния различимы: идёт запрос (плейсхолдер), писем нет / не указан
+    // адрес отправителя (подсказка), ошибка (сообщение + «Повторить»).
+    var EMAILS_LOADING_HTML = '<p class="kb-detail-empty">Загрузка…</p>';
+    // Чем заполнить блок при сборке вкладки: кэшем или честным «Загрузка…».
+    function emailsBoxHTML(c) {
+        return c.emailsHtml || EMAILS_LOADING_HTML;
+    }
+    // Блок принадлежит дроверу карточки: в режимах оплаты и выписки dialog
+    // пересобирается целиком и блока там нет.
+    function emailsBox() {
         var box = document.getElementById('kb-email-related');
+        return (box && dialog.contains(box)) ? box : null;
+    }
+    // Поле почты — «Почта отправителя» в «Обзоре» (ключ sender_email, пункт 5).
+    // Переход к нему отдаём только когда поле уже есть в разметке: в мокапе без
+    // загрузчика и в режимах оплаты/выписки дровер его не строит — висячей
+    // мёртвой кнопки не показываем, а текст подсказки верен и без поля.
+    function senderEmailControl() {
+        return dialog.querySelector('[data-deal-field="sender_email"], #kb-deal-sender_email');
+    }
+    function emailsNoSenderHTML() {
+        var hasField = Boolean(senderEmailControl());
+        var note = hasField ? ' Почтовый адрес задаётся в поле «Почта отправителя» во вкладке «Обзор».' : '';
+        return '<p class="kb-detail-empty">У сделки не указан почтовый адрес отправителя — сравнивать письма не с чем.' + note + '</p>' +
+            (hasField ? '<button type="button" class="btn btn-ghost btn-sm" data-emails-goto-sender>Перейти к полю почты</button>' : '');
+    }
+    function emailsListHTML(related) {
+        // Разметка строки — та же, что у документов и группы в «Накладных»
+        // (.kb-detail-docs/.kb-detail-doc/.kb-doc-side): тот же список «текст +
+        // действие у правого края», свои классы под это плодить нечем.
+        return '<ul class="kb-detail-docs">' + related.map(function (item) {
+            var date = item.created_at ? new Date(item.created_at).toLocaleString('ru-RU') : '';
+            return '<li class="kb-detail-doc"><div><b>' + esc(item.title || 'Без темы') + '</b>' +
+                '<span>' + esc(date) + '</span></div>' +
+                '<div class="kb-doc-side"><button type="button" class="btn btn-ghost btn-sm kb-email-link" data-link-target="' + esc(item.id) + '" data-link-target-title="' + esc(item.title || '') + '">Связать со сделкой</button></div></li>';
+        }).join('') + '</ul>' + emailsReloadHTML();
+    }
+    function emailsEmptyHTML(sender) {
+        return '<p class="kb-detail-empty">Других писем от ' + esc(String(sender)) + ' нет.</p>' + emailsReloadHTML();
+    }
+    // Кэш живёт до перечитывания данных, поэтому у пользователя должен остаться
+    // способ перечитать список по своей воле, а не только после отказа.
+    function emailsReloadHTML() {
+        return '<button type="button" class="btn btn-ghost btn-sm" data-emails-retry>Обновить</button>';
+    }
+    // Сброс снимка по адресу: поколение поднимаем здесь, а не только на старте
+    // нового запроса — иначе ответ, ушедший по прежнему адресу, доживёт до
+    // settle() и закэшируется уже под новым (гонка из предыдущего пакета).
+    function emailsSnapshotReset(c, html) {
+        c.emailsGeneration = (c.emailsGeneration || 0) + 1;
+        c.emailsLoading = false;
+        c.emailsHtml = html || '';
+    }
+    function emailsErrorHTML(reason) {
+        // Отказ — тоже состояние, и оно переживает перестройки дровера: молча
+        // повторять запрос при каждом переключении вкладок значит долбить сервер.
+        return '<p class="kb-detail-empty">Не удалось загрузить письма: ' + esc(reason) + '</p>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-emails-retry>Повторить</button>';
+    }
+    function loadRelatedEmails(c, force) {
+        if (!c) return;
+        var box = emailsBox();
         if (!box) return;
+        if (!force) {
+            if (c.emailsLoading) return;                                  // запрос уже в полёте
+            if (c.emailsHtml) { box.innerHTML = c.emailsHtml; return; }    // кэш на карточку
+        }
         if (!window.V2Api || !window.V2Api.token()) {
             box.innerHTML = '<p class="kb-detail-empty">Доступно при подключении к CRM.</p>';
             return;
         }
-        var role = null;
-        try { role = localStorage.getItem('crm_role'); } catch (e) { /* без хранилища */ }
+        // Единственная роль, которой почтовый роутер закрыт: у /email-parser
+        // сквозной гейт require_role("manager","warehouse","superadmin","admin")
+        // (email_parser_router.py:100) — под documents запрос вернул бы 403.
+        var role = window.V2Api.currentRole ? window.V2Api.currentRole() : null;
         if (role === 'documents') {
             box.innerHTML = '<p class="kb-detail-empty">Недоступно для вашей роли.</p>';
             return;
         }
+        // Адрес отдаёт загрузчик (sender_email в маппинге карточки), поэтому
+        // ветка undefined — запасной путь для снимка из старого кэша: тогда
+        // решает сервер, он отвечает sender_email:null. Известен и пуст —
+        // заведомо пустой запрос не отправляем вовсе.
+        var address = (c.sender_email === undefined || c.sender_email === null)
+            ? null : String(c.sender_email).trim();
+        if (address === '') {
+            emailsSnapshotReset(c, emailsNoSenderHTML());
+            box.innerHTML = c.emailsHtml;
+            return;
+        }
+        // Поколение загрузки: ответ /related приходит по тому адресу, который
+        // был на старте запроса. Если почту сменили в полёте (быстрое
+        // переключение вкладок), settle() иначе закэшировал бы чужой снимок
+        // под новым адресом — счётчик делает опоздавший ответ безвредным.
+        var generation = (c.emailsGeneration = (c.emailsGeneration || 0) + 1);
+        c.emailsLoading = true;
+        box.innerHTML = EMAILS_LOADING_HTML;
+        var settle = function (html) {
+            if (c.emailsGeneration !== generation) return;            // устаревший ответ
+            c.emailsLoading = false;
+            c.emailsHtml = html;
+            // Блок переспрашиваем: за время запроса дровер мог перестроиться на
+            // другую карточку — в чужой блок писать нельзя.
+            var target = emailsBox();
+            if (activeCard === c && target) target.innerHTML = html;
+        };
         window.V2Api.api('/email-parser/related/' + encodeURIComponent(c.id)).then(function (data) {
             var related = (data && data.related) || [];
-            if (!related.length) {
-                box.innerHTML = '<p class="kb-detail-empty">Писем не найдено.</p>';
-                return;
-            }
-            box.innerHTML = '<ul class="kb-email-list">' + related.map(function (item) {
-                var date = item.created_at ? new Date(item.created_at).toLocaleString('ru-RU') : '';
-                return '<li class="kb-email-row">' +
-                    '<div class="kb-email-info"><b>' + esc(item.title || 'Без темы') + '</b>' +
-                    '<span class="kb-detail-hint">' + esc(date) + '</span></div>' +
-                    '<button type="button" class="btn btn-ghost btn-sm kb-email-link" data-link-target="' + esc(item.id) + '" data-link-target-title="' + esc(item.title || '') + '">Связать со сделкой</button>' +
-                    '</li>';
-            }).join('') + '</ul>';
-            // Обработчики «Связать со сделкой»
-            box.querySelectorAll('.kb-email-link').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    linkEmailToCard(c, btn.dataset.linkTarget, btn.dataset.linkTargetTitle);
-                });
-            });
+            if (!data || !data.sender_email) settle(emailsNoSenderHTML());
+            else if (!related.length) settle(emailsEmptyHTML(data.sender_email));
+            else settle(emailsListHTML(related));
         }).catch(function (err) {
-            box.innerHTML = '<p class="kb-detail-empty">Не удалось загрузить письма: ' + esc(err.detail || err.message || 'ошибка') + '</p>';
+            settle(emailsErrorHTML(err.detail || err.message || 'ошибка'));
         });
     }
+    // Кнопки блока (повтор, переход к почте, «Связать со сделкой») вешаются
+    // делегированием на dialog: разметка блока возвращается и из кэша, а
+    // навешивание по querySelector после каждой перестройки копило дубли.
+    dialog.addEventListener('click', function (e) {
+        if (e.target.closest('[data-emails-retry]')) { loadRelatedEmails(activeCard, true); return; }
+        if (e.target.closest('[data-emails-goto-sender]')) {
+            var field = senderEmailControl();
+            if (!field) return;
+            var overviewTab = document.getElementById('kb-tab-overview');
+            if (overviewTab) overviewTab.click();
+            if (!(window.KBSelect && window.KBSelect.focus(field))) field.focus({ preventScroll: true });
+            return;
+        }
+        var link = e.target.closest('.kb-email-link');
+        if (link && activeCard) linkEmailToCard(activeCard, link.dataset.linkTarget, link.dataset.linkTargetTitle);
+    });
     // POST /email-parser/link/{card_id} — связать письмо с текущей сделкой.
     // Тело: { target_card_id: <id целевой сделки из related> }.
     function linkEmailToCard(currentCard, targetCardId, targetTitle) {
         if (!targetCardId || !window.V2Api) return;
+        // Двойной клик унёс бы текст письма в целевую дважды: сервер не
+        // проверяет, что карточка-источник уже помечена удалённой, а перечитывание
+        // данных отвечает не мгновенно.
+        if (currentCard._emailLinkPending) return;
+        currentCard._emailLinkPending = true;
         window.V2Api.api('/email-parser/link/' + encodeURIComponent(currentCard.id), {
             method: 'POST',
             body: { target_card_id: Number(targetCardId) }
         }).then(function (result) {
-            notify(result && result.message ? result.message : 'Письмо связано со сделкой.');
-            // Обновляем блок писем — письмо удаляется на сервере
-            if (currentCard) loadRelatedEmails(currentCard);
+            currentCard._emailLinkPending = false;
+            var message = result && result.message ? result.message : 'Письмо связано со сделкой.';
+            // Сервер помечает удалённой ту карточку, что открыта в дровере
+            // (src.is_deleted = True в link_card_to_existing), и дописывает
+            // текст в целевую. Держать открытой «письмо» нельзя: карточки на
+            // доске и её деньги без перечитывания остались бы старым снимком.
+            // Дровер закрывает подписчик kb:reloaded — тем же путём, что уже
+            // удалённую карточку. Рапортуем после успешного перечитывания.
+            reloadData().then(function () {
+                notify(message);
+            }).catch(function (err) {
+                refresh();
+                notify(message + ' Данные не обновились: ' + ((err && (err.detail || err.message)) || 'ошибка'), true);
+            });
         }).catch(function (err) {
+            currentCard._emailLinkPending = false;
             notify('Не удалось связать: ' + (err.detail || err.message || 'ошибка'));
         });
+    }
+    // Дефект 3 реестра V2-WORKPLAN-2026-09-22: складское списание должно
+    // заводить копию накладной в «Документах», как это делает legacy
+    // (site/js/writeoffs.js:736-770). Роут идемпотентен: если копия по паре
+    // (карточка + номер) уже есть, сервер отдаёт её же — новой строки не
+    // появляется, поэтому resolve(true) означает «копию завели сейчас».
+    // Гейт роли у роута только авторизационный (payments_router.py:317-318),
+    // поэтому data-admin-only на это действие не вешаем.
+    function duplicateAsDocument(card, txId) {
+        return window.V2Api.api('/payments/transactions/' + txId + '/duplicate_as_document', { method: 'POST' })
+            .then(function (doc) {
+                if (card._docCopyFailed) delete card._docCopyFailed[txId];
+                // Ответ — TransactionResponse (рубли, ISO-дата); в card.docs
+                // доска держит копейки и ДД.ММ.ГГГГ — тот же формат, что
+                // подставляет загрузчик, иначе money() покажет мусор.
+                var known = !doc || !doc.id || card.docs.some(function (d) { return String(d.txId) === String(doc.id); });
+                if (known) return false;
+                card.docs.push({
+                    txId: doc.id, series: '', number: String(doc.invoice_number || ''),
+                    date: ruFromIso(String(doc.invoice_date || doc.date || '').slice(0, 10)),
+                    amount: Math.round((Number(doc.amount) || 0) * 100),
+                    originalsReturned: Boolean(doc.is_invoice_doc)
+                });
+                // Строки документов в финансах собираются из card.docs по
+                // событию kb:documents — без него копия появилась бы только
+                // после перезагрузки страницы.
+                syncCard(card, { documents: true });
+                return true;
+            });
     }
     // Фидбек 18.09: флаги складского списания по накладным карточки —
     // из эндпоинта чек-листа накладных (id записи реестра + written_off).
@@ -1288,8 +2018,77 @@
             notify('Не удалено: ' + (err.detail || err.message || 'ошибка'));
         });
     }
+    // Дефект 8 реестра V2-WORKPLAN-2026-09-22: дровер собирается целиком
+    // (dialog.innerHTML = …), и сфокусированный элемент гибнет вместе со старым
+    // деревом — активным остаётся <body>, а Tab у клавиатурщика начинается с
+    // начала страницы. Перестроек у дровера много: ответ loadWarehouseFlags
+    // (~244 мс после открытия), kb:reloaded, отмена ТН, вложения, пункт
+    // закупки — поэтому адрес фокуса снимается и возвращается в единственной
+    // точке сборки карточки, а не заплаткой в каждом вызове. Всё вне modally
+    // открытого <dialog> нативно недоступно для фокуса, поэтому ловим и
+    // возвращаем фокус только внутри дровера: наружу (и в inert-область) он
+    // уехать не может по построению.
+    function drawerFocusAddress() {
+        var el = document.activeElement;
+        if (!el || el === document.body || !dialog.contains(el)) return null;
+        var addr = { tag: el.tagName, id: el.id || '', data: {}, path: [] };
+        for (var key in el.dataset) addr.data[key] = el.dataset[key];
+        for (var node = el; node && node !== dialog; node = node.parentNode) {
+            if (!node.parentNode) return null; // узел уже вырезан из дровера — адрес не построить
+            addr.path.unshift(Array.prototype.indexOf.call(node.parentNode.children, node));
+        }
+        return addr;
+    }
+    function sameFocusAddress(el, addr) {
+        if (!el || el.tagName !== addr.tag) return false;
+        if (addr.id && el.id !== addr.id) return false;
+        return Object.keys(addr.data).every(function (k) { return el.dataset[k] === addr.data[k]; });
+    }
+    function followFocusPath(path) {
+        var node = dialog;
+        for (var i = 0; i < path.length; i++) {
+            node = node.children[path[i]];
+            if (!node) return null;
+        }
+        return node === dialog ? null : node;
+    }
+    function resolveDrawerFocus(addr) {
+        // Порядок: id (переживает перестройку, элементы размечены), затем путь
+        // в дереве (тот же макет из тех же данных), затем поиск совпадения по
+        // data-* — путь съезжает, когда состав строк изменился (отменённая ТН,
+        // удалённое вложение).
+        if (addr.id) {
+            var byId = document.getElementById(addr.id);
+            if (byId && dialog.contains(byId) && byId.tagName === addr.tag) return byId;
+        }
+        var byPath = followFocusPath(addr.path);
+        if (byPath && sameFocusAddress(byPath, addr)) return byPath;
+        if (Object.keys(addr.data).length) {
+            var same = dialog.getElementsByTagName(addr.tag.toLowerCase());
+            for (var i = 0; i < same.length; i++) if (sameFocusAddress(same[i], addr)) return same[i];
+        }
+        return null;
+    }
+    function tryDrawerFocus(el) {
+        if (!el || !dialog.contains(el) || el.disabled) return false;
+        if (el.closest('[inert]')) return false; // внутрь inert фокус не уходит
+        try { el.focus({ preventScroll: true }); } catch (e) { return false; }
+        // Скрытый (hidden на панели вкладки) элемент фокус не примет —
+        // проверяем фактом, а не догадкой.
+        return document.activeElement === el;
+    }
+    function restoreDrawerFocus(addr) {
+        if (!addr) return;
+        if (tryDrawerFocus(resolveDrawerFocus(addr))) return;
+        // Устойчивый якорь дровера — его крестик (он же [autofocus] при
+        // открытии): вернуться в начало дровера честнее, чем оставить фокус в
+        // body, откуда Tab стартует за пределами модального окна.
+        tryDrawerFocus(dialog.querySelector('.kb-detail-close') ||
+            dialog.querySelector('[autofocus]') || dialog.querySelector('[data-close]'));
+    }
     function openCard(c) {
         window.KBSelect.close();
+        var focusAddr = drawerFocusAddress();
         window.KBPayment.draft(c);
         if (!activeCard || activeCard.id !== c.id) editingDoc = null;
         var preserved = null;
@@ -1336,6 +2135,13 @@
                 if (panel) panel.hidden = !selected;
                 if (selected && focus) button.focus();
             });
+            // Пункт 8 (аудит F3): письма отправителя грузились только из
+            // «Связать со сделкой», поэтому при открытии вкладки «История»
+            // плейсхолдер «Загрузка…» висел вечно. Запуск — по открытию
+            // вкладки; внутри loadRelatedEmails есть кэш на карточку и
+            // защита от повторного запроса, так что переключение туда-сюда
+            // сервер не дёргает.
+            if (name === 'history') loadRelatedEmails(c, false);
         }
         var tablist = dialog.querySelector('[role="tablist"]');
         tablist.onclick = function(e) {
@@ -1371,14 +2177,48 @@
             input.addEventListener('change', function () {
                 if (!input.checked) { input.checked = true; return; } // списание необратимо с плитки
                 if (!window.V2Api || !window.V2Api.token()) return;
-                window.V2Api.api('/payments/transactions/' + input.dataset.wh, {
+                var txId = input.dataset.wh;
+                // Два запроса идут подряд; на время цепочки галочка гасится,
+                // иначе второй клик отправляет повторную выписку копии.
+                input.disabled = true;
+                window.V2Api.api('/payments/transactions/' + txId, {
                     method: 'PATCH',
                     body: { is_warehouse_writeoff: true }
                 }).then(function () {
-                    notify('Товар списан со склада.');
+                    // Флаг на сервере стоит — поднимаем и локальный снимок,
+                    // иначе следующая перестройка дровера покажет галочку
+                    // снятой: loadWarehouseFlags кэш не обновляет.
+                    if (c._invFlags) c._invFlags[input.dataset.whNumber] = true;
+                    return duplicateAsDocument(c, txId).then(function (created) {
+                        notify(created ? 'Товар списан со склада, копия ТН заведена в «Документах».' : 'Товар списан со склада.');
+                    }, function (e3) {
+                        // Отказ второго шага не откатывает первый: списание
+                        // состоялось, не хватает только копии. Говорим, чего
+                        // именно нет, и оставляем кнопку повтора в строке.
+                        c._docCopyFailed = c._docCopyFailed || {};
+                        c._docCopyFailed[txId] = reasonText(e3);
+                        // Перерисовываем только свой дровер: за время запроса
+                        // в нём могла открыться другая карточка.
+                        if (activeCard === c) openCard(c);
+                        notify('Со склада списано, но копия ТН не создана: ' + reasonText(e3) + '. Повтор — кнопкой в строке накладной.', true);
+                    });
                 }).catch(function (e2) {
+                    input.disabled = false;
                     input.checked = false;
-                    notify('Не списано: ' + (e2.detail || e2.message || 'ошибка'));
+                    notify('Не списано: ' + reasonText(e2), true);
+                });
+            });
+        });
+        dialog.querySelectorAll('[data-doc-copy]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                if (!window.V2Api || !window.V2Api.token()) return;
+                btn.disabled = true;
+                duplicateAsDocument(c, btn.dataset.docCopy).then(function () {
+                    notify('Копия ТН заведена в «Документах».');
+                    if (activeCard === c) openCard(c);   // снимаем кнопку повтора
+                }, function (e2) {
+                    btn.disabled = false;
+                    notify('Копия не создана: ' + reasonText(e2), true);
                 });
             });
         });
@@ -1493,6 +2333,13 @@
                 if (ok) deleteCard(c, del); // Item #9: запрос только после подтверждения
             });
         };
+        // Дозадача к пункту 9: метки data-admin-only ставятся разметкой, а
+        // скрывает их загрузчик — проход после каждой сборки дровера.
+        applyRoleMarks(dialog);
+        // Дефект 8: возврат фокуса — в самом конце, когда вкладки разложены и
+        // обработчики навешаны. Скролл дровера восстановлен выше, поэтому
+        // preventScroll.
+        restoreDrawerFocus(focusAddr);
     }
 
     // Оплата — логика рабочей версии (выбирается СТАТУС, деньги следуют
@@ -1752,11 +2599,15 @@
     });
     document.addEventListener('keydown', function(e) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
-        // Enter/Space на кнопке удаления — её родное действие, не открытие.
-        var delEl = e.target.closest ? e.target.closest('.kb-card-del') : null;
-        if (delEl) return;
         var cardEl = e.target.closest ? e.target.closest('[data-card][role="button"]') : null;
         if (!cardEl) return;
+        // Клавиша на контроле ВНУТРИ строки — её родное действие, а не
+        // открытие: preventDefault ниже глушил и клик по кнопке удаления с
+        // плитки, и пробел галочки выборки в очереди, и активацию «Убрать из
+        // списания». Набор по плитке/строке при этом остаётся — он идёт с
+        // самого контейнера, у которого этих тегов нет.
+        var inner = e.target.closest ? e.target.closest('input, select, textarea, button, a, label, summary') : null;
+        if (inner && inner !== cardEl) return;
         e.preventDefault();
         var card = cards.find(function(c) { return c.id === cardEl.dataset.card; });
         if (card) openCard(card);
@@ -1816,8 +2667,11 @@
             if (!cancel.dataset.armed) {
                 dialog.querySelectorAll('[data-doc-cancel][data-armed]').forEach(function (other) {
                     delete other.dataset.armed;
-                    other.textContent = 'Отменить';
+                    other.textContent = other.dataset.label || 'Отменить';
                 });
+                // Надпись разная у отмены ТН и у удаления осиротевшего
+                // документа группы — возвращать надо именно её.
+                cancel.dataset.label = cancel.textContent;
                 cancel.dataset.armed = '1';
                 cancel.textContent = 'Точно отменить?';
                 return;
@@ -1853,7 +2707,7 @@
                 var disarmCancel = function () {
                     cancel.disabled = false;
                     delete cancel.dataset.armed;
-                    cancel.textContent = 'Отменить';
+                    cancel.textContent = cancel.dataset.label || 'Отменить';
                 };
                 // P0-хотфикс 23.09 (часть C): выписанную группу разматывает
                 // только серверный POST /writeoffs/groups/{id}/annul. Прежний
@@ -1948,8 +2802,11 @@
                             notify('Групповая ТН не выписана — отменять нечего.', true);
                         });
                 } else {
-                    // Группы нет на сервере (демо-сессия прототипа) — локальная
-                    // отмена безопасна.
+                    // Ни serverId, ни записи-документа у группы нет — сервер о ней
+                    // не знает: такая группа собрана локально и живёт только в
+                    // предпросмотре мокапа (на бою id группы даёт boot из
+                    // /writeoffs/groups/, а issueGroup — id документа). Локальная
+                    // отмена безопасна: затирать на сервере нечего.
                     doCancelGroupLocal();
                 }
                 return;
@@ -1982,6 +2839,15 @@
             }
             return;
         }
+        // Дефект 5 реестра V2-WORKPLAN-2026-09-22: состав группы —
+        // прикрепиться, выйти, распустить. Разметка пересобирается на каждом
+        // openCard, поэтому обработчик один и делегирующий.
+        var join = e.target.closest('[data-group-join]');
+        if (join && activeCard) { joinCardToGroup(activeCard); return; }
+        var leave = e.target.closest('[data-group-leave]');
+        if (leave && activeCard) { leaveGroup(activeCard, leave); return; }
+        var dissolve = e.target.closest('[data-group-disband]');
+        if (dissolve && activeCard) { disbandGroup(activeCard, dissolve); return; }
         if (e.target.closest('[data-close]')) closeDialog();
     });
     dialog.addEventListener('input', function(e) {
@@ -2048,6 +2914,11 @@
                 var parts = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(value);
                 var date = parts && new Date(Number(parts[3]), Number(parts[2]) - 1, Number(parts[1]));
                 if (!parts || date.getFullYear() !== Number(parts[3]) || date.getMonth() !== Number(parts[2]) - 1 || date.getDate() !== Number(parts[1])) error = 'Введите дату в формате ДД.ММ.ГГГГ.';
+            } else if (key === 'sender_email') {
+                // Пусто — «адрес не указан», это не ошибка. Проверяем сами, а не
+                // только нативной валидацией type="email": сообщение должно быть
+                // по-русски, как у соседних полей.
+                if (value && !/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(value)) error = 'Укажите адрес почты, например name@example.by.';
             } else if (key === 'manager') {
                 // Item #4: сопоставление по id, не по индексу массива.
                 // Пустое значение или 'us-none' = менеджер не назначен.
@@ -2092,6 +2963,11 @@
             else if (key === 'note') apiMutate('card', { id: Number(activeCard.id), fields: { description: value } });
             else if (key === 'amount') apiMutate('card', { id: Number(activeCard.id), fields: { total_amount: value / 100 } });
             else if (key === 'deadline') apiMutate('card', { id: Number(activeCard.id), fields: { due_date: isoFromRu(value) } });
+            else if (key === 'sender_email') {
+                // Пустое значение = «очистить адрес»: колонка nullable
+                // (models.py:129), поле есть и в CardUpdate, и в CardResponse.
+                apiMutate('card', { id: Number(activeCard.id), fields: { sender_email: value || null } });
+            }
             else if (key === 'store') {
                 // Item #6: отправляем store_location только если пользователь
                 // действительно выбрал значение; пустое = 'не указан'.
@@ -2113,6 +2989,17 @@
                 var control = dialog.querySelector('[data-deal-field="' + key + '"]');
                 if (!window.KBSelect.focus(control)) control.focus({ preventScroll: true });
             } else if (key === 'title') document.getElementById('kb-dialog-title').textContent = value;
+            if (key === 'sender_email') {
+                // Письма в «Истории» подобраны по старому адресу — снимок
+                // больше не действителен. При закрытой вкладке запрос не
+                // дёргаем: loadRelatedEmails стартует при открытии «Истории»,
+                // пустого кэша достаточно, чтобы список собрался по новому
+                // адресу самому (и пустой адрес уйдёт в подсказку без GET).
+                // Сброс поднимает поколение: ответ по прежнему адресу,
+                // заставший смену почты в полёте, больше не попадёт в кэш.
+                emailsSnapshotReset(activeCard);
+                if (dialog.dataset.cardTab === 'history') loadRelatedEmails(activeCard, true);
+            }
             return;
         }
         if (!input.matches('[data-check]')) return;
@@ -2299,7 +3186,201 @@
     });
     document.getElementById('kb-queue-body').addEventListener('click', function (e) {
         if (e.target.closest('#kb-group-issue')) openGroupIssue();
+        var rowDrop = e.target.closest('[data-row-unwriteoff]');
+        if (rowDrop) {
+            var one = cards.find(function (c) { return c.id === rowDrop.dataset.rowUnwriteoff; });
+            if (one) dropFromWriteoff([one]);
+            return;
+        }
+        if (e.target.closest('#kb-q-unwriteoff')) dropFromWriteoff(pickedCards());
     });
+    // Дефект 4 реестра V2-WORKPLAN-2026-09-22: массовое «убрать сделку из
+    // списания» (legacy — кнопка на каждой плитке доски списания,
+    // site/js/writeoffs.js:389-420). В v2 выбор уже есть в очереди
+    // («kb-q-pick»), поэтому действие вешается на него, а не на дровер:
+    // в дровере и так поштучная отмена ТН, а выбор в очереди покрывает ровно
+    // те карточки, которые лежат «На списание» с остатком.
+    // Роут DELETE /payments/cards/{card_id}/writeoff сносит ВСЁ по сделке:
+    // запись-остаток, выписанные накладные и их копии в «Документах», и
+    // возвращает карточку в «Сборку». Закрыт ролью admin — кнопка под
+    // data-admin-only. Отказы (карточка в группе — 400, карточки нет — 404)
+    // считаются поштучно: рапортуем честно, сколько ушло и сколько нет.
+    var dropPending = false;
+    function pickedCards() {
+        return groupPick.map(function (id) { return cards.find(function (c) { return c.id === id; }); }).filter(Boolean);
+    }
+    function dropFromWriteoff(picks) {
+        if (dropPending) { notify('Предыдущее удаление из списания ещё не закончено.', true); return; }
+        picks = (picks || []).filter(Boolean);
+        if (!picks.length) { notify('Сначала отметьте сделки в очереди.', true); return; }
+        if (!window.V2Api || !window.V2Api.token()) { notify('Действие доступно при подключении к CRM.', true); return; }
+        var one = picks.length === 1;
+        var named = picks.map(function (c) { return c.id + ' · ' + c.title; });
+        var listed = named.slice(0, 6).join('; ') + (named.length > 6 ? '; ещё ' + (named.length - 6) : '');
+        var grouped = picks.filter(function (c) { return c.groupId; }).map(function (c) { return c.id; });
+        // Текст подтверждения — по образцу legacy (site/js/writeoffs.js:395-397),
+        // но с перечислением сделок: стираются документы, а не гасится галочка,
+        // и масштаб отказа («сделки в группе») виден до нажатия.
+        var message = (one
+            ? 'Сделка ' + picks[0].id + ' будет убрана из списания: все её накладные и их копии в' +
+              ' «Документах» будут удалены, сама сделка вернётся в «' + assemblyStageName() + '».'
+            : 'Будут убраны из списания ' + picks.length + ' ' + pluralRu(picks.length, ['сделка', 'сделки', 'сделок']) +
+              ' (' + listed + '): все их накладные и их копии в «Документах» будут удалены,' +
+              ' сделки вернутся в «' + assemblyStageName() + '».');
+        if (grouped.length) message += ' В группе состоят: ' + grouped.join(', ') + ' — сервер их не примет,' +
+            ' пока карточку не вывести из группы («Накладные» → «Выйти из группы»).';
+        message += ' Назад это возвращается только повторной выпиской ТН.';
+        dropPending = true;                      // второй клик, пока открыт диалог, не нужен
+        KBConfirm.ask({
+            title: one ? 'Убрать сделку из списания?' : 'Убрать сделки из списания?',
+            message: message,
+            confirmText: 'Убрать'
+        }).then(function (ok) {
+            if (!ok) { dropPending = false; return; }
+            var button = document.getElementById('kb-q-unwriteoff');
+            if (button) button.disabled = true;
+            var dropped = 0, docsRemoved = 0, failed = [];
+            var next = function (i) {
+                if (i >= picks.length) { finish(); return; }
+                var card = picks[i];
+                window.V2Api.api('/payments/cards/' + Number(card.id) + '/writeoff', { method: 'DELETE' })
+                    .then(function (res) {
+                        dropped++;
+                        docsRemoved += (res && res.documents_deleted) || 0;
+                    })
+                    .catch(function (err) { failed.push(card.id + ' — ' + reasonText(err)); })
+                    .then(function () { next(i + 1); });
+            };
+            var finish = function () {
+                dropPending = false;
+                // Из выборки убираем только обработанные карточки: выборка
+                // общая с «Накладной на группу», сбрасывать её целиком — значит
+                // молча потерять план другой операции.
+                var doneIds = {};
+                picks.forEach(function (c) { doneIds[c.id] = true; });
+                groupPick = groupPick.filter(function (id) { return !doneIds[id]; });
+                var head = one
+                    ? (dropped ? 'Сделка ' + picks[0].id + ' убрана из списания' : 'Сделка ' + picks[0].id + ' не убрана из списания')
+                    : 'Убрано из списания ' + dropped + ' ' + pluralRu(dropped, ['сделки', 'сделок', 'сделок']) +
+                      ' из ' + picks.length;
+                if (dropped) head += ' (копий ТН удалено: ' + docsRemoved + ')';
+                var tail = failed.length ? '. Отказ: ' + failed.slice(0, 3).join('; ') + (failed.length > 3 ? '; ещё ' + (failed.length - 3) : '') : '';
+                // Источник правды — сервер: статусы, остатки и состав
+                // «Документов» меняются сразу у нескольких карточек.
+                reloadData()
+                    .then(function () { notify(head + tail + '.', failed.length > 0); })
+                    .catch(function (err) {
+                        refresh();
+                        notify(head + tail + '. Данные не обновились: ' + reasonText(err) + '.', true);
+                    });
+            };
+            next(0);
+        });
+    }
+    // ---------- Состав группы: прикрепиться / выйти / распустить ----------
+    // Дефект 5 реестра V2-WORKPLAN-2026-09-22. Контракты и гейты прочитаны в
+    // server_snapshot/routers/writeoff_groups_router.py:
+    //   attach  POST   /writeoffs/groups/{group}/cards/{card}  (:104) → группа
+    //   detach  DELETE /writeoffs/groups/{group}/cards/{card}  (:129) → группа
+    //           или {"detail":"Группа распущена"}, когда ушла последняя карточка
+    //   disband DELETE /writeoffs/groups/{group}               (:280) → {"detail":…}
+    // Прикрепление и выход — рабочая операция менеджера, они идут с общим
+    // dependencies=[Depends(get_current_user)] и остаются без метки. Роспуск
+    // закрыт require_role("admin","superadmin") (решение владельца 23.09),
+    // поэтому его кнопка помечена data-admin-only — см. groupOpenRow.
+    function groupServerId(g) {
+        return g && g.serverId !== undefined && g.serverId !== null ? g.serverId : null;
+    }
+    // Источник правды по группе — сервер: он пересобирает total_amount,
+    // состав и признак выписки. Локально ничего не вычитаем, перечитываем.
+    function afterGroupChange(message) {
+        reloadData()
+            .then(function () { notify(message); })
+            .catch(function (err) {
+                refresh();
+                notify(message + ' Данные не обновились: ' + reasonText(err), true);
+            });
+    }
+    function groupActionFailed(prefix, err, button) {
+        if (button) button.disabled = false;
+        var status = err && err.status;
+        if (status === 403) { notify(prefix + ': действие доступно только администратору.', true); return; }
+        // 400/404 — снимок разошёлся с сервером (группу уже закрыли накладной,
+        // распустили, карточка не в ней): не гадаем локально, перечитываем.
+        if (status === 400 || status === 404) {
+            reloadData()
+                .then(function () { notify(prefix + ': ' + reasonText(err) + '. Данные перечитаны с сервера.', true); })
+                .catch(function () { refresh(); notify(prefix + ': ' + reasonText(err), true); });
+            return;
+        }
+        notify(prefix + ': ' + reasonText(err) + '. Данные не изменились.', true);
+    }
+    function joinCardToGroup(card) {
+        if (!window.V2Api || !window.V2Api.token()) { notify('Действие доступно при подключении к CRM.', true); return; }
+        var select = dialog.querySelector('#kb-deal-groupjoin');
+        var g = select ? KBData.groups.filter(function (x) { return x.id === select.value; })[0] : null;
+        var gid = groupServerId(g);
+        if (!gid) { notify('Выберите группу, к которой крепить сделку.', true); return; }
+        KBConfirm.ask({
+            title: 'Прикрепить сделку к группе?',
+            message: 'Сделка ' + card.id + ' войдёт в группу «' + g.name + '» — карточек в ней станет ' + (g.covers.length + 1) +
+                '. Пока групповая ТН не выписана, сделку можно вывести обратно.',
+            confirmText: 'Прикрепить',
+            danger: false
+        }).then(function (ok) {
+            if (!ok) return;
+            window.V2Api.api('/writeoffs/groups/' + gid + '/cards/' + Number(card.id), { method: 'POST' })
+                .then(function () { afterGroupChange('Сделка ' + card.id + ' прикреплена к группе «' + g.name + '».'); })
+                .catch(function (err) { groupActionFailed('Не прикреплено', err); });
+        });
+    }
+    function leaveGroup(card, button) {
+        if (!window.V2Api || !window.V2Api.token()) { notify('Действие доступно при подключении к CRM.', true); return; }
+        var g = cardGroup(card);
+        var gid = groupServerId(g);
+        if (!gid) { notify('Группы сделки на сервере не видно — перечитайте данные.', true); return; }
+        KBConfirm.ask({
+            title: 'Выйти из группы?',
+            message: 'Сделка ' + card.id + ' выйдет из группы «' + g.name + '». Если карточка там последняя, сервер распустит группу.',
+            confirmText: 'Выйти',
+            danger: false
+        }).then(function (ok) {
+            if (!ok) return;
+            button.disabled = true;
+            window.V2Api.api('/writeoffs/groups/' + gid + '/cards/' + Number(card.id), { method: 'DELETE' })
+                .then(function (res) {
+                    // Ответ различает два исхода: состав группы изменился или
+                    // группы больше нет (сервер сам её удалил на последнем выходе).
+                    afterGroupChange(res && res.detail
+                        ? 'Сделка ' + card.id + ' вышла из группы: ' + String(res.detail).toLowerCase() + '.'
+                        : 'Сделка ' + card.id + ' вышла из группы «' + g.name + '».');
+                })
+                .catch(function (err) { groupActionFailed('Выйти не удалось', err, button); });
+        });
+    }
+    function disbandGroup(card, button) {
+        if (!window.V2Api || !window.V2Api.token()) { notify('Действие доступно при подключении к CRM.', true); return; }
+        var g = cardGroup(card);
+        var gid = groupServerId(g);
+        if (!gid) { notify('Группы сделки на сервере не видно — перечитайте данные.', true); return; }
+        KBConfirm.ask({
+            title: 'Распустить группу?',
+            message: 'Группа «' + g.name + '» будет удалена, а все её карточки (сейчас ' + g.covers.length +
+                ') вернутся в обычные очереди. Выписанные ТН и оплаты карточек не трогаются.' +
+                ' Действие видно всем, кто работает с этой базой.',
+            confirmText: 'Распустить'
+        }).then(function (ok) {
+            if (!ok) return;
+            button.disabled = true;
+            window.V2Api.api('/writeoffs/groups/' + gid, { method: 'DELETE' })
+                .then(function () { afterGroupChange('Группа «' + g.name + '» распущена, карточек вышло: ' + g.covers.length + '.'); })
+                .catch(function (err) { groupActionFailed('Не распущена', err, button); });
+        });
+    }
+    // Выписка групповой ТН — двухшаговая (создать группу → выписать), и отказ
+    // возможен на любом из шагов: флаг занятости общий, его ставят здесь, а
+    // снимают в issueGroup.
+    var groupIssueBusy = false;
     function openGroupIssue() {
         var picks = groupPick.map(function (id) { return cards.find(function (c) { return c.id === id; }); }).filter(Boolean);
         if (picks.length < 2) return;
@@ -2319,10 +3400,9 @@
             '<p class="kb-form-error" id="kb-g-error" role="alert"></p>' +
             '<button class="btn btn-primary" type="submit">Выписать на группу</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
         document.getElementById('kb-g-date').focus();
-        var submitted = false;
         document.getElementById('kb-group-form').onsubmit = function (e) {
             e.preventDefault();
-            if (submitted) return;
+            if (groupIssueBusy) return;
             var number = document.getElementById('kb-g-number').value.trim();
             var date = document.getElementById('kb-g-date').value;
             // Item #3: проверка дубля — с учётом пустой серии в серверных группах.
@@ -2332,7 +3412,10 @@
                     return gNum && gNum === number.toLowerCase();
                 }) ? 'Накладная с таким номером уже выписана.' : '';
             if (error) { document.getElementById('kb-g-error').textContent = error; return; }
-            submitted = true;
+            // Флаг живёт на уровне модуля, а не формы: сбрасывать его должен и
+            // отказ в issueGroup, иначе кнопка «Выписать на группу» после
+            // первой же ошибки осталась бы навсегда нажатой.
+            groupIssueBusy = true;
             issueGroup(picks, number, date, totalAmount);
         };
         if (!dialog.open) dialog.showModal();
@@ -2363,17 +3446,23 @@
                     var groupEntry = {
                         id: 'gr-' + g.id, serverId: g.id, serverTxId: groupDocTxId,
                         docTxId: groupDocTxId, tnHere: false, billHere: false,
-                        name: g.name || 'Группа', client: picks[0].client || '', store: picks[0].store || '',
-                        series: '', number: number, date: date, amount: totalAmount,
+                        name: g.name || 'Группа', client: picks[0].client || '',
+                        // Формат полей — как у boot (GET /writeoffs/groups/):
+                        // store = ИМЯ магазина, date = ДД.ММ.ГГГГ. Иначе до F5
+                        // строка группы в финансах печатала service-id и ISO,
+                        // а «Накладные» карточки — дату в другом виде.
+                        store: KBData.storeName(picks[0].store) || '',
+                        series: '', number: number, date: ruFromIso(String(date).slice(0, 10)), amount: totalAmount,
                         writtenOff: true,
                         covers: picks.map(function (c) { return { cardId: c.id, amount: null }; })
                     };
                     KBData.groups.push(groupEntry);
-                    // Invalidate server money cache for affected cards
+                    // Дефект 7 реестра (симметричная часть, закрытая здесь):
+                    // раньше деньги только инвалидировались, и карточка
+                    // оставалась без остатка в обеих очередях до перезагрузки.
                     picks.forEach(function (c) {
-                        c.remaining_kop = undefined;
-                        c.issued_total = undefined;
                         c.groupId = 'gr-' + g.id;
+                        coverCardByGroupIssue(c);
                     });
                     groupPick = [];
                     closeDialog(); refresh();
@@ -2382,7 +3471,7 @@
             })
             .catch(function (err) {
                 if (submitBtn) submitBtn.disabled = false;
-                submitted = false;
+                groupIssueBusy = false;
                 var errEl = document.getElementById('kb-g-error');
                 if (errEl) errEl.textContent = (err && (err.detail || err.message)) || 'Не удалось выписать групповую накладную.';
             });
@@ -2430,6 +3519,10 @@
                 if (!switched) return;
                 requestAnimationFrame(function () {
                     if (!dialog.open) return;
+                    // Возврат при перестройке дровера (restoreDrawerFocus,
+                    // дефект 8 реестра) уже поставил фокус внутрь — не тянем его
+                    // на крестик и не делаем второй ход за один кадр.
+                    if (dialog.contains(document.activeElement)) return;
                     var f = dialog.querySelector('[autofocus]') || dialog.querySelector('.kb-detail-close');
                     if (f && document.activeElement !== f) f.focus({ preventScroll: true });
                 });
@@ -2441,4 +3534,9 @@
     if (bp.q) { state.search = bp.q; searchEl.value = bp.q; }
     if (bp.store && (bp.store === 'all' || KBData.stores.some(function (s) { return s.id === bp.store; }))) state.store = bp.store;
     populateStores(); setDensity(true); refresh(); queueMode(['pending', 'history'].indexOf(bp.mode) >= 0 ? bp.mode : 'board');
+    // Запрос из ссылки (#board?q=…) раскрываем сразу: свёрнутая лупа за
+    // невидимым фильтром выглядела как сломанная доска. Фокус при этом не
+    // тянем — страница только что загрузилась, а скролл к тулбару не нужен.
+    // Без запроса поле остаётся как в разметке: inert + скрытый крестик.
+    if (bp.q) setSearchPanel(true);
 })();

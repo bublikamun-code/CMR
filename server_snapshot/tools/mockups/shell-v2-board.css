@@ -13,17 +13,11 @@
 .kb-note b { color: var(--text); }
 
 /* ---------- Тулбар: поиск, магазин, плотность ---------- */
+/* Пункт 7 V2-WORKPLAN: геометрия поиска (лупа ↔ одно поле с одним крестиком)
+   описана целиком в shell-v2-controls.css — рядом с общей оболочкой тулбара
+   (.kb-tools/.kb-icon). Раньше те же .kb-search были заданы дважды в двух
+   файлах и спорили: отсюда и выросла «капсула в капсуле» с синим выделением. */
 .kb-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
-.kb-search {
-    display: flex; align-items: center; gap: var(--s2);
-    background: var(--surface); border: 1px solid var(--border-strong);
-    border-radius: var(--r-pill); padding: 6px 12px; color: var(--muted); min-width: 220px; flex: 1 1 240px;
-}
-.kb-search input {
-    border: none; outline: none; background: transparent; color: var(--text);
-    font: inherit; font-size: var(--font-body); width: 100%; min-width: 0;
-}
-.kb-search input::placeholder { color: var(--faint); }
 .kb-toolbar select {
     font: inherit; font-size: var(--font-ui); font-weight: 600; color: var(--text);
     background: var(--surface); border: 1px solid var(--border-strong);
@@ -65,6 +59,31 @@
 .kb-col-sum { margin-left: auto; font-size: var(--font-micro); color: var(--muted); }
 .kb-cards { overflow-y: auto; padding: var(--s2); display: flex; flex-direction: column; gap: var(--s2); min-height: 0; }
 .kb-empty { color: var(--faint); font-size: var(--font-ui); padding: var(--s3); text-align: center; }
+
+/* Пункт 7 V2-WORKPLAN: под активным поиском/фильтром с нулевым результатом
+   — одна общая подсказка со сбросом, а не четыре колонки по «Пусто». Узел
+   лежит между тулбаром и рабочей областью, поэтому виден и в режиме доски,
+   и в режимах очереди (скрывается вместе с ними, а не по отдельности). */
+.kb-no-results {
+    display: flex; flex-direction: column; align-items: center; gap: var(--s2);
+    flex-shrink: 0;
+    padding: var(--s6) var(--s4); text-align: center;
+    background: var(--surface); border: 1px dashed var(--border-strong);
+    border-radius: var(--r-lg); color: var(--muted); font-size: var(--font-body);
+}
+/* Общий [hidden] { display: none !important } добавляет сборщик в site-v2;
+   в прототипе его нет, а display:flex этой же строкой перебил бы правило
+   браузера — подсказка лезла бы на экран при каждом сбросе. */
+.kb-no-results[hidden] { display: none; }
+.kb-no-results b { color: var(--text); font-size: var(--font-h2); }
+.kb-no-results p { max-width: 62ch; }
+
+/* Отключённый ответственный (пункт 15) в поле «Менеджер»: KBSelect строит
+   свой список из текста option и переносить туда цвета нечем, поэтому
+   приглушаем выбранное значение — класс переезжает на контейнер поля вместе
+   с атрибутами label (enhanceOne, shell-v2-select.js). Подпись «(отключён)»
+   остаётся видимой и в списке, и в значении. */
+#kb-dialog .kb-mgr-off .kb-select-value { color: var(--faint); }
 
 /* ---------- Карточка ---------- */
 .kb-card {
@@ -226,6 +245,11 @@
 /* Строка очереди открывает карточку целиком; галочка внутри строки — нет. */
 .kb-q-row[data-card] { cursor: pointer; }
 .kb-q-row[data-card]:hover { background: var(--surface-2); }
+/* Группа списания в дровере (дефект 5 реестра): выбор группы тянется по
+   ширине, кнопка прижимается справа и переезжает вниз только на узком экране. */
+#kb-dialog .kb-group-join { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s2); margin-top: var(--s2); }
+#kb-dialog .kb-group-join .kb-edit-field { flex: 1 1 240px; }
+#kb-dialog .kb-detail-note .kb-group-join { margin-top: var(--s3); }
 /* Инлайн-правка накладной в карточке */
 .kb-doc-edit label { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-ui); color: var(--muted); margin-bottom: var(--s2); }
 .kb-doc-edit input { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-md); padding: 7px 9px; width: 100%; box-sizing: border-box; }
@@ -262,6 +286,14 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .kb-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--s3); font-size: var(--font-ui); margin-top: var(--s2); }
 .kb-kv dt { color: var(--muted); }
 .kb-kv dd { margin: 0; overflow-wrap: anywhere; }
+/* Пункт 8: у состояний блока «Письма отправителя» под подсказкой есть кнопка
+   («Повторить» / переход к полю почты). Общий reset обнулил маргины, а сам
+   блок-подсказка — пунктирный контейнер: без зазора кнопка к нему липнет. */
+#kb-dialog #kb-email-related :is([data-emails-retry], [data-emails-goto-sender]) { margin-top: var(--s2); }
+/* Пункт 5: адрес почты длиннее остальных значений «Обзора» и вместе с
+   placeholder'ом в одну колонку grid не вмещается — тянем на всю строку,
+   как заметку (тот же приём в shell-v2-card.css). */
+#kb-dialog .kb-edit-field:has(#kb-deal-sender_email) { grid-column: 1 / -1; }
 
 /* ---------- Тост ---------- */
 .kb-toast {
@@ -327,7 +359,6 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .kb-toast[hidden] { display: none; }
 .kb-queue { scroll-margin-top: 16px; }
 @media (max-width: 600px) {
-    .kb-search { min-width: 0; }
     .kb-dialog { padding: 16px; }
     .kb-form { grid-template-columns: 1fr; }
 }

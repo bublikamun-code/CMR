@@ -38,17 +38,37 @@ html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
 .kb-icon { display: inline-grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
 .kb-icon svg { width: 19px; height: 19px; }
 .kb-icon:hover, .kb-icon[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
-.kb-search { flex: none; min-width: 0; gap: 0; padding: 0; border: 0; border-radius: var(--r-md); }
-.kb-search-field { width: 0; overflow: hidden; opacity: 0; visibility: hidden; transition: width 180ms var(--ease), opacity 180ms; }
-.kb-search-field input { width: 220px; min-width: 0; padding: 0; height: 38px; }
-.kb-search.is-open .kb-search-field { width: 220px; opacity: 1; visibility: visible; }
-.kb-search.is-open input { padding: 0 10px; }
-.kb-search.is-open { box-shadow: 0 0 0 1px var(--border-strong); overflow: hidden; }
+/* Поиск на доске — один плоский контрол тулбара (пункт 7 V2-WORKPLAN):
+   закрыт — только лупа, открыт — поле с ОДНИМ крестиком внутри. Вложенной
+   «капсулы в капсуле» и второго выделения больше нет: кольцо фокуса рисует
+   сам input общим правилом :focus-visible, как соседние контролы тулбара. */
+.kb-search { position: relative; display: flex; align-items: center; flex: none; min-width: 0; }
+.kb-search input {
+    width: 0; min-width: 0; height: 38px; padding: 0; opacity: 0; visibility: hidden;
+    font: inherit; font-size: var(--font-body); color: var(--text);
+    background: transparent; border: 1px solid transparent; border-radius: var(--r-md);
+    transition: width 180ms var(--ease), opacity 180ms;
+}
+.kb-search input::placeholder { color: var(--faint); }
+.kb-search.is-open input {
+    width: 220px; padding: 0 34px 0 10px; opacity: 1; visibility: visible;
+    background: var(--surface); border-color: var(--border-strong);
+}
+/* У input[type=search] WebKit рисует свои лупу и крестик — это и был второй
+   «крестик сброса» поверх нашего. Единственный — кнопка ниже. */
+.kb-search input::-webkit-search-cancel-button,
+.kb-search input::-webkit-search-decoration,
+.kb-search input::-webkit-search-results-button { -webkit-appearance: none; appearance: none; display: none; }
 .kb-search.is-open #kb-search-toggle { display: none; }
-.kb-search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-#kb-search-close { display: none; border: 0; background: transparent; }
-.kb-search.is-open #kb-search-close { display: inline-grid; }
-.kb-search.is-open input:focus-visible { outline: none; }
+.kb-search-clear {
+    display: none; position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    place-items: center; width: 28px; height: 28px; padding: 0;
+    border: 0; border-radius: 50%; background: transparent; color: var(--muted);
+    font-size: var(--font-h1); line-height: 1;
+}
+.kb-search.is-open .kb-search-clear { display: grid; }
+.kb-search-clear:hover { color: var(--text); background: var(--surface-3); }
+@media (pointer: coarse) { .kb-search-clear { width: 44px; height: 44px; right: 0; } }
 .kb-store-menu { position: relative; }
 #kb-store { display: flex; gap: 6px; align-items: center; min-height: 38px; padding: 0 10px; border-radius: var(--r-md); background: var(--surface); }
 .kb-menu { position: absolute; top: calc(100% + 4px); right: 0; width: 168px; padding: 4px; border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--sh-2); background: var(--surface); z-index: 30; }
@@ -68,12 +88,11 @@ html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
   .kb-modes button { padding: 8px 9px; font-size: 12px; }
   .kb-tools { margin-left: 0; width: 100%; }
   .kb-search.is-open { flex: 1 1 100%; }
-  .kb-search.is-open .kb-search-field { flex: 1; }
-  .kb-search-field input { width: 100%; }
+  .kb-search.is-open input { flex: 1; width: auto; min-width: 0; }
   .kb-queue { padding: 12px; }
   .kb-q-row { flex-wrap: wrap; }
 }
-@media (prefers-reduced-motion: reduce) { .kb-search-field { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .kb-search input { transition: none; } }
 
 /* Оплата как в рабочей версии: сначала статус, деньги следуют за ним */
 .kb-pay-modes { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }

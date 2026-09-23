@@ -153,7 +153,11 @@
         }
 
         const users = usersRaw.map(function (u) {
-            return { id: 'us-' + u.id, username: u.username, full_name: u.full_name || u.username, initials: initials(u.full_name || u.username), role: u.role };
+            // is_active (пункт 15) переносится прямо здесь: доска, фильтры и
+            // «Клиент 360» читают этот же справочник и без поля не отличили бы
+            // отключённого ответственного — для этого пришлось бы вторым
+            // запросом идти в /auth/users.
+            return { id: 'us-' + u.id, username: u.username, full_name: u.full_name || u.username, initials: initials(u.full_name || u.username), role: u.role, is_active: u.is_active !== false };
         });
         const unassigned = { id: 'us-none', username: '—', full_name: 'Не назначен', initials: '··', role: 'manager' };
 
@@ -233,7 +237,16 @@
                 issued: 0, // история выписки подключается на этапе 2.6
                 stage: stageOf[String(c.status || '')] || 'new',
                 deadline: isoToRu(c.due_date),
+                // Возраст сделки нужен вкладке «Контроль» (фин-скрипт): без
+                // created_at «Дней» считался по сроку и пустел на карточках
+                // без due_date — на копии прод-БД их 1023 из 1064.
+                createdAt: isoToRu(c.created_at),
                 note: c.description || '',
+                // Почта отправителя (пункт 5): её показывает и правит дровер,
+                // по ней же блок «Письма отправителя» подбирает переписку.
+                // null → '' осознанно: «адрес известен и он пуст» — так доска
+                // не шлёт заведомо пустой запрос писем (loadRelatedEmails).
+                sender_email: c.sender_email || '',
                 paymentTerms: c.payment_terms || '',
                 paymentDueDate: String(c.payment_due_date || '').slice(0, 10),
                 payment_status: c.payment_status || '',
@@ -339,6 +352,11 @@
                 serverTxId: groupDoc ? groupDoc.id : null,
                 name: g.name || ('Группа ' + g.id),
                 client: groupClient ? groupClient.name : '',
+                // Имя клиента не уникально (в прод-базе есть однофамильцы), а
+                // сервер при прикреплении сверяет client_id
+                // (writeoff_groups_router.py:117) — доске нужен тот же ключ,
+                // иначе в списке кандидатов оказывается чужая группа.
+                clientId: g.client_id ? 'cl-' + g.client_id : null,
                 store: g.store_location || '',
                 // Серия отдельно не хранится: номер накладной записан целиком.
                 series: '',
@@ -418,14 +436,17 @@
         setText('Подключение к CRM…');
         if (!window.V2Api.token()) { const e = new Error('unauthorized'); e.unauthorized = true; throw e; }
         const meUser = await window.V2Api.me();
-        // B6: сохраняем verified-роль из /auth/me, а не из ответа логина.
-        // Роль всегда подтверждена сервером при каждом старте.
-        if (meUser && meUser.role) window.V2Api.save(window.V2Api.token(), meUser.role);
+        // B6: сохраняем verified-роль и id из /auth/me, а не из ответа логина.
+        // Роль всегда подтверждена сервером при каждом старте; id нужен
+        // интерфейсу, чтобы отличать «это я» без повторного /auth/me
+        // (V2Api.userId(), пункт 15).
+        if (meUser) window.V2Api.save(window.V2Api.token(), meUser.role, meUser.id);
         await _loadAndApplyData();
         enableMutations();
         renderUser(meUser);
         setText('CRM');
         await injectAll(APP_SCRIPTS);
+        announceRole();
     }
 
     // Загрузка и применение всех коллекций (вынесено для переиспользования
@@ -514,6 +535,46 @@
             location.reload();
         });
     }
+
+    // ── Ролевая видимость (пункт 9 плана) ──────────────────────────────
+    // Одна реализация на весь интерфейс: элемент помечается атрибутом
+    // data-admin-only, скрывает и возвращает его только эта функция. Вызов
+    // идемпотентен — модули зовут его после каждой перерисовки своих узлов,
+    // повторный проход по тем же элементам ничего не ломает.
+    function applyRoleVisibility(root) {
+        const admin = window.V2Api.isAdmin();
+        const scope = root || document;
+        const nodes = [].slice.call(scope.querySelectorAll('[data-admin-only]'));
+        if (scope.matches && scope.matches('[data-admin-only]')) nodes.push(scope);
+        nodes.forEach(function (el) {
+            if (!admin) {
+                if (el.dataset.v2RoleHidden) return;      // уже скрыто нами
+                // Элемент мог прийти уже скрытым — своей разметкой или кодом
+                // модуля; запоминаем, чтобы возврат админ-режима не снял
+                // чужое скрытие.
+                el.dataset.v2RoleHidden = el.hasAttribute('hidden') ? 'kept' : 'us';
+                el.setAttribute('hidden', '');
+                return;
+            }
+            if (el.dataset.v2RoleHidden === 'us') el.removeAttribute('hidden');
+            delete el.dataset.v2RoleHidden;
+        });
+        return admin;
+    }
+    // Роль подтверждена /auth/me — пересчитываем скрытое. Без этого повторный
+    // вход другим пользователем (без F5) оставлял бы раздел в состоянии
+    // прошлого сеанса: реестр inject не исполняет модули повторно.
+    function announceRole() {
+        const admin = window.V2Api.isAdmin();
+        // Сначала слушатели перестраивают свои узлы (dispatchEvent синхронен),
+        // затем общий проход прячет всё, что они поставили с меткой.
+        document.dispatchEvent(new CustomEvent('v2:role', {
+            detail: { role: window.V2Api.currentRole(), admin: admin }
+        }));
+        applyRoleVisibility(document);
+    }
+    window.V2Role = { apply: applyRoleVisibility };
+
     // Реестр оплат v2: по каждой сделке — сумма, оплачено (итог минус остаток)
     // и последняя выписанная ТН. Остатки приходят записями is_document=false.
     // Реестр и документы v2 — по данным CRM. «К выписке» считается так же,

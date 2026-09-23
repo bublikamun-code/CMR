@@ -769,12 +769,15 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             </div>
             <div class="kb-tools">
               <button type="button" class="btn btn-primary btn-sm" id="kb-new-card">+ Новая сделка</button>
-              <div class="kb-search" id="kb-search-wrap">
-                <button type="button" class="kb-icon" id="kb-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="kb-search-field" title="Поиск">
+              <div class="kb-search" id="kb-search-wrap" role="search">
+                <button type="button" class="kb-icon" id="kb-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="kb-search" title="Поиск">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
                 </button>
-                <div class="kb-search-field" id="kb-search-field" inert><input id="kb-search" type="search" placeholder="Клиент, сделка…" aria-label="Поиск сделок" autocomplete="off"></div>
-                <button type="button" id="kb-search-close" class="kb-icon" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+                <input id="kb-search" type="search" placeholder="Клиент, сделка…" aria-label="Поиск по названию, клиенту или номеру сделки" autocomplete="off" inert>
+                <!-- id остался «close»: на него смотрит tools/v2_functional_audit.py:113.
+                     Крестик в открытом поле один: чистит текст, а на пустом
+                     тексте закрывает поиск (пункт 7 V2-WORKPLAN). -->
+                <button type="button" class="kb-search-clear" id="kb-search-close" aria-label="Очистить поиск" title="Очистить поиск">×</button>
               </div>
               <div class="kb-store-menu" id="kb-store-menu">
                 <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
@@ -783,6 +786,11 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
               </button>
             </div>
+          </div>
+          <div class="kb-no-results" id="kb-no-results" role="status" hidden>
+            <b>Ничего не найдено</b>
+            <p id="kb-no-results-note"></p>
+            <button type="button" class="btn btn-ghost btn-sm" id="kb-reset-filters">Сбросить фильтры</button>
           </div>
           <div class="kb-board" id="kb-board"></div>
           <section class="kb-queue" id="kb-queue" tabindex="0" aria-label="Очередь и история выписки — прокрутка списка" hidden>
@@ -1136,7 +1144,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" aria-label="Кастомные объекты — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-co-table">
-              <thead><tr><th style="width:34%">Название</th><th>Системное имя</th><th style="width:208px">Действия</th></tr></thead>
+              <thead><tr><th style="width:34%">Название</th><th>Системное имя</th><th style="width:268px">Действия</th></tr></thead>
               <tbody id="mgmt-co-rows"></tbody>
             </table>
           </div>
@@ -1147,7 +1155,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             </div>
             <div class="table-scroll" role="region" aria-label="Поля кастомного объекта — горизонтальная прокрутка" tabindex="0">
               <table class="tbl" id="mgmt-co-fields-table">
-                <thead><tr><th style="width:26%">Метка</th><th>Системное имя</th><th style="width:132px">Тип</th><th style="width:128px">Обязательность</th><th style="width:110px">Действия</th></tr></thead>
+                <thead><tr><th style="width:26%">Метка</th><th>Системное имя</th><th style="width:132px">Тип</th><th style="width:128px">Обязательность</th><th style="width:200px">Действия</th></tr></thead>
                 <tbody id="mgmt-co-field-rows"></tbody>
               </table>
             </div>

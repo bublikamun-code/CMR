@@ -352,6 +352,11 @@
                 serverTxId: groupDoc ? groupDoc.id : null,
                 name: g.name || ('Группа ' + g.id),
                 client: groupClient ? groupClient.name : '',
+                // Имя клиента не уникально (в прод-базе есть однофамильцы), а
+                // сервер при прикреплении сверяет client_id
+                // (writeoff_groups_router.py:117) — доске нужен тот же ключ,
+                // иначе в списке кандидатов оказывается чужая группа.
+                clientId: g.client_id ? 'cl-' + g.client_id : null,
                 store: g.store_location || '',
                 // Серия отдельно не хранится: номер накладной записан целиком.
                 series: '',

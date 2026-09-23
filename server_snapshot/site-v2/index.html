@@ -5,18 +5,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=0ee9713e81">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=0ee9713e81">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=0ee9713e81">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=0ee9713e81">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=0ee9713e81">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=0ee9713e81">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=0ee9713e81">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=0ee9713e81">
-<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="0ee9713e81"</script>
-<script src="js/v2/api.js?v=0ee9713e81"></script>
-<script src="js/v2/boot.js?v=0ee9713e81"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=0ee9713e81">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=a03978df31">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=a03978df31">
+<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="a03978df31"</script>
+<script src="js/v2/api.js?v=a03978df31"></script>
+<script src="js/v2/boot.js?v=a03978df31"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=a03978df31">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -84,7 +84,7 @@
     <main class="content" id="shell-content" tabindex="-1" aria-labelledby="shell-title">
 
       <!-- ============ ВИД 1: ПУЛЬТ ДНЯ ============ -->
-      <!-- Значения KPI и очередь заполняет shell-v2-insights.js из демо-данных доски. -->
+      <!-- Значения KPI и очередь заполняет shell-v2-insights.js из данных доски. -->
       <section class="view" id="view-day" hidden>
         <div class="card">
           <div class="kpi">
@@ -136,10 +136,10 @@
           <div style="display:flex;flex-direction:column;gap:var(--s4);min-width:0">
             <div class="card card-dark">
             <div class="card-head">
-              <span class="card-title">Воронка · сентябрь</span>
+              <span class="card-title">Воронка · активные сделки</span>
               <div class="right"><span class="card-sub" id="day-funnel-sub"></span></div>
             </div>
-            <div class="heat">
+            <div class="heat" aria-hidden="true">
               <i class="l1"></i><i class="l2"></i><i></i><i class="l1"></i><i class="l3"></i><i></i><i></i>
               <i class="l2"></i><i class="l3"></i><i class="l1"></i><i></i><i class="l1"></i><i class="l2"></i><i></i>
               <i></i><i class="l3"></i><i class="l2"></i><i class="l1"></i><i class="on"></i><i></i><i class="l1"></i>
@@ -185,12 +185,15 @@
             </div>
             <div class="kb-tools">
               <button type="button" class="btn btn-primary btn-sm" id="kb-new-card">+ Новая сделка</button>
-              <div class="kb-search" id="kb-search-wrap">
-                <button type="button" class="kb-icon" id="kb-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="kb-search-field" title="Поиск">
+              <div class="kb-search" id="kb-search-wrap" role="search">
+                <button type="button" class="kb-icon" id="kb-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="kb-search" title="Поиск">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
                 </button>
-                <div class="kb-search-field" id="kb-search-field" inert><input id="kb-search" type="search" placeholder="Клиент, сделка…" aria-label="Поиск сделок" autocomplete="off"></div>
-                <button type="button" id="kb-search-close" class="kb-icon" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
+                <input id="kb-search" type="search" placeholder="Клиент, сделка…" aria-label="Поиск по названию, клиенту или номеру сделки" autocomplete="off" inert>
+                <!-- id остался «close»: на него смотрит tools/v2_functional_audit.py:113.
+                     Крестик в открытом поле один: чистит текст, а на пустом
+                     тексте закрывает поиск (пункт 7 V2-WORKPLAN). -->
+                <button type="button" class="kb-search-clear" id="kb-search-close" aria-label="Очистить поиск" title="Очистить поиск">×</button>
               </div>
               <div class="kb-store-menu" id="kb-store-menu">
                 <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
@@ -199,6 +202,11 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
               </button>
             </div>
+          </div>
+          <div class="kb-no-results" id="kb-no-results" role="status" hidden>
+            <b>Ничего не найдено</b>
+            <p id="kb-no-results-note"></p>
+            <button type="button" class="btn btn-ghost btn-sm" id="kb-reset-filters">Сбросить фильтры</button>
           </div>
           <div class="kb-board" id="kb-board"></div>
           <section class="kb-queue" id="kb-queue" tabindex="0" aria-label="Очередь и история выписки — прокрутка списка" hidden>
@@ -216,6 +224,7 @@
             <button type="button" class="btn btn-ghost" data-fin-tab="payments" aria-pressed="true" aria-controls="fin-payments">Реестр оплат</button>
             <button type="button" class="btn btn-ghost" data-fin-tab="documents" aria-pressed="false" aria-controls="fin-documents">Документы</button>
             <button type="button" class="btn btn-ghost" data-fin-tab="incoming" aria-pressed="false" aria-controls="fin-incoming">Входящие накладные</button>
+            <button type="button" class="btn btn-ghost" data-fin-tab="control" aria-pressed="false" aria-controls="fin-control">Контроль</button>
           </div>
 
         </div>
@@ -273,6 +282,7 @@
               <option value="desc">Сначала новые</option>
               <option value="asc">Сначала старые</option>
             </select>
+            <button type="button" class="btn btn-ghost btn-sm" id="fin-document-export">Экспорт CSV</button>
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Возврат оригиналов — горизонтальная прокрутка">
             <table class="tbl fin-table fin-table-compact" id="fin-document-table">
@@ -299,12 +309,39 @@
               </div>
             </div>
           </div>
-          <div class="table-scroll" role="region" tabindex="0" aria-label="Демо входящих накладных — горизонтальная прокрутка">
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Входящие накладные — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-incoming-table">
               <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>
               <tbody id="fin-incoming-rows"></tbody>
             </table>
           </div>
+        </div>
+
+        <!-- Вкладка «Контроль» (паритет с legacy site/js/control.js): дебиторка по
+             сделкам в сборке и в ожидании оплаты. Строки строит fin-скрипт при
+             ПЕРВОМ открытии вкладки — на ленивость раздела это не влияет. -->
+        <div class="card" id="fin-control" data-fin-panel hidden>
+          <h2 class="card-title">Контроль</h2>
+
+          <div class="card-head">
+            <span class="card-title">Дебиторка</span>
+            <span class="pill" id="fin-control-debt-summary">…</span>
+          </div>
+          <div class="table-scroll" role="region" tabindex="0" aria-label="Дебиторка — горизонтальная прокрутка">
+            <table class="tbl fin-table fin-table-compact" id="fin-control-table">
+              <thead><tr><th scope="col">Клиент / карточка</th><th scope="col">Магазин</th><th scope="col">Статус</th><th scope="col">Сумма, BYN</th><th scope="col">Оплачено, BYN</th><th scope="col">Остаток, BYN</th><th scope="col" title="Возраст сделки с даты создания; если даты нет — просрочка по сроку сделки">Дней</th></tr></thead>
+              <tbody id="fin-control-rows"></tbody>
+            </table>
+          </div>
+          <p id="fin-control-empty" class="fin-note" hidden></p>
+          <p id="fin-control-limit" class="fin-note" hidden></p>
+          <p id="fin-control-total" class="fin-total" role="status" aria-live="polite"></p>
+
+          <div class="card-head">
+            <span class="card-title">Не списано в учётной программе</span>
+            <div class="right"><button type="button" class="btn btn-ghost btn-sm" id="fin-control-show-unposted">Показать в реестре оплат</button></div>
+          </div>
+          <p id="fin-control-queue" class="fin-note" role="status"></p>
         </div>
 
         <details class="card" id="fin-journal">
@@ -358,13 +395,18 @@
       </section>
 
       <!-- ============ ВИД 6: ЗАДАЧИ И КАЛЕНДАРЬ ============ -->
-      <!-- Список и сводка заполняются из демо-набора задач (shell-v2-data.js). -->
+      <!-- Список и сводка заполняются задачами из KBData (в предпросмотре
+           мокапов их даёт shell-v2-data.js, на собранном сайте — boot.js из CRM). -->
       <section class="view" id="view-tasks" hidden>
         <div class="grid-2">
           <div class="card">
             <div class="card-head">
               <span class="card-title">Задачи</span>
               <span class="pill" id="tasks-progress">…</span>
+              <div class="task-filters" role="group" aria-label="Фильтр задач">
+                <button type="button" class="btn btn-ghost btn-sm" data-task-filter="all" aria-pressed="true">Все</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-task-filter="overdue" aria-pressed="false">Просроченные</button>
+              </div>
               <div class="right">
                 <span class="pill accent">Список</span>
                 <button class="btn btn-primary btn-sm" id="task-new" type="button">+ Задача</button>
@@ -385,15 +427,15 @@
 
         <div class="card" id="shell-calendar" tabindex="-1" role="region" aria-label="Календарь">
           <div class="card-head">
-            <span class="card-title">Календарь · <span id="cal-month">сентябрь 2026</span></span>
+            <span class="card-title">Календарь · <span id="cal-month">…</span></span>
             <div class="right">
               <button class="btn btn-ghost btn-sm" id="cal-prev" type="button">← Назад</button>
-              <button class="pill accent" id="cal-today" type="button" title="Вернуться к демонстрационному месяцу">Сегодня</button>
+              <button class="pill accent" id="cal-today" type="button" title="Перейти к текущему месяцу">Сегодня</button>
               <button class="btn btn-ghost btn-sm" id="cal-next" type="button">Вперёд →</button>
             </div>
           </div>
           <div class="cal" id="shell-cal-grid"></div>
-          <p class="fin-note" id="cal-note" hidden>Демо-события есть только в сентябре 2026.</p>
+          <p class="fin-note" id="cal-note" hidden>В этом месяце событий нет. Здесь появляются сроки сделок, даты оплат и сроки задач.</p>
           <div class="row wrap mt2" style="gap:12px;font-size:11px;color:var(--muted);margin-top:14px">
             <span class="row" style="gap:5px"><span class="pill accent" style="padding:0 6px"></span>Сделка</span>
             <span class="row" style="gap:5px"><span class="pill ok" style="padding:0 6px"></span>Оплата</span>
@@ -439,6 +481,12 @@
               <label class="mgmt-field" for="mgmt-email-status"><span>Статус новых карточек из писем</span><select id="mgmt-email-status"></select></label>
             </div>
           </div>
+          <!-- Пункт 15 плана: авто-синк почты в v2 делает не браузер, а
+               сервер — внешний cron (scripts/watchdog_crm.sh:47-55) раз в
+               5 минут зовёт POST /email-parser/sync-all. Клиентский таймер
+               legacy (site/js/email_parser.js:184) был бы вторым, лишним
+               путём; здесь только пояснение и ручная кнопка. -->
+          <p class="mgmt-hint">Автоимпорт писем выполняет сервер: он забирает почту сам, раз в 5 минут. Кнопка «Синхронизировать сейчас» нужна, чтобы проверить ящик немедленно, не дожидаясь очереди.</p>
         </div>
         <div class="card" id="mgmt-profile-card">
           <div class="card-head"><span class="card-title">Профиль — смена пароля</span></div>
@@ -453,16 +501,17 @@
             <button class="btn btn-primary btn-sm" type="submit">Сменить пароль</button>
           </form>
         </div>
-        <div class="card">
+        <div class="card" id="mgmt-user-card">
           <div class="card-head"><span class="card-title">Пользователи</span>
             <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-user-new" type="button">+ Новый пользователь</button></div>
           </div>
           <div class="table-scroll" role="region" aria-label="Пользователи — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-user-table">
-              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th style="width:104px">Действия</th></tr></thead>
+              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th style="width:112px">Доступ</th><th style="width:252px">Действия</th></tr></thead>
               <tbody id="mgmt-user-rows"></tbody>
             </table>
           </div>
+          <p class="mgmt-hint" id="mgmt-user-state" role="status" aria-live="polite" hidden></p>
         </div>
         <div class="card">
           <div class="card-head"><span class="card-title">Магазины</span>
@@ -486,6 +535,79 @@
             </table>
           </div>
 
+        </div>
+
+        <!-- Пункт 15 плана: экраны интеграции. Карточки живут в этом же
+             разделе и подгружаются лениво (см. MGMT_LAZY в
+             shell-v2-management.js), доступ — только админу, метки
+             data-admin-only проставляет ADMIN_MARKS. -->
+        <div class="card" id="mgmt-wh-card">
+          <div class="card-head"><span class="card-title">Вебхуки</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-wh-new" type="button">+ Новый вебхук</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Вебхуки — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-wh-table">
+              <thead><tr><th style="width:34%">URL</th><th>События</th><th style="width:112px">Состояние</th><th style="width:268px">Действия</th></tr></thead>
+              <tbody id="mgmt-wh-rows"></tbody>
+            </table>
+          </div>
+          <p class="mgmt-hint" id="mgmt-wh-state" role="status" aria-live="polite">Список ещё не загружен.</p>
+        </div>
+
+        <div class="card" id="mgmt-co-card">
+          <div class="card-head"><span class="card-title">Кастомные объекты</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-co-new" type="button">+ Новый тип</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Кастомные объекты — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-co-table">
+              <thead><tr><th style="width:34%">Название</th><th>Системное имя</th><th style="width:268px">Действия</th></tr></thead>
+              <tbody id="mgmt-co-rows"></tbody>
+            </table>
+          </div>
+          <p class="mgmt-hint" id="mgmt-co-state" role="status" aria-live="polite">Список ещё не загружен.</p>
+          <div class="mgmt-sub" id="mgmt-co-fields" hidden>
+            <div class="card-head"><span class="card-title">Поля: <span id="mgmt-co-fields-title">—</span></span>
+              <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-co-field-new" type="button">+ Новое поле</button></div>
+            </div>
+            <div class="table-scroll" role="region" aria-label="Поля кастомного объекта — горизонтальная прокрутка" tabindex="0">
+              <table class="tbl" id="mgmt-co-fields-table">
+                <thead><tr><th style="width:26%">Метка</th><th>Системное имя</th><th style="width:132px">Тип</th><th style="width:128px">Обязательность</th><th style="width:200px">Действия</th></tr></thead>
+                <tbody id="mgmt-co-field-rows"></tbody>
+              </table>
+            </div>
+            <p class="mgmt-hint" id="mgmt-co-fields-state" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <div class="card" id="mgmt-wf-card">
+          <div class="card-head"><span class="card-title">Автоматизации (Workflows)</span>
+            <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-wf-new" type="button">+ Новый воркфлоу</button></div>
+          </div>
+          <div class="table-scroll" role="region" aria-label="Автоматизации — горизонтальная прокрутка" tabindex="0">
+            <table class="tbl" id="mgmt-wf-table">
+              <thead><tr><th style="width:26%">Название</th><th>Описание</th><th style="width:112px">Состояние</th><th style="width:280px">Действия</th></tr></thead>
+              <tbody id="mgmt-wf-rows"></tbody>
+            </table>
+          </div>
+          <p class="mgmt-hint" id="mgmt-wf-state" role="status" aria-live="polite">Список ещё не загружен.</p>
+          <div class="mgmt-sub" id="mgmt-wf-detail" hidden>
+            <div class="card-head"><span class="card-title">Сценарий: <span id="mgmt-wf-detail-title">—</span></span></div>
+            <p class="mgmt-hint" id="mgmt-wf-detail-state" role="status" aria-live="polite"></p>
+            <div class="mgmt-cols">
+              <div class="mgmt-col">
+                <h3 class="mgmt-sub-h">Триггеры</h3>
+                <ul class="mgmt-list" id="mgmt-wf-triggers"></ul>
+              </div>
+              <div class="mgmt-col">
+                <h3 class="mgmt-sub-h">Шаги</h3>
+                <ul class="mgmt-list" id="mgmt-wf-steps"></ul>
+              </div>
+              <div class="mgmt-col">
+                <h3 class="mgmt-sub-h">Журнал запусков</h3>
+                <ul class="mgmt-list" id="mgmt-wf-runs"></ul>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

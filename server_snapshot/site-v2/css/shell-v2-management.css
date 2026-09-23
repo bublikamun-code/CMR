@@ -3,6 +3,68 @@
 [data-mgmt] .tbl { min-width: 640px; }
 [data-mgmt] .tbl td { white-space: normal; overflow-wrap: anywhere; }
 [data-mgmt] .search-pill { min-height: 38px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); font: inherit; }
+/* Скрытие по роли (пункт 9): атрибут hidden на кнопках и ячейках таблицы
+   перебивают авторские display (.btn — inline-flex), поэтому здесь свой
+   guard; в собранном site-v2 он дублирует общий
+   [hidden]{display:none !important} из css/shell-v2-base.css (build_site_v2.py). */
+[data-mgmt] :is([data-admin-only], .mgmt-role-note)[hidden] { display: none !important; }
+/* Подсказка там, где под не-админом скрыты действия, — как прочие пометки раздела. */
+.mgmt-role-note { margin: var(--s3) 0 0; color: var(--muted); font-size: var(--font-ui); max-width: 85ch; }
+
+/* ============================================================
+   Пункт 15 плана: строки состояния админских экранов (загрузка /
+   пусто / ошибка) и вложенные блоки «поля типа», «сценарий».
+   В предпросмотре мокапов общего [hidden]{display:none} нет (он
+   добавляется только сборщиком в shell-v2-base.css), поэтому
+   guard'ы на hidden — здесь.
+   ============================================================ */
+[data-mgmt] .mgmt-hint[hidden], [data-mgmt] .mgmt-sub[hidden] { display: none !important; }
+.mgmt-hint { margin: var(--s3) 0 0; color: var(--muted); font-size: var(--font-ui); line-height: 1.45; max-width: 92ch; }
+.mgmt-hint.mgmt-hint-error { color: var(--danger); font-weight: 600; }
+.mgmt-hint .btn { margin-left: var(--s2); }
+/* Отключённый пользователь остаётся в списке (его видят доска и отчёты),
+   но визуально отличается: приглушённая строка + метка состояния. */
+[data-mgmt] tr.mgmt-off td { color: var(--muted); }
+[data-mgmt] tr.mgmt-off .pill { opacity: .75; }
+/* Действий в строке стало несколько — влезают не все, поэтому перенос.
+   Высоту кнопок не трогаем: на тач-устройствах их держит общий
+   @media(pointer:coarse) ниже. */
+[data-mgmt] .mgmt-acts { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); }
+/* Красная кнопка опасного действия. .btn.mgmt-danger — две метки: ниже по
+   файлу есть [data-mgmt] .btn { color: var(--text) }, одиночный класс
+   проиграл бы ему по порядку следования. */
+[data-mgmt] .btn.mgmt-danger { color: var(--danger); border-color: var(--danger-soft); }
+[data-mgmt] .btn.mgmt-danger:hover { background: var(--danger-soft); color: var(--danger); }
+/* Вложенный блок внутри карточки (поля выбранного типа, детали сценария). */
+.mgmt-sub { margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--border); }
+.mgmt-sub .card-head { margin-bottom: var(--s3); }
+.mgmt-sub-h { margin: 0 0 var(--s2); font-size: var(--font-ui); font-weight: 700; color: var(--muted); }
+.mgmt-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s4); min-width: 0; }
+.mgmt-col { min-width: 0; }
+.mgmt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.mgmt-list li { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s2); font-size: var(--font-ui); border: 1px solid var(--border); border-radius: var(--r-md); padding: 7px 10px; min-width: 0; }
+.mgmt-list li .mgmt-li-main { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+.mgmt-list li .mgmt-li-note { flex: 1 1 100%; color: var(--muted); font-size: var(--font-micro); }
+/* Пояснение внутри формы-диалога («когда сервер не даст сменить тип поля»,
+   «почему секрет не показывается») — второстепенный текст над ошибкой, не
+   ошибка: состояние ошибки остаётся красным и отдельным. */
+.v2-form-dialog .mgmt-form-hint, #mgmt-dialog .mgmt-form-hint { margin: var(--s3) 0 0; color: var(--muted); font-size: var(--font-ui); line-height: 1.45; max-width: 92ch; }
+/* Набор чекбоксов событий в форме вебхука: 13 пунктов столбцом слишком высоко. */
+.mgmt-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px var(--s3); }
+.mgmt-check { display: flex; align-items: center; gap: var(--s2); min-height: 30px; font-size: var(--font-ui); font-weight: 500; color: var(--text); }
+.mgmt-check input { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--accent); }
+/* Группа чекбоксов ведёт себя как подписанное поле формы: та же колонка и
+   шапка-подпись, что у .mgmt-fields label (для textarea правило есть, для
+   произвольного блока — нет). */
+.mgmt-span { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.mgmt-span-label { color: inherit; }
+/* Пояснение внутри ячейки («это вы», «по желанию»): мельче основного текста
+   и без акцента, чтобы не спорить с пилюлей состояния. */
+.mgmt-note { color: var(--muted); font-size: var(--font-micro); font-weight: 500; }
+@media(max-width:540px) {
+    [data-mgmt] .mgmt-acts .btn { flex: 1 1 auto; justify-content: center; }
+}
+
 [data-mgmt] .btn, #mgmt-dialog .btn, .v2-form-dialog .btn { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); box-shadow: none; }
 [data-mgmt] .btn:hover, #mgmt-dialog .btn:hover, .v2-form-dialog .btn:hover { background: var(--surface-3, var(--surface-2)); }
 /* .v2-form-dialog — общий вид формы-диалога вне админки (например,

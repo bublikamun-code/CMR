@@ -415,6 +415,11 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
     padding: var(--s4) 0 var(--s1); display: flex; align-items: center; gap: 6px;
 }
 .group-hd .cnt { background: var(--surface-3); border-radius: var(--r-pill); padding: 1px 7px; }
+/* Фильтры «Все / Просроченные». Подсветка нажатой кнопки повторяет правило
+   #view-fin button[aria-pressed="true"]: общего стиля для
+   .btn-ghost[aria-pressed] в v2 нет, он изолирован по разделам. */
+#view-tasks .task-filters { display: flex; align-items: center; gap: var(--s2); }
+#view-tasks [data-task-filter][aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 /* ============ КАЛЕНДАРЬ ============ */
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
@@ -431,6 +436,31 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 .ev.b { background: var(--ok-soft); color: var(--ok); }
 .ev.c { background: var(--warn-soft); color: var(--warn); }
 .cal .more { font-size: 9.5px; color: var(--muted); margin-top: 2px; }
+/* Чип события, номер дня и «+N ещё» — настоящие кнопки: переход к объекту и
+   список событий дня должны доставаться с клавиатуры. Глобальный сброс
+   `button { border: none; background: none }` уже есть, поэтому здесь только
+   растяжка, выравнивание и состояния. */
+.cal .day[data-cal-day] { cursor: pointer; }
+.cal .day[data-cal-day]:hover { background: var(--surface-3); }
+.cal .day button { display: block; width: 100%; text-align: left; }
+/* Специфичность выше, чем у `.cal .day .n` и `.cal .more`, иначе подсветка
+   ховера не перебивала бы базовый цвет. */
+.cal .day button.n:hover, .cal .day button.more:hover { color: var(--accent); }
+.cal .day button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Диалог «События дня» — открывается кликом по дню или «+N ещё». */
+.cal-day-dialog {
+    margin: auto; width: min(460px, 92vw); max-height: 80dvh; overflow: auto;
+    padding: var(--s5); border: 1px solid var(--border); border-radius: var(--r-lg);
+    background: var(--surface); color: var(--text); box-shadow: var(--sh-2);
+}
+.cal-day-dialog::backdrop { background: rgba(23, 26, 23, .45); }
+html[data-theme="dark"] .cal-day-dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.cal-day-dialog h2 { margin: 0 0 var(--s3); font-size: var(--font-h2); letter-spacing: -.2px; }
+.cal-day-dialog .trow { width: 100%; text-align: left; }
+.cal-day-dialog .trow .t, .cal-day-dialog .trow .sub { display: block; }
+.cal-day-dialog .trow:hover .t { color: var(--accent); }
+.cal-day-dialog .fin-note { margin: var(--s3) 0 var(--s4); }
+.cal-day-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ============ ВИТРИНА КОМПОНЕНТОВ ============ */
 .kit { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
@@ -439,18 +469,6 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
     width: 100%; margin-top: var(--s3);
 }
 .kit-label:first-child { margin-top: 0; }
-.swatch { width: 92px; }
-.swatch i { display: block; height: 46px; border-radius: var(--r-md); border: 1px solid var(--border); }
-.swatch b { font-size: 10px; font-weight: 700; display: block; margin-top: 5px; }
-.swatch span { font-size: 9.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; }
-.surface-demo { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); width: 100%; }
-.surface-demo > div {
-    border-radius: var(--r-lg); border: 1px solid var(--border); padding: var(--s4) var(--s3);
-    font-size: var(--font-ui); font-weight: 700;
-}
-.s1 { background: var(--bg); }
-.s2 { background: var(--surface); }
-.s3 { background: var(--surface-3); }
 
 /* Адаптивность превью: прокручиваются таблицы и вкладки, не вся страница. */
 .viewbar { overflow-x: auto; }
@@ -474,7 +492,6 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
     .drawer-body .field { flex: 1 1 150px; min-width: 0; }
     .field .val { overflow-wrap: anywhere; }
     .q-meta, .q-actions { flex-wrap: wrap; }
-    .surface-demo { grid-template-columns: minmax(0, 1fr); }
     .palette-row { flex-wrap: wrap; }
     .cal .day { padding: 3px; }
     .cal .ev { white-space: normal; overflow-wrap: anywhere; padding: 2px; }
@@ -530,7 +547,6 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin .fin-search .kb-quiet { flex: 0 0 auto; min-height: 32px; min-width: 32px; }
 #view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-#view-fin .fin-demo { font-size: var(--font-ui); font-weight: 700; padding: 6px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); }
 #view-fin .fin-note { color: var(--fin-muted); font-size: var(--font-ui); margin-top: var(--s3); max-width: 85ch; }
 #view-fin .fin-table { min-width: 1140px; }
 #view-fin .fin-table-compact { min-width: 780px; }
