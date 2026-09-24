@@ -5,18 +5,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=ad336e1434">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=ad336e1434">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=ad336e1434">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=ad336e1434">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=ad336e1434">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=ad336e1434">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=ad336e1434">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=ad336e1434">
-<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="ad336e1434"</script>
-<script src="js/v2/api.js?v=ad336e1434"></script>
-<script src="js/v2/boot.js?v=ad336e1434"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=ad336e1434">
+<link rel="stylesheet" href="css/shell-v2-base.css?v=63d848de5c">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=63d848de5c">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=63d848de5c">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=63d848de5c">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=63d848de5c">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=63d848de5c">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=63d848de5c">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=63d848de5c">
+<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="63d848de5c"</script>
+<script src="js/v2/api.js?v=63d848de5c"></script>
+<script src="js/v2/boot.js?v=63d848de5c"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=63d848de5c">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -251,10 +251,8 @@
               <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-payment-search" title="Поиск">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
               </button>
-              <div class="fin-search-field" inert>
-                <input id="fin-payment-search" type="search" placeholder="Клиент, карточка, магазин, просчёт, ТН…" aria-label="Поиск по клиенту, карточке, магазину, просчёту или ТН" autocomplete="off">
-                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
-              </div>
+              <input id="fin-payment-search" type="search" placeholder="Клиент, ТН, счёт…" aria-label="Поиск по клиенту, карточке, ТН или счёту" autocomplete="off" inert>
+              <button type="button" class="fin-search-clear" aria-label="Очистить поиск" title="Очистить поиск">×</button>
             </div>
             <div class="fin-filters" role="group" aria-label="Фильтр реестра">
               <button type="button" class="btn btn-ghost btn-sm" data-payment-filter="all" aria-pressed="true">Все</button>
@@ -283,10 +281,8 @@
               <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-document-search" title="Поиск">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
               </button>
-              <div class="fin-search-field" inert>
-                <input id="fin-document-search" type="search" placeholder="Клиент, ТН, счёт…" aria-label="Поиск по клиенту, карточке, ТН или счёту" autocomplete="off">
-                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
-              </div>
+              <input id="fin-document-search" type="search" placeholder="Клиент, ТН, счёт…" aria-label="Поиск по клиенту, карточке, ТН или счёту" autocomplete="off" inert>
+              <button type="button" class="fin-search-clear" aria-label="Очистить поиск" title="Очистить поиск">×</button>
             </div>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="all" aria-pressed="true">Все</button>
             <button type="button" class="btn btn-ghost btn-sm" data-document-filter="waiting" aria-pressed="false">Ждём возврата</button>
@@ -317,10 +313,8 @@
               <button type="button" class="kb-icon fin-search-toggle" aria-label="Открыть поиск" aria-expanded="false" aria-controls="fin-incoming-search" title="Поиск">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
               </button>
-              <div class="fin-search-field" inert>
-                <input id="fin-incoming-search" type="search" placeholder="Поставщик, номер, магазин…" aria-label="Поиск по поставщику, номеру, магазину или дате" autocomplete="off">
-                <button type="button" class="kb-quiet fin-search-close" aria-label="Закрыть и сбросить поиск" title="Закрыть поиск">×</button>
-              </div>
+              <input id="fin-incoming-search" type="search" placeholder="Поставщик, номер, магазин…" aria-label="Поиск по поставщику, номеру, магазину или дате" autocomplete="off" inert>
+              <button type="button" class="fin-search-clear" aria-label="Очистить поиск" title="Очистить поиск">×</button>
             </div>
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Входящие накладные — горизонтальная прокрутка">

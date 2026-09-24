@@ -271,6 +271,9 @@
 .kb-list-table th { font-size: var(--font-micro); font-weight: 700; color: var(--muted); white-space: nowrap; }
 .kb-list-table tbody tr:hover { background: var(--surface-2); }
 .kb-list-table .num { white-space: nowrap; }
+@media (min-width: 901px) {
+    .kb-list-table .col-pay, .kb-list-table .col-store { white-space: nowrap; }
+}
 /* Кнопка-сделка: выглядит как текст, карточку открывает общее делегирование
    [data-card] в shell-v2-board.js. */
 .kb-list-open {

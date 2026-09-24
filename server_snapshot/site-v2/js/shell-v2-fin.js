@@ -729,16 +729,17 @@
     }
     // Раскрывающийся поиск на каждой странице финансов: лупа раскрывает поле
     // (инертное в закрытом состоянии), фильтрация живая на input, Esc и «×»
-    // закрывают и сбрасывают. Паттерн kb-search доски.
+    // закрывают и сбрасывают. Плоский контрол с единственным крестиком.
     function wireFinSearch(wrapId) {
         const wrap = document.getElementById(wrapId);
         if (!wrap) return;
         const toggle = wrap.querySelector('.fin-search-toggle');
-        const field = wrap.querySelector('.fin-search-field');
-        const input = field.querySelector('input');
+        const input = wrap.querySelector('input');
+        const clear = wrap.querySelector('.fin-search-clear');
+        if (!toggle || !input || !clear) return;
         const setOpen = (open) => {
             wrap.classList.toggle('is-open', open);
-            field.inert = !open;
+            input.inert = !open;
             toggle.setAttribute('aria-expanded', String(open));
             toggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
             if (open) {
@@ -749,8 +750,23 @@
             }
         };
         toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
-        wrap.querySelector('.fin-search-close').addEventListener('click', () => setOpen(false));
-        input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false); } });
+        clear.addEventListener('click', () => {
+            if (input.value) {
+                input.value = '';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.focus();
+                return;
+            }
+            setOpen(false);
+        });
+        const closeOnEscape = (e) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+        };
+        input.addEventListener('keydown', closeOnEscape);
+        clear.addEventListener('keydown', closeOnEscape);
     }
     ['fin-payment-search-wrap', 'fin-document-search-wrap', 'fin-incoming-search-wrap'].forEach(wireFinSearch);
     // Живой поиск по документам: те же поля, что у matches (клиент, карточка,

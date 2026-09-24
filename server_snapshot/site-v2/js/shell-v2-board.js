@@ -838,7 +838,7 @@
         populateStores();
         populateFilterSelects();
         // queueMode сам пишет mode в адрес, фильтры — следом отдельным патчем.
-        queueMode(VIEW_MODES.indexOf(view.mode) >= 0 ? view.mode : 'board');
+        queueMode(VIEW_MODES.indexOf(view.mode) >= 0 ? view.mode : 'board', true);
         writeBoardParams({
             q: state.search,
             store: state.store === 'all' ? '' : state.store,
@@ -1299,7 +1299,7 @@
     }
     // Режим рабочей области. Имя историческое (queueMode): теперь включает не
     // только очереди, но и табличные виды «Список»/«Архив» (пункт 13).
-    function queueMode(mode) {
+    function queueMode(mode, skipRender) {
         state.queueMode = mode;
         if (mode === 'list' || mode === 'archive') state.listPage = 1;
         writeBoardParams({ mode: mode === 'board' ? '' : mode });
@@ -1311,6 +1311,7 @@
         document.getElementById('kb-q-history').setAttribute('aria-pressed', String(mode === 'history'));
         document.getElementById('kb-q-list').setAttribute('aria-pressed', String(mode === 'list'));
         document.getElementById('kb-q-archive').setAttribute('aria-pressed', String(mode === 'archive'));
+        if (skipRender === true) return;
         if (mode === 'list' || mode === 'archive') renderList();
         else renderQueue();
     }
@@ -1891,7 +1892,7 @@
             var copyFail = whId && c._docCopyFailed ? c._docCopyFailed[whId] : '';
             var copyRetry = !copyFail ? '' :
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-copy="' + esc(whId) + '" title="Причина отказа: ' + esc(copyFail) + '">Создать копию ТН</button>';
-            return '<li class="kb-detail-doc"><div><b>' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label>' + whHtml + '</div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' + copyRetry +
+            return '<li class="kb-detail-doc" data-doc-number="' + esc(d.number) + '"><div><b>' + esc((d.series ? d.series + ' ' : '') + d.number) + '</b><span>' + esc(d.date) + '</span><label class="kb-originals"><input type="checkbox" data-originals="' + i + '"' + (d.originalsReturned ? ' checked' : '') + '> Оригинал ТН возвращён</label>' + whHtml + '</div><div class="kb-doc-side"><strong>' + money(d.amount) + ' <small>BYN</small></strong>' + copyRetry +
                 '<button type="button" class="btn btn-ghost btn-sm" data-doc-edit="' + i + '">Изменить</button>' +
                 // Дозадача к пункту 9: одиночная отмена ТН идёт в
                 // DELETE /payments/transactions/{id}, а он закрыт ролью admin
@@ -2301,10 +2302,71 @@
                 return true;
             });
     }
+    function bindWarehouseFlagChange(input, c) {
+        input.addEventListener('change', function () {
+            if (!input.checked) { input.checked = true; return; } // списание необратимо с плитки
+            if (!window.V2Api || !window.V2Api.token()) return;
+            var txId = input.dataset.wh;
+            // Два запроса идут подряд; на время цепочки галочка гасится,
+            // иначе второй клик отправляет повторную выписку копии.
+            input.disabled = true;
+            window.V2Api.api('/payments/transactions/' + txId, {
+                method: 'PATCH',
+                body: { is_warehouse_writeoff: true }
+            }).then(function () {
+                // Флаг на сервере стоит — поднимаем и локальный снимок,
+                // иначе следующая перестройка дровера покажет галочку
+                // снятой: loadWarehouseFlags кэш не обновляет.
+                if (c._invFlags) c._invFlags[input.dataset.whNumber] = true;
+                return duplicateAsDocument(c, txId).then(function (created) {
+                    notify(created ? 'Товар списан со склада, копия ТН заведена в «Документах».' : 'Товар списан со склада.');
+                }, function (e3) {
+                    // Отказ второго шага не откатывает первый: списание
+                    // состоялось, не хватает только копии. Говорим, чего
+                    // именно нет, и оставляем кнопку повтора в строке.
+                    c._docCopyFailed = c._docCopyFailed || {};
+                    c._docCopyFailed[txId] = reasonText(e3);
+                    // Перерисовываем только свой дровер: за время запроса
+                    // в нём могла открыться другая карточка.
+                    if (activeCard === c) openCard(c);
+                    notify('Со склада списано, но копия ТН не создана: ' + reasonText(e3) + '. Повтор — кнопкой в строке накладной.', true);
+                });
+            }).catch(function (e2) {
+                input.disabled = false;
+                input.checked = false;
+                notify('Не списано: ' + reasonText(e2), true);
+            });
+        });
+    }
+    // Ленивая загрузка не должна перестраивать весь дровер: добавляем в
+    // существующие строки только чекбоксы, которым нужны id и флаг реестра.
+    function updateWarehouseFlagControls(c) {
+        var panel = document.getElementById('kb-panel-invoices');
+        if (!panel) return;
+        panel.querySelectorAll('.kb-detail-doc[data-doc-number]').forEach(function (row) {
+            var number = row.dataset.docNumber;
+            var whId = c._invIds ? c._invIds[number] : null;
+            if (!whId || row.querySelector('input[data-wh]')) return;
+            var content = row.children[0];
+            if (!content) return;
+            var label = document.createElement('label');
+            label.className = 'kb-originals';
+            var input = document.createElement('input');
+            input.type = 'checkbox';
+            input.setAttribute('data-wh', String(whId));
+            input.setAttribute('data-wh-number', number);
+            input.checked = Boolean(c._invFlags[number]);
+            label.appendChild(input);
+            label.appendChild(document.createTextNode(' Списано со склада'));
+            content.appendChild(label);
+            bindWarehouseFlagChange(input, c);
+        });
+    }
     // Фидбек 18.09: флаги складского списания по накладным карточки —
     // из эндпоинта чек-листа накладных (id записи реестра + written_off).
     function loadWarehouseFlags(c) {
-        if (!window.V2Api || !window.V2Api.token() || !c.docs.length || c._invFlags) return;
+        if (!window.V2Api || !window.V2Api.token() || !c.docs.length || c._invFlags || c._invFlagsLoading) return;
+        c._invFlagsLoading = true;
         window.V2Api.api('/payments/cards/' + Number(c.id) + '/invoices').then(function (info) {
             c._invFlags = {};
             c._invIds = {};
@@ -2313,11 +2375,12 @@
                 c._invFlags[i.invoice_number] = Boolean(i.written_off);
                 c._invIds[i.invoice_number] = i.id;
             });
-            if (dialog.open && activeCard === c) {
-                var tab = dialog.dataset.cardTab;
-                if (tab === 'invoices' || tab === 'overview') openCard(c);
-            }
-        }).catch(function () { /* тише некуда: флажки появятся после перезагрузки */ });
+            c._invFlagsLoading = false;
+            if (dialog.open && activeCard === c) updateWarehouseFlagControls(c);
+        }).catch(function () {
+            c._invFlagsLoading = false;
+            /* тише некуда: флажки появятся после перезагрузки */
+        });
     }
     // Фидбек 18.09: вкладка «История» показывает журнал из CRM (та же лента,
     // что в основной версии) — включая «Импорт почты» с текстом письма.
@@ -2330,24 +2393,34 @@
             return;
         }
         if (c.historyLoaded) { box.innerHTML = c.historyHtml; return; }
+        if (c._historyLoading) return;
+        c._historyLoading = true;
         window.KBData.loadCardActivity(Number(c.id)).then(function (items) {
+            var historyHtml;
             if (!items || !items.length) {
-                box.innerHTML = '<p class="kb-detail-empty">Журнал пуст.</p>';
-                return;
+                historyHtml = '<p class="kb-detail-empty">Журнал пуст.</p>';
+            } else {
+                var rows = items.map(function (e) {
+                    var d = new Date(e.created_at);
+                    var when = isNaN(d) ? String(e.created_at || '') : d.toLocaleString('ru-RU');
+                    var who = e.user_name ? ' · ' + esc(e.user_name) : '';
+                    var details = e.details ? '<p class="kb-history-details">' + esc(e.details) + '</p>' : '';
+                    return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>' + esc(e.action) + '</b>' + who +
+                        '<p class="kb-history-date">' + esc(when) + '</p>' + details + '</div></li>';
+                }).join('');
+                historyHtml = '<ol class="kb-detail-history kb-history-full">' + rows + '</ol>';
             }
-            var rows = items.map(function (e) {
-                var d = new Date(e.created_at);
-                var when = isNaN(d) ? String(e.created_at || '') : d.toLocaleString('ru-RU');
-                var who = e.user_name ? ' · ' + esc(e.user_name) : '';
-                var details = e.details ? '<p class="kb-history-details">' + esc(e.details) + '</p>' : '';
-                return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>' + esc(e.action) + '</b>' + who +
-                    '<p class="kb-history-date">' + esc(when) + '</p>' + details + '</div></li>';
-            }).join('');
-            c.historyHtml = '<ol class="kb-detail-history kb-history-full">' + rows + '</ol>';
+            c.historyHtml = historyHtml;
             c.historyLoaded = true;
-            box.innerHTML = c.historyHtml;
+            c._historyLoading = false;
+            var target = document.getElementById('kb-history-real');
+            if (dialog.open && activeCard === c && target) target.innerHTML = historyHtml;
         }).catch(function () {
-            box.innerHTML = '<p class="kb-detail-empty">Не удалось загрузить журнал. Попробуйте открыть карточку снова.</p>';
+            c._historyLoading = false;
+            var target = document.getElementById('kb-history-real');
+            if (dialog.open && activeCard === c && target) {
+                target.innerHTML = '<p class="kb-detail-empty">Не удалось загрузить журнал. Попробуйте открыть карточку снова.</p>';
+            }
         });
     }
     // Recalculate only on an explicit toggle or a fresh open, never during edits.
@@ -2530,7 +2603,12 @@
             // вкладки; внутри loadRelatedEmails есть кэш на карточку и
             // защита от повторного запроса, так что переключение туда-сюда
             // сервер не дёргает.
-            if (name === 'history') loadRelatedEmails(c, false);
+            if (name === 'history') {
+                loadCardHistory(c);
+                loadRelatedEmails(c, false);
+            } else if (name === 'invoices') {
+                loadWarehouseFlags(c);
+            }
         }
         var tablist = dialog.querySelector('[role="tablist"]');
         tablist.onclick = function(e) {
@@ -2559,44 +2637,9 @@
         // Раньше не вызывалась вовсе: «Загрузить файлы» у вложений сделки
         // и кнопки «✕» удаления были мёртвыми.
         bindAttachmentActions();
-        loadCardHistory(c);
         initCardCombos();
-        loadWarehouseFlags(c);
         dialog.querySelectorAll('input[data-wh]').forEach(function (input) {
-            input.addEventListener('change', function () {
-                if (!input.checked) { input.checked = true; return; } // списание необратимо с плитки
-                if (!window.V2Api || !window.V2Api.token()) return;
-                var txId = input.dataset.wh;
-                // Два запроса идут подряд; на время цепочки галочка гасится,
-                // иначе второй клик отправляет повторную выписку копии.
-                input.disabled = true;
-                window.V2Api.api('/payments/transactions/' + txId, {
-                    method: 'PATCH',
-                    body: { is_warehouse_writeoff: true }
-                }).then(function () {
-                    // Флаг на сервере стоит — поднимаем и локальный снимок,
-                    // иначе следующая перестройка дровера покажет галочку
-                    // снятой: loadWarehouseFlags кэш не обновляет.
-                    if (c._invFlags) c._invFlags[input.dataset.whNumber] = true;
-                    return duplicateAsDocument(c, txId).then(function (created) {
-                        notify(created ? 'Товар списан со склада, копия ТН заведена в «Документах».' : 'Товар списан со склада.');
-                    }, function (e3) {
-                        // Отказ второго шага не откатывает первый: списание
-                        // состоялось, не хватает только копии. Говорим, чего
-                        // именно нет, и оставляем кнопку повтора в строке.
-                        c._docCopyFailed = c._docCopyFailed || {};
-                        c._docCopyFailed[txId] = reasonText(e3);
-                        // Перерисовываем только свой дровер: за время запроса
-                        // в нём могла открыться другая карточка.
-                        if (activeCard === c) openCard(c);
-                        notify('Со склада списано, но копия ТН не создана: ' + reasonText(e3) + '. Повтор — кнопкой в строке накладной.', true);
-                    });
-                }).catch(function (e2) {
-                    input.disabled = false;
-                    input.checked = false;
-                    notify('Не списано: ' + reasonText(e2), true);
-                });
-            });
+            bindWarehouseFlagChange(input, c);
         });
         dialog.querySelectorAll('[data-doc-copy]').forEach(function (btn) {
             btn.addEventListener('click', function () {

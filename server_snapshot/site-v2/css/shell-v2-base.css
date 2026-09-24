@@ -523,28 +523,42 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
    контрол ломает ряд. Вне .fin-filters поверхность остаётся прямоугольной. */
 #view-fin .fin-filters .kb-select-surface { min-height: 40px; border-radius: var(--r-pill); }
 #view-fin .fin-filters .kb-select-trigger { min-height: 38px; padding: 0 16px; border-radius: var(--r-pill); }
-/* Раскрывающийся поиск (лупа → поле с живой фильтрацией) — паттерн kb-search
-   доски, изолированно для финансовых списков. Закрыт — иконка-кружок 32px;
-   открыт — капсула в рост чипов. Переходы руками: motion-токены в v2 не
-   заведены (см. tokens.md §6 — канон старого фронта). */
-#view-fin .fin-search { display: flex; align-items: center; border: 1px solid transparent; border-radius: var(--r-pill); }
+/* Раскрывающийся поиск (лупа → поле с живой фильтрацией) — плоский
+   контрол в стиле kb-search доски: один ряд, одно поле и один крестик.
+   Закрыт — иконка-кружок 32px; открыт — капсула в рост чипов. Переходы
+   руками: motion-токены в v2 не заведены (см. tokens.md §6 — канон старого
+   фронта). */
+#view-fin .fin-search {
+    position: relative; display: flex; align-items: center; flex: none; min-width: 0;
+    border: 1px solid transparent; border-radius: var(--r-pill);
+}
 #view-fin .fin-search .kb-icon { width: 32px; height: 32px; flex: 0 0 32px; border-radius: var(--r-pill); }
-#view-fin .fin-search .fin-search-field {
-    display: flex; align-items: center; gap: var(--s2);
-    width: 0; opacity: 0; overflow: hidden;
-    transition: width .18s cubic-bezier(0, 0, 0.2, 1), opacity .12s linear;
-}
-#view-fin .fin-search.is-open { background: var(--surface); border-color: var(--border-strong); padding: 3px 6px 3px 3px; }
-#view-fin .fin-search.is-open .fin-search-toggle { border-color: transparent; background: transparent; }
-#view-fin .fin-search.is-open .fin-search-field { width: 250px; opacity: 1; padding-left: var(--s2); }
 #view-fin .fin-search input {
-    /* перекрывает общее правило #view-fin input[type="search"] выше:
-       внутри капсулы полю рамка и фон не нужны */
-    width: 100%; min-width: 0; font: inherit; font-size: var(--font-ui); color: var(--text);
-    background: transparent; border: none; border-radius: 0; outline: none; padding: 4px 0;
+    width: 0; min-width: 0; height: 32px; padding: 0; opacity: 0; visibility: hidden;
+    font: inherit; font-size: var(--font-ui); color: var(--text);
+    background: transparent; border: 1px solid transparent; border-radius: 0; outline: none;
+    transition: width .18s cubic-bezier(0, 0, 0.2, 1), opacity .18s cubic-bezier(0, 0, 0.2, 1);
 }
-#view-fin .fin-search input::placeholder { color: var(--fin-muted); }
-#view-fin .fin-search .kb-quiet { flex: 0 0 auto; min-height: 32px; min-width: 32px; }
+#view-fin .fin-search input::placeholder { color: var(--fin-muted); opacity: 1; }
+#view-fin .fin-search input::-webkit-search-cancel-button,
+#view-fin .fin-search input::-webkit-search-decoration,
+#view-fin .fin-search input::-webkit-search-results-button {
+    -webkit-appearance: none; appearance: none; display: none;
+}
+#view-fin .fin-search.is-open { background: var(--surface); border-color: var(--border-strong); }
+#view-fin .fin-search.is-open input {
+    width: 250px; padding: 0 34px 0 8px; opacity: 1; visibility: visible;
+}
+#view-fin .fin-search.is-open .fin-search-toggle { display: none; }
+#view-fin .fin-search-clear {
+    display: none; position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    place-items: center; width: 28px; height: 28px; padding: 0; min-height: 0;
+    border: 0; border-radius: 50%; background: transparent; color: var(--fin-muted);
+    font: inherit; font-size: var(--font-h1); line-height: 1;
+}
+#view-fin .fin-search.is-open .fin-search-clear { display: grid; }
+#view-fin .fin-search-clear:hover { color: var(--text); background: var(--surface-3); }
+@media (pointer: coarse) { #view-fin .fin-search-clear { width: 44px; height: 44px; right: 0; } }
 #view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 #view-fin .fin-note { color: var(--fin-muted); font-size: var(--font-ui); margin-top: var(--s3); max-width: 85ch; }

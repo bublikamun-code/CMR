@@ -296,6 +296,52 @@
 
     // ---------- Клиенты и «Клиент 360» ----------
     var selectedClient = null;
+    // Общий кеш и in-flight для баланса: оба UI-блока используют один запрос.
+    // При смене клиента завершённый кеш очищается, а незавершённый запрос
+    // старого клиента не может записать результат в кеш нового клиента.
+    // invalidate() сохраняет дедупликацию запросов одного поколения, но отделяет
+    // их результаты от кеша нового — в том числе при перечитывании данных без F5.
+    window.KBInsightsBalance = (function () {
+        var currentClientId = null;
+        var generation = 0;
+        var cache = {};
+        var inFlight = {};
+
+        function numeric(id) {
+            var n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
+            return isNaN(n) ? null : n;
+        }
+        function invalidate() {
+            generation += 1;
+            cache = {};
+        }
+        function get(clientId) {
+            clientId = numeric(clientId);
+            if (clientId !== currentClientId) {
+                currentClientId = clientId;
+                generation += 1;
+                cache = {};
+            }
+            if (!clientId) return Promise.reject(new Error('Некорректный идентификатор клиента'));
+            if (Object.prototype.hasOwnProperty.call(cache, clientId)) {
+                return Promise.resolve(cache[clientId]);
+            }
+            var pending = inFlight[clientId];
+            if (pending && pending.generation === generation) return pending.promise;
+            var requestGeneration = generation;
+            var request = window.V2Api.api('/clients/' + clientId + '/balance').then(function (bal) {
+                if (inFlight[clientId] && inFlight[clientId].promise === request) delete inFlight[clientId];
+                if (requestGeneration === generation) cache[clientId] = bal;
+                return bal;
+            }, function (err) {
+                if (inFlight[clientId] && inFlight[clientId].promise === request) delete inFlight[clientId];
+                throw err;
+            });
+            inFlight[clientId] = { generation: requestGeneration, promise: request };
+            return request;
+        }
+        return { numeric: numeric, get: get, invalidate: invalidate };
+    }());
     function clientDeals(clientId) {
         return D.cards.filter(function (c) { return c.clientId === clientId; });
     }
@@ -352,10 +398,17 @@
         if (!drawer) return;
         drawer.dataset.clientId = selectedClient || '';
         var client = selectedClient ? D.clientById(selectedClient) : null;
-        // Баланс кассы клиента (фидбек 18.09)
-        if (client && window.V2Api && window.V2Api.token()) {
-            var clNum = parseInt(String(client.id).replace(/[^0-9]/g, ''), 10);
-            window.V2Api.api('/clients/' + clNum + '/balance').then(function (bal) {
+        // Баланс кассы клиента (фидбек 18.09). Ответ старого запроса допустим
+        // только пока и выбранный клиент, и сам drawer относятся к тому же id.
+        var balanceClientId = client ? window.KBInsightsBalance.numeric(client.id) : null;
+        function balanceRequestIsCurrent() {
+            return balanceClientId !== null
+                && window.KBInsightsBalance.numeric(selectedClient) === balanceClientId
+                && window.KBInsightsBalance.numeric(drawer.dataset.clientId) === balanceClientId;
+        }
+        if (client && balanceClientId && window.V2Api && window.V2Api.token()) {
+            window.KBInsightsBalance.get(balanceClientId).then(function (bal) {
+                if (!balanceRequestIsCurrent()) return;
                 var line = document.getElementById('cl-cash-line');
                 if (line) {
                     var b = Math.round(bal.balance * 100) / 100;
@@ -365,6 +418,7 @@
                 }
             }).catch(function (err) {
                 // B1 fix: не глотаем ошибку — показываем текст ошибки, а не «недоступно».
+                if (!balanceRequestIsCurrent()) return;
                 var line = document.getElementById('cl-cash-line');
                 if (line) line.textContent = 'Не удалось загрузить баланс' + (err && err.message ? ': ' + err.message : '');
             });
@@ -393,7 +447,6 @@
         }).join('');
         var cashHtml = '';
         if (window.V2Api && window.V2Api.token()) {
-            var clNum = parseInt(String(client.id).replace(/[^0-9]/g, ''), 10);
             cashHtml = '<div class="trow" data-cl-cash><span class="grow"><span class="t">Баланс кассы клиента</span><div class="sub" id="cl-cash-line">загружается…</div></span>' +
                 '<span class="row" style="gap:6px;align-items:center"><input id="cl-cash-amount" inputmode="decimal" placeholder="Оплата, BYN" style="width:130px;font:inherit;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">' +
                 '<button type="button" class="btn btn-primary btn-sm" id="cl-cash-add">Принять</button></span></div>';
@@ -443,12 +496,25 @@
             '<div class="tabs-line">' + clTabs.map(function (t) {
                 return '<button type="button" class="tab' + (clTab === t[0] ? ' active' : '') + '" data-cl-tab="' + t[0] + '">' + t[1] + '</button>';
             }).join('') + '</div>' +
-            (panels[clTab] || '') +
+            clTabs.map(function (t) {
+                return '<div data-cl-panel="' + t[0] + '"' + (clTab === t[0] ? '' : ' hidden') + '>' + (panels[t[0]] || '') + '</div>';
+            }).join('') +
             '</div>' +
             '<div class="drawer-foot">' +
             '<button type="button" class="btn btn-primary btn-sm" data-cl-new-deal="' + esc(selectedClient) + '">Новая сделка</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-cl-call="' + esc(selectedClient) + '"' + (client && client.phone ? '' : ' disabled title="Телефон не указан"') + '>Позвонить</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" style="margin-left:auto" data-cl-print>Печать</button></div>';
+    }
+    function setClientTab(name) {
+        var drawer = document.getElementById('cl-drawer');
+        if (!drawer || !drawer.querySelector('[data-cl-tab="' + name + '"]')) return;
+        clTab = name;
+        drawer.querySelectorAll('[data-cl-tab]').forEach(function (button) {
+            button.classList.toggle('active', button.dataset.clTab === name);
+        });
+        drawer.querySelectorAll('[data-cl-panel]').forEach(function (panel) {
+            panel.hidden = panel.dataset.clPanel !== name;
+        });
     }
 
     document.getElementById('view-day').addEventListener('click', function (e) {
@@ -477,7 +543,7 @@
         var open = e.target.closest('[data-open-card]');
         if (open) { window.KBBoard.open(open.dataset.openCard); return; }
         var tab = e.target.closest('[data-cl-tab]');
-        if (tab) { clTab = tab.dataset.clTab; renderDrawer(); return; }
+        if (tab) { setClientTab(tab.dataset.clTab); return; }
         if (e.target.closest('[data-cl-reset]')) {
             selectedClient = D.clients.length ? D.clients[0].id : null;
             renderClients();
@@ -822,6 +888,7 @@
         }).observe(view, { attributes: true, attributeFilter: ['hidden', 'class'] });
     });
     document.addEventListener('kb:reloaded', function () {
+        window.KBInsightsBalance.invalidate();
         refreshSection('tasks');
         refreshSection('clients');
     });
@@ -841,10 +908,8 @@
    ============================================================ */
 (function () {
     'use strict';
-    function numeric(id) {
-        var n = parseInt(String(id == null ? '' : id).replace(/[^0-9]/g, ''), 10);
-        return isNaN(n) ? null : n;
-    }
+    var insightsBalance = window.KBInsightsBalance;
+    var numeric = insightsBalance.numeric;
     function fmtKop(v) {
         return (Math.round(v) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
@@ -966,7 +1031,7 @@
             var input = document.getElementById('cl-cash-amount');
             var amount = parseFloat(String(input && input.value || '').replace(/\s|\u00a0/g, '').replace(',', '.'));
             if (!isFinite(amount) || amount <= 0) { window.alert('Укажите сумму оплаты.'); return; }
-            var num = parseInt(String(drawerEl && drawerEl.dataset.clientId || '').replace(/[^0-9]/g, ''), 10);
+            var num = numeric(drawerEl && drawerEl.dataset.clientId || '');
             if (!num) return;
             window.V2Api.api('/clients/' + num + '/payments', { method: 'POST', body: { amount: amount, note: 'Оплата в кассу (v2)' } })
                 .then(function () { window.alert('Оплата ' + amount + ' BYN принята в кассу клиента.'); refreshAll(); })
@@ -1055,7 +1120,7 @@
         if (!window.V2Api || !window.V2Api.token()) { block.querySelector('[data-cl-balance]').textContent = ''; return; }
         // B2 fix: не помечаем загрузку как завершённую до успешного ответа —
         // иначе при сетевом сбое «баланс: » кешируется как пустота и не ретраится.
-        window.V2Api.api('/clients/' + clientId + '/balance').then(function (bal) {
+        insightsBalance.get(clientId).then(function (bal) {
             body.dataset.balanceDone = clientId + '';
             delete body.dataset.balanceLoading;
             var el = block.querySelector('[data-cl-balance]');
