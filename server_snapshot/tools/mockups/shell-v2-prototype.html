@@ -15,25 +15,25 @@
 @font-face {
     font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
     font-display: swap;
-    src: url(../fonts/manrope-var-cyrillic-ext.woff2) format('woff2');
+    src: url(./fonts/manrope-var-cyrillic-ext.woff2) format('woff2');
     unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
 }
 @font-face {
     font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
     font-display: swap;
-    src: url(../fonts/manrope-var-cyrillic.woff2) format('woff2');
+    src: url(./fonts/manrope-var-cyrillic.woff2) format('woff2');
     unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 @font-face {
     font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
     font-display: swap;
-    src: url(../fonts/manrope-var-latin-ext.woff2) format('woff2');
+    src: url(./fonts/manrope-var-latin-ext.woff2) format('woff2');
     unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
     font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
     font-display: swap;
-    src: url(../fonts/manrope-var-latin.woff2) format('woff2');
+    src: url(./fonts/manrope-var-latin.woff2) format('woff2');
     unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 /* ============================================================
@@ -330,7 +330,7 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 .acc .plus { margin-left: auto; color: var(--faint); }
 /* ============ ТАБЛИЦЫ: ОБЩИЕ УТИЛИТЫ ============ */
 .table-scroll { max-width: 100%; overflow-x: auto; }
-.table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.table-scroll:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 .who { display: flex; align-items: center; gap: 10px; }
 
 /* ============ ⌘K ПАЛИТРА ============ */
@@ -339,6 +339,7 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 .palette-box { width: 560px; max-width: 92vw; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); box-shadow: var(--sh-2); overflow: hidden; }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
 .palette-input input { flex: 1; border: none; outline: none; background: none; font-size: 15px; color: var(--text); font-family: inherit; }
+.palette-input input:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 .palette-list { padding: var(--s2) var(--s2) var(--s3); max-height: 52vh; overflow: auto; }
 .palette-group { font-size: var(--font-micro); font-weight: 700; color: var(--faint); padding: var(--s3) var(--s3) 6px; }
 .palette-row { display: flex; align-items: center; gap: 10px; padding: 9px var(--s3); border-radius: var(--r-md); font-size: var(--font-body); }
@@ -390,7 +391,7 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
     width: 32px; height: 32px; border-radius: var(--r-sm); display: grid; place-items: center;
     color: var(--muted); border: 1px solid transparent; cursor: pointer;
 }
-.icon-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon-action:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 .icon-action:hover { background: var(--surface-3); color: var(--text); }
 .icon-action.danger:hover { color: var(--danger); background: var(--danger-soft); }
 
@@ -433,7 +434,7 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 .cal .wname { font-size: var(--font-micro); font-weight: 700; color: var(--muted); padding-bottom: 4px; }
 .cal .wname.we { color: var(--danger); }
 .cal .day { min-height: 78px; border-radius: var(--r-md); background: var(--surface-2); padding: 6px; }
-.cal .day.today { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--surface); }
+.cal .day.today { outline: 2px solid var(--muted); outline-offset: -2px; background: var(--surface); }
 .cal .day .n { font-size: var(--font-micro); font-weight: 700; color: var(--muted); }
 .cal .ev {
     font-size: 10px; font-weight: 600; border-radius: 6px; padding: 2px 5px; margin-top: 3px;
@@ -453,7 +454,7 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 /* Специфичность выше, чем у `.cal .day .n` и `.cal .more`, иначе подсветка
    ховера не перебивала бы базовый цвет. */
 .cal .day button.n:hover, .cal .day button.more:hover { color: var(--accent); }
-.cal .day button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cal .day button:focus-visible { outline: 2px solid var(--muted); outline-offset: 1px; }
 /* Диалог «События дня» — открывается кликом по дню или «+N ещё». */
 .cal-day-dialog {
     margin: auto; width: min(460px, 92vw); max-height: 80dvh; overflow: auto;
@@ -467,7 +468,7 @@ html[data-theme="dark"] .cal-day-dialog::backdrop { background: rgba(0, 0, 0, .6
 .cal-day-dialog .trow .t, .cal-day-dialog .trow .sub { display: block; }
 .cal-day-dialog .trow:hover .t { color: var(--accent); }
 .cal-day-dialog .fin-note { margin: var(--s3) 0 var(--s4); }
-.cal-day-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cal-day-dialog button:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 
 /* ============ ВИТРИНА КОМПОНЕНТОВ ============ */
 .kit { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
@@ -543,10 +544,13 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin .fin-search input {
     width: 0; min-width: 0; height: 32px; padding: 0; opacity: 0; visibility: hidden;
     font: inherit; font-size: var(--font-ui); color: var(--text);
-    background: transparent; border: 1px solid transparent; border-radius: 0; outline: none;
+    background: transparent; border: 1px solid transparent; border-radius: 0;
     transition: width .18s cubic-bezier(0, 0, 0.2, 1), opacity .18s cubic-bezier(0, 0, 0.2, 1);
 }
 #view-fin .fin-search input::placeholder { color: var(--fin-muted); opacity: 1; }
+/* Нативный WebKit-фокус search-input заменяем общим каноническим кольцом. */
+#view-fin .fin-search input[type="search"] { -webkit-appearance: none; appearance: none; }
+#view-fin .fin-search input.is-pointer-focus:focus-visible { outline: none; box-shadow: none; }
 #view-fin .fin-search input::-webkit-search-cancel-button,
 #view-fin .fin-search input::-webkit-search-decoration,
 #view-fin .fin-search input::-webkit-search-results-button {
@@ -566,19 +570,51 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin .fin-search.is-open .fin-search-clear { display: grid; }
 #view-fin .fin-search-clear:hover { color: var(--text); background: var(--surface-3); }
 @media (pointer: coarse) { #view-fin .fin-search-clear { width: 44px; height: 44px; right: 0; } }
-#view-fin button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-#view-fin :is(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#view-fin button[aria-pressed="true"]:not([data-fin-tab]) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #view-fin .fin-note { color: var(--fin-muted); font-size: var(--font-ui); margin-top: var(--s3); max-width: 85ch; }
 #view-fin .fin-table { min-width: 1140px; }
 #view-fin .fin-table-compact { min-width: 780px; }
+#view-fin #fin-payment-table,
+#view-fin #fin-incoming-table { table-layout: fixed; }
+#view-fin .fin-col-client { width: 210px; }
+#view-fin .fin-col-amount { width: 100px; }
+#view-fin .fin-col-debt { width: 130px; }
+#view-fin .fin-col-store { width: 120px; }
+#view-fin .fin-col-tn { width: 120px; }
+#view-fin .fin-col-check { width: 90px; }
+#view-fin .fin-col-details { width: 280px; }
+#view-fin .fin-col-number { width: 140px; }
+#view-fin .fin-col-store-wide { width: 140px; }
+#view-fin .fin-col-incoming-amount { width: 110px; }
+#view-fin .fin-col-incoming-check { width: 90px; }
+#view-fin .fin-col-incoming-details { width: 270px; }
 #view-fin .fin-table th { color: var(--fin-muted); padding-top: 8px; }
 #view-fin .fin-table td { vertical-align: top; }
 #view-fin .fin-table small { display: block; color: var(--fin-muted); margin-top: 5px; }
 #view-fin .fin-table .num { white-space: nowrap; }
+#view-fin :is(.fin-date-edit-link, .fin-row-open) {
+    display: inline; margin: 0; padding: 0; border: 0; border-radius: 0;
+    appearance: none; -webkit-appearance: none; background: transparent;
+    color: inherit; font: inherit; line-height: inherit; text-align: start; cursor: pointer;
+}
+#view-fin .fin-date-edit-link { text-decoration: underline dotted; }
+#view-fin .fin-row-open { font-weight: 700; }
+#view-fin :is(.fin-date-edit-link, .fin-row-open):hover { color: var(--accent); }
 #view-fin .fin-total { padding-top: var(--s4); margin-top: var(--s3); border-top: 1px solid var(--border); font-weight: 700; }
 #view-fin summary { cursor: pointer; padding: 8px 0; font-weight: 700; }
 #view-fin details p { margin: 8px 0; }
 #view-fin .fin-table details { min-width: 150px; max-width: 290px; }
+#view-fin #fin-payment-table details,
+#view-fin #fin-incoming-table details {
+    width: 100%; min-width: 0; max-width: 100%;
+    white-space: normal; overflow-wrap: anywhere;
+}
+#view-fin #fin-payment-table details :is(summary, p, small, li, button),
+#view-fin #fin-incoming-table details :is(summary, p, small, li, button) {
+    white-space: normal; overflow-wrap: anywhere;
+}
+#view-fin #fin-payment-table details ul,
+#view-fin #fin-incoming-table details ul { max-width: 100%; }
 #view-fin .fin-status { display: inline-block; padding: 4px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); white-space: nowrap; }
 
 /* ============ ИКОНКИ И УТИЛИТЫ ============ */
@@ -795,24 +831,27 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
                      тексте закрывает поиск (пункт 7 V2-WORKPLAN). -->
                 <button type="button" class="kb-search-clear" id="kb-search-close" aria-label="Очистить поиск" title="Очистить поиск">×</button>
               </div>
-              <div class="kb-store-menu" id="kb-store-menu">
-                <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
-              </div>
-              <div class="kb-store-menu">
-                <select id="kb-priority-select" aria-label="Приоритет"><option value="all">Все приоритеты</option></select>
-              </div>
-              <div class="kb-store-menu">
-                <select id="kb-pay-select" aria-label="Тип оплаты"><option value="all">Вся оплата</option></select>
-              </div>
-              <div class="kb-store-menu">
-                <select id="kb-view-select" aria-label="Сохранённый вид"><option value="__none">Вид: —</option></select>
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="kb-view-save">Сохранить вид</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="kb-filters-toggle" aria-label="Фильтры" aria-expanded="false" aria-controls="kb-filters-panel">Фильтры <span class="pill" id="kb-filters-count" hidden></span></button>
               <button type="button" class="kb-icon" id="kb-density" aria-pressed="true" aria-label="Компактные карточки" title="Компактные карточки">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
               </button>
-              <button type="button" class="btn btn-ghost btn-sm" id="kb-reset">Сбросить</button>
             </div>
+          </div>
+          <div class="kb-filters-panel" id="kb-filters-panel" role="group" aria-label="Фильтры доски" hidden>
+            <div class="kb-store-menu" id="kb-store-menu">
+              <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
+            </div>
+            <div class="kb-store-menu">
+              <select id="kb-priority-select" aria-label="Приоритет"><option value="all">Все приоритеты</option></select>
+            </div>
+            <div class="kb-store-menu">
+              <select id="kb-pay-select" aria-label="Тип оплаты"><option value="all">Вся оплата</option></select>
+            </div>
+            <div class="kb-store-menu">
+              <select id="kb-view-select" aria-label="Сохранённый вид"><option value="__none">Вид: —</option></select>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" id="kb-view-save">Сохранить вид</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="kb-reset">Сбросить</button>
           </div>
           <div class="kb-no-results" id="kb-no-results" role="status" hidden>
             <b>Ничего не найдено</b>
@@ -862,6 +901,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Реестр оплат — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-payment-table">
+              <colgroup>
+                <col class="fin-col-client"><col class="fin-col-amount"><col class="fin-col-debt"><col class="fin-col-store">
+                <col class="fin-col-tn"><col class="fin-col-check"><col class="fin-col-check"><col class="fin-col-details">
+              </colgroup>
               <thead><tr><th scope="col">Дата записи / клиент</th><th scope="col">Сумма, BYN</th><th scope="col">Оплата / долг, BYN</th><th scope="col">Магазин / просчёт</th><th scope="col">Исходящая ТН</th><th scope="col">Просчёт</th><th scope="col">Списано</th><th scope="col">Печать / доверенность / примечание</th></tr></thead>
               <tbody id="fin-payment-rows"></tbody>
             </table>
@@ -917,10 +960,15 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Входящие накладные — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-incoming-table">
+              <colgroup>
+                <col class="fin-col-client"><col class="fin-col-number"><col class="fin-col-store-wide"><col class="fin-col-incoming-amount">
+                <col class="fin-col-incoming-check"><col class="fin-col-incoming-check"><col class="fin-col-incoming-check"><col class="fin-col-incoming-details">
+              </colgroup>
               <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>
               <tbody id="fin-incoming-rows"></tbody>
             </table>
           </div>
+          <p id="fin-incoming-empty" class="fin-note" role="status" aria-live="polite" hidden>Ничего не найдено. Измените поиск.</p>
         </div>
 
         <!-- Вкладка «Контроль» (паритет с legacy site/js/control.js): дебиторка по
@@ -1320,12 +1368,18 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     const checkbox = (r, field, title) => `<label class="fin-check" for="fin-${field}-${r.id}"><input type="checkbox" id="fin-${field}-${r.id}" data-record="${r.id}" data-field="${field}" aria-label="${esc(title + ' — ' + r.card + ', ' + r.client)}" ${r[field] ? 'checked' : ''}>${title}</label>`;
     const PRINT_OPTIONS = [['', '—'], ['Печать', 'Печать'], ['Доверенность', 'Доверенность'], ['БН', 'Безнал (БН)']];
     const printCell = (r) => `<select class="fprint-select" data-record="${r.id}" aria-label="Печать — ${esc(r.card)}">${PRINT_OPTIONS.map(([v, l]) => `<option value="${v}"${(r.print || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
+    const dateEditButton = (r) => {
+        const label = `Изменить дату оплаты — ${r.card}`;
+        return `<button type="button" class="num fin-date-edit fin-date-edit-link" data-record="${r.id}" title="${esc(label)}" aria-label="${esc(label)}">${esc(r.date)}</button>`;
+    };
+    const cardOpen = (cardId, text, label) => cardId
+        ? `<button type="button" class="fin-row-open" data-card-open="${esc(cardId)}" aria-label="Открыть карточку ${esc(label)}">${esc(text)}</button>` : '';
 
     // DOM строк создаётся один раз: checkbox/details и фокус не теряются.
     // data-card на строке: клик по любому месту строки открывает карточку
     // (клики по галочкам и details карточку не открывают).
     $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
-        <td><span class="num fin-date-edit" data-record="${r.id}" title="Изменить дату оплаты" class="fin-date-edit-link">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
+        <td>${dateEditButton(r)}<br>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td>
         <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
@@ -1353,7 +1407,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     // Месяцы выписки ТН для фильтра документов собирает syncDocMonths() —
     // после того, как к строкам реестра добавятся ТН с доски и групповые.
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
-        <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
+        <td>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
         <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
     </tr>`).join('');
     $('#fin-journal-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
@@ -1362,8 +1416,8 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         <td class="num">${money(r.amount)}</td>
     </tr>`).join('');
     // Фидбек 20.09: статусы входящих — живые галочки, а не текст «Да/Нет»; правка уходит в PATCH /nakladnye.
-    // Без видимого текста в label: заголовок колонки уже называет статус,
-    // а текст ломал бы живой поиск (updateIncoming ищет по textContent строки).
+    // Без видимого текста в label: заголовок колонки уже называет статус.
+    // Поиск получает снимок только видимых полей строки, без скрытого содержимого details.
     const INC_FIELD_PROP = { verified: 'checked', arrived: 'arrived', paid: 'paid' };
     const incCheck = (r, field, title, numId) => `<label class="fin-check" for="fin-inc-${field}-${r.id}"><input type="checkbox" id="fin-inc-${field}-${r.id}" data-inc-id="${numId}" data-inc-field="${field}" aria-label="${esc(title + ' — ' + r.supplier + ', ' + r.number)}" title="${title}"${r[INC_FIELD_PROP[field]] ? ' checked' : ''}></label>`;
     const incRows = $('#fin-incoming-rows');
@@ -1385,7 +1439,8 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
                 : '';
             filesHtml = `<ul class="fin-inc-files" style="list-style:none;padding:0;margin:4px 0;display:flex;flex-direction:column;gap:4px">${photoItems}${excelItem}</ul>`;
         }
-        return `<tr>
+        const searchText = [r.supplier, r.number, r.date, r.store, money(r.amount)].join(' ');
+        return `<tr data-search="${esc(searchText)}">
         <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
         <td class="num">${money(r.amount)}</td><td>${incCheck(r, 'verified', 'Проверена', numId)}</td><td>${incCheck(r, 'arrived', 'Пришла', numId)}</td><td>${incCheck(r, 'paid', 'Оплачена', numId)}</td>
         <td><details><summary>НДС и файлы</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p>${filesHtml}</details></td>
@@ -1541,7 +1596,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             };
             byId.set(id, r);
             kanbanRows.push(`<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
-                <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
+                <td>${cardOpen(card.id, card.client, card.id + ' · ' + card.title)}<small>${esc(card.id + ' · ' + card.title)}</small></td>
                 <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
                 <td class="num">${money(doc.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
             </tr>`);
@@ -1609,12 +1664,12 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     // версии (PATCH /payments/transactions/{id}); дата меняется только
     // днем, время записи сохраняет бэкенд.
     document.addEventListener('click', (event) => {
-        const span = event.target.closest('.fin-date-edit');
-        if (!span) return;
-        const r = byId.get(span.dataset.record);
+        const button = event.target.closest('.fin-date-edit');
+        if (!button) return;
+        const r = byId.get(button.dataset.record);
         if (!r) return;
         const iso = r.date.split('.').reverse().join('-');
-        span.outerHTML = `<input type="date" class="fin-date-input" data-record="${r.id}" value="${iso}">`;
+        button.outerHTML = `<input type="date" class="fin-date-input" data-record="${r.id}" value="${iso}">`;
         const input = document.querySelector(`.fin-date-input[data-record="${r.id}"]`);
         input.focus();
         const commit = () => {
@@ -1625,11 +1680,13 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
                 window.V2Api.api('/payments/transactions/' + r.txId, { method: 'PATCH', body: { date: value } })
                     .catch(() => { const t = document.getElementById('kb-toast'); if (t) { t.hidden = false; t.textContent = 'Дату не сохранить: ' + 'ошибка'; setTimeout(() => t.hidden = true, 3000); } });
             }
-            const back = document.createElement('span');
-            back.className = 'num fin-date-edit';
+            const label = `Изменить дату оплаты — ${r.card}`;
+            const back = document.createElement('button');
+            back.type = 'button';
+            back.className = 'num fin-date-edit fin-date-edit-link';
             back.dataset.record = r.id;
-            back.title = 'Изменить дату оплаты';
-            back.style.cssText = 'cursor:pointer;text-decoration:underline dotted';
+            back.title = label;
+            back.setAttribute('aria-label', label);
             back.textContent = ru;
             input.replaceWith(back);
         };
@@ -1812,7 +1869,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         const shown = rows ? rows.slice(0, DEBT_LIMIT) : [];
         const sum = (list) => money(list.reduce((acc, x) => acc + x.debt, 0));
         body.innerHTML = shown.map(({ c, debt, days }) => `<tr${c.id ? ` data-card="${esc(c.id)}"` : ''}>
-            <td><b>${esc(c.client || 'Без клиента')}</b><small>${esc(c.id + ' · ' + c.title)}</small></td>
+            <td>${cardOpen(c.id, c.client || 'Без клиента', c.id + ' · ' + c.title)}<small>${esc(c.id + ' · ' + c.title)}</small></td>
             <td>${esc(storeLabel(c.store))}</td><td><span class="fin-status">${esc(statusName(c.stage))}</span></td>
             <td class="num">${money(c.amount || 0)}</td><td class="num">${money(c.paidAmount || 0)}</td>
             <td class="num" style="font-weight:800">${money(debt)}</td>
@@ -1965,8 +2022,9 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         const input = wrap.querySelector('input');
         const clear = wrap.querySelector('.fin-search-clear');
         if (!toggle || !input || !clear) return;
-        const setOpen = (open) => {
+        const setOpen = (open, pointer = false) => {
             wrap.classList.toggle('is-open', open);
+            input.classList.toggle('is-pointer-focus', open && pointer);
             input.inert = !open;
             toggle.setAttribute('aria-expanded', String(open));
             toggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
@@ -1977,7 +2035,9 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
                 toggle.focus();
             }
         };
-        toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+        toggle.addEventListener('click', (event) => {
+            setOpen(toggle.getAttribute('aria-expanded') !== 'true', event.detail !== 0);
+        });
         clear.addEventListener('click', () => {
             if (input.value) {
                 input.value = '';
@@ -1994,6 +2054,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             setOpen(false);
         };
         input.addEventListener('keydown', closeOnEscape);
+        input.addEventListener('focusout', () => input.classList.remove('is-pointer-focus'));
         clear.addEventListener('keydown', closeOnEscape);
     }
     ['fin-payment-search-wrap', 'fin-document-search-wrap', 'fin-incoming-search-wrap'].forEach(wireFinSearch);
@@ -2001,15 +2062,21 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     // дата, магазин, просчёт, ТН), плюс номер счёта в строке.
     $('#fin-document-search').addEventListener('input', () => updateDocuments());
     // Входящие: строки строятся один раз и без data-record — фильтруем по
-    // тексту строки тем же нормализованием (ё → е, нижний регистр).
+    // data-search из видимых полей, не читая скрытое содержимое details.
     function updateIncoming() {
         const q = normalize($('#fin-incoming-search').value);
-        $$('#fin-incoming-rows tr').forEach((tr) => { tr.hidden = !!q && !normalize(tr.textContent).includes(q); });
+        let visibleCount = 0;
+        $$('#fin-incoming-rows tr').forEach((tr) => {
+            tr.hidden = !!q && !normalize(tr.dataset.search || '').includes(q);
+            if (!tr.hidden) visibleCount += 1;
+        });
+        $('#fin-incoming-empty').hidden = !q || visibleCount !== 0;
     }
     $('#fin-incoming-search').addEventListener('input', updateIncoming);
     updatePayments();
     updateDocuments();
     updateJournal();
+    updateIncoming();
     // Обёртка вызывает их сама, проигрывая kb:documents/kb:groups, которые
     // board.js успел разослать до первого открытия раздела.
     return { applyDocuments: applyDocuments, applyGroups: applyGroups };

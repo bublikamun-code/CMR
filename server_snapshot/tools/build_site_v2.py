@@ -75,6 +75,8 @@ def main():
     style_match = re.search(r"<style>\n(.*?)\n</style>", html, re.S)
     assert style_match, "не найден <style> блок прототипа"  # noqa: S101
     base_css = style_match.group(1)
+    # В прототипе @font-face ссылается на ./fonts/, а из css/ сборки нужен ../fonts/.
+    base_css = re.sub(r'(url\(\s*)\./fonts/([^)]*?)(\s*\))', r'\1../fonts/\2\3', base_css)
 
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -89,7 +91,8 @@ def main():
         shutil.copyfile(css, OUT / "css" / css.name)
     for js in MOCKUPS.glob("shell-v2-*.js"):
         shutil.copyfile(js, OUT / "js" / js.name)
-    # Шрифты (@font-face в прототипе ссылается на ../fonts/). Иммутабельный
+    # Шрифты (@font-face в прототипе ссылается на ./fonts/, в собранном
+    # базовом CSS — на ../fonts/). Иммутабельный
     # кэш на проде держится по имени файла — при замене файла переименовать.
     for font in sorted(MOCKUPS.glob("fonts/*.woff2")):
         shutil.copyfile(font, OUT / "fonts" / font.name)

@@ -30,9 +30,8 @@
    Высоту кнопок не трогаем: на тач-устройствах их держит общий
    @media(pointer:coarse) ниже. */
 [data-mgmt] .mgmt-acts { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2); }
-/* Красная кнопка опасного действия. .btn.mgmt-danger — две метки: ниже по
-   файлу есть [data-mgmt] .btn { color: var(--text) }, одиночный класс
-   проиграл бы ему по порядку следования. */
+/* Опасное действие админки сохраняет красную семантику и не попадает под
+   нейтральный общий стиль ниже. */
 [data-mgmt] .btn.mgmt-danger { color: var(--danger); border-color: var(--danger-soft); }
 [data-mgmt] .btn.mgmt-danger:hover { background: var(--danger-soft); color: var(--danger); }
 /* Вложенный блок внутри карточки (поля выбранного типа, детали сценария). */
@@ -65,8 +64,14 @@
     [data-mgmt] .mgmt-acts .btn { flex: 1 1 auto; justify-content: center; }
 }
 
-[data-mgmt] .btn, #mgmt-dialog .btn, .v2-form-dialog .btn { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); box-shadow: none; }
-[data-mgmt] .btn:hover, #mgmt-dialog .btn:hover, .v2-form-dialog .btn:hover { background: var(--surface-3, var(--surface-2)); }
+/* Нейтральный вид получают только кнопки без явной роли: primary,
+   danger, ghost, quiet и опасное действие админки сохраняют свой вид. */
+[data-mgmt] .btn:not(.btn-primary, .btn-danger, .btn-ghost, .btn-quiet, .mgmt-danger),
+#mgmt-dialog .btn:not(.btn-primary, .btn-danger, .btn-ghost, .btn-quiet, .mgmt-danger),
+.v2-form-dialog .btn:not(.btn-primary, .btn-danger, .btn-ghost, .btn-quiet, .mgmt-danger) { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); box-shadow: none; }
+[data-mgmt] .btn:not(.btn-primary, .btn-danger, .btn-ghost, .btn-quiet, .mgmt-danger):hover,
+#mgmt-dialog .btn:not(.btn-primary, .btn-danger, .btn-ghost, .btn-quiet, .mgmt-danger):hover,
+.v2-form-dialog .btn:not(.btn-primary, .btn-danger, .btn-ghost, .btn-quiet, .mgmt-danger):hover { background: var(--surface-3, var(--surface-2)); }
 /* .v2-form-dialog — общий вид формы-диалога вне админки (например,
    клиентская форма #cl-dialog в «Пульте дня»); стили те же, что у #mgmt-dialog. */
 #mgmt-dialog, .v2-form-dialog { margin: auto; width: min(560px, calc(100% - 24px)); max-height: calc(100dvh - 24px); padding: 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: auto; font: inherit; }

@@ -384,17 +384,16 @@
         var remKop = cardRemaining(c);
         var issuedKop = cardIssued(c);
         if (remKop !== null && issuedKop > 0 && remKop > 0) chips += '<span class="pill warn">остаток ' + moneyOrDash(remKop) + '</span>';
-        // Фидбек 20.09: удаление с плитки, без захода в карточку. Плитка —
-        // div, не button: кнопку удаления нельзя вложить в <button>.
-        // role="button" + tabindex сохраняют открытие с клавиатуры.
-        return '<div class="kb-card" role="button" tabindex="0" draggable="true" data-card="' + esc(c.id) + '" aria-haspopup="dialog">' +
-            '<span class="kb-card-title">' + esc(c.title) + '</span>' +
-            '<span class="kb-card-meta num">' + esc(c.id) + ' · ' + esc(c.deadline) + '</span>' +
-            '<span class="kb-card-chips">' + chips + '</span>' +
-            '<span class="kb-card-foot num"><b>' + money(c.amount) + ' BYN</b>' +
-            (issuedKop > 0 ? ' · списано ' + money(issuedKop) : '') +
-            (c.docs.length ? ' · ТН: ' + c.docs.length : '') +
-            (c.groupId ? ' · групповая ТН' : '') + '</span>' +
+        return '<div class="kb-card" draggable="true" data-card="' + esc(c.id) + '">' +
+            '<button type="button" class="kb-card-open" data-card-open="' + esc(c.id) + '" aria-label="Открыть сделку ' + esc(c.title) + '" aria-haspopup="dialog">' +
+                '<span class="kb-card-title">' + esc(c.title) + '</span>' +
+                '<span class="kb-card-meta num">' + esc(c.id) + ' · ' + esc(c.deadline) + '</span>' +
+                '<span class="kb-card-chips">' + chips + '</span>' +
+                '<span class="kb-card-foot num"><b>' + money(c.amount) + ' BYN</b>' +
+                (issuedKop > 0 ? ' · списано ' + money(issuedKop) : '') +
+                (c.docs.length ? ' · ТН: ' + c.docs.length : '') +
+                (c.groupId ? ' · групповая ТН' : '') + '</span>' +
+            '</button>' +
             '<button type="button" class="kb-card-del" data-card-del="' + esc(c.id) + '" aria-label="Удалить карточку ' + esc(c.title) + '" title="Удалить"></button>' +
             '</div>';
     }
@@ -959,10 +958,11 @@
         searchToggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
         syncSearchClear();
     }
-    function openSearch() {
+    function openSearch(event) {
         var from = document.activeElement;
         searchOpener = from && from !== document.body ? from : searchToggle;
         if (!searchIsOpen()) setSearchPanel(true);
+        searchEl.classList.toggle('is-pointer-focus', !!event && event.detail !== 0);
         searchEl.focus();
     }
     function clearSearchQuery() {
@@ -988,10 +988,18 @@
         searchOpener = null;
     }
     searchToggle.onclick = openSearch;
-    searchClear.onclick = function () {
-        if (searchEl.value.length > 0) { clearSearchQuery(); searchEl.focus(); return; }
+    searchClear.onclick = function (event) {
+        if (searchEl.value.length > 0) {
+            clearSearchQuery();
+            searchEl.classList.toggle('is-pointer-focus', event.detail !== 0);
+            searchEl.focus();
+            return;
+        }
         closeSearch();
     };
+    searchEl.addEventListener('focusout', function () {
+        searchEl.classList.remove('is-pointer-focus');
+    });
     // Esc закрывает РОВНО один слой — верхний. Пока открыт модальный <dialog>
     // (дровер сделки, подтверждение KBConfirm, форма групповой ТН), остальная
     // страница нативно inert: фокус не может быть в поле поиска, а клавиша
@@ -1089,6 +1097,28 @@
         document.getElementById('kb-density').setAttribute('aria-pressed', String(compact));
     }
 
+    var filtersPanel = document.getElementById('kb-filters-panel');
+    var filtersToggle = document.getElementById('kb-filters-toggle');
+    var filtersCount = document.getElementById('kb-filters-count');
+    function syncFilterToggle() {
+        if (!filtersToggle || !filtersCount) return;
+        var count = [state.store, state.priority, state.pay].filter(function (value) { return value && value !== 'all'; }).length;
+        filtersCount.textContent = String(count);
+        filtersCount.hidden = count === 0;
+        filtersToggle.setAttribute('aria-label', count
+            ? 'Фильтры: ' + count + ' ' + pluralRu(count, ['активный', 'активных', 'активных'])
+            : 'Фильтры');
+    }
+    function setFiltersPanel(open) {
+        if (!filtersPanel || !filtersToggle) return;
+        if (!open && window.KBSelect) window.KBSelect.close(false);
+        filtersPanel.hidden = !open;
+        filtersToggle.setAttribute('aria-expanded', String(open));
+    }
+    if (filtersToggle) filtersToggle.onclick = function () {
+        setFiltersPanel(filtersPanel.hidden);
+    };
+
     var dialog = document.getElementById('kb-dialog');
     var activeCard = null;
     // Закрытие дровера с коротким выходом: класс .closing запускает CSS-анимацию
@@ -1126,6 +1156,7 @@
     // менялись, финансам и календарю события не нужны.
     function refresh(opts) {
         var viewOnly = !!(opts && opts.view === true);
+        syncFilterToggle();
         var scroll = Array.from(boardEl.querySelectorAll('.kb-cards')).map(function(el) { return el.scrollTop; });
         renderBoard();
         // Одна точка диспетчеризации: в табличных видах renderQueue со своими
@@ -1172,6 +1203,7 @@
     // Комбобокс с поиском (фидбек 18.09 «квадратное и круглое, белый
     // шрифт»): нативный datalist выглядел чужеродно. Список стилизован
     // под v2, фильтруется по вводу.
+    var comboSequence = 0;
     function initCombo(input, options) {
         if (!input) return;
         var wrap = document.createElement('div');
@@ -1179,29 +1211,87 @@
         input.parentNode.insertBefore(wrap, input);
         wrap.appendChild(input);
         var list = document.createElement('div');
+        var listId = 'kb-combo-list-' + (++comboSequence);
+        list.id = listId;
         list.className = 'kb-combo-list';
+        list.setAttribute('role', 'listbox');
         list.hidden = true;
         wrap.appendChild(list);
+        input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-autocomplete', 'list');
+        input.setAttribute('aria-expanded', 'false');
+        input.setAttribute('aria-controls', listId);
+        var items = [];
+        var optionEls = [];
+        var activeIndex = -1;
+        function setActive(index) {
+            activeIndex = index;
+            optionEls.forEach(function (el, i) {
+                var active = i === activeIndex;
+                el.classList.toggle('is-active', active);
+                el.setAttribute('aria-selected', String(active));
+            });
+            if (activeIndex < 0 || !optionEls[activeIndex]) {
+                input.removeAttribute('aria-activedescendant');
+            } else {
+                input.setAttribute('aria-activedescendant', optionEls[activeIndex].id);
+            }
+        }
+        function setListOpen(open) {
+            var isOpen = Boolean(open && items.length);
+            list.hidden = !isOpen;
+            input.setAttribute('aria-expanded', String(isOpen));
+            if (!isOpen) setActive(-1);
+        }
+        function selectOption(index) {
+            if (index < 0 || index >= items.length) return;
+            input.value = items[index];
+            setListOpen(false);
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         function renderList() {
             var q = input.value.trim().toLowerCase();
-            var items = options.filter(function (o) { return !q || o.toLowerCase().indexOf(q) !== -1; }).slice(0, 12);
-            list.innerHTML = items.map(function (o) {
-                return '<div class="kb-combo-item">' + esc(o) + '</div>';
+            items = options.filter(function (o) { return !q || o.toLowerCase().indexOf(q) !== -1; }).slice(0, 12);
+            list.innerHTML = items.map(function (o, i) {
+                return '<div class="kb-combo-item" role="option" id="' + listId + '-option-' + i + '" aria-selected="false">' + esc(o) + '</div>';
             }).join('');
-            list.hidden = items.length === 0;
-            list.querySelectorAll('.kb-combo-item').forEach(function (el, i) {
+            optionEls = Array.prototype.slice.call(list.querySelectorAll('.kb-combo-item'));
+            setActive(-1);
+            setListOpen(items.length > 0);
+            optionEls.forEach(function (el, i) {
                 el.addEventListener('mousedown', function (e) {
                     e.preventDefault();
-                    input.value = items[i];
-                    list.hidden = true;
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    selectOption(i);
                 });
             });
         }
         input.addEventListener('focus', renderList);
         input.addEventListener('input', renderList);
-        input.addEventListener('blur', function () { setTimeout(function () { list.hidden = true; }, 150); });
-        input.addEventListener('keydown', function (e) { if (e.key === 'Escape') { list.hidden = true; } });
+        input.addEventListener('blur', function () { setTimeout(function () { setListOpen(false); }, 150); });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!optionEls.length) return;
+                e.preventDefault();
+                var next = activeIndex < 0
+                    ? (e.key === 'ArrowDown' ? 0 : optionEls.length - 1)
+                    : (activeIndex + (e.key === 'ArrowDown' ? 1 : -1) + optionEls.length) % optionEls.length;
+                setActive(next);
+                setListOpen(true);
+            } else if (e.key === 'Home' || e.key === 'End') {
+                if (!optionEls.length) return;
+                e.preventDefault();
+                setActive(e.key === 'Home' ? 0 : optionEls.length - 1);
+                setListOpen(true);
+            } else if (e.key === 'Enter') {
+                if (activeIndex >= 0) {
+                    e.preventDefault();
+                    selectOption(activeIndex);
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setListOpen(false);
+            }
+        });
     }
     function initCardCombos() {
         if (!dialog) return;
@@ -3002,12 +3092,18 @@
             });
         };
     }
-    // Карточка открывается из любого места: клик по элементу с data-card
-    // (плита доски, строка очереди, строка реестра или документов в
-    // финансах). Клик по интерактивному элементу внутри строки (галочка,
-    // кнопка, ссылка) карточку не открывает.
+    // Карточка открывается из любого места: клик по нативной кнопке с
+    // data-card-open (содержимое плитки или финансовая строка) либо по
+    // свободной области контейнера с data-card. Остальной интерактивный
+    // элемент внутри строки карточку не открывает.
     document.addEventListener('click', function(e) {
         if (suppressCardClick) return;
+        var openBtn = e.target.closest('[data-card-open]');
+        if (openBtn) {
+            var openedCard = cards.find(function(c) { return c.id === openBtn.dataset.cardOpen; });
+            if (openedCard) openCard(openedCard);
+            return;
+        }
         var cardEl = e.target.closest('[data-card]');
         if (!cardEl) return;
         var interactive = e.target.closest('input, select, textarea, button, label, a, summary');

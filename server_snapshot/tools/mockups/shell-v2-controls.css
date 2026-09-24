@@ -7,7 +7,7 @@ html[data-theme="dark"] { color-scheme: dark; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border: 2px solid var(--surface-2); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 ::-webkit-scrollbar-corner { background: var(--surface-2); }
-:where(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+:where(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--muted); outline-offset: 3px; }
 ::selection { background: var(--border-strong); color: var(--text); }
 /* The active board owns the remaining viewport, not a guessed pixel height. */
 body:has(#view-board.active) { overflow: hidden; }
@@ -17,7 +17,7 @@ body:has(#view-board.active) .topbar,
 body:has(#view-board.active) .viewbar { flex-shrink: 0; }
 body:has(#view-board.active) .content { flex: 1; min-height: 0; padding-bottom: 12px; }
 #view-board.active, .kb-root { flex: 1; min-height: 0; }
-.kb-toolbar, .kb-root > .kb-note { flex-shrink: 0; }
+.kb-toolbar, .kb-root > .kb-note, .kb-filters-panel { flex-shrink: 0; }
 .kb-board { grid-template-columns: repeat(4, minmax(210px, 1fr)); flex: 1; height: auto; min-height: 0; grid-template-rows: minmax(0, 1fr); }
 .kb-cards { flex: 1; overscroll-behavior: contain; }
 .kb-counter { display: inline-flex; align-items: center; gap: 4px; min-width: 32px; color: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -46,13 +46,18 @@ html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
 .kb-search input {
     width: 0; min-width: 0; height: 38px; padding: 0; opacity: 0; visibility: hidden;
     font: inherit; font-size: var(--font-body); color: var(--text);
-    background: transparent; border: 1px solid transparent; border-radius: var(--r-md);
+    background: transparent; border: 1px solid transparent; border-radius: var(--r-pill);
     transition: width 180ms var(--ease), opacity 180ms;
 }
 .kb-search input::placeholder { color: var(--faint); }
+.kb-search input:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--muted);
+}
+.kb-search input.is-pointer-focus:focus-visible { outline: none; box-shadow: none; }
 .kb-search.is-open input {
     width: 220px; padding: 0 34px 0 10px; opacity: 1; visibility: visible;
-    background: var(--surface); border-color: var(--border-strong);
+    background: var(--surface); border-color: transparent;
 }
 /* У input[type=search] WebKit рисует свои лупу и крестик — это и был второй
    «крестик сброса» поверх нашего. Единственный — кнопка ниже. */
@@ -81,7 +86,7 @@ html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
 .kb-q-row { padding: 12px 16px; }
 .kb-q-row { gap: 16px; }
 .kb-q-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
-.kb-card-foot b { font-size: 15px; letter-spacing: -.3px; }
+.kb-card-foot b { font-size: var(--font-h2); letter-spacing: -.3px; }
 .kb-card-meta { margin-top: 5px; }
 @media (max-width: 600px) {
   .kb-modes { max-width: 100%; }

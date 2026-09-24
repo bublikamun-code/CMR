@@ -2,7 +2,7 @@
 .rail { z-index: 40; }
 .rail-item { text-decoration: none; padding: 0; transition: none; }
 .rail .rail-item.active { background: var(--accent-soft); color: var(--accent); }
-.rail-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rail-item:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 .rail-item:focus-visible .flyout { opacity: 1; transform: translateY(-50%); }
 .rail-item[aria-disabled="true"] { cursor: not-allowed; }
 .rail-item[aria-disabled="true"] svg { opacity: .5; }
@@ -14,6 +14,7 @@
 .shell-preview { font-size: 11px; color: var(--text); opacity: .75; }
 .shell-skip { position: fixed; left: 80px; top: -100px; z-index: 100; padding: 12px; background: var(--surface); color: var(--text); }
 .shell-skip:focus { top: 8px; }
+.shell-skip:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 .view[hidden] { display: none !important; }
 #shell-calendar { scroll-margin-top: 84px; }
 @media (max-width: 720px) {

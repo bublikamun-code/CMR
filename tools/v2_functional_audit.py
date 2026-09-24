@@ -82,7 +82,7 @@ with sync_playwright() as p:
     pos = page.evaluate("""async () => {
         const cards = await window.V2Api.api('/kanban/cards');
         const stageOf = {}; window.KBData.statuses.forEach(s => stageOf[s.name] = s.id);
-        stageOf['Закрыто'] = 'done';
+        stageOf['Закрыто'] = 'closed';
         const mism = [];
         let checked = 0;
         for (const c of cards) {
@@ -161,6 +161,10 @@ with sync_playwright() as p:
     }""")
     check("6. Тестовая сделка + выписка накладной (issue-invoice)",
           t.get("reused") or t["invoice_closed"] is True, f"card {t['card']}")
+
+    # После API-мутации обновляем локальную модель: карточка и выписка ещё
+    # не попали в загруженные до этого KB_FIN_SOURCE.
+    page.reload(); page.wait_for_timeout(3000)
 
     # 6a. Реестр: галочки Просчёт/Списание + сохранение после перезагрузки
     page.locator("[data-view=fin]").first.click(timeout=5000)

@@ -4,9 +4,6 @@
    префиксы kb-*, других видов не касаемся. Превью, не прод.
    ============================================================ */
 #view-board { min-width: 0; }
-#view-board :is(button, input, select, summary, [tabindex]):focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 2px;
-}
 
 .kb-root { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
 .kb-note { color: var(--muted); font-size: var(--font-ui); max-width: 78ch; }
@@ -18,11 +15,19 @@
    (.kb-tools/.kb-icon). Раньше те же .kb-search были заданы дважды в двух
    файлах и спорили: отсюда и выросла «капсула в капсуле» с синим выделением. */
 .kb-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
-.kb-toolbar select {
+.kb-toolbar select,
+.kb-filters-panel select {
     font: inherit; font-size: var(--font-ui); font-weight: 600; color: var(--text);
     background: var(--surface); border: 1px solid var(--border-strong);
     border-radius: var(--r-pill); padding: 7px 12px; min-width: 150px;
 }
+.kb-filters-panel {
+    display: flex; width: 100%; flex-shrink: 0; flex-wrap: wrap; align-items: center;
+    gap: var(--s2); min-width: 0;
+}
+.kb-filters-panel[hidden] { display: none; }
+#kb-filters-toggle[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+#kb-filters-count { min-width: 20px; justify-content: center; padding-inline: 6px; }
 .kb-toolbar-right { margin-left: auto; }
 .kb-density { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r-pill); overflow: hidden; }
 .kb-density button {
@@ -129,6 +134,10 @@
     contain-intrinsic-size: 105px;
     contain-intrinsic-size: auto 105px;
 }
+.kb-card-open {
+    display: block; width: 100%; padding: 0; margin: 0; border: 0;
+    background: transparent; color: inherit; font: inherit; text-align: left; cursor: inherit;
+}
 /* В «обычной» плотности плитка выше: паддинги --s3/--s4 вместо --s2/--s3,
    видна пилюля ответственного (в компактной она скрыта) и больше отступов —
    поэтому вычитаем 26px, а не 18 (см. комментарий выше). */
@@ -146,6 +155,7 @@
     display: flex; flex-wrap: wrap; gap: 4px var(--s2); margin-top: 5px;
     font-size: var(--font-micro); color: var(--muted);
 }
+.kb-card-foot b { font-size: var(--font-h2); }
 /* Кнопка удаления на плитке (фидбек 20.09): не заходить в карточку.
    Видна на ховере и фокусе; на тач-экранах — всегда. Хит-зона 28px (WCAG 2.5.8). */
 .kb-card-del {
@@ -392,7 +402,7 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .kb-col-sum { flex-basis: 100%; margin-left: 0; }
 .kb-card { flex-shrink: 0; color: var(--text); font-family: inherit; }
 .kb-card-title { display: block; font-size: 14px; }
-.kb-card-meta, .kb-card-foot { font-size: 12px; }
+.kb-card-meta { font-size: 12px; }
 .kb-compact .kb-card { padding: 8px; }
 .kb-compact .kb-card-chips .pill:nth-child(2) { display: none; }
 .kb-compact .kb-card-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

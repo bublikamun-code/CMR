@@ -5,18 +5,650 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=63d848de5c">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=63d848de5c">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=63d848de5c">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=63d848de5c">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=63d848de5c">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=63d848de5c">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=63d848de5c">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=63d848de5c">
-<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="63d848de5c"</script>
-<script src="js/v2/api.js?v=63d848de5c"></script>
-<script src="js/v2/boot.js?v=63d848de5c"></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=63d848de5c">
+<style>
+/* ============================================================
+   Manrope само-хостинг (лицензия OFL, файлы в fonts/). Раньше
+   CSS тянулся с fonts.googleapis.com и был render-blocking:
+   на медленных сетях он задерживал старт всего boot (жалоба
+   21.09 «данные через 20 секунд»). Вариативный шрифт 200..800,
+   версия — в имени файла (файл меняется → переименовать).
+   ============================================================
+@font-face {
+    font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
+    font-display: swap;
+    src: url(./fonts/manrope-var-cyrillic-ext.woff2) format('woff2');
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+    font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
+    font-display: swap;
+    src: url(./fonts/manrope-var-cyrillic.woff2) format('woff2');
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+    font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
+    font-display: swap;
+    src: url(./fonts/manrope-var-latin-ext.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+    font-family: 'Manrope'; font-style: normal; font-weight: 200 800;
+    font-display: swap;
+    src: url(./fonts/manrope-var-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* ============================================================
+   ТОКЕНЫ v2 — визуальный канон: тёплый нейтральный фон, белые
+   поверхности, ОДИН акцент (индиго бренда), семантика только
+   для данных. Превью-файл, в прод не деплоится.
+   ============================================================ */
+:root {
+    --bg: #eae8e3;
+    --surface: #ffffff;
+    --surface-2: #f5f4f1;
+    --surface-3: #efede9;
+    --text: #171a17;
+    --muted: #656b65;
+    --faint: #9aa09a;
+    --border: #e4e2dc;
+    --border-strong: #d5d2ca;
+    --accent: #4f46e5;
+    --accent-ink: #ffffff;
+    --accent-soft: #eceafd;
+    --ok: #1a6634;      --ok-soft: #e6f4ea;
+    --warn: #8a5a14;    --warn-soft: #fbf0dc;
+    --danger: #b13d44;  --danger-soft: #fbe9ea;
+    --dark-card: #1e211e;
+    --dark-card-text: #f2f3f1;
+
+    /* Типографика: 3 шкалы (display / body / ui) */
+    --font-display: 26px;
+    --font-h1: 20px;
+    --font-h2: 15px;
+    --font-body: 13px;
+    --font-ui: 12px;
+    --font-micro: 11px;
+
+    /* 4px-сетка */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
+
+    --r-xl: 20px; --r-lg: 14px; --r-md: 10px; --r-sm: 8px; --r-pill: 999px;
+    --sh-1: 0 1px 2px rgba(23, 26, 23, .05);
+    --sh-2: 0 10px 28px -16px rgba(23, 26, 23, .28);
+    --ease: cubic-bezier(.23, 1, .32, 1);
+    /* Движение: длительности анимаций (существующие тайминги не менять — UI_AUDIT_PLAN) */
+    --dur-fast: 140ms;   /* ховеры, тост, поповер */
+    --dur-enter: 180ms;  /* вход диалога/дровера */
+    --dur-exit: 120ms;   /* выход дровера */
+}
+html[data-theme="dark"] {
+    --bg: #17191b;
+    --surface: #1f2224;
+    --surface-2: #191c1e;
+    --surface-3: #24272a;
+    --text: #e8eae7;
+    --muted: #8e948e;
+    --faint: #6f7570;
+    --border: #2c2f31;
+    --border-strong: #3a3e40;
+    --accent: #8e8af5;
+    --accent-ink: #14161a;
+    --accent-soft: #262447;
+    --ok: #6fc38c;      --ok-soft: #1d2b22;
+    --warn: #e0b169;    --warn-soft: #2c2718;
+    --danger: #e58b90;  --danger-soft: #2e2022;
+    --dark-card: #f2f3f1;
+    --dark-card-text: #171a17;
+    --sh-1: 0 1px 2px rgba(0, 0, 0, .3);
+    --sh-2: 0 12px 32px -18px rgba(0, 0, 0, .7);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: var(--font-body); line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+}
+.num { font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+
+/* Смена темы без кроссфейда: .theme-switching вешается на <html> на 2 кадра */
+.theme-switching, .theme-switching *, .theme-switching *::before, .theme-switching *::after {
+    transition: none !important; animation: none !important;
+}
+
+/* ============ SHELL: рельс + рабочая область ============ */
+.app { display: flex; min-height: 100vh; align-items: flex-start; }
+
+.rail {
+    width: 72px; flex: 0 0 72px; background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: var(--s2);
+    padding: var(--s4) var(--s3); position: sticky; top: 0; height: 100vh;
+}
+.rail-brand {
+    width: 40px; height: 40px; border-radius: var(--r-md); background: var(--accent);
+    color: var(--accent-ink); display: grid; place-items: center;
+    font-weight: 800; font-size: var(--font-h2); letter-spacing: -.5px; margin-bottom: var(--s2);
+}
+.rail-group { padding-top: var(--s3); margin-top: var(--s1); border-top: 1px solid var(--border); }
+.rail-group:first-of-type { border-top: none; }
+.rail-item {
+    position: relative; width: 44px; height: 44px; border-radius: var(--r-md);
+    display: grid; place-items: center; color: var(--muted);
+    transition: background-color 140ms var(--ease), color 140ms var(--ease);
+}
+.rail-item:hover { background: var(--surface-2); color: var(--text); }
+.rail-item.active { background: var(--accent-soft); color: var(--accent); }
+.rail-item .badge-dot {
+    position: absolute; top: 7px; right: 7px; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--warn); border: 2px solid var(--surface);
+}
+/* flyout-подпись при ховере */
+.rail-item .flyout {
+    position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%) translateX(-4px);
+    background: var(--text); color: var(--bg); padding: 5px 10px; border-radius: var(--r-sm);
+    font-size: var(--font-ui); font-weight: 600; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 140ms var(--ease), transform 140ms var(--ease);
+    z-index: 40;
+}
+.rail-item:hover .flyout { opacity: 1; transform: translateY(-50%) translateX(0); }
+.rail-spacer { flex: 1; }
+/* ============ TOPBAR ============ */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s3) var(--s6); border-bottom: 1px solid var(--border);
+    background: var(--bg); position: sticky; top: 0; z-index: 30;
+}
+.crumbs { display: flex; align-items: center; gap: var(--s2); font-size: var(--font-ui); color: var(--muted); }
+.crumbs b { color: var(--text); font-weight: 700; font-size: var(--font-h1); letter-spacing: -.3px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+.search-pill {
+    display: flex; align-items: center; gap: var(--s2); min-width: 250px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-pill);
+    padding: 7px 8px 7px 14px; color: var(--muted); font-size: var(--font-ui);
+}
+.search-pill:hover { border-color: var(--border-strong); }
+.search-pill kbd {
+    margin-left: auto; font-family: inherit; font-size: var(--font-micro); font-weight: 700;
+    background: var(--surface-3); color: var(--muted); border-radius: var(--r-sm); padding: 2px 7px;
+}
+.icon-btn {
+    width: 34px; height: 34px; border-radius: var(--r-md); display: grid; place-items: center;
+    color: var(--muted); position: relative;
+}
+.icon-btn:hover { background: var(--surface); color: var(--text); }
+.icon-btn .dot {
+    position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px;
+    border-radius: var(--r-pill); background: var(--danger); color: #fff;
+    font-size: 9px; font-weight: 800; display: grid; place-items: center; border: 2px solid var(--bg);
+}
+.avatar {
+    width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+    display: grid; place-items: center; font-size: var(--font-ui); font-weight: 800;
+}
+.avatar.sm { width: 24px; height: 24px; font-size: var(--font-micro); }
+.avatar.neutral { background: var(--surface-3); color: var(--muted); }
+
+.viewbar { display: flex; gap: var(--s1); padding: var(--s3) var(--s6) 0; }
+.viewtab {
+    padding: 7px 14px; border-radius: var(--r-pill); font-size: var(--font-ui); font-weight: 600;
+    color: var(--muted); white-space: nowrap;
+}
+.viewtab:hover { background: var(--surface); color: var(--text); }
+.viewtab.active { background: var(--text); color: var(--bg); }
+
+.content { padding: var(--s6); display: flex; flex-direction: column; gap: var(--s4); min-width: 0; overflow-x: hidden; }
+.view { display: none; flex-direction: column; gap: var(--s4); min-width: 0; }
+.view.active { display: flex; }
+
+.card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-xl); box-shadow: var(--sh-1); padding: var(--s5);
+}
+.card-head { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s4); }
+.card-title { font-size: var(--font-h2); font-weight: 700; letter-spacing: -.2px; }
+.card-sub { font-size: var(--font-ui); color: var(--muted); font-weight: 500; }
+.card-head .right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+
+.kpi { display: flex; align-items: stretch; }
+.kpi-item { flex: 1; display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s5); min-width: 0; }
+.kpi-item + .kpi-item { border-left: 1px solid var(--border); }
+.kpi-item:first-child { padding-left: 0; }
+.kpi-item:last-child { padding-right: 0; }
+.chip-icon {
+    width: 38px; height: 38px; border-radius: var(--r-md); flex: 0 0 38px;
+    background: var(--text); color: var(--bg); display: grid; place-items: center;
+}
+html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--text); }
+.kpi-label { font-size: var(--font-ui); color: var(--muted); font-weight: 500; }
+.kpi-value { font-size: var(--font-display); font-weight: 800; letter-spacing: -.8px; line-height: 1.15; }
+.kpi-value small { font-size: var(--font-body); font-weight: 600; color: var(--faint); letter-spacing: 0; }
+.delta {
+    font-size: var(--font-micro); font-weight: 800; padding: 2px 8px; border-radius: var(--r-pill);
+    background: var(--ok-soft); color: var(--ok);
+}
+.delta.down { background: var(--danger-soft); color: var(--danger); }
+
+.pill {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px;
+    border-radius: var(--r-pill); font-size: var(--font-micro); font-weight: 700;
+    background: var(--surface-3); color: var(--muted); white-space: nowrap;
+    min-height: 24px;
+}
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.danger { background: var(--danger-soft); color: var(--danger); }
+.pill.accent { background: var(--accent-soft); color: var(--accent); }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* Кнопки: primary-пилюля только для CTA, остальное — контур */
+.btn {
+    display: inline-flex; align-items: center; gap: var(--s2);
+    height: 34px; padding: 0 16px; border-radius: var(--r-pill);
+    font-size: var(--font-ui); font-weight: 700; white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost { border: 1px solid var(--border-strong); color: var(--text); }
+.btn-ghost:hover { background: var(--surface-2); }
+.btn-sm { height: 32px; padding: 0 12px; font-size: var(--font-micro); }
+.btn-quiet { color: var(--muted); padding: 0 8px; min-height: 32px; min-width: 32px; display: inline-flex; align-items: center; justify-content: center; }
+.btn-quiet:hover { color: var(--text); }
+/* Пресс-фидбек: нажатие сжимает кнопку (60ms — быстро), отпускание — 140ms */
+.btn, .btn-quiet { transition: transform var(--dur-fast) var(--ease), filter var(--dur-fast) var(--ease); }
+.btn:active, .btn-quiet:active { transform: scale(.97); transition-duration: 60ms; }
+
+/* ============ ОЧЕРЕДЬ «ТРЕБУЕТ ВНИМАНИЯ» ============ */
+.queue { display: flex; flex-direction: column; }
+.qrow { display: flex; align-items: center; gap: var(--s4); padding: var(--s3) 0; border-top: 1px solid var(--border); }
+.qrow:first-child { border-top: none; padding-top: 0; }
+.qrow:last-child { padding-bottom: 0; }
+.qrow .lead {
+    width: 32px; height: 32px; flex: 0 0 32px; border-radius: var(--r-md);
+    display: grid; place-items: center; background: var(--surface-2); color: var(--muted);
+}
+.qrow.hot .lead { background: var(--danger-soft); color: var(--danger); }
+.qrow.wait .lead { background: var(--warn-soft); color: var(--warn); }
+.qrow.ok .lead { background: var(--ok-soft); color: var(--ok); }
+.q-main { min-width: 0; flex: 1; }
+.q-title { font-size: var(--font-body); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-meta { font-size: var(--font-ui); color: var(--muted); display: flex; gap: var(--s3); margin-top: 2px; flex-wrap: wrap; }
+.q-actions { display: flex; align-items: center; gap: var(--s2); }
+
+/* ============ СЕТКИ И ТЁМНАЯ КАРТОЧКА-АКЦЕНТ ============ */
+.grid-2 { display: grid; grid-template-columns: 1.35fr 1fr; gap: var(--s4); align-items: start; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s4); }
+.card-dark { background: var(--dark-card); border-color: var(--dark-card); color: var(--dark-card-text); }
+.card-dark .card-title { color: var(--dark-card-text); }
+.card-dark .card-sub { color: color-mix(in srgb, var(--dark-card-text) 60%, transparent); }
+.card-dark .stat-line { border-color: color-mix(in srgb, var(--dark-card-text) 15%, transparent); }
+.heat { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 26px; gap: 6px; }
+.heat i { border-radius: var(--r-sm); display: block; background: color-mix(in srgb, var(--dark-card-text) 12%, transparent); }
+.heat i.l1 { background: color-mix(in srgb, var(--accent) 34%, transparent); }
+.heat i.l2 { background: color-mix(in srgb, var(--accent) 58%, transparent); }
+.heat i.l3 { background: var(--accent); }
+.heat i.on { background: var(--ok); }
+.stat-line { display: flex; justify-content: space-between; padding: 7px 0; font-size: var(--font-body); border-top: 1px solid var(--border); }
+.stat-line:first-of-type { border-top: none; }
+
+/* Колонки канбана рендерятся из справочника статусов (shell-v2-data.js):
+   стили доски — в shell-v2-board.css. */
+
+/* ============ ИНСПЕКТОР (дровер вместо модалки) ============ */
+/* Доска и инспектор — рядом, а не друг поверх друга:
+   фильтры и кнопки колонок остаются видимыми. */
+.board-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: var(--s4); align-items: start; }
+.drawer {
+    position: static; width: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl);
+    box-shadow: var(--sh-2); display: flex; flex-direction: column; overflow: hidden;
+}
+.drawer-head { padding: var(--s5) var(--s5) var(--s3); border-bottom: 1px solid var(--border); }
+.drawer-body { padding: var(--s5); display: flex; flex-direction: column; gap: var(--s4); }
+.drawer-foot { padding: var(--s3) var(--s5); border-top: 1px solid var(--border); display: flex; align-items: center; gap: var(--s2); background: var(--surface-2); }
+.money-row { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+.money-sum { font-size: var(--font-display); font-weight: 800; letter-spacing: -.8px; }
+.money-sub { font-size: var(--font-ui); color: var(--muted); }
+.steps { display: flex; align-items: center; }
+.step { display: flex; align-items: center; flex: 1; min-width: 0; }
+.step:last-child { flex: 0 0 auto; }
+.step .node { width: 9px; height: 9px; border-radius: 50%; background: var(--surface-3); flex: 0 0 9px; }
+.step.done .node { background: var(--ok); }
+.step.now .node { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.step .bar { height: 2px; flex: 1; background: var(--surface-3); }
+.step.done .bar { background: var(--ok); }
+.steps-label { display: flex; justify-content: space-between; font-size: var(--font-micro); color: var(--muted); margin-top: 6px; }
+.tabs-line { display: flex; gap: var(--s4); border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 0; font-size: var(--font-ui); font-weight: 700; color: var(--muted); border-bottom: 2px solid transparent; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: var(--font-micro); color: var(--muted); font-weight: 600; }
+.field .val { border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; font-size: var(--font-body); display: flex; align-items: center; gap: 8px; }
+.acc { border-top: 1px solid var(--border); padding: 10px 0; font-size: var(--font-body); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.acc .plus { margin-left: auto; color: var(--faint); }
+/* ============ ТАБЛИЦЫ: ОБЩИЕ УТИЛИТЫ ============ */
+.table-scroll { max-width: 100%; overflow-x: auto; }
+.table-scroll:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+.who { display: flex; align-items: center; gap: 10px; }
+
+/* ============ ⌘K ПАЛИТРА ============ */
+.palette { position: fixed; inset: 0; background: rgba(23, 26, 23, .38); display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 100; }
+.palette.open { display: flex; }
+.palette-box { width: 560px; max-width: 92vw; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); box-shadow: var(--sh-2); overflow: hidden; }
+.palette-input { display: flex; align-items: center; gap: 10px; padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+.palette-input input { flex: 1; border: none; outline: none; background: none; font-size: 15px; color: var(--text); font-family: inherit; }
+.palette-input input:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+.palette-list { padding: var(--s2) var(--s2) var(--s3); max-height: 52vh; overflow: auto; }
+.palette-group { font-size: var(--font-micro); font-weight: 700; color: var(--faint); padding: var(--s3) var(--s3) 6px; }
+.palette-row { display: flex; align-items: center; gap: 10px; padding: 9px var(--s3); border-radius: var(--r-md); font-size: var(--font-body); }
+.palette-row:hover, .palette-row.sel { background: var(--accent-soft); color: var(--accent); }
+.palette-row .k { margin-left: auto; font-size: var(--font-micro); color: var(--faint); }
+
+/* ============ МОБИЛЬНЫЙ РЕЖИМ ============ */
+.phone { width: 292px; border: 8px solid var(--text); border-radius: 34px; padding: var(--s4) var(--s3) 0; overflow: hidden; flex: 0 0 292px; }
+.phone-hd { font-size: var(--font-h1); font-weight: 800; letter-spacing: -.4px; margin-bottom: var(--s2); }
+.phone-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s3); margin-bottom: var(--s2); }
+.tabbar { display: flex; justify-content: space-between; margin: var(--s4) calc(var(--s3) * -1) 0; padding: var(--s2) var(--s4); border-top: 1px solid var(--border); background: var(--surface); }
+.tabbar b { font-size: 9px; font-weight: 700; color: var(--faint); display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.tabbar b.active { color: var(--accent); }
+
+@media (max-width: 1280px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    .kpi { flex-wrap: wrap; gap: var(--s4) 0; }
+    .kpi-item { flex: 1 1 45%; }
+    .board-wrap { grid-template-columns: 1fr; }
+}
+@media (max-width: 1024px) {
+    .search-pill { min-width: 0; flex: 1 1 180px; }
+    .topbar { flex-wrap: wrap; }
+}
+@media (max-width: 720px) {
+    .rail { display: none; }
+    .content, .topbar, .viewbar { padding-left: var(--s4); padding-right: var(--s4); }
+    .kpi-item { flex: 1 1 100%; border-left: none !important; padding: 0 !important; }
+    /* мобильные поправки: заголовок не рвётся, палитра-подсказка уходит, действия переносятся */
+    .crumbs { font-size: var(--font-micro); }
+    .crumbs b { font-size: 16px; }
+    .search-pill { min-width: 0; padding: 7px 12px; }
+    .search-pill kbd { display: none; }
+    .viewbar { overflow-x: auto; }
+    .qrow { flex-wrap: wrap; }
+    .q-main { flex: 1 1 100%; }
+    .q-actions { margin-left: 48px; }
+}
+/* ============ СПРАВОЧНИКИ: ПЛОТНАЯ ТАБЛИЦА ============ */
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; }
+.tbl th { text-align: left; font-size: var(--font-micro); font-weight: 700; color: var(--muted); padding: 0 10px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: var(--font-body); vertical-align: middle; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl td.wrap-ok { white-space: normal; overflow-wrap: anywhere; max-width: none; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: var(--surface-2); }
+.tbl .unp { font-variant-numeric: tabular-nums; color: var(--muted); }
+.tbl .num-col { white-space: nowrap; min-width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+.icon-action {
+    width: 32px; height: 32px; border-radius: var(--r-sm); display: grid; place-items: center;
+    color: var(--muted); border: 1px solid transparent; cursor: pointer;
+}
+.icon-action:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+.icon-action:hover { background: var(--surface-3); color: var(--text); }
+.icon-action.danger:hover { color: var(--danger); background: var(--danger-soft); }
+
+/* Пустое состояние */
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 36px 0; text-align: center; }
+.empty-state .ico {
+    width: 44px; height: 44px; border-radius: var(--r-lg); background: var(--surface-2);
+    display: grid; place-items: center; color: var(--faint);
+}
+.empty-state .t { font-weight: 700; }
+.empty-state .d { font-size: var(--font-ui); color: var(--muted); max-width: 42ch; }
+
+/* ============ ЗАДАЧИ: ПЛОТНАЯ СТРОКА ============ */
+.trow { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+.trow:first-child { border-top: none; }
+.trow .box {
+    width: 24px; height: 24px; border-radius: 6px; border: 1.5px solid var(--border-strong);
+    flex: 0 0 24px; display: grid; place-items: center; font-size: 10px; color: transparent;
+}
+.trow button.box { cursor: pointer; }
+.trow button.box:hover { border-color: var(--accent); }
+.trow button.box[aria-pressed="true"] { background: var(--ok); border-color: transparent; color: #fff; }
+.trow.done .box { background: var(--ok); border-color: transparent; color: #fff; }
+.trow .t { font-weight: 600; }
+.trow.done .t { text-decoration: line-through; color: var(--muted); }
+.trow .sub { font-size: var(--font-micro); color: var(--muted); }
+.group-hd {
+    font-size: var(--font-micro); font-weight: 800; color: var(--muted);
+    padding: var(--s4) 0 var(--s1); display: flex; align-items: center; gap: 6px;
+}
+.group-hd .cnt { background: var(--surface-3); border-radius: var(--r-pill); padding: 1px 7px; }
+/* Фильтры «Все / Просроченные». Подсветка нажатой кнопки повторяет правило
+   #view-fin button[aria-pressed="true"]: общего стиля для
+   .btn-ghost[aria-pressed] в v2 нет, он изолирован по разделам. */
+#view-tasks .task-filters { display: flex; align-items: center; gap: var(--s2); }
+#view-tasks [data-task-filter][aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* ============ КАЛЕНДАРЬ ============ */
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal .wname { font-size: var(--font-micro); font-weight: 700; color: var(--muted); padding-bottom: 4px; }
+.cal .wname.we { color: var(--danger); }
+.cal .day { min-height: 78px; border-radius: var(--r-md); background: var(--surface-2); padding: 6px; }
+.cal .day.today { outline: 2px solid var(--muted); outline-offset: -2px; background: var(--surface); }
+.cal .day .n { font-size: var(--font-micro); font-weight: 700; color: var(--muted); }
+.cal .ev {
+    font-size: 10px; font-weight: 600; border-radius: 6px; padding: 2px 5px; margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ev.a { background: var(--accent-soft); color: var(--accent); }
+.ev.b { background: var(--ok-soft); color: var(--ok); }
+.ev.c { background: var(--warn-soft); color: var(--warn); }
+.cal .more { font-size: 9.5px; color: var(--muted); margin-top: 2px; }
+/* Чип события, номер дня и «+N ещё» — настоящие кнопки: переход к объекту и
+   список событий дня должны доставаться с клавиатуры. Глобальный сброс
+   `button { border: none; background: none }` уже есть, поэтому здесь только
+   растяжка, выравнивание и состояния. */
+.cal .day[data-cal-day] { cursor: pointer; }
+.cal .day[data-cal-day]:hover { background: var(--surface-3); }
+.cal .day button { display: block; width: 100%; text-align: left; }
+/* Специфичность выше, чем у `.cal .day .n` и `.cal .more`, иначе подсветка
+   ховера не перебивала бы базовый цвет. */
+.cal .day button.n:hover, .cal .day button.more:hover { color: var(--accent); }
+.cal .day button:focus-visible { outline: 2px solid var(--muted); outline-offset: 1px; }
+/* Диалог «События дня» — открывается кликом по дню или «+N ещё». */
+.cal-day-dialog {
+    margin: auto; width: min(460px, 92vw); max-height: 80dvh; overflow: auto;
+    padding: var(--s5); border: 1px solid var(--border); border-radius: var(--r-lg);
+    background: var(--surface); color: var(--text); box-shadow: var(--sh-2);
+}
+.cal-day-dialog::backdrop { background: rgba(23, 26, 23, .45); }
+html[data-theme="dark"] .cal-day-dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.cal-day-dialog h2 { margin: 0 0 var(--s3); font-size: var(--font-h2); letter-spacing: -.2px; }
+.cal-day-dialog .trow { width: 100%; text-align: left; }
+.cal-day-dialog .trow .t, .cal-day-dialog .trow .sub { display: block; }
+.cal-day-dialog .trow:hover .t { color: var(--accent); }
+.cal-day-dialog .fin-note { margin: var(--s3) 0 var(--s4); }
+.cal-day-dialog button:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+
+/* ============ ВИТРИНА КОМПОНЕНТОВ ============ */
+.kit { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.kit-label {
+    font-size: var(--font-micro); font-weight: 800; color: var(--faint);
+    width: 100%; margin-top: var(--s3);
+}
+.kit-label:first-child { margin-top: 0; }
+
+/* Адаптивность превью: прокручиваются таблицы и вкладки, не вся страница. */
+.viewbar { overflow-x: auto; }
+.card, .drawer, .grid-2 > *, .grid-3 > * { min-width: 0; }
+.card-head, .card-head .right { flex-wrap: wrap; }
+.card-head .right { min-width: 0; }
+.avatar, .btn { flex-shrink: 0; }
+.palette-input input { min-width: 0; }
+.cal .ev { display: block; }
+.cal .day { min-width: 0; }
+@media (max-width: 1280px) {
+    .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+    .topbar { flex-wrap: wrap; position: static; }
+    .topbar-right { flex-wrap: wrap; }
+    .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); }
+    .card-head .right { margin-left: 0; }
+    .trow .grow { overflow-wrap: anywhere; }
+    .drawer-body .row, .drawer-foot, .tabs-line { flex-wrap: wrap; }
+    .drawer-body .field { flex: 1 1 150px; min-width: 0; }
+    .field .val { overflow-wrap: anywhere; }
+    .q-meta, .q-actions { flex-wrap: wrap; }
+    .palette-row { flex-wrap: wrap; }
+    .cal .day { padding: 3px; }
+    .cal .ev { white-space: normal; overflow-wrap: anywhere; padding: 2px; }
+    .phone { max-width: 100%; flex-shrink: 1; }
+}
+/* Финансы: независимые рабочие списки, стили изолированы от других видов. */
+#view-fin { --fin-muted: #596159; min-width: 0; }
+html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
+#view-fin [hidden] { display: none !important; }
+#view-fin .fin-tabs, #view-fin .fin-filters, #view-fin .fin-toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2);
+}
+#view-fin .fin-toolbar { margin: var(--s4) 0; gap: var(--s4); }
+#view-fin .fin-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: 1 1 280px; max-width: 540px; min-width: 0; }
+#view-fin label { font-size: var(--font-ui); }
+/* Строка с карточкой открывает её целиком; интерактив внутри строки — нет. */
+#view-fin tr[data-card] { cursor: pointer; }
+#view-fin tr[data-card]:hover { background: var(--surface-2); }
+#view-fin input[type="search"] {
+    width: 100%; min-width: 0; padding: 10px 12px; font: inherit; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-md);
+}
+#view-fin input::placeholder { color: var(--fin-muted); opacity: 1; }
+#view-fin input[type="checkbox"] { width: 24px; height: 24px; flex: 0 0 24px; accent-color: var(--accent); cursor: pointer; }
+#view-fin .fin-check { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+#view-fin .fin-tabs .btn, #view-fin .fin-filters .btn { min-height: 40px; white-space: normal; text-align: left; }
+/* Системные селекты в ряду фильтров (месяц, сортировка) — канонический
+   kb-select в геометрии чипов: та же высота и капсула, иначе голый нативный
+   контрол ломает ряд. Вне .fin-filters поверхность остаётся прямоугольной. */
+#view-fin .fin-filters .kb-select-surface { min-height: 40px; border-radius: var(--r-pill); }
+#view-fin .fin-filters .kb-select-trigger { min-height: 38px; padding: 0 16px; border-radius: var(--r-pill); }
+/* Раскрывающийся поиск (лупа → поле с живой фильтрацией) — плоский
+   контрол в стиле kb-search доски: один ряд, одно поле и один крестик.
+   Закрыт — иконка-кружок 32px; открыт — капсула в рост чипов. Переходы
+   руками: motion-токены в v2 не заведены (см. tokens.md §6 — канон старого
+   фронта). */
+#view-fin .fin-search {
+    position: relative; display: flex; align-items: center; flex: none; min-width: 0;
+    border: 1px solid transparent; border-radius: var(--r-pill);
+}
+#view-fin .fin-search .kb-icon { width: 32px; height: 32px; flex: 0 0 32px; border-radius: var(--r-pill); }
+#view-fin .fin-search input {
+    width: 0; min-width: 0; height: 32px; padding: 0; opacity: 0; visibility: hidden;
+    font: inherit; font-size: var(--font-ui); color: var(--text);
+    background: transparent; border: 1px solid transparent; border-radius: 0;
+    transition: width .18s cubic-bezier(0, 0, 0.2, 1), opacity .18s cubic-bezier(0, 0, 0.2, 1);
+}
+#view-fin .fin-search input::placeholder { color: var(--fin-muted); opacity: 1; }
+/* Нативный WebKit-фокус search-input заменяем общим каноническим кольцом. */
+#view-fin .fin-search input[type="search"] { -webkit-appearance: none; appearance: none; }
+#view-fin .fin-search input.is-pointer-focus:focus-visible { outline: none; box-shadow: none; }
+#view-fin .fin-search input::-webkit-search-cancel-button,
+#view-fin .fin-search input::-webkit-search-decoration,
+#view-fin .fin-search input::-webkit-search-results-button {
+    -webkit-appearance: none; appearance: none; display: none;
+}
+#view-fin .fin-search.is-open { background: var(--surface); border-color: var(--border-strong); }
+#view-fin .fin-search.is-open input {
+    width: 250px; padding: 0 34px 0 8px; opacity: 1; visibility: visible;
+}
+#view-fin .fin-search.is-open .fin-search-toggle { display: none; }
+#view-fin .fin-search-clear {
+    display: none; position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    place-items: center; width: 28px; height: 28px; padding: 0; min-height: 0;
+    border: 0; border-radius: 50%; background: transparent; color: var(--fin-muted);
+    font: inherit; font-size: var(--font-h1); line-height: 1;
+}
+#view-fin .fin-search.is-open .fin-search-clear { display: grid; }
+#view-fin .fin-search-clear:hover { color: var(--text); background: var(--surface-3); }
+@media (pointer: coarse) { #view-fin .fin-search-clear { width: 44px; height: 44px; right: 0; } }
+#view-fin button[aria-pressed="true"]:not([data-fin-tab]) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+#view-fin .fin-note { color: var(--fin-muted); font-size: var(--font-ui); margin-top: var(--s3); max-width: 85ch; }
+#view-fin .fin-table { min-width: 1140px; }
+#view-fin .fin-table-compact { min-width: 780px; }
+#view-fin #fin-payment-table,
+#view-fin #fin-incoming-table { table-layout: fixed; }
+#view-fin .fin-col-client { width: 210px; }
+#view-fin .fin-col-amount { width: 100px; }
+#view-fin .fin-col-debt { width: 130px; }
+#view-fin .fin-col-store { width: 120px; }
+#view-fin .fin-col-tn { width: 120px; }
+#view-fin .fin-col-check { width: 90px; }
+#view-fin .fin-col-details { width: 280px; }
+#view-fin .fin-col-number { width: 140px; }
+#view-fin .fin-col-store-wide { width: 140px; }
+#view-fin .fin-col-incoming-amount { width: 110px; }
+#view-fin .fin-col-incoming-check { width: 90px; }
+#view-fin .fin-col-incoming-details { width: 270px; }
+#view-fin .fin-table th { color: var(--fin-muted); padding-top: 8px; }
+#view-fin .fin-table td { vertical-align: top; }
+#view-fin .fin-table small { display: block; color: var(--fin-muted); margin-top: 5px; }
+#view-fin .fin-table .num { white-space: nowrap; }
+#view-fin :is(.fin-date-edit-link, .fin-row-open) {
+    display: inline; margin: 0; padding: 0; border: 0; border-radius: 0;
+    appearance: none; -webkit-appearance: none; background: transparent;
+    color: inherit; font: inherit; line-height: inherit; text-align: start; cursor: pointer;
+}
+#view-fin .fin-date-edit-link { text-decoration: underline dotted; }
+#view-fin .fin-row-open { font-weight: 700; }
+#view-fin :is(.fin-date-edit-link, .fin-row-open):hover { color: var(--accent); }
+#view-fin .fin-total { padding-top: var(--s4); margin-top: var(--s3); border-top: 1px solid var(--border); font-weight: 700; }
+#view-fin summary { cursor: pointer; padding: 8px 0; font-weight: 700; }
+#view-fin details p { margin: 8px 0; }
+#view-fin .fin-table details { min-width: 150px; max-width: 290px; }
+#view-fin #fin-payment-table details,
+#view-fin #fin-incoming-table details {
+    width: 100%; min-width: 0; max-width: 100%;
+    white-space: normal; overflow-wrap: anywhere;
+}
+#view-fin #fin-payment-table details :is(summary, p, small, li, button),
+#view-fin #fin-incoming-table details :is(summary, p, small, li, button) {
+    white-space: normal; overflow-wrap: anywhere;
+}
+#view-fin #fin-payment-table details ul,
+#view-fin #fin-incoming-table details ul { max-width: 100%; }
+#view-fin .fin-status { display: inline-block; padding: 4px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); white-space: nowrap; }
+
+/* ============ ИКОНКИ И УТИЛИТЫ ============ */
+svg.i { width: 20px; height: 20px; flex: 0 0 auto; }
+svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
+.muted { color: var(--muted); }
+.row { display: flex; align-items: center; gap: var(--s2); }
+.wrap { flex-wrap: wrap; }
+.mt2 { margin-top: var(--s2); }
+.grow { flex: 1; min-width: 0; }
+.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Глобальный reduced-motion: глушит анимации/переходы поверх точечных
+   блоков модулей (тосты, диалоги, дровер, поповеры) */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
+</style>
+<link rel="stylesheet" href="css/shell-v2-board.css?v=22bb08e52c">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=22bb08e52c">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=22bb08e52c">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=22bb08e52c">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=22bb08e52c">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=22bb08e52c">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=22bb08e52c">
+<script>try{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}window.V2_ASSET_VER="22bb08e52c"</script>
+<script src="js/v2/api.js?v=22bb08e52c"></script>
+<script src="js/v2/boot.js?v=22bb08e52c"></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=22bb08e52c">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -197,24 +829,27 @@
                      тексте закрывает поиск (пункт 7 V2-WORKPLAN). -->
                 <button type="button" class="kb-search-clear" id="kb-search-close" aria-label="Очистить поиск" title="Очистить поиск">×</button>
               </div>
-              <div class="kb-store-menu" id="kb-store-menu">
-                <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
-              </div>
-              <div class="kb-store-menu">
-                <select id="kb-priority-select" aria-label="Приоритет"><option value="all">Все приоритеты</option></select>
-              </div>
-              <div class="kb-store-menu">
-                <select id="kb-pay-select" aria-label="Тип оплаты"><option value="all">Вся оплата</option></select>
-              </div>
-              <div class="kb-store-menu">
-                <select id="kb-view-select" aria-label="Сохранённый вид"><option value="__none">Вид: —</option></select>
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="kb-view-save">Сохранить вид</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="kb-filters-toggle" aria-label="Фильтры" aria-expanded="false" aria-controls="kb-filters-panel">Фильтры <span class="pill" id="kb-filters-count" hidden></span></button>
               <button type="button" class="kb-icon" id="kb-density" aria-pressed="true" aria-label="Компактные карточки" title="Компактные карточки">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>
               </button>
-              <button type="button" class="btn btn-ghost btn-sm" id="kb-reset">Сбросить</button>
             </div>
+          </div>
+          <div class="kb-filters-panel" id="kb-filters-panel" role="group" aria-label="Фильтры доски" hidden>
+            <div class="kb-store-menu" id="kb-store-menu">
+              <select id="kb-store-select" aria-label="Магазин"><option value="all">Все магазины</option></select>
+            </div>
+            <div class="kb-store-menu">
+              <select id="kb-priority-select" aria-label="Приоритет"><option value="all">Все приоритеты</option></select>
+            </div>
+            <div class="kb-store-menu">
+              <select id="kb-pay-select" aria-label="Тип оплаты"><option value="all">Вся оплата</option></select>
+            </div>
+            <div class="kb-store-menu">
+              <select id="kb-view-select" aria-label="Сохранённый вид"><option value="__none">Вид: —</option></select>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" id="kb-view-save">Сохранить вид</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="kb-reset">Сбросить</button>
           </div>
           <div class="kb-no-results" id="kb-no-results" role="status" hidden>
             <b>Ничего не найдено</b>
@@ -264,6 +899,10 @@
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Реестр оплат — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-payment-table">
+              <colgroup>
+                <col class="fin-col-client"><col class="fin-col-amount"><col class="fin-col-debt"><col class="fin-col-store">
+                <col class="fin-col-tn"><col class="fin-col-check"><col class="fin-col-check"><col class="fin-col-details">
+              </colgroup>
               <thead><tr><th scope="col">Дата записи / клиент</th><th scope="col">Сумма, BYN</th><th scope="col">Оплата / долг, BYN</th><th scope="col">Магазин / просчёт</th><th scope="col">Исходящая ТН</th><th scope="col">Просчёт</th><th scope="col">Списано</th><th scope="col">Печать / доверенность / примечание</th></tr></thead>
               <tbody id="fin-payment-rows"></tbody>
             </table>
@@ -319,10 +958,15 @@
           </div>
           <div class="table-scroll" role="region" tabindex="0" aria-label="Входящие накладные — горизонтальная прокрутка">
             <table class="tbl fin-table" id="fin-incoming-table">
+              <colgroup>
+                <col class="fin-col-client"><col class="fin-col-number"><col class="fin-col-store-wide"><col class="fin-col-incoming-amount">
+                <col class="fin-col-incoming-check"><col class="fin-col-incoming-check"><col class="fin-col-incoming-check"><col class="fin-col-incoming-details">
+              </colgroup>
               <thead><tr><th scope="col">Поставщик</th><th scope="col">Номер / дата</th><th scope="col">Магазин</th><th scope="col">Сумма, BYN</th><th scope="col">Проверена</th><th scope="col">Пришла</th><th scope="col">Оплачена</th><th scope="col">Подробности</th></tr></thead>
               <tbody id="fin-incoming-rows"></tbody>
             </table>
           </div>
+          <p id="fin-incoming-empty" class="fin-note" role="status" aria-live="polite" hidden>Ничего не найдено. Измените поиск.</p>
         </div>
 
         <!-- Вкладка «Контроль» (паритет с legacy site/js/control.js): дебиторка по

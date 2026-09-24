@@ -33,7 +33,7 @@ select.kb-select-native { display: none !important; }
 .kb-select-surface .kb-select-trigger:focus-visible,
 #kb-store.kb-select-trigger:focus-visible,
 #kb-dialog.kb-dialog .kb-select-trigger:focus-visible {
-    outline: 2px solid var(--muted, #626962); outline-offset: 2px;
+    outline: 2px solid var(--muted); outline-offset: 2px;
 }
 .kb-select-trigger:disabled { opacity: .6; cursor: not-allowed; }
 .kb-select-surface:has(.kb-select-trigger:disabled) { border-color: var(--border-strong, #d5d2ca); }
@@ -88,23 +88,18 @@ select.kb-select-native { display: none !important; }
 }
 
 /* ============================================================
-   Фидбек 18.09: «синие выделения и непонятные линии».
-   Мягкое фокус-кольцо вместо жёстких синих контуров; чекбоксам
-   контур не нужен — само состояние и есть отклик.
-   Файл подключается последним — перекрывает фокус-правила модулей.
+   Единый клавиатурный фокус v2 на нейтральном токене. Файл подключается
+   последним, поэтому правило должно совпадать с базовым кольцом, а не
+   перекрывать его другим цветом или убирать фокус у checkbox/radio.
    ============================================================ */
-#view-fin :is(button, input, select, summary, [tabindex]):focus-visible,
-#view-board :is(button, input, select, summary, [tabindex]):focus-visible,
-#kb-dialog :is(button, input, [tabindex]):focus-visible,
+#view-fin :is(button, input, select, textarea, summary, [tabindex]):focus-visible,
+#view-board :is(button, input, select, textarea, summary, [tabindex]):focus-visible,
+#kb-dialog :is(button, input, select, textarea, [tabindex]):focus-visible,
 #view-admin :is(button, input, select, textarea):focus-visible,
 .rail-item:focus-visible,
 :where(button, input, select, textarea, summary, [tabindex]):focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, .22);
-}
-:is(input[type="checkbox"], input[type="radio"]):focus,
-:is(input[type="checkbox"], input[type="radio"]):focus-visible {
-    outline: none;
+    outline: 2px solid var(--muted);
+    outline-offset: 2px;
     box-shadow: none;
 }
 
@@ -146,11 +141,6 @@ select.fprint-select:hover,
     padding: 5px 8px;
     width: 100%;
 }
-.kb-cl-note:focus, .fin-note-edit:focus, [data-cl-pay-amount]:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
-}
 .kb-cl-note::placeholder, .fin-note-edit::placeholder, [data-cl-pay-amount]::placeholder {
     color: var(--muted);
     opacity: .8;
@@ -166,7 +156,7 @@ select.fprint-select:hover,
 [data-theme="dark"] .btn-ghost[aria-pressed="true"] {
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--accent-ink);
 }
 
 /* ============================================================
@@ -333,12 +323,6 @@ select.fprint-select:hover,
     padding: 9px 11px;
     width: 100%;
 }
-.mgmt-field input:focus, .mgmt-field select:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
-}
-
 /* Опасное действие — удаление карточки */
 .kb-card-delete { color: var(--danger, #b45309); }
 .kb-card-delete:hover { border-color: var(--danger, #b45309); }
@@ -350,7 +334,6 @@ select.fprint-select:hover,
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 8px; padding: 7px 10px;
 }
-.kb-add-check input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, .15); }
 .kb-check-item { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .kb-check-item:last-child { border-bottom: 0; }
 .kb-cl-note { margin-top: 8px; }
@@ -377,13 +360,11 @@ select.fprint-select:hover,
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 8px; padding: 6px 10px;
 }
-.kb-sup-combo:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, .15); }
 .kb-sup-amount {
     font: inherit; font-size: 13px; color: var(--text); text-align: right;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 8px; padding: 6px 10px; width: 110px;
 }
-.kb-sup-amount:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, .15); }
 .kb-cl-note { margin-top: 8px; }
 .kb-inv-clear {
     border: 0; background: none; color: var(--muted); cursor: pointer;

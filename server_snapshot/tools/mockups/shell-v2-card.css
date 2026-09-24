@@ -15,7 +15,7 @@
 /* Подложка проявляется вместе с дровером */
 #kb-dialog[open]::backdrop { animation: kb-backdrop-in var(--dur-enter) var(--ease); }
 @keyframes kb-backdrop-in { from { opacity: 0; } }
-#kb-dialog :is(button, input, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#kb-dialog :is(button, input, [tabindex]):focus-visible { outline: 2px solid var(--muted); outline-offset: 3px; }
 #kb-dialog [hidden] { display: none !important; }
 #kb-dialog .kb-detail { display: flex; flex-direction: column; min-height: 100%; }
 #kb-dialog .kb-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s4); padding-bottom: var(--s6); }

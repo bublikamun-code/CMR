@@ -92,12 +92,18 @@
     const checkbox = (r, field, title) => `<label class="fin-check" for="fin-${field}-${r.id}"><input type="checkbox" id="fin-${field}-${r.id}" data-record="${r.id}" data-field="${field}" aria-label="${esc(title + ' — ' + r.card + ', ' + r.client)}" ${r[field] ? 'checked' : ''}>${title}</label>`;
     const PRINT_OPTIONS = [['', '—'], ['Печать', 'Печать'], ['Доверенность', 'Доверенность'], ['БН', 'Безнал (БН)']];
     const printCell = (r) => `<select class="fprint-select" data-record="${r.id}" aria-label="Печать — ${esc(r.card)}">${PRINT_OPTIONS.map(([v, l]) => `<option value="${v}"${(r.print || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
+    const dateEditButton = (r) => {
+        const label = `Изменить дату оплаты — ${r.card}`;
+        return `<button type="button" class="num fin-date-edit fin-date-edit-link" data-record="${r.id}" title="${esc(label)}" aria-label="${esc(label)}">${esc(r.date)}</button>`;
+    };
+    const cardOpen = (cardId, text, label) => cardId
+        ? `<button type="button" class="fin-row-open" data-card-open="${esc(cardId)}" aria-label="Открыть карточку ${esc(label)}">${esc(text)}</button>` : '';
 
     // DOM строк создаётся один раз: checkbox/details и фокус не теряются.
     // data-card на строке: клик по любому месту строки открывает карточку
     // (клики по галочкам и details карточку не открывают).
     $('#fin-payment-rows').innerHTML = outgoing.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
-        <td><span class="num fin-date-edit" data-record="${r.id}" title="Изменить дату оплаты" class="fin-date-edit-link">${r.date}</span><br><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td>
+        <td>${dateEditButton(r)}<br>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td>
         <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
@@ -125,7 +131,7 @@
     // Месяцы выписки ТН для фильтра документов собирает syncDocMonths() —
     // после того, как к строкам реестра добавятся ТН с доски и групповые.
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
-        <td><b>${esc(r.client)}</b><small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
+        <td>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
         <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
     </tr>`).join('');
     $('#fin-journal-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
@@ -134,8 +140,8 @@
         <td class="num">${money(r.amount)}</td>
     </tr>`).join('');
     // Фидбек 20.09: статусы входящих — живые галочки, а не текст «Да/Нет»; правка уходит в PATCH /nakladnye.
-    // Без видимого текста в label: заголовок колонки уже называет статус,
-    // а текст ломал бы живой поиск (updateIncoming ищет по textContent строки).
+    // Без видимого текста в label: заголовок колонки уже называет статус.
+    // Поиск получает снимок только видимых полей строки, без скрытого содержимого details.
     const INC_FIELD_PROP = { verified: 'checked', arrived: 'arrived', paid: 'paid' };
     const incCheck = (r, field, title, numId) => `<label class="fin-check" for="fin-inc-${field}-${r.id}"><input type="checkbox" id="fin-inc-${field}-${r.id}" data-inc-id="${numId}" data-inc-field="${field}" aria-label="${esc(title + ' — ' + r.supplier + ', ' + r.number)}" title="${title}"${r[INC_FIELD_PROP[field]] ? ' checked' : ''}></label>`;
     const incRows = $('#fin-incoming-rows');
@@ -157,7 +163,8 @@
                 : '';
             filesHtml = `<ul class="fin-inc-files" style="list-style:none;padding:0;margin:4px 0;display:flex;flex-direction:column;gap:4px">${photoItems}${excelItem}</ul>`;
         }
-        return `<tr>
+        const searchText = [r.supplier, r.number, r.date, r.store, money(r.amount)].join(' ');
+        return `<tr data-search="${esc(searchText)}">
         <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
         <td class="num">${money(r.amount)}</td><td>${incCheck(r, 'verified', 'Проверена', numId)}</td><td>${incCheck(r, 'arrived', 'Пришла', numId)}</td><td>${incCheck(r, 'paid', 'Оплачена', numId)}</td>
         <td><details><summary>НДС и файлы</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p>${filesHtml}</details></td>
@@ -313,7 +320,7 @@
             };
             byId.set(id, r);
             kanbanRows.push(`<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
-                <td><b>${esc(card.client)}</b><small>${esc(card.id + ' · ' + card.title)}</small></td>
+                <td>${cardOpen(card.id, card.client, card.id + ' · ' + card.title)}<small>${esc(card.id + ' · ' + card.title)}</small></td>
                 <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
                 <td class="num">${money(doc.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
             </tr>`);
@@ -381,12 +388,12 @@
     // версии (PATCH /payments/transactions/{id}); дата меняется только
     // днем, время записи сохраняет бэкенд.
     document.addEventListener('click', (event) => {
-        const span = event.target.closest('.fin-date-edit');
-        if (!span) return;
-        const r = byId.get(span.dataset.record);
+        const button = event.target.closest('.fin-date-edit');
+        if (!button) return;
+        const r = byId.get(button.dataset.record);
         if (!r) return;
         const iso = r.date.split('.').reverse().join('-');
-        span.outerHTML = `<input type="date" class="fin-date-input" data-record="${r.id}" value="${iso}">`;
+        button.outerHTML = `<input type="date" class="fin-date-input" data-record="${r.id}" value="${iso}">`;
         const input = document.querySelector(`.fin-date-input[data-record="${r.id}"]`);
         input.focus();
         const commit = () => {
@@ -397,11 +404,13 @@
                 window.V2Api.api('/payments/transactions/' + r.txId, { method: 'PATCH', body: { date: value } })
                     .catch(() => { const t = document.getElementById('kb-toast'); if (t) { t.hidden = false; t.textContent = 'Дату не сохранить: ' + 'ошибка'; setTimeout(() => t.hidden = true, 3000); } });
             }
-            const back = document.createElement('span');
-            back.className = 'num fin-date-edit';
+            const label = `Изменить дату оплаты — ${r.card}`;
+            const back = document.createElement('button');
+            back.type = 'button';
+            back.className = 'num fin-date-edit fin-date-edit-link';
             back.dataset.record = r.id;
-            back.title = 'Изменить дату оплаты';
-            back.style.cssText = 'cursor:pointer;text-decoration:underline dotted';
+            back.title = label;
+            back.setAttribute('aria-label', label);
             back.textContent = ru;
             input.replaceWith(back);
         };
@@ -584,7 +593,7 @@
         const shown = rows ? rows.slice(0, DEBT_LIMIT) : [];
         const sum = (list) => money(list.reduce((acc, x) => acc + x.debt, 0));
         body.innerHTML = shown.map(({ c, debt, days }) => `<tr${c.id ? ` data-card="${esc(c.id)}"` : ''}>
-            <td><b>${esc(c.client || 'Без клиента')}</b><small>${esc(c.id + ' · ' + c.title)}</small></td>
+            <td>${cardOpen(c.id, c.client || 'Без клиента', c.id + ' · ' + c.title)}<small>${esc(c.id + ' · ' + c.title)}</small></td>
             <td>${esc(storeLabel(c.store))}</td><td><span class="fin-status">${esc(statusName(c.stage))}</span></td>
             <td class="num">${money(c.amount || 0)}</td><td class="num">${money(c.paidAmount || 0)}</td>
             <td class="num" style="font-weight:800">${money(debt)}</td>
@@ -737,8 +746,9 @@
         const input = wrap.querySelector('input');
         const clear = wrap.querySelector('.fin-search-clear');
         if (!toggle || !input || !clear) return;
-        const setOpen = (open) => {
+        const setOpen = (open, pointer = false) => {
             wrap.classList.toggle('is-open', open);
+            input.classList.toggle('is-pointer-focus', open && pointer);
             input.inert = !open;
             toggle.setAttribute('aria-expanded', String(open));
             toggle.setAttribute('aria-label', open ? 'Закрыть поиск' : 'Открыть поиск');
@@ -749,7 +759,9 @@
                 toggle.focus();
             }
         };
-        toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+        toggle.addEventListener('click', (event) => {
+            setOpen(toggle.getAttribute('aria-expanded') !== 'true', event.detail !== 0);
+        });
         clear.addEventListener('click', () => {
             if (input.value) {
                 input.value = '';
@@ -766,6 +778,7 @@
             setOpen(false);
         };
         input.addEventListener('keydown', closeOnEscape);
+        input.addEventListener('focusout', () => input.classList.remove('is-pointer-focus'));
         clear.addEventListener('keydown', closeOnEscape);
     }
     ['fin-payment-search-wrap', 'fin-document-search-wrap', 'fin-incoming-search-wrap'].forEach(wireFinSearch);
@@ -773,15 +786,21 @@
     // дата, магазин, просчёт, ТН), плюс номер счёта в строке.
     $('#fin-document-search').addEventListener('input', () => updateDocuments());
     // Входящие: строки строятся один раз и без data-record — фильтруем по
-    // тексту строки тем же нормализованием (ё → е, нижний регистр).
+    // data-search из видимых полей, не читая скрытое содержимое details.
     function updateIncoming() {
         const q = normalize($('#fin-incoming-search').value);
-        $$('#fin-incoming-rows tr').forEach((tr) => { tr.hidden = !!q && !normalize(tr.textContent).includes(q); });
+        let visibleCount = 0;
+        $$('#fin-incoming-rows tr').forEach((tr) => {
+            tr.hidden = !!q && !normalize(tr.dataset.search || '').includes(q);
+            if (!tr.hidden) visibleCount += 1;
+        });
+        $('#fin-incoming-empty').hidden = !q || visibleCount !== 0;
     }
     $('#fin-incoming-search').addEventListener('input', updateIncoming);
     updatePayments();
     updateDocuments();
     updateJournal();
+    updateIncoming();
     // Обёртка вызывает их сама, проигрывая kb:documents/kb:groups, которые
     // board.js успел разослать до первого открытия раздела.
     return { applyDocuments: applyDocuments, applyGroups: applyGroups };

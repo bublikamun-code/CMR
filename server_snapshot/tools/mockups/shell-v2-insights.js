@@ -555,6 +555,7 @@
     function ensureMeDialog() {
         if (meDialog) return meDialog;
         meDialog = document.createElement('dialog');
+        meDialog.className = 'v2-form-dialog';
         meDialog.setAttribute('aria-label', 'Чья очередь в списке внимания');
         meDialog.addEventListener('click', function (e) {
             var b = e.target.closest('[data-me]');
@@ -584,6 +585,7 @@
     function openTaskDialog() {
         if (taskDialog) { taskDialog.showModal(); return; }
         taskDialog = document.createElement('dialog');
+        taskDialog.className = 'v2-form-dialog';
         taskDialog.setAttribute('aria-labelledby', 'task-dialog-title');
         taskDialog.addEventListener('close', function () { if (window.KBSelect) window.KBSelect.close(); });
         taskDialog.innerHTML = '<form id="task-form" class="kb-form" style="margin:0">' +
