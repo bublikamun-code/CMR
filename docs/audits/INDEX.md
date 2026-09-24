@@ -94,6 +94,11 @@
     - Доска и админка на серверном справочнике `deal_statuses`: решения Р1–Р6, работы по файлам A–E с держателями
     - Почему миграцию 0013 нельзя применять отдельно от клиента и как разведены id `closed` и `done`
 
+18. **[BACKEND-AUDIT-2026-09-24.md](BACKEND-AUDIT-2026-09-24.md)** — backend-аудит и первая волна исправлений (24.09)
+    - Исходный read-only baseline зафиксировал bearer после logout, конкурентный перевыпуск накладной и soft-delete bypass
+    - BA-01/BA-02/BA-03 исправлены локально и покрыты регрессиями; production не изменялся
+    - Финальная регрессия: production DDL 910 passed; ORM 906 passed/4 skipped; targeted 88 / 87+1 skip
+
 ---
 
 ## Document Map by Role
