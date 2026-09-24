@@ -98,6 +98,47 @@ def test_garbage_status_rejected(client, manager, db, make_card):
 
 
 # ---------------------------------------------------------------------------
+# Жизненный цикл карточки на канбан-доске
+# ---------------------------------------------------------------------------
+
+def test_card_detail_lifecycle_hides_archived_card(client, manager, make_card):
+    """Прямой запрос не должен раскрывать удалённую карточку."""
+    _, h = manager
+    card = make_card(title="Жизненный цикл", total_amount=100.0)
+    card_id = card.id
+    missing_id = card_id + 1_000_000
+
+    assert client.get(f"/kanban/cards/{missing_id}", headers=h).status_code == 404
+    live = client.get(f"/kanban/cards/{card_id}", headers=h)
+    assert live.status_code == 200, live.text
+    assert live.json()["is_deleted"] is False
+
+    deleted = client.delete(f"/kanban/cards/{card_id}", headers=h)
+    assert deleted.status_code == 200, deleted.text
+    assert client.get(f"/kanban/cards/{card_id}", headers=h).status_code == 404
+
+    board = client.get("/kanban/cards", headers=h)
+    assert board.status_code == 200, board.text
+    assert card_id not in {item["id"] for item in board.json()}
+
+    trash = client.get("/kanban/trash", headers=h)
+    assert trash.status_code == 200, trash.text
+    trashed = next(item for item in trash.json() if item["id"] == card_id)
+    assert trashed["is_deleted"] is True
+
+    restored = client.patch(f"/kanban/cards/{card_id}/restore", headers=h)
+    assert restored.status_code == 200, restored.text
+
+    detail = client.get(f"/kanban/cards/{card_id}", headers=h)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["is_deleted"] is False
+
+    trash = client.get("/kanban/trash", headers=h)
+    assert trash.status_code == 200, trash.text
+    assert card_id not in {item["id"] for item in trash.json()}
+
+
+# ---------------------------------------------------------------------------
 # Списание
 # ---------------------------------------------------------------------------
 

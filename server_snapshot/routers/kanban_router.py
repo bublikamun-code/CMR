@@ -103,7 +103,10 @@ def get_cards(response: Response,
 
 @router.get("/cards/{card_id}", response_model=schemas.CardResponse)
 def get_card(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).options(
+    card = db.query(models.Card).filter(
+        models.Card.id == card_id,
+        models.Card.is_deleted == False,
+    ).options(
         selectinload(models.Card.attachments),
         selectinload(models.Card.checklists).selectinload(models.CardChecklist.supplier),
         selectinload(models.Card.owner),
