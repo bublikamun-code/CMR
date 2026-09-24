@@ -9,10 +9,15 @@
 Проверяем через БД, а не только через JSON ответа: нас интересует, что реально
 сохранилось, а не что сериализовалось.
 """
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
+from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import text
 
 import models
+import services.payments as payments
 
 pytestmark = pytest.mark.money
 
@@ -40,6 +45,44 @@ def _issue(client, headers, card_id, number, amount, date="2026-09-01"):
     return client.post(f"/payments/cards/{card_id}/issue-invoice", headers=headers,
                        json={"invoice_number": number, "amount": amount,
                              "invoice_date": date, "store_location": STORE})
+
+
+def _add(client, headers, card_id, number, amount, date="2026-09-01"):
+    return client.post(f"/payments/cards/{card_id}/invoices", headers=headers,
+                       json={"invoice_number": number, "amount": amount,
+                             "invoice_date": date, "store_location": STORE})
+
+
+def _post_invoices_concurrently(headers, card_id, requests):
+    """Два независимых HTTP-вызова; все клиенты закрыты до возврата."""
+    import main
+
+    def _worker(index, kind, number):
+        payload = {
+            "invoice_number": number,
+            "amount": 60.0,
+            "invoice_date": "2026-09-01",
+            "store_location": STORE,
+        }
+        with TestClient(main.app, raise_server_exceptions=False) as worker_client:
+            if kind == "issue":
+                return worker_client.post(
+                    f"/payments/cards/{card_id}/issue-invoice",
+                    headers=headers,
+                    json=payload,
+                )
+            return worker_client.post(
+                f"/payments/cards/{card_id}/invoices",
+                headers=headers,
+                json=payload,
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(_worker, index, kind, number)
+            for index, (kind, number) in enumerate(requests)
+        ]
+        return [future.result(timeout=20) for future in futures]
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +291,98 @@ def test_issue_document_reuses_existing_document_copy(client, manager, db, make_
     _reload(db)
     docs = _txs(db, card.id, is_document=True)
     assert len(docs) == 1, f"копия-документ задвоилась: найдено {len(docs)}"
+
+
+# ---------------------------------------------------------------------------
+# Конкурентные выписки и добавления
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("invoice_requests", [
+    pytest.param(
+        [("issue", "ТТН6001"), ("issue", "ТТН6002")],
+        id="issue-issue-different",
+    ),
+    pytest.param(
+        [("add", "ТТН6003"), ("add", "ТТН6004")],
+        id="add-add",
+    ),
+    pytest.param(
+        [("issue", "ТТН 6005"), ("add", "ТТН6005")],
+        id="issue-add-same-normalized",
+    ),
+    pytest.param(
+        [("issue", "ТТН6006"), ("add", "ТТН6007")],
+        id="issue-add-different",
+    ),
+])
+def test_concurrent_invoice_writes_are_serialized(
+        invoice_requests, client, manager, db, make_card, monkeypatch):
+    """Два HTTP-запроса не могут одновременно вычислить один остаток.
+
+    Барьер после чтения реестра детерминированно вскрывает старое окно
+    check-then-write. С резервированием карточки второй запрос до него не
+    доходит; таймаут намеренно короткий, а BrokenBarrierError безопасен.
+    """
+    _, headers = manager
+    card = make_card(total_amount=100.0, status="Сборка")
+    card_id = card.id
+    assert _trigger(client, headers, card_id).status_code == 200
+
+    barrier = threading.Barrier(2)
+    real_find_duplicate = payments.find_duplicate_invoice
+
+    def synchronized_duplicate(rows, number):
+        try:
+            barrier.wait(timeout=0.2)
+        except threading.BrokenBarrierError:
+            pass
+        return real_find_duplicate(rows, number)
+
+    monkeypatch.setattr(payments, "find_duplicate_invoice", synchronized_duplicate)
+    responses = _post_invoices_concurrently(headers, card_id, invoice_requests)
+
+    statuses = [response.status_code for response in responses]
+    assert sorted(statuses) == [200, 400], [response.text for response in responses]
+    assert all(status < 500 for status in statuses), statuses
+
+    _reload(db)
+    rows = _txs(db, card_id)
+    ledger_invoices = [
+        row for row in rows
+        if not row.is_document and (row.invoice_number or "").strip()
+    ]
+    remainders = [
+        row for row in rows
+        if not row.is_document
+        and not row.is_warehouse_writeoff
+        and not (row.invoice_number or "").strip()
+    ]
+    documents = [row for row in rows if row.is_document]
+
+    issued_total = round(sum(float(row.amount or 0) for row in ledger_invoices), 2)
+    assert issued_total <= 100.0
+    assert len(remainders) == 1
+    assert float(remainders[0].amount) >= 0.0
+
+    normalized_numbers = [
+        "".join(ch for ch in row.invoice_number if ch.isdigit())
+        for row in ledger_invoices
+    ]
+    assert len(normalized_numbers) == len(set(normalized_numbers))
+
+    successful_issue_count = sum(
+        1 for request, response in zip(invoice_requests, responses)
+        if request[0] == "issue" and response.status_code == 200
+    )
+    assert len(documents) == successful_issue_count
+
+    db.refresh(card)
+    successful_action = next(
+        request[0] for request, response in zip(invoice_requests, responses)
+        if response.status_code == 200
+    )
+    expected_status = "На списание" if successful_action == "issue" else "Сборка"
+    assert card.status == expected_status
 
 
 # ---------------------------------------------------------------------------

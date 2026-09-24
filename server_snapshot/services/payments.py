@@ -7,6 +7,7 @@ FastAPI как есть — коды ответов те же, что были �
 """
 
 from fastapi import HTTPException
+from sqlalchemy.exc import OperationalError
 
 import models
 from constants import MONEY_EPSILON
@@ -293,6 +294,38 @@ def annul_group_writeoff(session, group, actor):
     }
 
 
+def _reserve_card_write(session, card_id, actor):
+    """Захватывает единственный писатель SQLite до чтения остатка.
+
+    FastAPI уже прочитал пользователя этой же сессией, поэтому read-транзакцию
+    нужно завершить до UPDATE: иначе зарезервированная строка не сможет
+    превратиться в первую запись. Значения актора копируем заранее, чтобы
+    rollback не оставил для журнала ORM-объект в непригодном состоянии.
+    """
+    actor_id = actor.id if actor is not None else None
+    actor_tenant_id = actor.tenant_id if actor is not None else None
+    session.rollback()
+    try:
+        updated = session.query(models.Card).filter(
+            models.Card.id == card_id,
+        ).update(
+            {models.Card.id: models.Card.id},
+            synchronize_session=False,
+        )
+    except OperationalError as exc:
+        session.rollback()
+        if "database is locked" in str(exc).lower():
+            raise HTTPException(
+                status_code=503,
+                detail="Сделка занята другой операцией. Повторите попытку.",
+                headers={"Retry-After": "1"},
+            ) from exc
+        raise
+    if updated != 1:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    return actor_id, actor_tenant_id
+
+
 def add_invoice(session, card_id, payload, actor=None):
     """Добавляет ЕЩЁ ОДНУ накладную к сделке (частичная отгрузка).
 
@@ -302,6 +335,7 @@ def add_invoice(session, card_id, payload, actor=None):
     Вынесено из add_invoice в routers/payments_router.py (Фаза 4) —
     тело перенесено посимвольно.
     """
+    _reserve_card_write(session, card_id, actor)
     card = session.query(models.Card).filter(models.Card.id == card_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
@@ -411,8 +445,9 @@ def issue_invoice(session, card_id, payload, actor):
       4. Остаток закрыт полностью — запись-остаток исчезает, сделка закрывается.
 
     Вынесено из issue_invoice в routers/payments_router.py (Фаза 4) —
-    тело перенесено посимвольно.
+    тело перенеслено посимвольно.
     """
+    actor_id, actor_tenant_id = _reserve_card_write(session, card_id, actor)
     # Ленивый импорт: _issue_document остался в routers.payments_router
     # (явно вне среза Фазы 4), а прямой импорт верхнего уровня дал бы
     # цикл router → services → router.
@@ -543,8 +578,8 @@ def issue_invoice(session, card_id, payload, actor):
         card.status = "На списание"
 
     session.add(models.ActivityLog(
-        user_id=actor.id, card_id=card_id,
-        tenant_id=actor.tenant_id, action="Выписана накладная",
+        user_id=actor_id, card_id=card_id,
+        tenant_id=actor_tenant_id, action="Выписана накладная",
         details=f"{number} на {amount:.2f} BYN ({store}). Остаток: {max(rest_after, 0):.2f}",
     ))
     session.commit()
