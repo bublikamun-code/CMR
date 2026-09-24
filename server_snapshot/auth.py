@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import secrets
@@ -8,6 +9,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
@@ -64,6 +66,82 @@ def create_access_token(data: dict, expires_minutes: int | None = None):
     to_encode.update({"exp": expire, "iat": now, "jti": str(uuid.uuid4())})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+
+def decode_token_metadata(token: str) -> dict:
+    """Проверить подпись JWT и вернуть его метаданные.
+
+    PyJWT также проверяет ``exp``/``nbf``, если соответствующие claims есть.
+    Отсутствие ``exp`` допустимо: старые токены могут быть бессрочными, а в
+    таблице отзыва срок хранения остаётся nullable.
+    """
+    return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+
+# Имя оставлено явным для кода, которому нужно именно проверить токен перед
+# использованием, а не только получить payload.
+verify_token_metadata = decode_token_metadata
+
+
+def derive_token_key(token: str, payload: dict) -> str:
+    """Получить стабильный ключ JWT без сохранения самого токена."""
+    jti = payload.get("jti")
+    if jti:
+        return f"jti:{jti}"
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return f"sha256:{token_hash}"
+
+
+def is_token_key_revoked(db: Session, token_key: str) -> bool:
+    """Проверить наличие ключа в общем серверном списке отзыва."""
+    return db.query(models.RevokedAuthToken).filter(
+        models.RevokedAuthToken.token_key == token_key
+    ).first() is not None
+
+
+def _token_expiry(payload: dict) -> datetime | None:
+    exp = payload.get("exp")
+    if exp is None:
+        return None
+    try:
+        return datetime.fromtimestamp(float(exp), tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def revoke_token(db: Session, token: str) -> bool:
+    """Идемпотентно отозвать подписанный и не истёкший токен.
+
+    Возвращает ``True``, если запись добавлена этим вызовом. Повторный вызов
+    и гонка между двумя процессами завершаются безопасно: уникальный индекс
+    не даёт создать вторую запись, а ``IntegrityError`` трактуется как уже
+    выполненный отзыв. Ошибки декодирования здесь намеренно скрываются —
+    logout идемпотентен и не должен превращать плохой токен в 500.
+    """
+    if not token:
+        return False
+    try:
+        payload = decode_token_metadata(token)
+    except (jwt.PyJWTError, TypeError, ValueError):
+        return False
+
+    token_key = derive_token_key(token, payload)
+    if is_token_key_revoked(db, token_key):
+        return False
+
+    db.add(models.RevokedAuthToken(
+        token_key=token_key,
+        expires_at=_token_expiry(payload),
+        revoked_at=datetime.now(timezone.utc),
+    ))
+    try:
+        db.commit()
+    except IntegrityError:
+        # Другой worker мог успеть записать тот же клють между SELECT и INSERT.
+        db.rollback()
+        return False
+    return True
+
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 def get_current_user(request: Request, response: Response, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
@@ -80,7 +158,7 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
     if not token:
         raise credentials_exception
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = decode_token_metadata(token)
         username: str = payload.get("sub")
         tenant_id: int = payload.get("tenant_id")
         if username is None:
@@ -89,6 +167,11 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
         raise credentials_exception from e
     except jwt.PyJWTError as e:
         raise credentials_exception from e
+
+    # Проверка отзыва обязана идти до любого скользящего продления: новый
+    # cookie не должен воскресить уже отозванный ключ.
+    if is_token_key_revoked(db, derive_token_key(token, payload)):
+        raise credentials_exception
 
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:

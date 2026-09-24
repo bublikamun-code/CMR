@@ -62,10 +62,24 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
 
 
 @router.post("/logout")
-def logout(response: Response):
-    # P2-1: выход — сервер гасит httpOnly-куку. Фронт дополнительно чистит
-    # свой localStorage (переходный период, пока заголовок ещё используется).
-    response.delete_cookie(key="crm_token", path="/")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    # Выход не требует действующей сессии: заголовок и cookie проверяются
+    # независимо, чтобы отозвать bearer даже после удаления cookie клиентом.
+    # Ошибки декодирования намеренно не попадают в ответ — logout всегда
+    # идемпотентен и не должен раскрывать детали JWT.
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, bearer = authorization.partition(" ")
+    bearer_token = bearer.strip() if scheme.lower() == "bearer" else ""
+    cookie_token = request.cookies.get("crm_token", "")
+    try:
+        for candidate in (bearer_token, cookie_token):
+            if candidate:
+                # revoke_token сам игнорирует malformed/expired/already revoked.
+                # Ошибку записи в БД не маскируем: иначе logout ответил бы 200,
+                # хотя bearer продолжал бы приниматься сервером.
+                auth.revoke_token(db, candidate)
+    finally:
+        response.delete_cookie(key="crm_token", path="/")
     return {"detail": "Вы вышли из системы"}
 
 

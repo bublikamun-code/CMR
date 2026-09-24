@@ -34,6 +34,28 @@ class User(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     cards = relationship("Card", back_populates="owner")
 
+
+class RevokedAuthToken(Base):
+    """Серверный список отозванных JWT-ключей.
+
+    В таблицу попадает только ключ токена, а не сам JWT. Это позволяет всем
+    процессам Uvicorn видеть один и тот же отзыв, не сохраняя bearer-секреты.
+    """
+    __tablename__ = "revoked_auth_tokens"
+    __table_args__ = (
+        Index("ux_revoked_auth_tokens_token_key", "token_key", unique=True),
+        Index("ix_revoked_auth_tokens_expires_at", "expires_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    token_key = Column(String(512), nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+# Совместимое короткое имя для кода, которому удобнее говорить о токенах.
+RevokedToken = RevokedAuthToken
+
 class Client(Base):
     __tablename__ = "clients"
     id = Column(Integer, primary_key=True, index=True)
