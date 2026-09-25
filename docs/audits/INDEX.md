@@ -97,7 +97,7 @@
 18. **[BACKEND-AUDIT-2026-09-24.md](BACKEND-AUDIT-2026-09-24.md)** — backend-аудит и локальные волны исправлений (24.09)
     - Исходный read-only baseline и As-built для BA-01—BA-15; tenant isolation, secrets, readiness, concurrency, CSP и transport
     - Финальные локальные гейты: production DDL 1137 passed; ORM 1124 passed/13 skipped; migration idempotency 6+6; v2 rebuild/JS/CSP/freshness OK
-    - Production, commit, push, deploy, PM2 restart, production migration и TLS/HSTS не выполнялись
+    - Production-релиз 25.09: backup, commits/push, migrations 0016—0018, backend/v2 deploy, PM2 restart, readiness и browser smoke; TLS/HSTS остаётся открытым
 
 19. **[TLS-HSTS-RUNBOOK.md](../deployment/TLS-HSTS-RUNBOOK.md)** — безопасный порядок перехода на доверенный TLS и HSTS
     - Сертификат, DNS, ordinary TLS validation, HTTP→HTTPS redirect и включение HSTS только после проверки

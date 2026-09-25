@@ -3,19 +3,18 @@
 ## Итог
 
 Исходный проход был read-only: код, миграции, конфигурация, production и рабочая
-production-БД не изменялись. В ходе него подтверждены три дефекта с
-непосредственным влиянием на безопасность или целостность финансовых данных:
-bearer оставался действительным после logout, параллельная выдача накладной по
-одной сделке создавала перевыпуск, а soft-deleted card оставалась доступна через
-direct GET.
+production-БД не изменялись. В ходе него подтверждены 15 дефектов с
+непосредственным влиянием на безопасность или целостность финансовых данных,
+tenant-границы, секреты и эксплуатацию.
 
-В отдельной утверждённой волне BA-01, BA-02 и BA-03 исправлены локально и
-закрыты регрессиями. Production, production-БД и v2/legacy-фронт не затрагивались;
-миграция 0016 на production не применялась, commit, push и deploy не выполнялись.
-BA-04 и остальные находки остаются открытыми.
+BA-01—BA-03 исправлены первой волной. BA-04—BA-15 реализованы второй волной,
+закоммичены и запушены; 25.09.2026 после согласованного владельцем полного
+backup они развёрнуты на production, миграции 0016—0018 применены, PM2 перезапущен,
+readiness и внешний v2-smoke проверены. Единственная незакрытая находка — BA-08:
+боевой TLS остаётся самоподписанным, HSTS не включён.
 
 
-## Ограничения и метод
+## Ограничения и метод исходного read-only прохода
 
 Разрешено:
 
@@ -24,7 +23,7 @@ BA-04 и остальные находки остаются открытыми.
 - читать публичные production GET/HEAD-заголовки, PM2 status и ограниченный
   log tail без секретов и без authenticated write-операций.
 
-Запрещено и не выполнялось:
+В исходном проходе запрещено и не выполнялось:
 
 - login/logout, смена пароля, delete, restore, save, payment, write-off, sync,
   миграции и любые production write-операции;
@@ -66,7 +65,7 @@ production-схему. Это не доказательство отсутств
 ### BA-01 — Bearer-токен не аннулируется logout
 
 - **Severity:** high
-- **Статус:** исправлено локально 24.09; production без деплоя
+- **Статус:** исправлено и задеплоено на production 25.09.2026
 - **Область:** authentication/session
 - **Доказательство:** `server_snapshot/routers/auth_router.py:64-69` —
   `/auth/logout` удаляет только cookie; `server_snapshot/auth.py:69-136` —
@@ -97,7 +96,7 @@ production-схему. Это не доказательство отсутств
 ### BA-02 — Race condition при параллельной выдаче накладной
 
 - **Severity:** high
-- **Статус:** исправлено локально 24.09; production без деплоя
+- **Статус:** исправлено и задеплоено на production 25.09.2026
 - **Область:** payments/financial integrity
 - **Доказательство:** `server_snapshot/services/payments.py:421-550` и
   `:475-489` делают чтение остатка, проверку duplicate, изменение остатка и
@@ -137,7 +136,7 @@ production-схему. Это не доказательство отсутств
 ### BA-03 — Soft-deleted card доступна прямым GET
 
 - **Severity:** medium
-- **Статус:** исправлено локально 24.09; production без деплоя
+- **Статус:** исправлено и задеплоено на production 25.09.2026
 - **Область:** soft-delete/authorization
 - **Доказательство:** `server_snapshot/routers/kanban_router.py:66-101` фильтрует
   `is_deleted == False` в списке, но `:104-117` direct GET ищет карточку только по
@@ -163,7 +162,7 @@ production-схему. Это не доказательство отсутств
 ### BA-04 — Legacy JWT без `pv` остаётся валидным после смены пароля
 
 - **Severity:** medium
-- **Статус:** подтверждено
+- **Статус:** исправлено и задеплоено на production 25.09.2026
 - **Область:** authentication/password rotation
 - **Доказательство:** `server_snapshot/auth.py:105-111` проверяет `pv` только
   если claim присутствует; legacy-токены без него намеренно принимаются.
@@ -181,7 +180,7 @@ production-схему. Это не доказательство отсутств
 ### BA-05 — Денежные Pydantic-схемы принимают NaN/Infinity и отрицательный PATCH
 
 - **Severity:** medium
-- **Статус:** подтверждено
+- **Статус:** исправлено и задеплоено на production 25.09.2026
 - **Область:** validation/money
 - **Доказательство:** `server_snapshot/schemas.py:247-289` — `total_amount: float`,
   проверяется только отрицательное значение; transaction/request schemas и
@@ -211,7 +210,7 @@ production-схему. Это не доказательство отсутств
 ### BA-06 — `Secure` cookie зависит от схемы request, а не от trusted proxy config
 
 - **Severity:** medium
-- **Статус:** подтверждённое поведение кода; фактический production Set-Cookie не проверялся
+- **Статус:** исправлено и задеплоено на production 25.09.2026; фактический Set-Cookie не снимался без login
 - **Область:** cookies/proxy
 - **Доказательство:** `server_snapshot/routers/auth_router.py:52-59` и
   `server_snapshot/auth.py:127-135` используют
@@ -233,7 +232,7 @@ production-схему. Это не доказательство отсутств
 ### BA-07 — CSP оставляет inline scripts/styles
 
 - **Severity:** medium
-- **Статус:** подтверждено, residual risk
+- **Статус:** исправлено для v2 и задеплоено 25.09.2026; legacy сохраняет документированное исключение CSP
 - **Область:** browser security
 - **Доказательство:** `server_snapshot/main.py:182-203`; production GET headers
   повторно показали:
@@ -253,11 +252,12 @@ production-схему. Это не доказательство отсутств
 ### BA-08 — HSTS отсутствует; TLS на production самоподписанный
 
 - **Severity:** medium
-- **Статус:** подтверждено read-only на production
+- **Статус:** не закрыто: production TLS самоподписанный, HSTS отсутствует; runbook готов, инфраструктурное окно не выполнялось
 - **Область:** transport
 - **Доказательство:** production `curl -k` GET `/health`, `/api/version`, `/v2/`
-  вернул 200; в заголовках нет `Strict-Transport-Security`. Ранее зафиксирована
-  ошибка обычного TLS-клиента `self signed certificate`.
+  вернул 200; в заголовках нет `Strict-Transport-Security`. Обычный TLS-клиент
+  возвращает `self signed certificate`, а HTTP `/v2/` сейчас отвечает 200 без
+  redirect на HTTPS.
 - **Ожидалось:** доверенный сертификат и HSTS на HTTPS-домене.
 - **Влияние:** браузер/клиент может получать предупреждение о сертификате, а
   downgrade/первый заход на HTTP не защищён политикой HSTS. Это транспортный и
@@ -269,7 +269,7 @@ production-схему. Это не доказательство отсутств
 ### BA-09 — `/health` проверяет только liveness
 
 - **Severity:** medium
-- **Статус:** подтверждённое поведение; readiness-дефект требует эксплуатационного решения
+- **Статус:** исправлено и задеплоено на production 25.09.2026; `/health/ready` проходит
 - **Область:** operations
 - **Доказательство:** `server_snapshot/main.py:160-162` возвращает только
   `{"status":"ok","version":...}`; SQLite, migrations, uploads, disk, tenant DBs и
@@ -285,7 +285,7 @@ production-схему. Это не доказательство отсутств
 ### BA-10 — Проверки group issuance/membership остаются check-then-write
 
 - **Severity:** high/medium — риск, не подтверждён отдельным воспроизведением
-- **Статус:** риск/требует решения
+- **Статус:** исправлено и задеплоено на production 25.09.2026; конкурентные регрессии зелёные
 - **Область:** group write-offs
 - **Доказательство:** `server_snapshot/routers/writeoff_groups_router.py:104-126`,
   `:161-228` проверяют `written_off`, состав и сумму в Python, затем делают
@@ -301,7 +301,7 @@ production-схему. Это не доказательство отсутств
 ### BA-11 — Webhook secret хранится plaintext; test endpoint возвращает raw exception
 
 - **Severity:** medium
-- **Статус:** риск/требует решения
+- **Статус:** исправлено и задеплоено на production 25.09.2026; конкурентные регрессии зелёные
 - **Область:** integrations/secrets/error disclosure
 - **Доказательство:** `server_snapshot/routers/webhooks_router.py:91-100,
   127-132` принимает и сохраняет `secret` открытым текстом; `:228-243` возвращает
@@ -316,7 +316,7 @@ production-схему. Это не доказательство отсутств
 ### BA-12 — Email Fernet fallback fail-open
 
 - **Severity:** medium
-- **Статус:** риск/требует решения
+- **Статус:** исправлено и задеплоено на production 25.09.2026; конкурентные регрессии зелёные
 - **Область:** email credentials
 - **Доказательство:** `server_snapshot/routers/email_parser_router.py:180-198`:
   при `_fernet is None` или `InvalidToken` возвращается исходная строка; при
@@ -334,7 +334,7 @@ production-схему. Это не доказательство отсутств
 ### BA-13 — Tenant-изоляция не является доказанным инвариантом
 
 - **Severity:** medium/high — риск
-- **Статус:** не проверено полностью
+- **Статус:** исправлено и применено на production 25.09.2026; tenant 1 нормализован, cross-tenant регрессии зелёные
 - **Область:** multi-tenant/authorization
 - **Доказательства:** в `writeoff_groups_router.py:40-82, 96-126` чтение группы и
   карточки идёт по `id` без tenant-фильтра; `main.py:96-101` включает cron
@@ -349,7 +349,7 @@ production-схему. Это не доказательство отсутств
 ### BA-14 — Bot token принимается в query string
 
 - **Severity:** medium
-- **Статус:** подтверждённый риск
+- **Статус:** исправлено и задеплоено на production 25.09.2026; query-only и неверный header дают 403
 - **Область:** bot authentication
 - **Доказательство:** `server_snapshot/routers/nakladnye_router.py:35-48` —
   `X-Bot-Token` или `request.query_params.get("bot_token")`.
@@ -362,7 +362,7 @@ production-схему. Это не доказательство отсутств
 ### BA-15 — Локальные secret/settings-файлы имеют широкие права
 
 - **Severity:** medium для локальной машины, low для production
-- **Статус:** подтверждено локально; production проверено отдельно без чтения содержимого
+- **Статус:** исправлено и задеплоено на production 25.09.2026; metadata-only preflight прошёл
 - **Доказательство:** `stat` в `server_snapshot/`: `.secret_key` `0644`,
   `email_settings.json` `0644`, `.cron_token` `0600`, `.pm2.env` отсутствует.
   Production `.pm2.env`, `.secret_key`, `.cron_token` ранее проверены как `0600`;
@@ -389,29 +389,29 @@ production-схему. Это не доказательство отсутств
 - webhook URL получает scheme/hostname/DNS/IP validation и запрет redirect;
   полный DNS-rebinding/IPv6/alternate-form harness не завершён.
 
-## Не проверено или требует отдельного решения
+## Остаточные ограничения после production-релиза
 
-1. полная authorization matrix для manager/warehouse/documents/admin/superadmin
-   и cross-owner/cross-tenant object IDs;
-2. все PATCH-пути транзакций и recomputation остатка/статуса после частичных
-   обновлений;
-3. group invoice/membership concurrency;
-4. полный upload/download adversarial matrix: traversal, Unicode/CRLF,
-   extension-magic mismatch, symlink, oversized/empty, IDOR;
-5. SSRF edge cases: IPv6, alternate IP representations, DNS rebinding-like
-   повторная проверка, error disclosure;
-6. controlled IMAP/cron/bot runtime с реальными протоколами и attachments;
-7. readiness/disk/migration/tenant-DB behavior в реальном deployment;
-8. эффективная tenant-модель и необходимость полноценной изоляции;
-9. drift между `requirements.txt` и optional bot imports/локальным deployment;
-10. actual production Set-Cookie через HTTPS (без production login в этом цикле).
+1. BA-08 не закрыт: рабочий edge `https://87-232-64-12.nip.io` использует
+   самоподписанный сертификат, обычная TLS-валидация не проходит, HSTS отсутствует,
+   а HTTP `/v2/` не перенаправляет на HTTPS. Host nginx, DNS и сертификат в этой
+   кампании не менялись.
+2. Фактический production `Set-Cookie` не снимался: login/logout и password
+   operations без отдельного разрешения не выполнялись. Конфигурация
+   `CRM_COOKIE_SECURE=true` и production fail-closed подтверждены startup-конфигом.
+3. Полные adversarial upload/download и controlled IMAP/cron/bot протоколы с
+   реальными вложениями не выполнялись; webhook/email на production не запускались.
+4. Readiness проверяет main DB/schema/migrations/uploads. Tenant DB намеренно
+   помечены `not_checked`: их миграции выполняются вне общего runner.
+5. Browser API этого клиента не предоставляет чтение исторической console/network
+   телеметрии. Production UI-smoke подтверждён DOM и успешной загрузкой карточки под
+   строгим CSP; отсутствие ошибок console не заявляется без отдельного census.
 
 ## Итог локальной кампании BA-04—BA-15 (24.09.2026)
 
-Все кодовые пункты BA-04—BA-15 закрыты локально и покрыты регрессиями. Это не
-означает изменения production: рабочее дерево не закоммичено, push/deploy,
-production migration, PM2 restart, TLS/HSTS и host nginx не выполнялись.
-Untracked `docs/SESSION-BRIEF-2026-09-22.md` намеренно не включён.
+Все кодовые пункты BA-04—BA-15 закрыты регрессиями. Кампания закоммичена в
+`c3042cf`, исправление миграции 0018 — в `3ff8ff7`; оба коммита запушены в
+`origin/main`. Untracked `docs/SESSION-BRIEF-2026-09-22.md` намеренно не включён.
+Фактический production-релиз 25.09 описан ниже отдельно.
 
 ### Реализовано
 
@@ -466,18 +466,48 @@ Untracked `docs/SESSION-BRIEF-2026-09-22.md` намеренно не включ�
 - CSP focused tests, `check_site_v2_fresh.py` (эталонный build во временной
   копии совпадает с generated `site-v2`, 26 файлов) и `git diff --check`: OK.
 
-### Ограничения и незакрытые внешние действия
+### Production-релиз 25.09.2026
 
-- `v2_error_census.py` был запущен с локального стенда, но требует
-  `CRM_USER`/`CRM_PASS`; эти credentials намеренно не читались и не запрашивались,
-  поэтому полный census в этой сессии не выполнен.
-- Browser smoke на локальном стенде ранее подтвердил обе темы, переход на board и
-  открытие card dialog; после BA-13 изменений отдельный авторизованный census не
-  запускался из-за отсутствия credentials.
-- Перед production-выпуском владелец должен отдельно подтвердить backup,
-  применить миграции 0016–0018, задеплоить backend/static, выполнить
-  post-deploy readiness, migration checks и external TLS validation. До этого
-  заявления «production исправлено» делать нельзя.
+Выполнен по отдельному разрешению владельца и только после полного backup.
 
-Production, production DB, `.pm2.env`, реальные ключи, сертификаты, PM2, host
-nginx и TLS/HSTS в этой кампании не изменялись.
+- **Backup:** `scripts/backup_crm.sh`, архив `20260925_085508_HWEUIvZYll`.
+  SQLite `.backup` прошёл `integrity_check`; зашифрованы main DB, tenant DB,
+  uploads, code и `crm_data` secrets. Итог backup-набора: 2.9 ГБ, 58 файлов;
+  закрытые staging-копии не сохранялись, права публикаций `0600`.
+- **Конфигурация:** добавлены `CRM_DEPLOYMENT=production` и
+  `CRM_COOKIE_SECURE=true`; отсутствующий отдельный webhook Fernet key создан с
+  правами `0600`. Существующий email key сохранён, email settings уже были
+  ciphertext. Значения ключей, `.pm2.env` и credentials не выводились.
+- **Миграции:** 0016 и 0017 уже были записаны в production journal. Первая
+  попытка 0018 откатилась целиком на проверке `card_attachments`: у child-таблицы
+  нет `tenant_id`, но parent до нормализации имел `NULL`. Исправление
+  `3ff8ff7` пропускает child без собственного tenant_id; focused matrix — 5/5 в
+  обоих профилях. Повторная 0018 успешно применила tenant 1 «Свет в доме»,
+  `db_path=crm_app.db`; journal: 17 миграций.
+- **Post-migration DB:** `NULL tenant_id=0`; все 6 пользователей на tenant 1;
+  52 tenant-required triggers; `PRAGMA integrity_check=ok`.
+- **Выкладка:** backend-файлы и rebuilt v2 загружены; `crm` и
+  `nakladnye-bot` online, два Uvicorn workers стартовали. SHA-256 production и
+  local совпали для `main.py`, `auth.py`, migration 0018, `site-v2/index.html`
+  и `js/v2/head.js`.
+- **Readiness/routes:** `/health/live` и `/health/ready` вернули 200; main DB,
+  schema, migrations и uploads ready, tenant DB честно `not_checked`. HTTPS `/` →
+  302 `/v2/`, HTTPS `/v2/` и HTTP `/v2/` → 200; HTTP redirect на HTTPS не настроен.
+- **CSP/static/cache:** production v2 отдаётся без `unsafe-inline`; inline style
+  tags/style attributes/inline script bodies отсутствуют, `head.js` внешний.
+  HTML — `no-cache`, JS — `public, max-age=31536000, immutable`.
+- **Auth/bot:** `/auth/me` без credentials → 401; query-only bot token и
+  неверный `X-Bot-Token` → 403 `Invalid bot token`.
+- **Browser smoke:** в уже открытой HTTP production-сессии
+  `http://87-232-64-12.nip.io/v2/#board?mode=list` v2 показала доску
+  `Найдено: 408`; карточка `1071 · Рентал Крафт` открылась в тёмной теме и
+  показала финансовые поля. Диалог закрыт, тема возвращена в `light`, URL и данные
+  не изменены. Browser backend не отдаёт историческую console telemetry, поэтому
+  отдельный production `v2_error_census` не заявляется.
+
+### Остаток
+
+BA-08 остаётся открытым: внешний TLS самоподписанный, HSTS отсутствует. Не
+выполнялись host nginx/DNS/сертификат changes, production login/logout, save,
+payment, write-off, sync, delete, restore и любые иные authenticated writes.
+Отдельный `v2_error_census` с production credentials также не выполнялся.
