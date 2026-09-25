@@ -195,6 +195,16 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .content { padding: var(--s6); display: flex; flex-direction: column; gap: var(--s4); min-width: 0; overflow-x: hidden; }
 .view { display: none; flex-direction: column; gap: var(--s4); min-width: 0; }
 .view.active { display: flex; }
+/* До deferred-навигации CSS выбирает кадр deep link без светлого мигания.
+   !important у цели перекрывает и [hidden], который сборщик ставит после этого CSS. */
+html[data-v2-route] .view { display: none; }
+html[data-v2-route="board"] #view-board,
+html[data-v2-route="day"] #view-day,
+html[data-v2-route="tasks"] #view-tasks,
+html[data-v2-route="fin"] #view-fin,
+html[data-v2-route="clients"] #view-clients,
+html[data-v2-route="suppliers"] #view-suppliers,
+html[data-v2-route="admin"] #view-admin { display: flex !important; }
 
 .card {
     background: var(--surface); border: 1px solid var(--border);

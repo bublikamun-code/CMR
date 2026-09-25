@@ -398,31 +398,7 @@
         if (!drawer) return;
         drawer.dataset.clientId = selectedClient || '';
         var client = selectedClient ? D.clientById(selectedClient) : null;
-        // Баланс кассы клиента (фидбек 18.09). Ответ старого запроса допустим
-        // только пока и выбранный клиент, и сам drawer относятся к тому же id.
-        var balanceClientId = client ? window.KBInsightsBalance.numeric(client.id) : null;
-        function balanceRequestIsCurrent() {
-            return balanceClientId !== null
-                && window.KBInsightsBalance.numeric(selectedClient) === balanceClientId
-                && window.KBInsightsBalance.numeric(drawer.dataset.clientId) === balanceClientId;
-        }
-        if (client && balanceClientId && window.V2Api && window.V2Api.token()) {
-            window.KBInsightsBalance.get(balanceClientId).then(function (bal) {
-                if (!balanceRequestIsCurrent()) return;
-                var line = document.getElementById('cl-cash-line');
-                if (line) {
-                    var b = Math.round(bal.balance * 100) / 100;
-                    line.textContent = b > 0 ? b.toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' BYN — переплата клиента'
-                        : b < 0 ? b.toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' BYN — долг клиента'
-                        : '0,00 BYN';
-                }
-            }).catch(function (err) {
-                // B1 fix: не глотаем ошибку — показываем текст ошибки, а не «недоступно».
-                if (!balanceRequestIsCurrent()) return;
-                var line = document.getElementById('cl-cash-line');
-                if (line) line.textContent = 'Не удалось загрузить баланс' + (err && err.message ? ': ' + err.message : '');
-            });
-        }
+        // renderDrawer только выбирает клиента; баланс загружает onDrawerChange ниже.
         if (!client) {
             drawer.innerHTML = '<div class="drawer-body"><p class="fin-note">Клиент не выбран.</p></div>';
             return;
@@ -915,8 +891,25 @@
     'use strict';
     var insightsBalance = window.KBInsightsBalance;
     var numeric = insightsBalance.numeric;
+    // Терминальная ошибка хранится в closure, а не только в dataset: renderClients
+    // пересоздаёт body и может затереть DOM-метку раньше, чем observer успеет
+    // увидеть mutation. Ключ одновременно защищает от ретрая старого клиента.
+    var balanceErrorClientId = null;
     function fmtKop(v) {
         return (Math.round(v) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function updateCashLine(drawer, balanceClientId, bal, errorMessage) {
+        if (numeric(drawer.dataset.clientId) !== balanceClientId) return;
+        var line = document.getElementById('cl-cash-line');
+        if (!line) return;
+        if (errorMessage) {
+            line.textContent = errorMessage;
+            return;
+        }
+        var cents = Math.round(bal.balance * 100);
+        line.textContent = cents > 0 ? fmtKop(cents) + ' BYN — переплата клиента'
+            : cents < 0 ? fmtKop(cents) + ' BYN — долг клиента'
+            : '0,00 BYN';
     }
     // Свои esc: esc из первого IIFE сюда не виден, а значения клиента
     // (например contact_person из импорта писем) подставляются в value-атрибут.
@@ -1109,8 +1102,13 @@
         // и меняет (old.remove() + вставка блока). Без метки «в работе» каждый
         // виток заново запускает наблюдателя, очередь микротасков не иссякает —
         // страница перестаёт отвечать и сыплет запросами баланса до перезагрузки.
-        // Метка снимается при сбое, чтобы ошибка не кешировалась пустотой (B2).
-        if (body.dataset.balanceDone === clientId + '' || body.dataset.balanceLoading === clientId + '') return;
+        // Ошибка терминальна на drawer, который переживает замену body: renderClients
+        // не теряет состояние и не ретраит 404 через observer; несовпадение clientId
+        // разрешает повтор после смены клиента.
+        if (balanceErrorClientId !== null && balanceErrorClientId !== clientId) {
+            balanceErrorClientId = null;
+        }
+        if (body.dataset.balanceDone === clientId + '' || body.dataset.balanceLoading === clientId + '' || body.dataset.balanceError === clientId + '' || drawer.dataset.balanceError === clientId + '' || balanceErrorClientId === clientId) return;
         var old = body.querySelector('[data-cl-balance-block]');
         if (old) old.remove();
         if (!clientId) return;
@@ -1122,20 +1120,35 @@
             '<input data-cl-pay-amount class="payment-amount" inputmode="decimal" placeholder="Оплата, BYN">' +
             '<button type="button" class="btn btn-primary btn-sm" data-cl-pay="' + clientId + '">Принять оплату</button></div>';
         body.insertAdjacentElement('afterbegin', block);
-        if (!window.V2Api || !window.V2Api.token()) { block.querySelector('[data-cl-balance]').textContent = ''; return; }
+        if (!window.V2Api || !window.V2Api.token()) {
+            drawer.dataset.balanceError = clientId + '';
+            body.dataset.balanceError = clientId + '';
+            delete body.dataset.balanceLoading;
+            block.querySelector('[data-cl-balance]').textContent = '';
+            return;
+        }
         // B2 fix: не помечаем загрузку как завершённую до успешного ответа —
         // иначе при сетевом сбое «баланс: » кешируется как пустота и не ретраится.
         insightsBalance.get(clientId).then(function (bal) {
+            if (numeric(drawer.dataset.clientId) === clientId) balanceErrorClientId = null;
+            delete drawer.dataset.balanceError;
+            delete body.dataset.balanceError;
             body.dataset.balanceDone = clientId + '';
             delete body.dataset.balanceLoading;
+            updateCashLine(drawer, clientId, bal);
             var el = block.querySelector('[data-cl-balance]');
             el.textContent = 'Баланс кассы: ' + fmtKop(Math.round(bal.balance * 100)) + ' BYN' +
                 (bal.balance > 0 ? ' — переплата клиента' : bal.balance < 0 ? ' — долг клиента' : '');
         }).catch(function (err) {
             // B1 fix: не глотаем ошибку — показываем состояние и даём повторить.
+            if (numeric(drawer.dataset.clientId) === clientId) balanceErrorClientId = clientId;
+            drawer.dataset.balanceError = clientId + '';
+            body.dataset.balanceError = clientId + '';
             delete body.dataset.balanceLoading;
+            var errorMessage = 'Не удалось загрузить баланс' + (err && err.message ? ': ' + err.message : '');
+            updateCashLine(drawer, clientId, null, errorMessage);
             var el = block.querySelector('[data-cl-balance]');
-            if (el) el.textContent = 'Не удалось загрузить баланс' + (err && err.message ? ': ' + err.message : '');
+            if (el) el.textContent = errorMessage;
         });
         block.querySelector('[data-cl-pay]').addEventListener('click', function () {
             var input = block.querySelector('[data-cl-pay-amount]');
@@ -1149,6 +1162,7 @@
     var drawerEl = document.getElementById('cl-drawer');
     if (drawerEl) {
         new MutationObserver(onDrawerChange).observe(drawerEl, { childList: true, subtree: true });
+        onDrawerChange();
         document.addEventListener('click', function (e) {
             if (e.target.closest('[data-cl-id]')) setTimeout(onDrawerChange, 50);
         });

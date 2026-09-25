@@ -113,6 +113,23 @@
 .cal-legend-dot { padding: 0 6px; }
 .fin-note-compact { margin: 4px 0; }
 .fin-inc-files { list-style: none; padding: 0; margin: 4px 0; display: flex; flex-direction: column; gap: 4px; }
+/* Фото накладной: до загрузки — маленький SVG-значок, после — миниатюра
+   44×44. Полноразмерное фото открывается по клику в новой вкладке, в строке
+   реестра оно больше не раздувает таблицу. */
+.fin-inc-photo {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-height: 28px; padding: 3px 8px;
+    font: inherit; font-size: 12px; line-height: 1.3; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer;
+}
+.fin-inc-photo:hover { border-color: var(--muted); background: var(--surface-2); }
+.fin-inc-photo-icon { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.fin-inc-photo-thumb { padding: 2px; line-height: 0; }
+.fin-inc-photo-image {
+    display: block; width: 44px; height: 44px; object-fit: cover;
+    border-radius: 6px; background: var(--surface-2);
+}
 .fin-debt-strong { font-weight: 800; }
 .mgmt-mail-error { color: var(--danger); font-size: var(--font-ui); padding: 8px 0; }
 .user-off-faint { color: var(--muted); }

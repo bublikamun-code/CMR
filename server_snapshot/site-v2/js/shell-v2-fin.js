@@ -99,6 +99,14 @@
     const checkbox = (r, field, title) => `<label class="fin-check" for="fin-${field}-${r.id}"><input type="checkbox" id="fin-${field}-${r.id}" data-record="${r.id}" data-field="${field}" aria-label="${esc(title + ' — ' + r.card + ', ' + r.client)}" ${r[field] ? 'checked' : ''}>${title}</label>`;
     const PRINT_OPTIONS = [['', '—'], ['Печать', 'Печать'], ['Доверенность', 'Доверенность'], ['БН', 'Безнал (БН)']];
     const printCell = (r) => `<select class="fprint-select" data-record="${r.id}" aria-label="Печать — ${esc(r.card)}">${PRINT_OPTIONS.map(([v, l]) => `<option value="${v}"${(r.print || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
+    // Пустое значение печати раньше давало строку «Печать: .» — лишняя точка
+    // без смысла. Теперь пустое значение читается словами.
+    const printLine = (r) => r.print ? `Печать: ${esc(r.print)}.` : 'Печать не указана.';
+    const authorityLine = (r) => r.authority ? `${esc(r.authority)}.` : 'Доверенность не указана.';
+    // Фото до загрузки — маленький SVG-значок, а не эмодзи: «📷» рисуется
+    // по-разному в разных системах и заметно шире самой кнопки.
+    const INC_PHOTO_ICON = '<svg class="fin-inc-photo-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.4 2h3.2l.9 1.4H13A1.6 1.6 0 0 1 14.6 5v7A1.6 1.6 0 0 1 13 13.6H3A1.6 1.6 0 0 1 1.4 12V5A1.6 1.6 0 0 1 3 3.4h2.5L6.4 2Zm1.6 3.6a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 1.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"/></svg>';
+    const incPhotoButton = (filename, index, number) => `<button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(filename)}" data-photo-label="Фото ${index + 1}" data-nak="${esc(number)}" title="Открыть фото в новой вкладке">${INC_PHOTO_ICON}<span class="fin-inc-photo-label">Фото ${index + 1}</span></button>`;
     const dateEditButton = (r) => {
         const label = `Изменить дату оплаты — ${r.card}`;
         return `<button type="button" class="num fin-date-edit fin-date-edit-link" data-record="${r.id}" title="${esc(label)}" aria-label="${esc(label)}">${esc(r.date)}</button>`;
@@ -115,7 +123,7 @@
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
         <td>${checkbox(r, 'posted', 'Списано')}</td>
-        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
+        <td><details><summary>Реквизиты и примечание</summary><p>${printLine(r)}</p><p>${authorityLine(r)}</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
     </tr>`).join('');
     // Одна ТН — одна строка. В «Документы» она приходит из двух мест: строкой
     // реестра (последняя ТН сделки в KB_FIN_SOURCE — с магазином, счётом,
@@ -165,7 +173,7 @@
             filesHtml = '<p class="fin-note fin-note-compact">Файлов нет</p>';
         } else {
             const photoItems = photos.map((p, i) =>
-                `<li data-photo-filename="${esc(p)}"><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(p)}" data-photo-label="Фото ${i + 1}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${i + 1}</button></li>`
+                `<li data-photo-filename="${esc(p)}">${incPhotoButton(p, i, r.number)}</li>`
             ).join('');
             const excelItem = hasExcel
                 ? `<li data-excel><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${numId}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>`
@@ -221,30 +229,48 @@
             incPhotoObserver.observe(button);
         }
     }
+    function setIncPhotoLabel(button, text) {
+        const label = button.querySelector('.fin-inc-photo-label');
+        if (label) label.textContent = text;
+        else button.textContent = text;
+    }
     function setIncPhotoButtonState(button, state, message) {
         if (!button || !button.isConnected) return;
         button.dataset.photoState = state;
-        if (state === 'loading') button.textContent = '⏳ Фото загружается…';
+        const name = button.dataset.photoLabel || 'Фото';
+        if (state === 'loading') setIncPhotoLabel(button, 'Фото загружается…');
         else if (state === 'error') {
-            button.textContent = `📷 ${button.dataset.photoLabel || 'Фото'} (ошибка)`;
+            setIncPhotoLabel(button, `${name} (ошибка)`);
             button.title = message || 'Не удалось загрузить. Нажмите, чтобы повторить.';
         } else {
-            button.textContent = `📷 ${button.dataset.photoLabel || 'Фото'}`;
+            setIncPhotoLabel(button, name);
             button.title = 'Открыть фото в новой вкладке';
         }
     }
     function showIncPhotoImage(button, filename, url) {
         const details = photoDetails(button);
         if (!button.isConnected || !details || !details.open || !incPanelVisible()) return false;
+        // Миниатюра 44×44 вместо полноразмерного снимка: строка реестра не
+        // разъезжается, полное фото открывается по клику в новой вкладке.
+        const name = button.dataset.photoLabel || 'Фото';
+        const thumb = document.createElement('button');
+        thumb.type = 'button';
+        thumb.className = 'fin-inc-photo fin-inc-photo-thumb';
+        thumb.dataset.action = 'inc-photo-view';
+        thumb.dataset.filename = filename;
+        thumb.dataset.blobUrl = url;
+        thumb.title = 'Открыть фото в новой вкладке';
+        thumb.setAttribute('aria-label', `${name} — открыть в новой вкладке`);
         const img = document.createElement('img');
         img.src = url;
-        img.alt = button.dataset.nak || filename;
+        img.alt = '';
+        img.decoding = 'async';
         img.className = 'fin-inc-photo-image';
-        img.dataset.action = 'inc-photo-view';
         img.dataset.filename = filename;
         img.dataset.blobUrl = url;
         img.title = 'Открыть фото в новой вкладке';
-        button.replaceWith(img);
+        thumb.appendChild(img);
+        button.replaceWith(thumb);
         return true;
     }
     function releaseIncPhotoUrl(blobUrl) {
@@ -432,7 +458,10 @@
     }
     function refreshIncPhotoObservation() {
         if (!incPhotoObserver || !incPanelVisible()) return;
-        $$('.fin-inc-photo[data-filename]').forEach((button) => observeIncPhotoButton(button));
+        // Миниатюра уже загружена — повторно наблюдать её незачем, иначе
+        //IntersectionObserver заставит пересоздать картинку при каждом
+        // переключении вкладки.
+        $$('.fin-inc-photo[data-filename]:not(.fin-inc-photo-thumb)').forEach((button) => observeIncPhotoButton(button));
     }
     const incPhotoObserver = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
@@ -624,8 +653,8 @@
         const details = row.cells[7].querySelector('details');
         if (details) {
             const paragraphs = details.querySelectorAll('p');
-            if (paragraphs[0]) paragraphs[0].textContent = 'Печать: ' + (r.print || '') + '.';
-            if (paragraphs[1]) paragraphs[1].textContent = (r.authority || '') + '.';
+            if (paragraphs[0]) paragraphs[0].textContent = r.print ? 'Печать: ' + r.print + '.' : 'Печать не указана.';
+            if (paragraphs[1]) paragraphs[1].textContent = r.authority ? r.authority + '.' : 'Доверенность не указана.';
             const area = details.querySelector('textarea');
             if (area && document.activeElement !== area) area.value = r.note || '';
         }
@@ -636,7 +665,7 @@
             <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
             <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
             <td>${checkbox(r, 'calculated', 'Просчёт')}</td><td>${checkbox(r, 'posted', 'Списано')}</td>
-            <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
+            <td><details><summary>Реквизиты и примечание</summary><p>${printLine(r)}</p><p>${authorityLine(r)}</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
         </tr>`;
     }
     function documentRowHtml(r, kanban) {
@@ -725,16 +754,7 @@
             if (!item) {
                 item = document.createElement('li');
                 item.dataset.photoFilename = String(filename);
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'fin-inc-photo';
-                button.dataset.action = 'inc-photo';
-                button.dataset.filename = String(filename);
-                button.dataset.photoLabel = 'Фото ' + (index + 1);
-                button.dataset.nak = r.number;
-                button.title = 'Открыть фото в новой вкладке';
-                button.textContent = '📷 Фото ' + (index + 1);
-                item.appendChild(button);
+                item.appendChild(makeRow(incPhotoButton(String(filename), index, r.number)));
             }
             const atIndex = list.children[index];
             if (atIndex !== item) list.insertBefore(item, atIndex || null);
@@ -782,7 +802,7 @@
     function incomingRowHtml(r) {
         const numId = String(r.id || '').replace(/\D/g, '');
         const photos = Array.isArray(r.photoPaths) ? r.photoPaths : [];
-        const photoItems = photos.map((filename, index) => `<li data-photo-filename="${esc(filename)}"><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(filename)}" data-photo-label="Фото ${index + 1}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${index + 1}</button></li>`).join('');
+        const photoItems = photos.map((filename, index) => `<li data-photo-filename="${esc(filename)}">${incPhotoButton(filename, index, r.number)}</li>`).join('');
         const excelItem = r.excelPath ? `<li data-excel><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${numId}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>` : '';
         const filesHtml = photos.length || r.excelPath ? `<ul class="fin-inc-files">${photoItems}${excelItem}</ul>` : '<p class="fin-note fin-note-compact">Файлов нет</p>';
         return `<tr data-inc-key="${esc(r.id)}" data-search="${esc([r.supplier, r.number, r.date, r.store, money(r.amount)].join(' '))}">

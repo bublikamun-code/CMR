@@ -46,6 +46,9 @@
             history.replaceState(null, '', '#board');
         }
         const route = routes[key];
+        // Prepaint CSS выбирает первый кадр по этому же атрибуту; после
+        // навигации его нужно обновить, иначе !important оставит старый view.
+        document.documentElement.dataset.v2Route = key;
         document.querySelectorAll('.view').forEach(view => {
             const active = view.id === 'view-' + route.view;
             view.hidden = !active;

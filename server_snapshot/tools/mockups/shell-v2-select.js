@@ -41,6 +41,7 @@
         item.anchor.appendChild(item.surface);
         item.anchor.style.removeProperty('height');
         item.anchor.style.removeProperty('width');
+        if (item.cell) { item.cell.style.removeProperty('width'); item.cell = null; }
         item.buffer = '';
         if (restoreFocus !== false && hadFocus) focusButton(item);
         moving = false;
@@ -115,8 +116,18 @@
         var topEdge = (view ? view.offsetTop : 0) + 8;
         var width = (view ? view.width : document.documentElement.clientWidth) - 16;
         var height = (view ? view.height : window.innerHeight) - 16;
-        item.anchor.style.width = rect.width + 'px';
         item.anchor.style.height = rect.height + 'px';
+        // В таблице заданная ширина anchor меняет распределение колонок:
+        // ячейка «Печать» разъезжается и сдвигает всю строку. Там держим
+        // ширину ячейки, а anchor оставляем в потоке — он и так растянут
+        // на всю ширину ячейки и без заданного значения не схлопывается.
+        var cell = item.anchor.closest('td, th');
+        if (cell) {
+            item.cell = cell;
+            cell.style.width = cell.getBoundingClientRect().width + 'px';
+        } else {
+            item.anchor.style.width = rect.width + 'px';
+        }
         item.dialog = item.select.closest('dialog');
         moving = true;
         active = item;
