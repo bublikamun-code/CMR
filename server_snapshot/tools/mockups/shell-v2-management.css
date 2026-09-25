@@ -99,6 +99,45 @@
 }
 @media(pointer:coarse) { [data-mgmt] .btn, #mgmt-dialog .btn, .v2-form-dialog .btn { min-height:44px; } }
 
+/* Внешние классы для разметки, ранее собранной из style-атрибутов. */
+.day-side { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+#day-funnel-stats { margin-top: var(--s4); }
+.directory-search { min-width: 210px; }
+.col-32 { width: 32%; } .col-30 { width: 30%; } .col-34 { width: 34%; } .col-26 { width: 26%; }
+.col-15 { width: 15%; } .col-16 { width: 16%; } .col-18 { width: 18%; } .col-22 { width: 22%; } .col-14 { width: 14%; }
+.col-actions { width: 104px; } .col-access { width: 112px; } .col-user-actions { width: 252px; }
+.col-wide-actions { width: 268px; } .col-type { width: 132px; } .col-required { width: 128px; }
+.col-field-actions { width: 200px; } .col-workflow-actions { width: 280px; }
+.cal-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: var(--font-micro); color: var(--muted); margin-top: 14px; }
+.cal-legend-item { display: flex; align-items: center; gap: 5px; }
+.cal-legend-dot { padding: 0 6px; }
+.fin-note-compact { margin: 4px 0; }
+.fin-inc-files { list-style: none; padding: 0; margin: 4px 0; display: flex; flex-direction: column; gap: 4px; }
+.fin-debt-strong { font-weight: 800; }
+.mgmt-mail-error { color: var(--danger); font-size: var(--font-ui); padding: 8px 0; }
+.user-off-faint { color: var(--muted); }
+.user-off-note { font-weight: 400; font-size: var(--font-micro); }
+.num-strong { font-weight: 800; }
+.row-tight { gap: 2px; }
+.stat-danger { color: var(--danger); }
+.group-hd-tight { padding-top: 0; }
+.cl-cash-controls { gap: 6px; align-items: center; }
+.cl-cash-amount { width: 130px; font: inherit; font-size: var(--font-micro); padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text); }
+.drawer-overline { font-size: var(--font-micro); }
+.drawer-title-row { margin-top: 6px; }
+.drawer-client-title { font-size: 17px; letter-spacing: -.3px; }
+.drawer-reset, .drawer-print { margin-left: auto; }
+.drawer-meta { gap: 10px; font-size: var(--font-micro); color: var(--muted); }
+.kpi-item-compact { padding: 0 12px; }
+.kpi-value-large { font-size: 20px; }
+.dialog-title { font-size: 20px; letter-spacing: -.3px; }
+.dialog-kit { margin-top: 12px; }
+.task-form { margin: 0; }
+.task-form-title { grid-column: 1 / -1; }
+.cal .cal-day-empty { background: transparent; }
+.payment-row { gap: 6px; margin: 0 0 10px; }
+.payment-amount { width: 150px; }
+
 /* ============================================================
    Панель уведомлений (пункт 10): действие «Прочитать все»
    в заголовке, переход к объекту и удаление одного уведомления.

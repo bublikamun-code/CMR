@@ -18,11 +18,11 @@ COPY nginx/http.conf /etc/nginx/conf.d/default.conf
 # Fail the build on an invalid config instead of at container start.
 RUN nginx -t -c /etc/nginx/nginx.conf
 
-# Health check.
-# NOTE: use 127.0.0.1, not localhost - in Alpine `localhost` resolves to ::1 first
-# and nginx listens on IPv4 0.0.0.0:80, which made every probe fail.
+# Liveness проверяет только процесс nginx и не зависит от backend.
+# Внутренний endpoint не публикует ложный 200 вместо API readiness.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget -q -O- http://127.0.0.1/health || exit 1
+    CMD wget -q -O- http://127.0.0.1/_nginx_live || exit 1
+
 
 EXPOSE 80
 

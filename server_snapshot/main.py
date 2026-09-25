@@ -1,6 +1,23 @@
 import os
 
+from runtime_config import (
+    trusted_proxy_networks,
+    uploads_dir,
+    validate_startup_config,
+)
+from trusted_proxy import TrustedProxyMiddleware
+from webhook_security import validate_encryption_config as validate_webhook_encryption_config
+
+# Security-конфигурация проверяется до импорта auth/роутеров: в production
+# нельзя поднять процесс с неявной или невалидной CRM_COOKIE_SECURE, с
+# невалидным CRM_TRUSTED_PROXY_NETWORKS, а также без выделенного ключа
+# шифрования webhook.
+
+validate_startup_config()
+validate_webhook_encryption_config()
+
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,6 +31,7 @@ import models
 # создастся. Тот же приём с пояснением есть в tests/conftest.py.
 import models_tenant  # noqa: F401
 from database import engine
+import health_checks
 from limiter_config import limiter
 from routers import (
     activity_router,
@@ -52,6 +70,38 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Uvicorn 0.30 не понимает CIDR в forwarded-allow-ips, поэтому граница
+# применяется нашим pure-ASGI-слоем с явной проверкой прямого адреса.
+TRUSTED_PROXY_NETWORKS = trusted_proxy_networks()
+app.add_middleware(TrustedProxyMiddleware, networks=TRUSTED_PROXY_NETWORKS)
+
+
+def _json_safe_validation_value(value):
+    """Убирает не-finite значения из тела ошибки валидации.
+
+    Стандартный JSONResponse не умеет сериализовать ``nan`` и ``inf`` из
+    ``input`` Pydantic-ошибки. Для некорректного JSON это приводило к 500
+    вместо ожидаемого 422, хотя денежный валидатор уже отвергал значение.
+    """
+    if isinstance(value, float):
+        return value if value == value and value not in (float("inf"), float("-inf")) else "non-finite"
+    if isinstance(value, dict):
+        return {str(key): _json_safe_validation_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_validation_value(item) for item in value]
+    if isinstance(value, BaseException):
+        return str(value)
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = [
+        {key: _json_safe_validation_value(value) for key, value in error.items()}
+        for error in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -76,7 +126,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-os.makedirs("uploads", exist_ok=True)
+UPLOADS_DIR = uploads_dir()
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 os.makedirs("tenants", exist_ok=True)
 
 app.include_router(auth_router.router)
@@ -111,6 +162,39 @@ app.include_router(nakladnye_router.router)
 # откатывает корень на старый фронт молча. Осознанный откат — CRM_FRONTEND=legacy
 # в .pm2.env + pm2 restart crm; старый фронт заморожен и живёт на /legacy.
 FRONTEND_MODE = os.environ.get("CRM_FRONTEND", "v2")
+
+# CSP v2 собран без inline-скриптов, inline-стилей и style-атрибутов. Legacy
+# остаётся совместимым с замороженным интерфейсом, поэтому unsafe-inline
+# сохраняется только для legacy-маршрутов и не-v2 режима.
+CSP_V2 = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "font-src 'self' https://fonts.gstatic.com data:; "
+    "img-src 'self' data: blob: https:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'"
+)
+CSP_LEGACY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com data:; "
+    "img-src 'self' data: blob: https:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'"
+)
+
+
+def _uses_v2_csp(path: str) -> bool:
+    """Выбирает строгий CSP для v2-страницы и его редиректов."""
+    if path == "/v2" or path.startswith("/v2/"):
+        return True
+    return FRONTEND_MODE == "v2" and path in {"/", "/admin"}
 
 
 @app.get("/")
@@ -158,8 +242,18 @@ def get_version():
     return {"version": __version__, "build": __build__}
 
 @app.get("/health")
+@app.get("/health/live")
 def healthcheck():
+    """Совместимый liveness-alias: процесс отвечает, зависимости не опрашиваются."""
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/health/ready")
+def readinesscheck():
+    report = health_checks.readiness_report(engine)
+    if not report["ready"]:
+        return JSONResponse(status_code=503, content=report)
+    return report
 
 @app.middleware("http")
 async def add_headers(request: Request, call_next):
@@ -181,26 +275,17 @@ async def add_headers(request: Request, call_next):
 
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    # UI FIX 2026-08-31: заголовки из аудита. CSP осторожный: фронтенд целиком
-    # на инлайн-скриптах и инлайн-обработчиках (unsafe-inline), внешние хосты —
-    # только Google Fonts. frame-ancestors дублирует X-Frame-Options.
+    # UI FIX 2026-08-31: заголовки из аудита. CSP выбирается по маршруту:
+    # v2 получает строгую политику, а замороженный legacy сохраняет
+    # unsafe-inline и внешние Google Fonts. frame-ancestors дублирует
+    # X-Frame-Options.
     # blob: в img-src (22.09.2026): фото входящих накладных и предпросмотр
     # выбранного файла в закупке v2 рисуются через URL.createObjectURL — без
     # blob: браузер блокировал 14 миниатюр ещё на загрузке страницы. На
     # скачивание файлов (<a download>) и window.open(blob:) CSP не влияет.
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com data:; "
-        "img-src 'self' data: blob: https:; "
-        "connect-src 'self'; "
-        "object-src 'none'; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'"
-    )
+    response.headers["Content-Security-Policy"] = CSP_V2 if _uses_v2_csp(path) else CSP_LEGACY
     return response
 
 app.mount("/css", StaticFiles(directory="css"), name="css")

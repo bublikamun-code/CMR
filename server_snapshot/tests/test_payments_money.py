@@ -238,7 +238,7 @@ def test_issue_invoice_nonpositive_rejected(client, manager, db, make_card, amou
     card = make_card(total_amount=1000.0, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
 
-    assert _issue(client, h, card.id, "ТТН0004", amount).status_code == 400
+    assert _issue(client, h, card.id, "ТТН0004", amount).status_code == 422
     _reload(db)
     assert len(_txs(db, card.id)) == 1
 
@@ -572,9 +572,9 @@ def test_patch_card_total_does_not_overwrite_issued_invoices(client, manager, db
 
 @pytest.mark.parametrize("total,paid,expected", [
     (1000.0, 1000.0, "Оплачен"),
-    (1000.0, 999.995, "Оплачен"),      # допуск 0.01
+    (1000.0, 999.99, "Оплачен"),       # допуск 0.01 при точности до копеек
     (1000.0, 500.0, "Частично"),
-    (1000.0, 0.011, "Частично"),
+    (1000.0, 0.01, "Частично"),
     (1000.0, 0.0, "Не оплачен"),
     (0.0, 0.0, "Не оплачен"),
     (0.0, 100.0, "Не оплачен"),         # total <= 0 — всегда «Не оплачен»
@@ -603,11 +603,11 @@ def test_explicit_payment_status_wins(client, manager, db, make_card):
     assert card.payment_status == "Отсрочка"
 
 
-def test_negative_paid_amount_clamped_to_zero(client, manager, db, make_card):
+def test_negative_paid_amount_rejected(client, manager, db, make_card):
     _, h = manager
     card = make_card(total_amount=1000.0)
     r = client.patch(f"/cards/{card.id}/payment", headers=h, json={"paid_amount": -500.0})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 422, r.text
     _reload(db)
     db.refresh(card)
     assert float(card.paid_amount) == 0.0
@@ -658,7 +658,7 @@ def test_writeoff_status_fully_covered(client, manager, db, make_card):
     (1000.0, 333.33, 666.67),
     (100.0, 33.33, 66.67),
     (0.3, 0.1, 0.2),          # классика float: 0.3 - 0.1 = 0.19999999999999998
-    (10.0, 9.999, 0.0),       # разница меньше допуска 0.01 — остаток закрывается
+    (10.0, 9.99, 0.0),        # разница равна допуску 0.01 — остаток закрывается
 ])
 def test_remainder_rounding(client, manager, db, make_card, a, b, expected_rest):
     """Деньги — float (решение владельца 2026-09-11), поэтому округление фиксируем явно."""
@@ -695,15 +695,15 @@ def test_unique_index_prevents_duplicate_remainder(db, make_card):
     card = make_card(total_amount=100.0)
     db.execute(text(
         "INSERT INTO transactions (card_id, company_name, amount, is_document, "
-        "is_warehouse_writeoff, invoice_number) "
-        "VALUES (:c, 'x', 100, 0, 0, NULL)"), {"c": card.id})
+        "is_warehouse_writeoff, invoice_number, tenant_id) "
+        "VALUES (:c, 'x', 100, 0, 0, NULL, :t)"), {"c": card.id, "t": card.tenant_id})
     db.commit()
 
     with pytest.raises(Exception) as exc:
         db.execute(text(
             "INSERT INTO transactions (card_id, company_name, amount, is_document, "
-            "is_warehouse_writeoff, invoice_number) "
-            "VALUES (:c, 'y', 50, 0, 0, NULL)"), {"c": card.id})
+            "is_warehouse_writeoff, invoice_number, tenant_id) "
+            "VALUES (:c, 'y', 50, 0, 0, NULL, :t)"), {"c": card.id, "t": card.tenant_id})
         db.commit()
     assert "UNIQUE" in str(exc.value).upper()
     db.rollback()

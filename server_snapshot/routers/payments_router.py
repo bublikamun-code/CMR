@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -22,6 +22,7 @@ from services.payments import delete_transaction as delete_transaction_svc
 from services.payments import issue_invoice as issue_invoice_svc
 from services.payments import tx_dict
 from services.writeoffs import ensure_registry_remainder, writeoff_status_for
+from tenant_policy import assign_tenant, get_tenant_object, tenant_predicate, tenant_query
 
 
 def _backup_db_snapshot(session):
@@ -82,6 +83,11 @@ class InvoiceCreateRequest(BaseModel):
     invoice_number: str | None = None
     invoice_date: str | None = None
 
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, v):
+        return schemas.validate_money(v, field_name="Сумма накладной", allow_zero=False)
+
 
 class TransactionPage(BaseModel):
     """Страница реестра оплат — пункт 16 плана (дефект B11: 132 КБ одним куском).
@@ -100,23 +106,20 @@ class TransactionPage(BaseModel):
 @router.post("/trigger_from_card/{card_id}", response_model=schemas.TransactionResponse)
 def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
-        query = db.query(models.Card).filter(models.Card.id == card_id)
-        card = query.first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
+        card = get_tenant_object(db, models.Card, card_id, current_user, detail="Карточка не найдена")
         if card.writeoff_group_id is not None:
             raise HTTPException(status_code=400, detail="Карточка объединена в групповое списание. Управляйте ей через группу.")
         # ИДЕМПОТЕНТНО: кнопки «В Сборку» / «В Списание» могут нажиматься многократно,
         # и каждое нажатие раньше плодило дубль. Если запись уже есть — возвращаем её.
         # Для осознанного добавления ВТОРОЙ накладной есть отдельный эндпоинт
         # POST /payments/cards/{card_id}/invoices.
-        existing = db.query(models.Transaction).filter(
+        existing = tenant_query(db, models.Transaction, current_user).filter(
             models.Transaction.card_id == card.id,
             models.Transaction.is_document == False
         ).first()
         if existing:
             return tx_dict(existing)
-        new_tx = models.Transaction(company_name=card.title, amount=card.total_amount, store_location=payload.store_location, card_id=card.id)
+        new_tx = assign_tenant(models.Transaction(company_name=card.title, amount=card.total_amount, store_location=payload.store_location, card_id=card.id), current_user)
         db.add(new_tx)
         try:
             db.commit()
@@ -126,7 +129,7 @@ def trigger_payment(card_id: int, payload: PaymentTriggerRequest, db: Session = 
             # создать второй остаток — проигравшая гонка возвращает запись
             # победителя вместо 500.
             db.rollback()
-            winner = db.query(models.Transaction).filter(
+            winner = tenant_query(db, models.Transaction, current_user).filter(
                 models.Transaction.card_id == card.id,
                 models.Transaction.is_document == False
             ).first()
@@ -185,7 +188,7 @@ def get_transactions(grouped: bool = True,
         # Фидбек 19.09: карточки из корзины (is_deleted) не должны показываться
         # в реестре — иначе удалённая карточка «оставалась» в реестре и не
         # открывалась. При восстановлении карточки записи возвращаются.
-        query = db.query(models.Transaction).outerjoin(
+        query = tenant_query(db, models.Transaction, current_user).outerjoin(
             models.Card, models.Transaction.card_id == models.Card.id
         ).filter(
             or_(
@@ -300,7 +303,7 @@ def get_transactions(grouped: bool = True,
 def get_documents(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
                   response: Response = None):
     try:
-        query = db.query(models.Transaction).filter(models.Transaction.is_document == True)
+        query = tenant_query(db, models.Transaction, current_user).filter(models.Transaction.is_document == True)
         rows = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.date.desc()
         ).limit(REGISTRY_HARD_LIMIT).all()
@@ -317,27 +320,24 @@ def get_documents(db: Session = Depends(get_db), current_user: models.User = Dep
 @router.post("/transactions/{transaction_id}/duplicate_as_document", response_model=schemas.TransactionResponse)
 def duplicate_as_document(transaction_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
-        query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        original = query.first()
-        if not original:
-            raise HTTPException(status_code=404, detail="Транзакция не найдена")
+        original = get_tenant_object(db, models.Transaction, transaction_id, current_user, detail="Транзакция не найдена")
         # Документ ищем по КОНКРЕТНОЙ накладной, а не по карточке: у одной сделки
         # может быть несколько накладных, и каждая должна попасть в «Документы» отдельно.
         if original.card_id is not None and original.invoice_number:
-            existing_doc = db.query(models.Transaction).filter(
+            existing_doc = tenant_query(db, models.Transaction, current_user).filter(
                 models.Transaction.is_document == True,
                 models.Transaction.card_id == original.card_id,
                 models.Transaction.invoice_number == original.invoice_number
             ).first()
             if existing_doc:
                 return tx_dict(existing_doc)
-        duplicate = models.Transaction(
+        duplicate = assign_tenant(models.Transaction(
             company_name=original.company_name, amount=original.amount, store_location=original.store_location,
             invoice_number=original.invoice_number, invoice_date=original.invoice_date,
             is_calculated=original.is_calculated, is_invoice_issued=original.is_invoice_issued,
             is_written_off=True, print_status=original.print_status, note=original.note,
             is_document=True, card_id=original.card_id,
-        )
+        ), current_user)
         db.add(duplicate)
         db.commit()
         db.refresh(duplicate)
@@ -365,10 +365,7 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
 @router.patch("/transactions/{transaction_id}", response_model=schemas.TransactionResponse)
 def update_transaction_checkboxes(transaction_id: int, updates: schemas.TransactionUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
-        query = db.query(models.Transaction).filter(models.Transaction.id == transaction_id)
-        tx = query.first()
-        if not tx:
-            raise HTTPException(status_code=404, detail="Транзакция не найдена")
+        tx = get_tenant_object(db, models.Transaction, transaction_id, current_user, detail="Транзакция не найдена")
         update_data = updates.model_dump(exclude_unset=True) if hasattr(updates, 'model_dump') else updates.dict(exclude_unset=True)
         # V7 (пункт 17 плана v2): is_invoice_doc / is_bill_doc — флаги
         # «оригинал ТН у нас» и «оригинал счёта у нас». Каноническое место
@@ -469,8 +466,8 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         # Документы и записи без карточки правятся как раньше, без пересчёта.
         if "amount" in update_data and not tx.is_document and tx.card_id is not None:
             db.flush()  # autoflush=False: SELECT ниже обязан увидеть правку суммы
-            card = db.query(models.Card).filter(models.Card.id == tx.card_id).first()
-            ledger = db.query(models.Transaction).filter(
+            card = get_tenant_object(db, models.Card, tx.card_id, current_user, detail="Карточка не найдена")
+            ledger = tenant_query(db, models.Transaction, current_user).filter(
                 models.Transaction.card_id == tx.card_id,
                 models.Transaction.is_document == False,
             ).all()
@@ -567,6 +564,11 @@ class IssueInvoiceRequest(BaseModel):
     invoice_date: str | None = None
     amount: float
     store_location: str | None = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, v):
+        return schemas.validate_money(v, field_name="Сумма накладной", allow_zero=False)
 
 
 def _issue_document(session, tx):

@@ -1,4 +1,4 @@
-import base64
+import contextlib
 import email
 import hashlib
 import imaplib
@@ -17,16 +17,19 @@ from sqlalchemy.orm import Session
 
 from limiter_config import limiter
 
-try:
-    from cryptography.fernet import Fernet, InvalidToken
-    _fernet_available = True
-except ImportError:
-    Fernet = None
-    InvalidToken = Exception
-    _fernet_available = False
-
 from auth import get_current_user, require_cron_token, require_role
+from database import get_db
 from email_cleaner import clean_email_body, html_to_text
+from email_credentials import (
+    EmailEncryptionConfigError,
+    InvalidCredentialCiphertextError,
+    LegacyPlaintextError,
+    decrypt_credential,
+    encrypt_credential,
+    obtain_fernet,
+)
+import models
+from secure_files import atomic_write_private
 
 logger = logging.getLogger(__name__)
 
@@ -43,22 +46,6 @@ UPLOAD_DIR = os.path.abspath(
 )
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# This key encrypts stored mailbox passwords and is DIFFERENT from the JWT key in
-# auth.py. It must survive image rebuilds, otherwise saved email credentials can no
-# longer be decrypted, so it resolves to CRM_DATA_DIR when no legacy file is present.
-def _email_key_path() -> str:
-    legacy = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".secret_key")
-    if os.path.exists(legacy):
-        return legacy
-    data_dir = os.environ.get("CRM_DATA_DIR")
-    if data_dir:
-        os.makedirs(data_dir, exist_ok=True)
-        return os.path.join(data_dir, ".email_secret_key")
-    return legacy
-
-
-_SECRET_KEY_FILE = _email_key_path()
-
 def _ensure_inside_data_dir(path: str) -> str:
     """Защита от выхода за каталог данных: файлы ключей и настроек пишутся
     только внутрь CRM_DATA_DIR (или каталога приложения)."""
@@ -67,34 +54,6 @@ def _ensure_inside_data_dir(path: str) -> str:
     if not (resolved == root or resolved.startswith(root + os.sep)):
         raise RuntimeError(f"Путь {path!r} вне каталога данных")
     return resolved
-
-def _load_secret_key() -> bytes:
-    key = os.environ.get("CRM_SECRET_KEY")
-    if key:
-        return base64.urlsafe_b64encode(bytes.fromhex(key))
-    if os.path.exists(_SECRET_KEY_FILE):
-        with open(_SECRET_KEY_FILE, "r") as f:
-            return base64.urlsafe_b64encode(f.read().strip().encode())
-    key = os.urandom(32)
-    b64_key = base64.urlsafe_b64encode(key)
-    Path(_ensure_inside_data_dir(_SECRET_KEY_FILE)).write_text(key.hex())
-    os.chmod(_SECRET_KEY_FILE, 0o600)
-    return b64_key
-
-try:
-    _fernet = Fernet(_load_secret_key())
-    _fernet_init_error = None
-except Exception as e:
-    _fernet = None
-    _fernet_init_error = f"{type(e).__name__}: {e}"
-    # Фидбек 07.09: без cryptography пароль ящика не расшифровать — синк
-    # падает с «неверным паролем». Раньше это молчало (пароль лежал
-    # открытым текстом и не требовал расшифровки).
-    logger.exception(f"Почта: Fernet недоступен, пароль ящика не расшифровать — {_fernet_init_error}")
-import contextlib
-
-import models
-from database import get_db
 
 router = APIRouter(
     prefix="/email-parser",
@@ -178,24 +137,20 @@ def load_settings(tenant_id: int | None = None):
         }
 
 def _get_smtp_password(settings):
-    """Read SMTP password from env first, then fall back to settings file."""
-    env_pw = os.environ.get("CRM_SMTP_PASSWORD")
-    if env_pw:
-        return env_pw
-    raw = settings.get("password", "")
-    if not raw:
-        return raw
-    if _fernet is None:
-        return raw
-    try:
-        return _fernet.decrypt(raw.encode()).decode()
-    except InvalidToken:
-        return raw
+    """Получить пароль синхронизации с точным приоритетом источников.
 
-def _encrypt_password(password: str) -> str:
-    if not password or _fernet is None:
-        return password
-    return _fernet.encrypt(password.encode()).decode()
+    ``CRM_SMTP_PASSWORD`` — явный override оператора и используется только
+    когда в settings нет сохранённого пароля. Если пароль уже настроен,
+    override игнорируется: битый ключ, legacy plaintext или неверный токен
+    обязаны закрыть синк. Fernet проверяется до выбора override, поэтому
+    переменная окружения не маскирует неверную криптографическую настройку.
+    """
+    fernet = obtain_fernet()
+    stored = settings.get("password", "")
+    override = os.environ.get("CRM_SMTP_PASSWORD")
+    if not stored:
+        return override or ""
+    return decrypt_credential(str(stored), fernet)
 
 
 def _decode_part_text(part) -> str:
@@ -242,19 +197,31 @@ def _decode_attachment_filename(part) -> Optional[str]:
     filename = re.sub(r"[\r\n\t]+", " ", filename).strip()
     return filename or None
 
-def save_settings(settings, tenant_id: int | None = None):
+def save_settings(
+    settings,
+    tenant_id: int | None = None,
+    *,
+    preserve_encrypted_password: bool = False,
+):
+    """Атомарно сохранить настройки и всегда хранить пароль в Fernet-форме.
+
+    Обычный внутренний выход encrypt уже принятый plaintext. Путь
+    ``preserve_encrypted_password`` есть только для неизменённого секрета при
+    сохранении маски или служебного ``last_sync``; значение сначала строго
+    проверяется расшифровкой, префикс не используется как доказательство.
+    """
     settings_file = _ensure_inside_data_dir(_get_settings_path(tenant_id))
-    if _fernet is not None and settings.get("password"):
-        settings = dict(settings)
-        # FIX 2026-08-29: не шифруем повторно уже зашифрованное значение.
-        # Раньше update_settings подставлял в settings зашифрованный пароль
-        # из файла, save_settings шифровал его ещё раз, и при следующем
-        # сохранении расшифровка давала Fernet-токен вместо пароля —
-        # синхронизация почты падала с AUTHENTICATIONFAILED.
-        if not str(settings["password"]).startswith("gAAAA"):
-            settings["password"] = _encrypt_password(settings["password"])
-    Path(settings_file).write_text(
-        json.dumps(settings, ensure_ascii=False, indent=4), encoding="utf-8")
+    stored = dict(settings)
+    if stored.get("password"):
+        fernet = obtain_fernet()
+        if preserve_encrypted_password:
+            decrypt_credential(str(stored["password"]), fernet)
+        else:
+            stored["password"] = encrypt_credential(str(stored["password"]), fernet)
+    atomic_write_private(
+        settings_file,
+        json.dumps(stored, ensure_ascii=False, indent=4),
+    )
 
 @router.get("/settings")
 def get_settings(current_user: models.User = Depends(get_current_user)):
@@ -270,6 +237,16 @@ def get_settings(current_user: models.User = Depends(get_current_user)):
         "target_status": settings.get("target_status", "Новый запрос"),
         "last_sync": settings.get("last_sync")
     }
+
+def _credential_http_error(exc: Exception) -> HTTPException:
+    """Единая контролируемая ошибка без key/token/пароля и raw exception."""
+    if isinstance(exc, EmailEncryptionConfigError):
+        return HTTPException(
+            status_code=503,
+            detail="Шифрование пароля почты не настроено корректно",
+        )
+    return HTTPException(status_code=409, detail=str(exc))
+
 
 # Настройки ящика — это адрес, IMAP-сервер и пароль разбора почты CRM:
 # менеджер или склад, перезаписав их, могут увести разбор писем на чужой
@@ -289,14 +266,33 @@ def update_settings(data: EmailSettingsSchema, current_user: models.User = Depen
     # "********" — не секрет, а маска: UI присылает её вместо пароля, который
     # не меняли, чтобы не передавать настоящий пароль туда-обратно.
     new_password_provided = data.password and data.password != "********"  # noqa: S105
-    if not new_password_provided and not settings.get("password"):
+    stored_password = settings.get("password")
+    if not new_password_provided and not stored_password:
         raise HTTPException(status_code=400, detail="Пароль не указан: введите пароль почтового ящика")
+
+    # Новый пароль всегда считается plaintext, даже если текст случайно
+    # начинается с gAAAA. Существующий секрет при маске не перешифровывается,
+    # но сначала обязан пройти реальную расшифровку.
+    try:
+        fernet = obtain_fernet()
+        if new_password_provided:
+            settings["password"] = encrypt_credential(data.password, fernet)
+        else:
+            decrypt_credential(str(stored_password), fernet)
+    except (
+        EmailEncryptionConfigError,
+        InvalidCredentialCiphertextError,
+        LegacyPlaintextError,
+    ) as exc:
+        raise _credential_http_error(exc) from None
     settings["email"] = data.email
-    if new_password_provided:
-        settings["password"] = data.password
     settings["imap_server"] = data.imap_server.strip()
     settings["target_status"] = data.target_status
-    save_settings(settings, tenant_id)
+    save_settings(
+        settings,
+        tenant_id,
+        preserve_encrypted_password=True,
+    )
     return {"detail": "Настройки успешно сохранены"}
 
 def _search_unseen(mail, today: str) -> list:
@@ -313,17 +309,16 @@ def _search_unseen(mail, today: str) -> list:
 
 def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
     email_addr = settings.get("email")
-    password = _get_smtp_password(settings)
     imap_server = settings.get("imap_server")
     target_status = settings.get("target_status", "Новый запрос")
-
-    if not email_addr or not password:
-        return {"tenant_id": tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
 
     imported_cards = []
     mail = None
 
     try:
+        password = _get_smtp_password(settings)
+        if not email_addr or not password:
+            return {"tenant_id": tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
         # FIX 2026-09-06 (аудит): таймаут на сам TCP-connect. Раньше settimeout
         # ставился уже после конструктора — «зависший» IMAP-хост подвешивал
         # запрос/cron на системный таймаут (минуты).
@@ -503,7 +498,11 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
 
         settings["last_sync"] = datetime.now(timezone.utc).isoformat()
         try:
-            save_settings(settings, tenant_id)
+            save_settings(
+                settings,
+                tenant_id,
+                preserve_encrypted_password=True,
+            )
         except Exception:
             # FIX 18.09: сбой записи настроек (last_sync) — бухгалтерия, а не
             # импорт. Раньше он перечёркивал успешный синк: письма уже
@@ -518,6 +517,17 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
             "cards": imported_cards
         }
 
+    except (
+        EmailEncryptionConfigError,
+        InvalidCredentialCiphertextError,
+        LegacyPlaintextError,
+    ):
+        return {
+            "tenant_id": tenant_id,
+            "success": False,
+            "error": "Не удалось безопасно использовать сохранённый пароль почты",
+            "count": 0,
+        }
     except imaplib.IMAP4.error:
         # FIX 2026-09-06 (аудит С7): текст исключения почтового сервера раньше
         # уходил клиенту в detail (там бывают имя хоста и данные сессии) —
@@ -545,14 +555,21 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
 # кнопку. По почтам по-прежнему проходят GET (вкладка «Письма отправителя» в
 # карточке сделки, пункт 8) и POST /link (связка дубля со своей сделкой).
 # FIX 2026-09-06 (аудит С3): синк ходит на внешний IMAP и может зваться
-# многократно подряд из UI — ограничиваем. За nginx должен быть включён
-# proxy-headers, иначе лимит общий на всех (см. P0-HTTPS).
+# многократно подряд из UI — ограничиваем. nginx должен входить в
+# CRM_TRUSTED_PROXY_NETWORKS, иначе лимит общий на всех.
 @limiter.limit("5/minute")
 def sync_emails(request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
     settings = load_settings(tenant_id)
     email_addr = settings.get("email")
-    password = _get_smtp_password(settings)
+    try:
+        password = _get_smtp_password(settings)
+    except (
+        EmailEncryptionConfigError,
+        InvalidCredentialCiphertextError,
+        LegacyPlaintextError,
+    ) as exc:
+        raise _credential_http_error(exc) from None
     # imap_server и target_status читает сам _sync_tenant_emails; здесь они
     # оставались со времён до выделения этой функции и не использовались.
 
@@ -573,9 +590,14 @@ def sync_all_tenants(db: Session = Depends(get_db)):
     # Раньше он не синхронизировался вообще: цикл шёл только по таблице tenants.
     try:
         results.append(_sync_tenant_emails(None, load_settings(None), db))
-    except Exception as e:
+    except Exception:
         logger.exception("main account sync failed")
-        results.append({"tenant_id": None, "success": False, "error": str(e), "count": 0})
+        results.append({
+            "tenant_id": None,
+            "success": False,
+            "error": "Ошибка синхронизации почты",
+            "count": 0,
+        })
 
     total_count = sum(r.get("count", 0) for r in results if r.get("success"))
     errors = [r for r in results if not r.get("success")]

@@ -37,10 +37,14 @@ def test_tenant_settings_path_ignores_legacy_when_data_dir_set(legacy_shadow):
 
 
 def test_save_settings_writes_into_data_dir(legacy_shadow):
-    # пароль уже зашифрован (префикс Fernet-токена) — повторно не шифруем
-    settings = {"email": "sale@svetvdome.by", "password": "gAAAA-тест",
+    # Корректный токен при сохранении служебных полей не шифруется повторно.
+    token = epr.encrypt_credential("mailbox-secret", epr.obtain_fernet())
+    settings = {"email": "sale@svetvdome.by", "password": token,
                 "imap_server": "mailbe05.hoster.by", "last_sync": "2026-09-18"}
-    epr.save_settings(dict(settings), None)
+    epr.save_settings(
+        dict(settings), None, preserve_encrypted_password=True
+    )
     saved = (legacy_shadow / "email_settings.json").read_text(encoding="utf-8")
     assert "sale@svetvdome.by" in saved
-    assert json.loads(saved)["password"] == "gAAAA-тест"
+    assert json.loads(saved)["password"] == token
+    assert (legacy_shadow / "email_settings.json").stat().st_mode & 0o777 == 0o600

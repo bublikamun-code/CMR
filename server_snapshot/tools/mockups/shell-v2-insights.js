@@ -90,11 +90,11 @@
     // Класс добавить нечем — стили .stat-line живут в shell-v2-prototype.html.
     function offRowAttrs(u) {
         return isOffUser(u)
-            ? ' style="color:var(--muted)" title="Пользователь отключён: в CRM не входит, ответить не сможет; сделки и задачи на нём остались"'
+            ? ' class="user-off-faint" title="Пользователь отключён: в CRM не входит, ответить не сможет; сделки и задачи на нём остались"'
             : '';
     }
     function offNote(u) {
-        return isOffUser(u) ? ' <span style="font-weight:400;font-size:11px">отключён</span>' : '';
+        return isOffUser(u) ? ' <span class="user-off-note">отключён</span>' : '';
     }
 
     var ICON_ALERT = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
@@ -195,7 +195,7 @@
                 return '<div class="trow"><span class="grow"><span class="t">' + esc(c.title) + '</span>' +
                     '<div class="sub">' + esc(D.storeName(c.store)) + ' · срок ' + esc(c.deadline) + '</div></span>' +
                     '<span class="pill">Сборка</span>' +
-                    '<span class="num" style="font-weight:800">' + money(c.amount) + '</span></div>';
+                    '<span class="num num-strong">' + money(c.amount) + '</span></div>';
             }).join('') || '<p class="fin-note">Карточек в сборке сейчас нет.</p>';
         }
 
@@ -247,8 +247,8 @@
             items.map(function (t) { return taskRow(t, pillClass); }).join('');
     }
     function statLine(label, value, tone) {
-        var color = tone === 'danger' && value > 0 ? ' style="color:var(--danger)"' : '';
-        return '<div class="stat-line"><span>' + esc(label) + '</span><b class="num"' + color + '>' + value + '</b></div>';
+        var color = tone === 'danger' && value > 0 ? ' stat-danger' : '';
+        return '<div class="stat-line"><span>' + esc(label) + '</span><b class="num' + color + '">' + value + '</b></div>';
     }
     function renderTasks() {
         var list = document.getElementById('tasks-list');
@@ -286,7 +286,7 @@
         }).join('') || '<p class="fin-note">Открытых задач нет.</p>';
         var summary = document.getElementById('tasks-summary');
         if (summary) summary.innerHTML =
-            '<div class="group-hd" style="padding-top:0">По исполнителям</div>' + byAssignee +
+            '<div class="group-hd group-hd-tight">По исполнителям</div>' + byAssignee +
             '<div class="group-hd">Сроки</div>' +
             statLine('Просрочено', overdue.length, 'danger') +
             statLine('Сегодня и завтра', soon.length) +
@@ -381,7 +381,7 @@
                 '<td class="unp">' + esc(c.unp || '—') + '</td>' +
                 '<td class="trunc">' + esc(formatContacts(c.contact_person) || '—') + '</td>' +
                 '<td class="trunc" title="' + esc(c.address || '') + '">' + esc(c.address || '—') + '</td>' +
-                '<td><div class="row" style="gap:2px">' +
+                '<td><div class="row row-tight">' +
                 '<button class="icon-action" data-cl-edit="' + esc(c.id) + '" title="Редактировать клиента" tabindex="-1"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h4l10-10-4-4L4 16z"/></svg></button>' +
                 '<button class="icon-action danger" data-cl-delete="' + esc(c.id) + '" title="Удалить клиента" tabindex="-1"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M9 6V4h6v2M6 6l1 14h10l1-14"/></svg></button>' +
                 '</div></td></tr>';
@@ -436,19 +436,19 @@
             return '<div class="trow"><span class="grow"><span class="t">' + esc(c.title) + '</span>' +
                 '<div class="sub">заказано ' + cl + '/' + c.checklist.length + ' · срок ' + esc(c.deadline) + '</div></span>' +
                 '<span class="pill' + (c.stage === 'writeoff' ? ' warn' : '') + '">' + esc(statusName(c.stage)) + '</span>' +
-                '<span class="num" style="font-weight:800">' + money(c.amount) + '</span>' +
+                '<span class="num num-strong">' + money(c.amount) + '</span>' +
                 '<button class="btn btn-ghost btn-sm" data-open-card="' + esc(c.id) + '">Открыть</button></div>';
         }).join('') || '<p class="fin-note">Сделок по клиенту пока нет.</p>';
         var overdueHtml = overdue.map(function (c) {
             return '<div class="trow"><span class="grow"><span class="t">Оплата · просрочена с ' + esc(c.deadline) + '</span>' +
                 '<div class="sub">' + esc(D.storeName(c.store)) + ' · ' + esc(c.id) + '</div></span>' +
                 '<span class="pill danger">Просрочено</span>' +
-                '<span class="num" style="font-weight:800">' + money(c.amount - c.paidAmount) + '</span></div>';
+                '<span class="num num-strong">' + money(c.amount - c.paidAmount) + '</span></div>';
         }).join('');
         var cashHtml = '';
         if (window.V2Api && window.V2Api.token()) {
             cashHtml = '<div class="trow" data-cl-cash><span class="grow"><span class="t">Баланс кассы клиента</span><div class="sub" id="cl-cash-line">загружается…</div></span>' +
-                '<span class="row" style="gap:6px;align-items:center"><input id="cl-cash-amount" inputmode="decimal" placeholder="Оплата, BYN" style="width:130px;font:inherit;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)">' +
+                '<span class="row cl-cash-controls"><input id="cl-cash-amount" class="cl-cash-amount" inputmode="decimal" placeholder="Оплата, BYN">' +
                 '<button type="button" class="btn btn-primary btn-sm" id="cl-cash-add">Принять</button></span></div>';
         }
         var paymentsHtml = (cashHtml || '') + debtCards(deals).concat(deals.filter(function (c) { return c.paidAmount >= c.amount; })).slice(0, 6).map(function (c) {
@@ -457,20 +457,20 @@
                 c.paidAmount > 0 ? '<span class="pill accent">Частично</span>' : '<span class="pill danger">Долг</span>';
             return '<div class="trow"><span class="grow"><span class="t">' + esc(c.id) + ' · ' + esc(c.title) + '</span>' +
                 '<div class="sub">оплачено ' + money(c.paidAmount) + ' · долг ' + money(rest) + ' BYN</div></span>' + pill +
-                '<span class="num" style="font-weight:800">' + money(c.amount) + '</span></div>';
+                '<span class="num num-strong">' + money(c.amount) + '</span></div>';
         }).join('') || '<p class="fin-note">Оплат по сделкам клиента пока нет.</p>';
         var invoicesHtml = '';
         deals.forEach(function (c) {
             c.docs.forEach(function (d) {
                 invoicesHtml += '<div class="trow"><span class="grow"><span class="t">ТН ' + esc(d.series + ' ' + d.number) + '</span>' +
                     '<div class="sub">' + esc(c.id) + ' · ' + esc(d.date) + '</div></span>' +
-                    '<span class="num" style="font-weight:800">' + money(d.amount) + '</span></div>';
+                    '<span class="num num-strong">' + money(d.amount) + '</span></div>';
             });
             if (c.groupId) {
                 var g = D.groups.filter(function (x) { return x.id === c.groupId; })[0];
                 if (g) invoicesHtml += '<div class="trow"><span class="grow"><span class="t">Групповая ТН ' + esc(g.series + ' ' + g.number) + '</span>' +
                     '<div class="sub">' + esc(c.id) + ' · ' + esc(g.date) + ' · группа «' + esc(g.name) + '»</div></span>' +
-                    '<span class="num" style="font-weight:800">' + money(g.amount) + '</span></div>';
+                    '<span class="num num-strong">' + money(g.amount) + '</span></div>';
             }
         });
         if (!invoicesHtml) invoicesHtml = '<p class="fin-note">Выписанных накладных нет.</p>';
@@ -482,16 +482,16 @@
         var clTabs = [['deals', 'Сделки'], ['payments', 'Оплаты'], ['invoices', 'Накладные'], ['tasks', 'Задачи']];
         var panels = { deals: overdueHtml + dealsHtml, payments: paymentsHtml, invoices: invoicesHtml, tasks: tasksHtml };
         drawer.innerHTML =
-            '<div class="drawer-head"><div class="crumbs" style="font-size:11px">Клиент · карточка клиента</div>' +
-            '<div class="row" style="margin-top:6px"><b style="font-size:17px;letter-spacing:-.3px">' + esc(client.name) + '</b>' +
-            '<button class="btn-quiet" style="margin-left:auto" title="Вернуть первого клиента списка" data-cl-reset>✕</button></div>' +
-            '<div class="row wrap mt2" style="gap:10px;font-size:11px;color:var(--muted)">' +
+            '<div class="drawer-head"><div class="crumbs drawer-overline">Клиент · карточка клиента</div>' +
+            '<div class="row drawer-title-row"><b class="drawer-client-title">' + esc(client.name) + '</b>' +
+            '<button class="btn-quiet drawer-reset" title="Вернуть первого клиента списка" data-cl-reset>✕</button></div>' +
+            '<div class="row wrap mt2 drawer-meta">' +
             '<span class="unp">УНП ' + esc(client.unp || '—') + '</span><span>' + esc(formatContacts(client.contact_person) || '—') + '</span>' +
             (client.phone ? '<span class="unp">' + esc(client.phone) + '</span>' : '') + '</div></div>' +
             '<div class="drawer-body"><div class="kpi">' +
-            '<div class="kpi-item" style="padding:0 12px"><div><div class="kpi-label">Сделок</div><div class="kpi-value num" style="font-size:20px">' + deals.length + '</div></div></div>' +
-            '<div class="kpi-item" style="padding:0 12px"><div><div class="kpi-label">Оплачено</div><div class="kpi-value num" style="font-size:20px">' + money(paid) + '</div></div></div>' +
-            '<div class="kpi-item" style="padding:0 12px"><div><div class="kpi-label">Просрочено</div><div class="kpi-value num" style="font-size:20px;color:' + (overdue.length ? 'var(--danger)' : 'inherit') + '">' + overdue.length + '</div></div></div>' +
+            '<div class="kpi-item kpi-item-compact"><div><div class="kpi-label">Сделок</div><div class="kpi-value num kpi-value-large">' + deals.length + '</div></div></div>' +
+            '<div class="kpi-item kpi-item-compact"><div><div class="kpi-label">Оплачено</div><div class="kpi-value num kpi-value-large">' + money(paid) + '</div></div></div>' +
+            '<div class="kpi-item kpi-item-compact"><div><div class="kpi-label">Просрочено</div><div class="kpi-value num kpi-value-large' + (overdue.length ? ' stat-danger' : '') + '">' + overdue.length + '</div></div></div>' +
             '</div>' +
             '<div class="tabs-line">' + clTabs.map(function (t) {
                 return '<button type="button" class="tab' + (clTab === t[0] ? ' active' : '') + '" data-cl-tab="' + t[0] + '">' + t[1] + '</button>';
@@ -503,7 +503,7 @@
             '<div class="drawer-foot">' +
             '<button type="button" class="btn btn-primary btn-sm" data-cl-new-deal="' + esc(selectedClient) + '">Новая сделка</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-cl-call="' + esc(selectedClient) + '"' + (client && client.phone ? '' : ' disabled title="Телефон не указан"') + '>Позвонить</button>' +
-            '<button type="button" class="btn btn-ghost btn-sm" style="margin-left:auto" data-cl-print>Печать</button></div>';
+            '<button type="button" class="btn btn-ghost btn-sm drawer-print" data-cl-print>Печать</button></div>';
     }
     function setClientTab(name) {
         var drawer = document.getElementById('cl-drawer');
@@ -569,8 +569,8 @@
     }
     function openMeDialog() {
         var dlg = ensureMeDialog();
-        dlg.innerHTML = '<h2 style="font-size:20px;letter-spacing:-.3px">Чья очередь в списке внимания</h2>' +
-            '<div class="kit" style="margin-top:12px">' +
+        dlg.innerHTML = '<h2 class="dialog-title">Чья очередь в списке внимания</h2>' +
+            '<div class="kit dialog-kit">' +
             '<button type="button" class="btn ' + (myUser === null ? 'btn-primary' : 'btn-ghost') + '" data-me="">Все</button>' +
             D.users.map(function (u) {
                 // Отключённого оставляем в выборе (его очередь — история), но
@@ -588,8 +588,8 @@
         taskDialog.className = 'v2-form-dialog';
         taskDialog.setAttribute('aria-labelledby', 'task-dialog-title');
         taskDialog.addEventListener('close', function () { if (window.KBSelect) window.KBSelect.close(); });
-        taskDialog.innerHTML = '<form id="task-form" class="kb-form" style="margin:0">' +
-            '<h2 id="task-dialog-title" style="grid-column:1/-1">Новая задача</h2>' +
+        taskDialog.innerHTML = '<form id="task-form" class="kb-form task-form">' +
+            '<h2 id="task-dialog-title" class="task-form-title">Новая задача</h2>' +
             '<div class="kb-field wide"><label for="task-title">Что сделать</label><input id="task-title" maxlength="200" required></div>' +
             '<div class="kb-field"><label for="task-due">Срок</label><input id="task-due" type="date" required></div>' +
             '<div class="kb-field"><label for="task-assignee">Исполнитель</label><select id="task-assignee">' +
@@ -738,7 +738,7 @@
         var html = '<div class="wname">Пн</div><div class="wname">Вт</div><div class="wname">Ср</div><div class="wname">Чт</div><div class="wname">Пт</div><div class="wname we">Сб</div><div class="wname we">Вс</div>';
         for (var i = 0; i < cells; i++) {
             var day = i - offset + 1;
-            if (day < 1 || day > days) { html += '<div class="day" style="background:transparent"></div>'; continue; }
+            if (day < 1 || day > days) { html += '<div class="day cal-day-empty"></div>'; continue; }
             // B3: подсветка «сегодня» — по UTC, в соответствии с серверными датами.
             var todayUtc = todayUTC();
             var isToday = todayUtc.getUTCFullYear() === cal.y && todayUtc.getUTCMonth() === cal.m && todayUtc.getUTCDate() === day;
@@ -1115,8 +1115,8 @@
         var block = document.createElement('div');
         block.setAttribute('data-cl-balance-block', '1');
         block.innerHTML = '<p class="fin-note" data-cl-balance>Баланс кассы: загружается…</p>' +
-            '<div class="row" style="gap:6px;margin:0 0 10px">' +
-            '<input data-cl-pay-amount inputmode="decimal" placeholder="Оплата, BYN" style="width:150px">' +
+            '<div class="row payment-row">' +
+            '<input data-cl-pay-amount class="payment-amount" inputmode="decimal" placeholder="Оплата, BYN">' +
             '<button type="button" class="btn btn-primary btn-sm" data-cl-pay="' + clientId + '">Принять оплату</button></div>';
         body.insertAdjacentElement('afterbegin', block);
         if (!window.V2Api || !window.V2Api.token()) { block.querySelector('[data-cl-balance]').textContent = ''; return; }

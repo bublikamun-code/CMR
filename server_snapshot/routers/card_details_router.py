@@ -14,6 +14,14 @@ from auth import get_current_user
 from constants import MONEY_EPSILON
 from database import get_db
 from limiter_config import limiter
+from tenant_policy import (
+    assign_tenant,
+    get_tenant_child,
+    get_tenant_object,
+    tenant_predicate,
+    tenant_query,
+    writable_tenant_id,
+)
 
 router = APIRouter(
     tags=["Детали карточки (Чек-листы и Файлы)"],
@@ -72,7 +80,7 @@ def _log_card_changes(session, card, current_user, changes: list) -> None:
     ))
 
 
-def _card_field_changes(session, card, old: dict) -> list:
+def _card_field_changes(session, card, old: dict, current_user) -> list:
     """Сравнивает текущие значения карточки со снимком old, возвращает тексты изменений."""
     changes = []
     if (card.title or "") != (old.get("title") or ""):
@@ -88,7 +96,9 @@ def _card_field_changes(session, card, old: dict) -> list:
         def _client_name(cid):
             if cid is None:
                 return "—"
-            rec = session.query(models.Client).filter(models.Client.id == cid).first()
+            rec = tenant_query(session, models.Client, current_user).filter(
+                models.Client.id == cid
+            ).first()
             return _short_log(rec.name, 30) if rec else "—"
 
         changes.append(f'Клиент: {_client_name(old.get("client_id"))} → {_client_name(card.client_id)}')
@@ -98,7 +108,9 @@ def _card_field_changes(session, card, old: dict) -> list:
         def _user_name(uid):
             if uid is None:
                 return "—"
-            rec = session.query(models.User).filter(models.User.id == uid).first()
+            rec = tenant_query(session, models.User, current_user).filter(
+                models.User.id == uid
+            ).first()
             return _short_log(rec.username, 30) if rec else "—"
 
         changes.append(f'Ответственный: {_user_name(old.get("owner_id"))} → {_user_name(card.owner_id)}')
@@ -112,7 +124,9 @@ def _card_field_changes(session, card, old: dict) -> list:
 
 @router.post("/cards/{card_id}/checklists", response_model=schemas.ChecklistResponse)
 def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
 
@@ -121,9 +135,13 @@ def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session 
     # Название берём из справочника поставщиков — оно ведущее.
     # Ручной ввод остаётся только для старых записей без supplier_id.
     if data.get("supplier_id"):
-        sup = db.query(models.Supplier).filter(
-            models.Supplier.id == data["supplier_id"]
-        ).first()
+        sup = get_tenant_object(
+            db,
+            models.Supplier,
+            data["supplier_id"],
+            current_user,
+            detail="Поставщик не найден",
+        )
         if not sup:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
         data["company_name"] = sup.name
@@ -139,16 +157,29 @@ def add_checklist_item(card_id: int, item: schemas.ChecklistCreate, db: Session 
 
 @router.patch("/checklists/{checklist_id}", response_model=schemas.ChecklistResponse)
 def update_checklist_item(checklist_id: int, item_update: schemas.ChecklistUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    item = get_tenant_child(
+        db,
+        models.CardChecklist,
+        checklist_id,
+        models.Card,
+        "card_id",
+        current_user,
+        detail="Пункт чек-листа не найден",
+        parent_detail="Карточка не найдена",
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
     update_data = item_update.model_dump(exclude_unset=True)
 
     # Сменили поставщика — подтягиваем актуальное название из справочника
     if update_data.get("supplier_id"):
-        sup = db.query(models.Supplier).filter(
-            models.Supplier.id == update_data["supplier_id"]
-        ).first()
+        sup = get_tenant_object(
+            db,
+            models.Supplier,
+            update_data["supplier_id"],
+            current_user,
+            detail="Поставщик не найден",
+        )
         if not sup:
             raise HTTPException(status_code=404, detail="Поставщик не найден")
         update_data["company_name"] = sup.name
@@ -162,7 +193,16 @@ def update_checklist_item(checklist_id: int, item_update: schemas.ChecklistUpdat
 
 @router.delete("/checklists/{checklist_id}")
 def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    item = get_tenant_child(
+        db,
+        models.CardChecklist,
+        checklist_id,
+        models.Card,
+        "card_id",
+        current_user,
+        detail="Пункт чек-листа не найден",
+        parent_detail="Карточка не найдена",
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
     if item.invoice_file_path and os.path.exists(item.invoice_file_path):
@@ -172,7 +212,7 @@ def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), curr
     return {"detail": "Пункт успешно удален"}
 # FIX 2026-09-06 (аудит С3): загрузки — тяжёлые операции (стриминг до 25 МБ)
 # и вектор записи мусора в uploads; лимит на оба upload-эндпоинта.
-# За nginx должен быть включён proxy-headers, иначе лимит общий на всех.
+# nginx должен входить в CRM_TRUSTED_PROXY_NETWORKS, иначе лимит общий на всех.
 
 
 @router.post("/checklists/{checklist_id}/invoice", response_model=schemas.ChecklistResponse)
@@ -180,7 +220,16 @@ def delete_checklist_item(checklist_id: int, db: Session = Depends(get_db), curr
 
 @limiter.limit("30/minute")
 def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    item = get_tenant_child(
+        db,
+        models.CardChecklist,
+        checklist_id,
+        models.Card,
+        "card_id",
+        current_user,
+        detail="Пункт чек-листа не найден",
+        parent_detail="Карточка не найдена",
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
     ALLOWED_EXTS = {'.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt'}
@@ -216,7 +265,16 @@ def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFi
 
 @router.delete("/checklists/{checklist_id}/invoice", response_model=schemas.ChecklistResponse)
 def delete_checklist_invoice(checklist_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    item = get_tenant_child(
+        db,
+        models.CardChecklist,
+        checklist_id,
+        models.Card,
+        "card_id",
+        current_user,
+        detail="Пункт чек-листа не найден",
+        parent_detail="Карточка не найдена",
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
     if item.invoice_file_path and os.path.exists(item.invoice_file_path):
@@ -271,7 +329,9 @@ def _validate_upload_content(file, ext: str):
 
 @limiter.limit("30/minute")
 def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     original_name = os.path.basename(file.filename or "file")
@@ -310,7 +370,9 @@ def upload_file_v2_compat(request: Request, card_id: int, file: UploadFile = Fil
     Полностью повторяет POST /cards/{card_id}/attachments: те же лимиты,
     расширения, magic-bytes проверка и запись в card_attachments.
     """
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     original_name = os.path.basename(file.filename or "file")
@@ -342,7 +404,16 @@ def upload_file_v2_compat(request: Request, card_id: int, file: UploadFile = Fil
 
 @router.delete("/attachments/{attachment_id}")
 def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    attachment = db.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
+    attachment = get_tenant_child(
+        db,
+        models.CardAttachment,
+        attachment_id,
+        models.Card,
+        "card_id",
+        current_user,
+        detail="Файл не найден",
+        parent_detail="Карточка не найдена",
+    )
     if not attachment:
         raise HTTPException(status_code=404, detail="Файл не найден")
     if os.path.exists(attachment.file_path):
@@ -354,7 +425,9 @@ def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current
 
 @router.patch("/cards/{card_id}", response_model=schemas.CardResponse)
 def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     # FIX 2026-09-12 (Фаза 2, дефект 13): owner_id вернулся в CardUpdate —
@@ -365,12 +438,43 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
     # None разрешён: у FK ondelete="SET NULL", а auth_router.remove_user
     # уже обнуляет owner_id у карточек удаляемого пользователя.
     if 'owner_id' in card_update.model_fields_set and card_update.owner_id is not None:
-        owner = db.query(models.User).filter(
-            models.User.id == card_update.owner_id).first()
+        owner = get_tenant_object(
+            db,
+            models.User,
+            card_update.owner_id,
+            current_user,
+            detail=f"Пользователь #{card_update.owner_id} не найден",
+        )
+        if owner.tenant_id != writable_tenant_id(current_user):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Пользователь #{card_update.owner_id} не найден",
+            )
         if not owner:
             raise HTTPException(
                 status_code=400,
                 detail=f"Пользователь #{card_update.owner_id} не найден")
+    if (
+        'client_id' in card_update.model_fields_set
+        and card_update.client_id is not None
+    ):
+        client = get_tenant_object(
+            db,
+            models.Client,
+            card_update.client_id,
+            current_user,
+            detail="Клиент не найден",
+        )
+        if client.tenant_id != writable_tenant_id(current_user):
+            raise HTTPException(status_code=404, detail="Клиент не найден")
+    if (
+        'tag_ids' in card_update.model_fields_set
+    ):
+        tags = tenant_query(db, models.Tag, current_user).filter(
+            models.Tag.id.in_(card_update.tag_ids)
+        ).all()
+        if len(tags) != len(set(card_update.tag_ids)):
+            raise HTTPException(status_code=404, detail="Тег не найден")
     # FIX 2026-09-23 (пункт 5 плана v2): sender_email был в CardUpdate, но
     # роутер его не применял — PATCH отвечал 200, а адрес не менялся.
     # Формат здесь НЕ проверяется: фронт уже валидирует input[type=email], а
@@ -397,7 +501,9 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
     }
     if card_update.title is not None:
         card.title = card_update.title
-        for tx in card.transactions:
+        for tx in tenant_query(db, models.Transaction, current_user).filter(
+            models.Transaction.card_id == card.id
+        ).all():
             tx.company_name = card_update.title
     if card_update.total_amount is not None:
         card.total_amount = card_update.total_amount
@@ -406,7 +512,11 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         # их суммы (реестр оплат расходился с напечатанными ТН).
         # Пересчитываем только запись-остаток: сумма сделки минус уже
         # выписанное (накладные/списания). Сами накладные не трогаем.
-        ledger = [t for t in card.transactions if not t.is_document]
+        ledger = [
+            t for t in tenant_query(db, models.Transaction, current_user).filter(
+                models.Transaction.card_id == card.id
+            ).all() if not t.is_document
+        ]
         issued_total = round(sum(float(t.amount or 0) for t in ledger
                                  if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
         new_rest = round(float(card_update.total_amount) - issued_total, 2)
@@ -423,10 +533,10 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
             # Правка суммы в «Новом запросе»/«В работе» раньше сразу
             # протаскивала сделку в реестр. Пересчитать существующий
             # остаток можно в любом статусе, создавать — только с «Сборки».
-            db.add(models.Transaction(
+            db.add(assign_tenant(models.Transaction(
                 company_name=card.title, amount=new_rest,
                 store_location=card.store_location, card_id=card.id,
-            ))
+            ), current_user))
         # Правка суммы создаёт/убирает остаток к выписке — статус
         # выравнивается по тому же правилу, что и везде (иначе сделка с
         # появившимся остатком застревала в «Закрыто» и пропадала с доски
@@ -444,8 +554,9 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         # второй копии формулы здесь появиться не должно.
         if card.writeoff_group_id is not None:
             from services.writeoffs import recompute_group_total
-            group = db.query(models.WriteoffGroup).filter(
-                models.WriteoffGroup.id == card.writeoff_group_id).first()
+            group = tenant_query(db, models.WriteoffGroup, current_user).filter(
+                models.WriteoffGroup.id == card.writeoff_group_id
+            ).first()
             if group is not None:
                 # autoflush=False: фиксируем новую сумму сделки, чтобы
                 # group.cards считался от актуальных значений
@@ -457,7 +568,9 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         # всех её транзакций, включая выписанные накладные: сделка
         # ведётся с одного склада. Вопросы оплат от склада не зависят.
         card.store_location = card_update.store_location
-        for tx in card.transactions:
+        for tx in tenant_query(db, models.Transaction, current_user).filter(
+            models.Transaction.card_id == card.id
+        ).all():
             tx.store_location = card_update.store_location
     if 'description' in card_update.model_fields_set:
         old_note = (card.description or '').strip()
@@ -510,9 +623,10 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         # и NULL (адрес не указан) должен быть отличим от ''.
         card.sender_email = (card_update.sender_email or '').strip() or None
     if 'tag_ids' in card_update.model_fields_set:
-        tags = db.query(models.Tag).filter(models.Tag.id.in_(card_update.tag_ids)).all()
         card.tags = tags
-    _log_card_changes(db, card, current_user, _card_field_changes(db, card, _old))
+    _log_card_changes(
+        db, card, current_user, _card_field_changes(db, card, _old, current_user)
+    )
     db.commit()
     db.refresh(card)
     # Версионирование
@@ -530,7 +644,9 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
 
 @router.patch("/cards/{card_id}/payment", response_model=schemas.CardResponse)
 def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
 
@@ -557,7 +673,7 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
             # Ленивый импорт: clients_router не зависит от card_details_router,
             # цикла нет; формула баланса одна — здесь её дублировать нельзя.
             from routers.clients_router import _client_balance_payload
-            bal = _client_balance_payload(db, card.client_id)
+            bal = _client_balance_payload(db, card.client_id, current_user)
             available = round(bal["payments_total"] - bal["paid_on_cards"], 2)
             if draw > available + MONEY_EPSILON:
                 raise HTTPException(status_code=400,
@@ -580,7 +696,7 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
             card.payment_status = "Не оплачен"
         elif paid >= total - MONEY_EPSILON:
             card.payment_status = "Оплачен"
-        elif paid > MONEY_EPSILON:
+        elif paid >= MONEY_EPSILON:
             card.payment_status = "Частично"
         else:
             card.payment_status = "Не оплачен"
@@ -656,7 +772,16 @@ def _resolve_file_path(stored_path: str) -> str:
 
 @router.get("/attachments/{attachment_id}/download")
 def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    attachment = db.query(models.CardAttachment).filter(models.CardAttachment.id == attachment_id).first()
+    attachment = get_tenant_child(
+        db,
+        models.CardAttachment,
+        attachment_id,
+        models.Card,
+        "card_id",
+        current_user,
+        detail="Файл не найден",
+        parent_detail="Карточка не найдена",
+    )
     if not attachment:
         raise HTTPException(status_code=404, detail="Вложение не найдено")
     file_path = _resolve_file_path(attachment.file_path)
@@ -673,7 +798,16 @@ def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db),
 
 @router.get("/checklists/{checklist_id}/invoice/download")
 def download_checklist_invoice_by_id(checklist_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    item = db.query(models.CardChecklist).filter(models.CardChecklist.id == checklist_id).first()
+    item = get_tenant_child(
+        db,
+        models.CardChecklist,
+        checklist_id,
+        models.Card,
+        "card_id",
+        current_user,
+        detail="Пункт чек-листа не найден",
+        parent_detail="Карточка не найдена",
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
     if not item.invoice_file_path:

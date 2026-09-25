@@ -35,7 +35,14 @@ ROOT = Path(__file__).resolve().parent.parent
 _TMP = tempfile.mkdtemp(prefix="crm_test_")
 os.environ["CRM_DATA_DIR"] = _TMP
 os.environ["CRM_SECRET_KEY"] = "test-secret-key-not-used-in-production"
+# Отдельный тестовый Fernet-ключ почты; JWT-ключ выше намеренно невалиден
+# как Fernet-ключ, чтобы fallback между ними не мог пройти незаметно.
+os.environ["CRM_EMAIL_SECRET_KEY"] = "00" * 31 + "01"
+# Отдельный Fernet-ключ webhook; намеренно не равен ключам JWT и почты.
+os.environ["CRM_WEBHOOK_ENCRYPTION_KEY"] = "00" * 31 + "02"
 os.environ["CRM_CRON_TOKEN"] = "test-cron-token"
+os.environ["CRM_DEPLOYMENT"] = "test"
+os.environ["CRM_COOKIE_SECURE"] = "false"
 # nakladnye_router читает токен бота на импорте модуля (строка 28), поэтому
 # переменная обязана быть выставлена до импорта main. Без неё bot-эндпоинты
 # отвечают 403 всегда и протестировать их нельзя.
@@ -45,7 +52,7 @@ os.makedirs(os.path.join(_TMP, "tenants"), exist_ok=True)
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 import auth
 import database
@@ -59,6 +66,60 @@ import models_tenant  # noqa: F401
 
 SCHEMA_PROFILE = os.environ.get("CRM_TEST_SCHEMA", "prod")
 SCHEMA_SQL = Path(__file__).parent / "fixtures" / "prod_schema.sql"
+DEFAULT_TEST_TENANT_ID = 101
+
+# Старые single-tenant тесты часто создают ORM-объект напрямую, не повторяя
+# HTTP-create. Проставлять fixture-default только в тестовой сессии позволяет
+# сохранить их смысл, не возвращая production-модели скрытое глобальное
+# смешивание и не ослабляя реальный NOT NULL/trigger-контракт.
+_TENANT_MODELS = tuple(
+    model for model in (
+        models.User,
+        models.Client,
+        models.ClientPayment,
+        models.Supplier,
+        models.Tag,
+        models.WriteoffGroup,
+        models.Card,
+        models.Transaction,
+        models.ActivityLog,
+        models.RecordVersion,
+        models.CustomObjectType,
+        models.CustomFieldDef,
+        models.CustomRecord,
+        models.StoreLocation,
+        models.DealStatus,
+        models.Workflow,
+        models.WorkflowTrigger,
+        models.WorkflowStep,
+        models.WorkflowRun,
+        models.Webhook,
+        models.WebhookDelivery,
+        models.SavedView,
+        models.Task,
+        models.TaskChecklistItem,
+        models.Nakladnaya,
+        models.Notification,
+    )
+)
+
+
+@event.listens_for(models.Base, "before_insert", propagate=True)
+def _set_test_tenant(mapper, connection, target):
+    if hasattr(target, "tenant_id") and target.tenant_id is None:
+        target.tenant_id = DEFAULT_TEST_TENANT_ID
+
+
+def _ensure_default_test_tenant(session):
+    if session.query(models_tenant.Tenant).filter(
+        models_tenant.Tenant.id == DEFAULT_TEST_TENANT_ID
+    ).first() is None:
+        session.add(models_tenant.Tenant(
+            id=DEFAULT_TEST_TENANT_ID,
+            name="Основной тестовый tenant",
+            db_path=f"tests/crm_{DEFAULT_TEST_TENANT_ID}.db",
+        ))
+        session.commit()
 
 # sqlite_sequence — внутренняя таблица SQLite, её нельзя создавать руками.
 _SQLITE_SEQUENCE = re.compile(
@@ -92,6 +153,10 @@ def _existing_tables():
 # схемы доехали до боевой БД поверх DDL-дампа.
 MIGRATIONS_DIR = ROOT / "migrations"
 _MIGRATION_RE = re.compile(r"^\d{4}_[a-z0-9_]+\.py$")
+MIGRATION_FILES = sorted(
+    path.name for path in MIGRATIONS_DIR.iterdir()
+    if path.is_file() and _MIGRATION_RE.match(path.name)
+) if MIGRATIONS_DIR.exists() else []
 
 
 def _apply_migrations():
@@ -112,11 +177,14 @@ def _apply_migrations():
 
     Порядок файлов — по возрастанию номера, как в migrate.py.
     """
-    files = sorted(p for p in MIGRATIONS_DIR.iterdir()
-                   if _MIGRATION_RE.match(p.name)) if MIGRATIONS_DIR.exists() else []
+    files = [MIGRATIONS_DIR / name for name in MIGRATION_FILES]
     raw = database.engine.raw_connection()
     try:
         cur = raw.cursor()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            " name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
         for path in files:
             spec = importlib.util.spec_from_file_location(
                 "crm_migration_" + path.stem, str(path))
@@ -125,6 +193,11 @@ def _apply_migrations():
             if not callable(getattr(mod, "up", None)):
                 raise TypeError(f"{path}: нет функции up(cur)")
             mod.up(cur)
+            cur.execute(
+                "INSERT OR REPLACE INTO schema_migrations(name, applied_at) "
+                "VALUES (?, '2026-01-01T00:00:00+00:00')",
+                (path.name,),
+            )
         raw.commit()
     finally:
         raw.close()
@@ -143,6 +216,11 @@ def _init_schema():
     # Миграции — после create_all: они добавляют то, чего нет ни в дампе,
     # ни в моделях, и обязаны быть идемпотентными там, где всё уже есть.
     _apply_migrations()
+    session = database.SessionLocal()
+    try:
+        _ensure_default_test_tenant(session)
+    finally:
+        session.close()
     yield
     database.engine.dispose()
     shutil.rmtree(_TMP, ignore_errors=True)
@@ -159,6 +237,22 @@ def _clean_data():
     with database.engine.begin() as conn:
         for name in ordered:
             conn.execute(text(f'DELETE FROM "{name}"'))
+        # Readiness проверяет журнал как отдельный dependency. Тестовый fixture
+        # не запускает production runner, поэтому восстанавливает его baseline
+        # после каждой очистки данных.
+        for migration_name in MIGRATION_FILES:
+            conn.execute(
+                text(
+                    "INSERT OR REPLACE INTO schema_migrations(name, applied_at) "
+                    "VALUES (:name, '2026-01-01T00:00:00+00:00')"
+                ),
+                {"name": migration_name},
+            )
+    seed = database.SessionLocal()
+    try:
+        _ensure_default_test_tenant(seed)
+    finally:
+        seed.close()
 
 
 @pytest.fixture
@@ -178,12 +272,12 @@ def client():
         yield c
 
 
-def _make_user(session, username, role="manager", password="Passw0rd!23"):
+def _make_user(session, username, role="manager", password="Passw0rd!23", tenant_id=DEFAULT_TEST_TENANT_ID):
     user = models.User(
         username=username,
         hashed_password=auth.get_password_hash(password),
         role=role,
-        tenant_id=None,
+        tenant_id=tenant_id,
     )
     session.add(user)
     session.commit()
@@ -192,11 +286,11 @@ def _make_user(session, username, role="manager", password="Passw0rd!23"):
 
 
 def _token(user):
-    # claim pv — первые 8 символов хэша: без него get_current_user даёт 401
+    # claim pv обязателен и строится общей криптографической функцией.
     return auth.create_access_token({
         "sub": user.username,
-        "tenant_id": None,
-        "pv": user.hashed_password[:8],
+        "tenant_id": user.tenant_id,
+        "pv": auth.password_version(user.hashed_password),
     })
 
 
@@ -205,9 +299,9 @@ def make_user(db):
     """Фабрика пользователей. Возвращает (user, headers)."""
     created = []
 
-    def _factory(role="manager", username=None, password="Passw0rd!23"):
+    def _factory(role="manager", username=None, password="Passw0rd!23", tenant_id=DEFAULT_TEST_TENANT_ID):
         username = username or f"{role}_{len(created) + 1}"
-        user = _make_user(db, username, role, password)
+        user = _make_user(db, username, role, password, tenant_id=tenant_id)
         created.append(user)
         return user, {"Authorization": f"Bearer {_token(user)}"}
 
@@ -221,15 +315,46 @@ def make_token(db):
     Нужно для проверки самой схемы аутентификации: устаревшие токены без `pv`,
     токены с чужим `pv` после смены пароля.
     """
-    def _factory(claims=None, role="manager", username=None, password="Passw0rd!23"):
+    def _factory(claims=None, role="manager", username=None, password="Passw0rd!23", tenant_id=DEFAULT_TEST_TENANT_ID):
         username = username or f"tok_{role}"
-        user = _make_user(db, username, role, password)
-        data = {"sub": user.username, "tenant_id": None,
-                "pv": user.hashed_password[:8]}
+        user = _make_user(db, username, role, password, tenant_id=tenant_id)
+        data = {"sub": user.username, "tenant_id": user.tenant_id,
+                "pv": auth.password_version(user.hashed_password)}
         if claims is not None:
             data = claims(user)
         return user, {"Authorization": f"Bearer {auth.create_access_token(data)}"}
     return _factory
+
+
+@pytest.fixture
+def two_tenant_users(db, make_user):
+    """Два synthetic tenant и по одному admin в каждом."""
+    second_tenant_id = 202
+    if db.query(models_tenant.Tenant).filter(
+        models_tenant.Tenant.id == second_tenant_id
+    ).first() is None:
+        db.add(models_tenant.Tenant(
+            id=second_tenant_id,
+            name="Второй тестовый tenant",
+            db_path=f"tests/crm_{second_tenant_id}.db",
+        ))
+        db.commit()
+    first_user, first_headers = make_user(
+        "admin", username="tenant_a_admin",
+        tenant_id=DEFAULT_TEST_TENANT_ID,
+    )
+    second_user, second_headers = make_user(
+        "admin", username="tenant_b_admin",
+        tenant_id=second_tenant_id,
+    )
+    return {
+        "first_tenant_id": DEFAULT_TEST_TENANT_ID,
+        "second_tenant_id": second_tenant_id,
+        "first_user": first_user,
+        "second_user": second_user,
+        "first_headers": first_headers,
+        "second_headers": second_headers,
+    }
 
 
 @pytest.fixture
@@ -265,7 +390,8 @@ def make_card(db):
     def _factory(**kw):
         defaults = {"title": "Сделка", "status": "Новый запрос",
                         "total_amount": 0.0, "paid_amount": 0.0,
-                        "payment_status": "Не оплачен", "is_deleted": False}
+                        "payment_status": "Не оплачен", "is_deleted": False,
+                        "tenant_id": DEFAULT_TEST_TENANT_ID}
         defaults.update(kw)
         card = models.Card(**defaults)
         db.add(card)
@@ -280,7 +406,8 @@ def make_transaction(db):
     def _factory(card, **kw):
         defaults = {"card_id": card.id, "company_name": card.title,
                         "amount": 0.0, "is_document": False,
-                        "is_warehouse_writeoff": False, "invoice_number": None}
+                        "is_warehouse_writeoff": False, "invoice_number": None,
+                        "tenant_id": card.tenant_id}
         defaults.update(kw)
         tx = models.Transaction(**defaults)
         db.add(tx)

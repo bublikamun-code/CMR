@@ -50,14 +50,89 @@ def test_blob_not_widened_beyond_images(client):
 
 def test_csp_keeps_strict_directives(client):
     """Ужесточения из аудита 31.08 не потеряны при правках политики."""
-    policy = _csp(client.get("/v2/"))
-    assert policy["default-src"] == ["'self'"]
-    assert policy["object-src"] == ["'none'"]
-    assert policy["frame-ancestors"] == ["'none'"]
-    assert policy["base-uri"] == ["'self'"]
-    # script-src: только свои скрипты и инлайн (legacy-фронт на onclick).
-    # Любая схема или '*' означали бы выполнение чужого кода.
-    assert set(policy["script-src"]) == {"'self'", "'unsafe-inline'"}
+    for path in ("/v2/", "/v2/js/v2/head.js"):
+        policy = _csp(client.get(path))
+        assert policy["default-src"] == ["'self'"]
+        assert policy["object-src"] == ["'none'"]
+        assert policy["frame-ancestors"] == ["'none'"]
+        assert policy["base-uri"] == ["'self'"]
+    for path in ("/v2", "/v2/", "/v2/index.html"):
+        policy = _csp(client.get(path))
+        assert policy["script-src"] == ["'self'"]
+        assert policy["style-src"] == ["'self'"]
+    assert "'unsafe-inline'" in _csp(client.get("/legacy"))["script-src"]
+    assert "'unsafe-inline'" in _csp(client.get("/v20"))["script-src"]
+
+
+def test_legacy_csp_keeps_inline_compatibility(client, monkeypatch):
+    """Legacy — единственное исключение, где unsafe-inline допустим."""
+    for path in ("/legacy", "/legacy/admin"):
+        policy = _csp(client.get(path))
+        assert set(policy["script-src"]) == {"'self'", "'unsafe-inline'"}
+        assert "'unsafe-inline'" in policy["style-src"]
+    import main
+    monkeypatch.setattr(main, "FRONTEND_MODE", "legacy")
+    for path in ("/", "/admin"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 200
+        assert "'unsafe-inline'" in _csp(response)["script-src"]
+
+
+def test_v2_mode_redirects_receive_strict_csp(client, monkeypatch):
+    import main
+    monkeypatch.setattr(main, "FRONTEND_MODE", "v2")
+    for path in ("/", "/admin"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 302
+        assert _csp(response)["script-src"] == ["'self'"]
+        assert _csp(response)["style-src"] == ["'self'"]
+
+
+def test_built_v2_document_is_strict_csp_clean():
+    """Собранный документ не содержит inline-контента, который strict CSP запрещает."""
+    from html.parser import HTMLParser
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    index_path = root / "site-v2" / "index.html"
+    source = index_path.read_text(encoding="utf-8")
+    found = {
+        "style": [],
+        "script": [],
+        "style_attr": [],
+        "event_attr": [],
+        "stylesheets": [],
+        "head_script": [],
+    }
+
+    class Parser(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if tag == "style":
+                found["style"].append(self.getpos())
+            if tag == "script" and values.get("src") is None:
+                found["script"].append(self.getpos())
+            if tag == "script" and values.get("src", "").startswith("js/v2/head.js?"):
+                found["head_script"].append(values["src"])
+            if tag == "link" and "stylesheet" in values.get("rel", "").split():
+                found["stylesheets"].append(values.get("href"))
+            for name, value in attrs:
+                if name == "style":
+                    found["style_attr"].append((self.getpos(), value))
+                if name.startswith("on"):
+                    found["event_attr"].append((self.getpos(), name, value))
+
+    parser = Parser()
+    parser.feed(source)
+    assert found["style"] == []
+    assert found["script"] == []
+    assert found["style_attr"] == []
+    assert found["event_attr"] == []
+    assert len(found["head_script"]) == 1
+    assert found["stylesheets"][0].startswith("css/shell-v2-base.css?v=")
+    assert (root / "site-v2" / found["head_script"][0].split("?", 1)[0]).is_file()
+    assert (root / "site-v2" / found["stylesheets"][0].split("?", 1)[0]).is_file()
+    assert "V2_ASSET_VER" not in source
 
 
 def test_other_security_headers(client):

@@ -34,14 +34,18 @@ fi
 [ -z "$PORT" ] && PORT="${APPS_PORT:-20008}"
 echo "порт: $PORT"
 
-CODE=$(curl -sS -m 10 -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/health" 2>/dev/null)
+CODE=$(curl -sS -m 10 -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/health/ready" 2>/dev/null)
 if [ "$CODE" != "200" ]; then
     # перебираем реально слушающие порты этого процесса
     for TRY in $(ss -lptn 2>/dev/null | awk -v p="pid=$PID," '$0 ~ p {split($4,a,":"); print a[length(a)]}'); do
-        C=$(curl -sS -m 5 -o /dev/null -w "%{http_code}" "http://127.0.0.1:$TRY/health" 2>/dev/null)
+        C=$(curl -sS -m 5 -o /dev/null -w "%{http_code}" "http://127.0.0.1:$TRY/health/ready" 2>/dev/null)
         [ "$C" = "200" ] && PORT="$TRY" && CODE="200" && echo "порт уточнён: $PORT" && break
     done
 fi
-echo "health: HTTP $CODE"
-[ "$CODE" = "200" ] || { echo "ВНИМАНИЕ: /health не ответил. Последние строки лога:"; tail -15 "$APP/logs/crm.log"; }
+echo "readiness: HTTP $CODE"
+if [ "$CODE" != "200" ]; then
+    echo "ВНИМАНИЕ: /health/ready не ответил 200. Последние строки лога:"
+    tail -15 "$APP/logs/crm.log"
+    exit 1
+fi
 curl -sS -m 10 "http://127.0.0.1:$PORT/api/version" 2>/dev/null; echo

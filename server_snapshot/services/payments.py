@@ -7,11 +7,11 @@ FastAPI как есть — коды ответов те же, что были �
 """
 
 from fastapi import HTTPException
-from sqlalchemy.exc import OperationalError
 
 import models
 from constants import MONEY_EPSILON
 from services.invoices import find_duplicate_invoice, find_invoice_twins
+from services.sqlite_writer import reserve_model_rows
 from services.writeoffs import ensure_registry_remainder, writeoff_status_for
 
 
@@ -183,6 +183,8 @@ def annul_group_writeoff(session, group, actor):
     Ручную галочку «Списание» (is_written_off) не трогаем — как и выписка
     (фидбек 18.09).
     """
+    actor_id = actor.id if actor is not None else None
+    actor_tenant_id = actor.tenant_id if actor is not None else None
     number = (group.invoice_number or "").strip()
     doc_amount = 0.0
 
@@ -273,7 +275,7 @@ def annul_group_writeoff(session, group, actor):
             card.status = writeoff_status_for(card, kept)
 
         session.add(models.ActivityLog(
-            user_id=actor.id, card_id=card.id, tenant_id=actor.tenant_id,
+            user_id=actor_id, card_id=card.id, tenant_id=actor_tenant_id,
             action="Групповая накладная отменена",
             details=(f"{number} на {doc_amount:.2f} BYN (группа #{group.id}) — удалена; "
                      f"статус «{card.status}»"
@@ -297,32 +299,19 @@ def annul_group_writeoff(session, group, actor):
 def _reserve_card_write(session, card_id, actor):
     """Захватывает единственный писатель SQLite до чтения остатка.
 
-    FastAPI уже прочитал пользователя этой же сессией, поэтому read-транзакцию
-    нужно завершить до UPDATE: иначе зарезервированная строка не сможет
-    превратиться в первую запись. Значения актора копируем заранее, чтобы
-    rollback не оставил для журнала ORM-объект в непригодном состоянии.
+    FastAPI уже прочитал пользователя этой же сессией, поэтому общий сервис
+    резервирования завершает read-транзакцию до UPDATE. Значения актора
+    копируются заранее, потому что rollback делает ORM-объект expired.
     """
     actor_id = actor.id if actor is not None else None
     actor_tenant_id = actor.tenant_id if actor is not None else None
-    session.rollback()
-    try:
-        updated = session.query(models.Card).filter(
-            models.Card.id == card_id,
-        ).update(
-            {models.Card.id: models.Card.id},
-            synchronize_session=False,
-        )
-    except OperationalError as exc:
-        session.rollback()
-        if "database is locked" in str(exc).lower():
-            raise HTTPException(
-                status_code=503,
-                detail="Сделка занята другой операцией. Повторите попытку.",
-                headers={"Retry-After": "1"},
-            ) from exc
-        raise
-    if updated != 1:
-        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    reserve_model_rows(
+        session,
+        models.Card,
+        [card_id],
+        not_found_detail="Карточка не найдена",
+        busy_detail="Сделка занята другой операцией. Повторите попытку.",
+    )
     return actor_id, actor_tenant_id
 
 

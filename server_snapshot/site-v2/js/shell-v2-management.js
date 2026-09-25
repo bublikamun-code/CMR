@@ -894,7 +894,7 @@ const MGMT_DICT = (() => {
             const body = $('mgmt-email-body');
             if (body) {
                 body.hidden = false;
-                const hint = body.querySelector('[data-mail-error]') || (() => { const p = document.createElement('p'); p.setAttribute('data-mail-error', ''); p.style.cssText = 'color:var(--danger);font-size:var(--font-ui);padding:8px 0'; body.prepend(p); return p; })();
+                const hint = body.querySelector('[data-mail-error]') || (() => { const p = document.createElement('p'); p.className = 'mgmt-mail-error'; p.setAttribute('data-mail-error', ''); body.prepend(p); return p; })();
                 hint.textContent = 'Не удалось загрузить настройки' + (e && e.message ? ': ' + e.message : '') + '. Попробуйте обновить страницу.';
             }
         }

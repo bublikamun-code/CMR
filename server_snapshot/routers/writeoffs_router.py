@@ -8,6 +8,7 @@ import schemas
 from auth import get_current_user
 from database import get_db
 from db_utils import cap_list
+from tenant_policy import get_tenant_object, tenant_query
 
 router = APIRouter(
     prefix="/writeoffs",
@@ -18,7 +19,9 @@ router = APIRouter(
 
 @router.post("/{card_id}/finish_assembly", response_model=schemas.CardResponse)
 def finish_assembly(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     if card.status != "Сборка":
@@ -34,7 +37,7 @@ def get_pending_writeoffs(response: Response, db: Session = Depends(get_db), cur
     # V5 (аудит прода 19.09): карточка в корзине не должна попадать в
     # очередь списания — она «удалена» для всех досок; при восстановлении
     # вернётся в очередь сама.
-    query = db.query(models.Card).filter(
+    query = tenant_query(db, models.Card, current_user).filter(
         models.Card.status == "На списание",
         models.Card.is_deleted == False,  # noqa: E712
     )
@@ -53,14 +56,16 @@ def get_pending_writeoffs(response: Response, db: Session = Depends(get_db), cur
 
 @router.post("/{card_id}/execute")
 def execute_writeoff(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     if card.is_deleted:
         raise HTTPException(status_code=400, detail="Карточка в корзине — сначала восстановите её")
     if card.status != "На списание":
         raise HTTPException(status_code=400, detail="Списание проводится только из колонки «На списание»")
-    ledger = db.query(models.Transaction).filter(
+    ledger = tenant_query(db, models.Transaction, current_user).filter(
         models.Transaction.card_id == card_id,
         models.Transaction.is_document == False,
     ).all()

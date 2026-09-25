@@ -1,5 +1,5 @@
 # Multi-stage build for FastAPI backend
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
@@ -19,7 +19,9 @@ COPY --from=builder /root/.local /home/app/.local
 ENV PATH=/home/app/.local/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    CRM_DATA_DIR=/app/data
+    CRM_DATA_DIR=/app/data \
+    CRM_DEPLOYMENT=production \
+    CRM_TRUSTED_PROXY_NETWORKS=172.20.0.0/16,172.30.0.0/24
 
 # Copy application code
 COPY server_snapshot/ .
@@ -31,11 +33,12 @@ RUN useradd --create-home --uid 10001 app \
 
 USER app
 
-# Health check.
-# NOTE: `python -m urllib.request <url>` is NOT runnable as a module - it exits 0
-# unconditionally, so the container reported healthy even with a dead app.
+# Liveness проверяет процесс и не блокирует контейнер из-за БД/миграций.
+# Перед публикацией трафика deployment обязан явно опросить /health/ready
+# и получить HTTP 200; успешный liveness сам по себе не подтверждает готовность.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)" || exit 1
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=4).status == 200 else 1)" || exit 1
 
-# Run Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Встроенная обработка Uvicorn отключена: Trust boundary и CIDR проверяет
+# TrustedProxyMiddleware. CRM_COOKIE_SECURE не зависит от forwarded scheme.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

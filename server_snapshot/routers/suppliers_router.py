@@ -9,6 +9,7 @@ import schemas
 from auth import get_current_user, require_role
 from database import get_db
 from db_utils import cap_list
+from tenant_policy import assign_tenant, get_tenant_object, tenant_query
 
 router = APIRouter(
     prefix="/suppliers",
@@ -17,9 +18,13 @@ router = APIRouter(
 )
 
 
+def _tenant_card_ids(db: Session, current_user):
+    return tenant_query(db, models.Card, current_user).with_entities(models.Card.id)
+
+
 @router.get("", response_model=List[schemas.SupplierResponse])
 def list_suppliers(q: str = Query(None), response: Response = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Supplier)
+    query = tenant_query(db, models.Supplier, current_user)
     if q:
         pattern = f"%{q}%"
         query = query.filter(or_(
@@ -33,7 +38,7 @@ def list_suppliers(q: str = Query(None), response: Response = None, db: Session 
 
 @router.get("/{supplier_id}", response_model=schemas.SupplierResponse)
 def get_supplier(supplier_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
+    query = tenant_query(db, models.Supplier, current_user).filter(models.Supplier.id == supplier_id)
     s = query.first()
     if not s:
         raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -42,7 +47,7 @@ def get_supplier(supplier_id: int, db: Session = Depends(get_db), current_user: 
 
 @router.post("", response_model=schemas.SupplierResponse)
 def create_supplier(supplier: schemas.SupplierCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    new_s = models.Supplier(**supplier.model_dump())
+    new_s = assign_tenant(models.Supplier(**supplier.model_dump()), current_user)
     db.add(new_s)
     db.commit()
     db.refresh(new_s)
@@ -51,7 +56,7 @@ def create_supplier(supplier: schemas.SupplierCreate, db: Session = Depends(get_
 
 @router.patch("/{supplier_id}", response_model=schemas.SupplierResponse)
 def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
+    query = tenant_query(db, models.Supplier, current_user).filter(models.Supplier.id == supplier_id)
     s = query.first()
     if not s:
         raise HTTPException(status_code=404, detail="Поставщик не найден")
@@ -77,7 +82,7 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
         # из telegram-бота сюда не попадают вовсе — бот supplier_id не шлёт,
         # его supplier_name распознан из фото и со справочником не связан.
         # Поэтому обновляем все строки этого поставщика.
-        db.query(models.Nakladnaya).filter(
+        tenant_query(db, models.Nakladnaya, current_user).filter(
             models.Nakladnaya.supplier_id == supplier_id,
         ).update({"supplier_name": new_name}, synchronize_session=False)
 
@@ -91,6 +96,7 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
         if old_name:
             db.query(models.CardChecklist).filter(
                 models.CardChecklist.supplier_id == supplier_id,
+                models.CardChecklist.card_id.in_(_tenant_card_ids(db, current_user)),
                 models.CardChecklist.company_name == old_name,
             ).update({"company_name": new_name}, synchronize_session=False)
 
@@ -107,12 +113,15 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
 @router.delete("/{supplier_id}",
                dependencies=[Depends(require_role("admin", "superadmin"))])
 def delete_supplier(supplier_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Supplier).filter(models.Supplier.id == supplier_id)
+    query = tenant_query(db, models.Supplier, current_user).filter(models.Supplier.id == supplier_id)
     s = query.first()
     if not s:
         raise HTTPException(status_code=404, detail="Поставщик не найден")
     # FIX 2026-08-29 (FK ON): отвязываем пункты чек-листов этого поставщика
-    db.query(models.CardChecklist).filter(models.CardChecklist.supplier_id == supplier_id).update({"supplier_id": None}, synchronize_session=False)
+    db.query(models.CardChecklist).filter(
+        models.CardChecklist.supplier_id == supplier_id,
+        models.CardChecklist.card_id.in_(_tenant_card_ids(db, current_user)),
+    ).update({"supplier_id": None}, synchronize_session=False)
     db.delete(s)
     db.commit()
     return {"detail": "Поставщик удалён"}
@@ -126,7 +135,9 @@ def supplier_purchases(supplier_id: int, db: Session = Depends(get_db), current_
     как у клиента видны его карточки. Показывает, сколько ему
     должны всего и сколько уже оплачено.
     """
-    sup = db.query(models.Supplier).filter(models.Supplier.id == supplier_id).first()
+    sup = get_tenant_object(
+        db, models.Supplier, supplier_id, current_user, detail="Поставщик не найден"
+    )
     if not sup:
         raise HTTPException(status_code=404, detail="Поставщик не найден")
 
@@ -135,7 +146,8 @@ def supplier_purchases(supplier_id: int, db: Session = Depends(get_db), current_
         # пункт чек-листа (it.card в цикле ниже).
         selectinload(models.CardChecklist.card)
     ).filter(
-        models.CardChecklist.supplier_id == supplier_id
+        models.CardChecklist.supplier_id == supplier_id,
+        models.CardChecklist.card_id.in_(_tenant_card_ids(db, current_user)),
     ).order_by(models.CardChecklist.id.desc()).all()
 
     result, total, paid = [], 0.0, 0.0

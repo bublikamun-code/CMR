@@ -29,7 +29,8 @@ node --version >/dev/null || fail 'node не запускается'
 for file in tools/check_js.sh tools/check_handlers.js tools/stamp_assets.py \
             server_snapshot/tests/conftest.py \
             server_snapshot/tools/build_site_v2.py \
-            server_snapshot/tools/check_site_v2_fresh.py; do
+            server_snapshot/tools/check_site_v2_fresh.py \
+            server_snapshot/tools/check_secret_permissions.py; do
     [[ -f "$ROOT/$file" ]] || fail "нет $file"
 done
 "$PYTHON" - <<'PY' || fail 'в выбранном Python отсутствуют зависимости (автоустановка отключена)'
@@ -85,6 +86,8 @@ run 'data-handler (статическая эвристика)' check_handlers
 # его с артефактом — рабочее дерево не меняется.
 run 'Свежесть site-v2 (mockups ↔ артефакт)' \
     "$PYTHON" "$ROOT/server_snapshot/tools/check_site_v2_fresh.py"
+run 'Права файлов с секретами (только метаданные)' \
+    "$PYTHON" "$ROOT/server_snapshot/tools/check_secret_permissions.py"
 run 'Версии статики (только проверка)' "$PYTHON" "$ROOT/tools/stamp_assets.py" --check
 
 # conftest изолирует БД/uploads до импорта main. Дополнительно изолируем cwd,

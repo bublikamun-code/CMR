@@ -3,8 +3,6 @@ import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
 import jwt
 from fastapi import Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
@@ -14,6 +12,8 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db
+from runtime_config import auth_cookie_secure
+from secure_files import atomic_write_private
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,7 @@ def _load_or_create_key(path: str, env_var: str) -> str:
         if existing:
             return existing
     key = secrets.token_hex(32)
-    Path(path).write_text(key)
-    os.chmod(path, 0o600)
+    atomic_write_private(path, key)
     return key
 
 def _load_or_create_secret() -> str:
@@ -57,6 +56,35 @@ def get_password_hash(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
+
+def set_auth_cookie(response: Response, value: str, max_age: int) -> None:
+    """Установить auth-cookie по единой явной security policy.
+
+    ``request.url.scheme`` и ``X-Forwarded-Proto`` намеренно не участвуют в
+    выборе ``Secure``: значение ``CRM_COOKIE_SECURE`` валидируется при старте,
+    а spoofed forwarded-заголовок не может изменить политику.
+    """
+    response.set_cookie(
+        key="crm_token",
+        value=value,
+        httponly=True,
+        samesite="lax",
+        secure=auth_cookie_secure(),
+        max_age=max_age,
+        path="/",
+    )
+
+
+def password_version(hashed_password: str) -> str:
+    """Получить безопасную версию пароля для claim ``pv``.
+
+    В JWT попадает только SHA-256 от bcrypt-хэша, а не его часть. Короткий
+    префикс bcrypt недостаточен: разные хэши могут закономерно иметь одинаковые
+    первые символы, из-за чего ротация пароля оставляла бы старый токен валидным.
+    """
+    return hashlib.sha256(hashed_password.encode("utf-8")).hexdigest()
+
 
 def create_access_token(data: dict, expires_minutes: int | None = None):
     import uuid
@@ -160,8 +188,15 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
     try:
         payload = decode_token_metadata(token)
         username: str = payload.get("sub")
-        tenant_id: int = payload.get("tenant_id")
-        if username is None:
+        tenant_id = payload.get("tenant_id")
+        # tenant_id — обязательный claim, а не подсказка. Принимаем только
+        # настоящий int (bool в Python — subclass int), чтобы строковые и
+        # неоднозначные значения не проходили как «tenant с ID 3».
+        if (
+            username is None
+            or isinstance(tenant_id, bool)
+            or not isinstance(tenant_id, int)
+        ):
             raise credentials_exception
     except jwt.ExpiredSignatureError as e:
         raise credentials_exception from e
@@ -176,6 +211,12 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
         raise credentials_exception
+    # Claim фиксирует tenant на момент выпуска сессии. Любое расхождение с
+    # текущей записью пользователя запрещено: это и смена tenant, и подмена
+    # claim в старом токене. NULL тоже запрещён — 0018 обязан нормализовать
+    # legacy-данные до выдачи tenant-bound сессий.
+    if user.tenant_id is None or tenant_id != user.tenant_id:
+        raise credentials_exception
     # Пункт 15 плана v2: отключение действует сразу, без ожидания истечения
     # токена. 401 (а не 403) — чтобы фронт отработал существующим хуком
     # «сбросить токен → экран входа» и в v2, и в legacy.
@@ -185,12 +226,16 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
             detail="Пользователь отключён. Обратитесь к администратору.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # UI FIX 2026-08-26: claim pv (password version) — первые 8 символов
-    # текущего bcrypt-хэша. Токены, выпущенные ДО смены пароля, получают 401.
-    # Токены без pv (старые, до внедрения) считаются валидными — иначе
-    # деплой разлогинил бы всех пользователей разом.
+    # UI FIX 2026-08-26: claim pv (password version) — SHA-256 от текущего
+    # bcrypt-хэша. Токены, выпущенные ДО смены пароля, получают 401.
+    # После миграционного окна pv обязателен: legacy-токен без claim не должен
+    # переживать смену пароля.
     token_pv = payload.get("pv")
-    if token_pv is not None and token_pv != user.hashed_password[:8]:
+    if (not isinstance(token_pv, str) or not token_pv
+            or not secrets.compare_digest(
+                token_pv.encode("utf-8"),
+                password_version(user.hashed_password).encode("ascii"),
+            )):
         raise credentials_exception
 
     # Скользящее продление (фидбек 07.09 «вылетает из аккаунта»): когда
@@ -202,20 +247,16 @@ def get_current_user(request: Request, response: Response, token: str = Depends(
         lifetime = REMEMBER_MINUTES * 60 if payload.get("rm") else ACCESS_TOKEN_EXPIRE_MINUTES * 60
         remaining = exp - datetime.now(timezone.utc).timestamp()
         if remaining < lifetime / 2:
-            fresh_data = {"sub": username, "tenant_id": tenant_id, "pv": user.hashed_password[:8]}
+            fresh_data = {
+                "sub": username,
+                "tenant_id": tenant_id,
+                "pv": password_version(user.hashed_password),
+            }
             if payload.get("rm"):
                 fresh_data["rm"] = 1
             minutes = REMEMBER_MINUTES if payload.get("rm") else ACCESS_TOKEN_EXPIRE_MINUTES
             fresh = create_access_token(fresh_data, expires_minutes=minutes)
-            response.set_cookie(
-                key="crm_token",
-                value=fresh,
-                httponly=True,
-                samesite="lax",
-                secure=(request.url.scheme == "https"),
-                max_age=minutes * 60,
-                path="/",
-            )
+            set_auth_cookie(response, fresh, minutes * 60)
     return user
 
 def require_role(*allowed_roles):

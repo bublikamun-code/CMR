@@ -9,11 +9,19 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 import models
+import runtime_config
 import schemas
 from auth import get_current_user, require_role
 from database import get_db
 from db_utils import PAGE_MAX_SIZE, cap_list, resolve_page, set_page_headers
 from services.card_money import compute_card_money
+from tenant_policy import (
+    assign_tenant,
+    get_tenant_object,
+    tenant_predicate,
+    tenant_query,
+    writable_tenant_id,
+)
 from versioning import save_version
 
 router = APIRouter(
@@ -34,7 +42,7 @@ class CardPage(BaseModel):
     offset: int
 
 
-def _attach_money_fields(cards, db: Session):
+def _attach_money_fields(cards, db: Session, current_user):
     """A12: вычисляет remaining/writeoff_status/issued_total для списка карточек.
 
     Один batch-запрос вместо N+1: подтягиваем все записи реестра
@@ -45,7 +53,7 @@ def _attach_money_fields(cards, db: Session):
         return
     card_ids = [c.id for c in cards]
     tx_rows = (
-        db.query(models.Transaction)
+        tenant_query(db, models.Transaction, current_user)
         .filter(
             models.Transaction.card_id.in_(card_ids),
             models.Transaction.is_document == False,  # noqa: E712
@@ -69,7 +77,9 @@ def get_cards(response: Response,
               offset: Optional[int] = Query(None, ge=0),
               db: Session = Depends(get_db),
               current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Card).filter(models.Card.is_deleted == False)
+    query = tenant_query(db, models.Card, current_user).filter(
+        models.Card.is_deleted == False
+    )
     page = resolve_page(limit, offset)
     total = None
     if page is not None:
@@ -92,7 +102,7 @@ def get_cards(response: Response,
     cards = listing.all()
     # A12: серверные денежные поля одним batch-запросом (без N+1).
     # В режиме страницы считается только для строк страницы.
-    _attach_money_fields(cards, db)
+    _attach_money_fields(cards, db, current_user)
     if page is None:
         # Н11 (аудит 06.09): предохранитель от аномального роста таблицы —
         # канбану нужны все карточки сразу, так что это пробка, не пагинация.
@@ -103,7 +113,7 @@ def get_cards(response: Response,
 
 @router.get("/cards/{card_id}", response_model=schemas.CardResponse)
 def get_card(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(
+    card = tenant_query(db, models.Card, current_user).filter(
         models.Card.id == card_id,
         models.Card.is_deleted == False,
     ).options(
@@ -116,13 +126,15 @@ def get_card(card_id: int, db: Session = Depends(get_db), current_user: models.U
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     # A12: одна карточка — тот же helper, batch из одного элемента.
-    _attach_money_fields([card], db)
+    _attach_money_fields([card], db, current_user)
     return card
 
 
 @router.get("/trash", response_model=list[schemas.CardResponse])
 def get_trash(response: Response, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    cards = db.query(models.Card).filter(models.Card.is_deleted == True).options(
+    cards = tenant_query(db, models.Card, current_user).filter(
+        models.Card.is_deleted == True
+    ).options(
         selectinload(models.Card.attachments),
         selectinload(models.Card.checklists).selectinload(models.CardChecklist.supplier),
         selectinload(models.Card.owner),
@@ -137,9 +149,31 @@ def get_trash(response: Response, db: Session = Depends(get_db), current_user: m
 def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     data = card.model_dump(exclude={"tag_ids", "owner_id"})
     owner_id = card.owner_id if card.owner_id else current_user.id
-    new_card = models.Card(**data, owner_id=owner_id)
+    if owner_id != current_user.id:
+        owner = get_tenant_object(
+            db, models.User, owner_id, current_user, detail="Владелец не найден"
+        )
+        if owner.tenant_id != writable_tenant_id(current_user):
+            raise HTTPException(status_code=404, detail="Владелец не найден")
+    if data.get("client_id") is not None:
+        client = get_tenant_object(
+            db,
+            models.Client,
+            data["client_id"],
+            current_user,
+            detail="Клиент не найден",
+        )
+        if client.tenant_id != writable_tenant_id(current_user):
+            raise HTTPException(status_code=404, detail="Клиент не найден")
+    tags = []
     if card.tag_ids:
-        tags = db.query(models.Tag).filter(models.Tag.id.in_(card.tag_ids)).all()
+        tags = tenant_query(db, models.Tag, current_user).filter(
+            models.Tag.id.in_(card.tag_ids)
+        ).all()
+        if len(tags) != len(set(card.tag_ids)):
+            raise HTTPException(status_code=404, detail="Тег не найден")
+    new_card = assign_tenant(models.Card(**data, owner_id=owner_id), current_user)
+    if tags:
         new_card.tags = tags
     db.add(new_card)
     # Атомарность (Фаза 4): карточка и ActivityLog уходят в БД одним
@@ -168,7 +202,7 @@ def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current
 
 @router.patch("/cards/reorder")
 def reorder_cards(payload: schemas.CardReorder, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    cards = db.query(models.Card).filter(
+    cards = tenant_query(db, models.Card, current_user).filter(
         models.Card.id.in_(payload.card_ids),
         models.Card.status == payload.status,
         models.Card.is_deleted == False
@@ -184,7 +218,9 @@ def reorder_cards(payload: schemas.CardReorder, db: Session = Depends(get_db), c
 
 @router.patch("/cards/{card_id}/status", response_model=schemas.CardResponse)
 def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     # Смена статуса — ключевое событие сделки, фиксируем в ленте (план 1.2):
@@ -223,7 +259,9 @@ def update_card_status(card_id: int, status_update: schemas.CardUpdateStatus, db
 
 @router.patch("/cards/{card_id}/restore", response_model=schemas.CardResponse)
 def restore_card(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     card.is_deleted = False
@@ -234,7 +272,9 @@ def restore_card(card_id: int, db: Session = Depends(get_db), current_user: mode
 
 @router.delete("/cards/{card_id}")
 def delete_card(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     card.is_deleted = True
@@ -244,21 +284,28 @@ def delete_card(card_id: int, db: Session = Depends(get_db), current_user: model
 
 @router.delete("/cards/{card_id}/permanent", dependencies=[Depends(require_role("admin", "superadmin"))])
 def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
+    upload_dir = os.path.realpath(os.fspath(runtime_config.uploads_dir()))
     for att in card.attachments:
         real_path = os.path.realpath(att.file_path)
-        upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads")
-        upload_dir = os.path.abspath(upload_dir)
-        if real_path.startswith(upload_dir) and os.path.exists(real_path):
+        try:
+            inside_uploads = os.path.commonpath((upload_dir, real_path)) == upload_dir
+        except ValueError:
+            inside_uploads = False
+        if inside_uploads and os.path.exists(real_path):
             os.remove(real_path)
     for cl in card.checklists:
         if cl.invoice_file_path:
             real_path = os.path.realpath(cl.invoice_file_path)
-            upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads")
-            upload_dir = os.path.abspath(upload_dir)
-            if real_path.startswith(upload_dir) and os.path.exists(real_path):
+            try:
+                inside_uploads = os.path.commonpath((upload_dir, real_path)) == upload_dir
+            except ValueError:
+                inside_uploads = False
+            if inside_uploads and os.path.exists(real_path):
                 os.remove(real_path)
     # FIX 2026-08-29 (FK ON) + V3 (аудит прода 19.09): карточка удалена навсегда —
     # её собственность удаляется вместе с ней, а не остаётся сиротой. Ленту
@@ -272,21 +319,29 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
     # и записи остались бы в «Реестре оплат» как «старые записи без привязки»
     # (V3, аудит прода 19.09). Кассу клиента (client_payments) не трогаем —
     # это реальные деньги, её card_id занулится сам по своему FK.
-    rows = db.query(models.Transaction).filter(models.Transaction.card_id == card_id).all()
+    rows = tenant_query(db, models.Transaction, current_user).filter(
+        models.Transaction.card_id == card_id
+    ).all()
     tx_ids = [t.id for t in rows]
-    db.query(models.Transaction).filter(models.Transaction.card_id == card_id).delete(synchronize_session=False)
+    tenant_query(db, models.Transaction, current_user).filter(
+        models.Transaction.card_id == card_id
+    ).delete(synchronize_session=False)
     # История версий карточки и её транзакций без самой записи бессмысленна.
-    db.query(models.RecordVersion).filter(
+    tenant_query(db, models.RecordVersion, current_user).filter(
         models.RecordVersion.table_name == "cards",
         models.RecordVersion.record_id == card_id,
     ).delete(synchronize_session=False)
     if tx_ids:
-        db.query(models.RecordVersion).filter(
+        tenant_query(db, models.RecordVersion, current_user).filter(
             models.RecordVersion.table_name == "transactions",
             models.RecordVersion.record_id.in_(tx_ids),
         ).delete(synchronize_session=False)
-    db.query(models.ActivityLog).filter(models.ActivityLog.card_id == card_id).delete(synchronize_session=False)
-    db.query(models.Task).filter(models.Task.card_id == card_id).update({"card_id": None}, synchronize_session=False)
+    tenant_query(db, models.ActivityLog, current_user).filter(
+        models.ActivityLog.card_id == card_id
+    ).delete(synchronize_session=False)
+    tenant_query(db, models.Task, current_user).filter(
+        models.Task.card_id == card_id
+    ).update({"card_id": None}, synchronize_session=False)
     db.delete(card)
     # flush, а не commit: карточка уходит из сессии в БД, чтобы group.cards
     # ниже отразил её отсутствие, но транзакция оставалась атомарной.
@@ -296,7 +351,9 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
     # POST /payments/repair-writeoffs — здесь то же правило на месте события).
     if group_id is not None:
         from services.writeoffs import recompute_group_total
-        group = db.query(models.WriteoffGroup).filter(models.WriteoffGroup.id == group_id).first()
+        group = tenant_query(db, models.WriteoffGroup, current_user).filter(
+            models.WriteoffGroup.id == group_id
+        ).first()
         if group is not None:
             recompute_group_total(group)
             if not group.cards:
@@ -307,6 +364,9 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
 
 @router.get("/cards/{card_id}/versions")
 def get_card_versions(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     from versioning import get_versions
     versions = get_versions(db, "cards", card_id, tenant_id=current_user.tenant_id)
     return versions
@@ -316,7 +376,9 @@ import io
 
 @router.get("/export/csv")
 def export_cards_csv(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    cards = db.query(models.Card).filter(models.Card.is_deleted == False).options(selectinload(models.Card.client)).all()
+    cards = tenant_query(db, models.Card, current_user).filter(
+        models.Card.is_deleted == False
+    ).options(selectinload(models.Card.client)).all()
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_ALL)
     writer.writerow(["ID", "Название", "Статус", "Сумма", "Клиент", "Приоритет", "Дата создания", "Описание"])

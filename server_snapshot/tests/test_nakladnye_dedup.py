@@ -286,6 +286,14 @@ def test_bot_endpoints_reject_missing_and_wrong_token(client):
     assert client.post("/nakladnye/bot/create", json={}).status_code == 403
 
 
+def test_bot_token_query_parameter_is_rejected(client, bot_headers):
+    response = client.get(
+        "/nakladnye/bot/check-duplicate",
+        params={"doc_number": "1", "bot_token": bot_headers["X-Bot-Token"]},
+    )
+    assert response.status_code == 403
+
+
 def test_bot_check_duplicate_finds_existing(client, bot_headers, db):
     db.add(models.Nakladnaya(doc_type="ТТН", doc_series="АБ", doc_number="4881030",
                              amount=100.0, supplier_name="Поставщик"))

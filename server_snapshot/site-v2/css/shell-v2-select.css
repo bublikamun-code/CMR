@@ -375,6 +375,8 @@ select.fprint-select:hover,
 /* Комбобокс с поиском (клиент, поставщик) */
 .kb-combo { position: relative; flex: 1; display: flex; }
 .kb-combo input { width: 100%; }
+.kb-add-supplier { flex: 1 1 220px; min-width: 180px; }
+.kb-add-amount { width: 110px; text-align: right; }
 .kb-combo-list {
     position: absolute;
     top: 100%;

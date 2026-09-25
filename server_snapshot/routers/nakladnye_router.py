@@ -1,5 +1,6 @@
 import json
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,8 +44,8 @@ router = APIRouter(
 
 
 def _bot_auth(request: Request) -> None:
-    token = request.headers.get("X-Bot-Token") or request.query_params.get("bot_token")
-    if not BOT_TOKEN or token != BOT_TOKEN:
+    token = request.headers.get("X-Bot-Token", "")
+    if not BOT_TOKEN or not token or not secrets.compare_digest(token, BOT_TOKEN):
         raise HTTPException(status_code=403, detail="Invalid bot token")
     return None
 

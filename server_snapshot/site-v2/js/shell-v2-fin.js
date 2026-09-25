@@ -108,7 +108,7 @@
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
         <td>${checkbox(r, 'posted', 'Списано')}</td>
-        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" style="width:100%" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
+        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
     </tr>`).join('');
     // Одна ТН — одна строка. В «Документы» она приходит из двух мест: строкой
     // реестра (последняя ТН сделки в KB_FIN_SOURCE — с магазином, счётом,
@@ -153,7 +153,7 @@
         const numId = String(r.id || '').replace(/\D/g, '');
         let filesHtml;
         if (!hasFiles) {
-            filesHtml = '<p class="fin-note" style="margin:4px 0">Файлов нет</p>';
+            filesHtml = '<p class="fin-note fin-note-compact">Файлов нет</p>';
         } else {
             const photoItems = photos.map((p, i) =>
                 `<li><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(p)}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${i + 1}</button></li>`
@@ -161,7 +161,7 @@
             const excelItem = hasExcel
                 ? `<li><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${esc(numId)}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>`
                 : '';
-            filesHtml = `<ul class="fin-inc-files" style="list-style:none;padding:0;margin:4px 0;display:flex;flex-direction:column;gap:4px">${photoItems}${excelItem}</ul>`;
+            filesHtml = `<ul class="fin-inc-files">${photoItems}${excelItem}</ul>`;
         }
         const searchText = [r.supplier, r.number, r.date, r.store, money(r.amount)].join(' ');
         return `<tr data-search="${esc(searchText)}">
@@ -184,7 +184,7 @@
                 const img = document.createElement('img');
                 img.src = url;
                 img.alt = btn.dataset.nak || filename;
-                img.style.cssText = 'width:80px;height:60px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer;display:block';
+                img.className = 'fin-inc-photo-image';
                 img.dataset.action = 'inc-photo-view';
                 img.dataset.blobUrl = url;
                 img.title = 'Открыть фото в новой вкладке';
@@ -596,7 +596,7 @@
             <td>${cardOpen(c.id, c.client || 'Без клиента', c.id + ' · ' + c.title)}<small>${esc(c.id + ' · ' + c.title)}</small></td>
             <td>${esc(storeLabel(c.store))}</td><td><span class="fin-status">${esc(statusName(c.stage))}</span></td>
             <td class="num">${money(c.amount || 0)}</td><td class="num">${money(c.paidAmount || 0)}</td>
-            <td class="num" style="font-weight:800">${money(debt)}</td>
+            <td class="num fin-debt-strong">${money(debt)}</td>
             <td class="num">${ageCell(days)}</td>
         </tr>`).join('');
         // «Нет данных» (сбой) и «долгов нет» (норма) — разные состояния.

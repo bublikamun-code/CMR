@@ -21,6 +21,12 @@ services:
     container_name: crm-backend-prod
     restart: unless-stopped
     env_file: .env.production
+    environment:
+      # CRM_COOKIE_SECURE намеренно берётся из .env.production и должен быть
+      # "true": отсутствие, невалидное значение или false закрывают startup.
+      CRM_DEPLOYMENT: "production"
+      CRM_UPLOADS_DIR: "/app/uploads"
+      CRM_TRUSTED_PROXY_NETWORKS: "172.20.0.0/16"
     # DO NOT expose backend port to host in production
     expose: ["8000"]
     volumes:
@@ -62,6 +68,8 @@ services:
       # Webroot for Let's Encrypt renewal over plain HTTP.
       - ./certbot-webroot:/var/www/certbot:ro
     depends_on:
+      # Healthcheck backend проверяет только liveness. Перед публикацией трафика
+      # deployment обязан явно опросить /health/ready и получить HTTP 200.
       backend:
         condition: service_healthy
     # Was `cpus: '512m'` under deploy.reservations - invalid for CPU (that is a

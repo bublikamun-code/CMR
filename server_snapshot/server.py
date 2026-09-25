@@ -13,6 +13,12 @@ os.chdir(_SCRIPT_DIR)
 # явно заданное окружение всегда сильнее файла.
 _env_file = os.path.join(_SCRIPT_DIR, ".pm2.env")
 if os.path.isfile(_env_file):
+    # Наличие боевого env-файла делает cookie preflight fail-closed. Сам файл
+    # не меняется этой правкой; владелец должен явно добавить CRM_COOKIE_SECURE=true.
+    os.environ.setdefault("CRM_DEPLOYMENT", "production")
+    # Боевой nginx подключается к Uvicorn через loopback. Явный CRM CIDR
+    # из .pm2.env остаётся сильнее этого безопасного default.
+    os.environ.setdefault("CRM_TRUSTED_PROXY_NETWORKS", "127.0.0.1/32")
     with open(_env_file) as _f:
         for _line in _f:
             _line = _line.strip()
@@ -20,6 +26,10 @@ if os.path.isfile(_env_file):
                 continue
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
+
+from runtime_config import validate_startup_config
+
+validate_startup_config()
 
 # Импорт ради побочного эффекта и ради порядка: main.py на импорте создаёт
 # uploads/tenants и вызывает create_all. Это должно произойти один раз в
@@ -47,10 +57,9 @@ if __name__ == "__main__":
         host=host,
         port=port,
         log_level="info",
-        proxy_headers=True,
-        # UI FIX 2026-08-26: только loopback-прокси доверен. При "*" uvicorn
-        # верил крайнему левому X-Forwarded-For, который контролирует
-        # клиент, — rate-limit логина 30/мин обходился подделкой заголовка.
-        forwarded_allow_ips="127.0.0.1",
+        # Forwarded identity применяет TrustedProxyMiddleware только для
+        # CRM_TRUSTED_PROXY_NETWORKS. Встроенная обработка Uvicorn отключена:
+        # её trust list не поддерживает CIDR и не является нужной границей.
+        proxy_headers=False,
         workers=2,
     )

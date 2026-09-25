@@ -200,7 +200,7 @@ CREATE INDEX ix_workflows_id ON workflows (id);
 CREATE TABLE webhooks (
 	id INTEGER NOT NULL, 
 	url VARCHAR(500) NOT NULL, 
-	secret VARCHAR(200), 
+	secret TEXT,
 	events TEXT NOT NULL, 
 	is_active BOOLEAN, 
 	tenant_id INTEGER, 

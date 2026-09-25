@@ -11,6 +11,13 @@ from auth import get_current_user, require_role
 from constants import business_today
 from database import get_db
 from db_utils import cap_list
+from tenant_policy import (
+    assign_tenant,
+    get_tenant_object,
+    tenant_predicate,
+    tenant_query,
+    writable_tenant_id,
+)
 from versioning import save_version
 
 router = APIRouter(
@@ -20,7 +27,7 @@ router = APIRouter(
 )
 
 
-def _attach_client_aggregates(clients: list, db: Session):
+def _attach_client_aggregates(clients: list, db: Session, current_user):
     """A11/A14: batch-агрегаты вместо N+1 (6 запросов на клиента × 400).
 
     Два запроса на ВСЕХ клиентов:
@@ -30,6 +37,8 @@ def _attach_client_aggregates(clients: list, db: Session):
     if not clients:
         return
     cids = [c.id for c in clients]
+    # cids уже получены tenant-scoped выборкой, но агрегаты защищаем ещё и
+    # собственным предикатом: это не позволяет ID-утечке изменить суммы.
 
     # Баланс кассы: Σ приходов за вычетом Σ total_amount карточек.
     payments_agg = dict(
@@ -37,7 +46,10 @@ def _attach_client_aggregates(clients: list, db: Session):
             models.ClientPayment.client_id,
             func.coalesce(func.sum(models.ClientPayment.amount), 0),
         )
-        .filter(models.ClientPayment.client_id.in_(cids))
+        .filter(
+            models.ClientPayment.client_id.in_(cids),
+            tenant_predicate(models.ClientPayment, current_user),
+        )
         .group_by(models.ClientPayment.client_id)
         .all()
     )
@@ -60,6 +72,7 @@ def _attach_client_aggregates(clients: list, db: Session):
         .filter(
             models.Card.client_id.in_(cids),
             models.Card.is_deleted == False,  # noqa: E712
+            tenant_predicate(models.Card, current_user),
         )
         .group_by(models.Card.client_id)
         .all()
@@ -75,7 +88,7 @@ def _attach_client_aggregates(clients: list, db: Session):
 
 @router.get("", response_model=List[schemas.ClientResponse])
 def list_clients(q: str = Query(None), response: Response = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Client)
+    query = tenant_query(db, models.Client, current_user)
     if q:
         pattern = f"%{q}%"
         query = query.filter(or_(
@@ -85,25 +98,30 @@ def list_clients(q: str = Query(None), response: Response = None, db: Session = 
         ))
     clients = query.order_by(models.Client.name).all()
     # A11/A14: агрегаты одним batch — без N+1.
-    _attach_client_aggregates(clients, db)
+    _attach_client_aggregates(clients, db, current_user)
     # Н11 (аудит 06.09): предохранитель от неограниченного списка
     return cap_list(clients, response)
 
 
 @router.get("/{client_id}", response_model=schemas.ClientResponse)
 def get_client(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Client).filter(models.Client.id == client_id)
+    query = tenant_query(db, models.Client, current_user).filter(models.Client.id == client_id)
     client = query.first()
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     # A11: агрегаты для одного клиента — тем же batch-хелпером.
-    _attach_client_aggregates([client], db)
+    _attach_client_aggregates([client], db, current_user)
     return client
 
 
 @router.get("/{client_id}/cards", response_model=List[schemas.CardResponse])
 def get_client_cards(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Card).filter(models.Card.client_id == client_id, models.Card.is_deleted == False)
+    get_tenant_object(
+        db, models.Client, client_id, current_user, detail="Клиент не найден"
+    )
+    query = tenant_query(db, models.Card, current_user).filter(
+        models.Card.client_id == client_id, models.Card.is_deleted == False
+    )
     # Н12 (аудит 06.09): selectinload вместо ленивых SELECT на каждую
     # карточку ( CardResponse тянет вложенные отношения при сериализации).
     return query.options(
@@ -117,7 +135,7 @@ def get_client_cards(client_id: int, db: Session = Depends(get_db), current_user
 
 @router.post("", response_model=schemas.ClientResponse)
 def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    new_client = models.Client(**client.model_dump())
+    new_client = assign_tenant(models.Client(**client.model_dump()), current_user)
     db.add(new_client)
     db.commit()
     db.refresh(new_client)
@@ -153,7 +171,7 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
 
 @router.patch("/{client_id}", response_model=schemas.ClientResponse)
 def update_client(client_id: int, update: schemas.ClientUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Client).filter(models.Client.id == client_id)
+    query = tenant_query(db, models.Client, current_user).filter(models.Client.id == client_id)
     client = query.first()
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -171,15 +189,24 @@ def update_client(client_id: int, update: schemas.ClientUpdate, db: Session = De
 
 @router.delete("/{client_id}", dependencies=[Depends(require_role("admin", "superadmin"))])
 def delete_client(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Client).filter(models.Client.id == client_id)
+    query = tenant_query(db, models.Client, current_user).filter(models.Client.id == client_id)
     client = query.first()
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     # FIX 2026-08-29 (FK ON): в фактическом DDL нет ON DELETE — отвязываем
     # детей вручную, иначе удаление клиента с карточками падает.
-    db.query(models.Card).filter(models.Card.client_id == client_id).update({"client_id": None}, synchronize_session=False)
-    db.query(models.WriteoffGroup).filter(models.WriteoffGroup.client_id == client_id).update({"client_id": None}, synchronize_session=False)
-    db.query(models.Task).filter(models.Task.client_id == client_id).update({"client_id": None}, synchronize_session=False)
+    db.query(models.Card).filter(
+        models.Card.client_id == client_id,
+        tenant_predicate(models.Card, current_user),
+    ).update({"client_id": None}, synchronize_session=False)
+    db.query(models.WriteoffGroup).filter(
+        models.WriteoffGroup.client_id == client_id,
+        tenant_predicate(models.WriteoffGroup, current_user),
+    ).update({"client_id": None}, synchronize_session=False)
+    db.query(models.Task).filter(
+        models.Task.client_id == client_id,
+        tenant_predicate(models.Task, current_user),
+    ).update({"client_id": None}, synchronize_session=False)
     db.delete(client)
     db.commit()
     return {"detail": "Клиент удалён"}
@@ -187,6 +214,9 @@ def delete_client(client_id: int, db: Session = Depends(get_db), current_user: m
 
 @router.get("/{client_id}/versions")
 def get_client_versions(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    get_tenant_object(
+        db, models.Client, client_id, current_user, detail="Клиент не найден"
+    )
     from versioning import get_versions
     versions = get_versions(db, "clients", client_id, tenant_id=current_user.tenant_id)
     return versions
@@ -200,12 +230,12 @@ def get_client_versions(client_id: int, db: Session = Depends(get_db), current_u
 # уменьшение баланса происходит само через рост paid_amount карточки.
 # ============================================================
 
-def _client_balance_payload(db: Session, client_id: int) -> dict:
-    payments = db.query(models.ClientPayment).filter(
+def _client_balance_payload(db: Session, client_id: int, current_user) -> dict:
+    payments = tenant_query(db, models.ClientPayment, current_user).filter(
         models.ClientPayment.client_id == client_id
     ).order_by(models.ClientPayment.created_at.desc(), models.ClientPayment.id.desc()).all()
     payments_total = round(sum(float(p.amount or 0) for p in payments), 2)
-    cards = db.query(models.Card).filter(
+    cards = tenant_query(db, models.Card, current_user).filter(
         models.Card.client_id == client_id,
         models.Card.is_deleted == False,  # noqa: E712
     ).all()
@@ -223,21 +253,30 @@ def _client_balance_payload(db: Session, client_id: int) -> dict:
 
 @router.get("/{client_id}/balance", response_model=schemas.ClientBalanceResponse)
 def client_balance(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    client = get_tenant_object(
+        db, models.Client, client_id, current_user, detail="Клиент не найден"
+    )
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
-    return _client_balance_payload(db, client_id)
+    return _client_balance_payload(db, client_id, current_user)
 
 
 @router.post("/{client_id}/payments", response_model=schemas.ClientPaymentResponse)
 def add_client_payment(client_id: int, payload: schemas.ClientPaymentCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    client = get_tenant_object(
+        db, models.Client, client_id, current_user, detail="Клиент не найден"
+    )
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     if payload.card_id is not None:
-        card = db.query(models.Card).filter(
-            models.Card.id == payload.card_id, models.Card.client_id == client_id
-        ).first()
+        card = get_tenant_object(
+            db,
+            models.Card,
+            payload.card_id,
+            current_user,
+            detail="Сделка не принадлежит этому клиенту",
+            extra_filters=(models.Card.client_id == client_id,),
+        )
         if not card:
             raise HTTPException(status_code=400, detail="Сделка не принадлежит этому клиенту")
     payment = models.ClientPayment(
@@ -256,9 +295,9 @@ def add_client_payment(client_id: int, payload: schemas.ClientPaymentCreate, db:
 
 @router.delete("/payments/{payment_id}")
 def delete_client_payment(payment_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_role("admin", "superadmin"))):
-    payment = db.query(models.ClientPayment).filter(models.ClientPayment.id == payment_id).first()
-    if not payment:
-        raise HTTPException(status_code=404, detail="Приход не найден")
+    payment = get_tenant_object(
+        db, models.ClientPayment, payment_id, current_user, detail="Приход не найден"
+    )
     db.delete(payment)
     db.commit()
     return {"detail": "Приход удалён", "id": payment_id}

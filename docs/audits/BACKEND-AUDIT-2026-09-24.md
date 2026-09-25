@@ -406,19 +406,78 @@ production-схему. Это не доказательство отсутств
 9. drift между `requirements.txt` и optional bot imports/локальным deployment;
 10. actual production Set-Cookie через HTTPS (без production login в этом цикле).
 
-## Порядок исправлений после первой волны
+## Итог локальной кампании BA-04—BA-15 (24.09.2026)
 
-1. **Закрыто локально:** BA-01 — server-side logout/revocation;
-2. **Закрыто локально:** BA-02 — сериализация invoice mutation и конкурентные
-   регрессии;
-3. **Закрыто локально:** BA-03 — direct GET скрывает soft-deleted card;
-4. **P1:** BA-04/BA-05 — завершить password-version migration и money validation;
-5. **P1:** BA-10 — atomically закрыть group operations;
-6. **P1:** BA-06/BA-08 — proxy-aware Secure cookie, trusted TLS/HSTS;
-7. **P1:** BA-09 — readiness вместо liveness-only health;
-8. **P2:** BA-07/BA-11/BA-12/BA-13/BA-14/BA-15 — CSP, integrations/secrets,
-   email fail-closed, tenant policy, bot transport и filesystem permissions.
+Все кодовые пункты BA-04—BA-15 закрыты локально и покрыты регрессиями. Это не
+означает изменения production: рабочее дерево не закоммичено, push/deploy,
+production migration, PM2 restart, TLS/HSTS и host nginx не выполнялись.
+Untracked `docs/SESSION-BRIEF-2026-09-22.md` намеренно не включён.
 
-Пункты 1–3 не применены к production в этой волне; перед их релизом требуется
-отдельное решение владельца на backup, migration 0016, backend deploy и post-deploy
-проверки. Остальные пункты требуют отдельных решений и новых проверок.
+### Реализовано
+
+- **BA-04/BA-01:** JWT теперь требует `pv` (SHA-256 полного bcrypt hash), а logout
+  отзывает bearer и cookie через `RevokedAuthToken`; sliding renewal не resurrect'ит
+  отозванный токен.
+- **BA-05:** общий money-validator отклоняет `bool`, NaN/Infinity, отрицательные
+  значения там, где они недопустимы, точность выше двух знаков и выход за
+  `Numeric(12,2)`; молчаливого округления нет.
+- **BA-06:** login и renewal используют единый явный `CRM_COOKIE_SECURE`; production
+  fail-closed, spoofed forwarded headers не меняют cookie policy. Добавлен
+  pure-ASGI trusted-proxy boundary с CIDR-конфигурацией.
+- **BA-07:** v2 собирается без inline style/script контекста: `head.js`,
+  `shell-v2-base.css`, строгая route-specific CSP без `unsafe-inline`; legacy CSP
+  exception сохранён намеренно.
+- **BA-08:** подготовлен `docs/deployment/TLS-HSTS-RUNBOOK.md`; фактический
+  production TLS/HSTS и nginx не менялись.
+- **BA-09:** `/health` и `/health/live` — process liveness, `/health/ready` —
+  main DB/schema/migrations/uploads readiness с 503 при отказе; tenant DB явно
+  `not_checked`.
+- **BA-10:** group writeoff/membership mutations сериализованы SQLite
+  writer-reservation, с post-reservation reread и conditional state transitions;
+  конкурентные сценарии покрыты.
+- **BA-11:** webhook secret хранится в отдельном Fernet vault, миграция
+  идемпотентна, delivery имеет SSRF-защиту, bounded retry/backoff, audit trail и
+  dead-letter; raw exception text наружу не возвращается.
+- **BA-12:** email credentials используют отдельный Fernet key и fail-closed
+  классификацию `valid_ciphertext`/legacy plaintext/invalid; явная идемпотентная
+  конвертация и private atomic settings files.
+- **BA-13:** tenant-owned записи имеют явный tenant scope, JWT tenant claim
+  сверяется с пользователем, `tenant_id` нормализуется миграцией 0018 с refusal
+  при неоднозначных данных, а cross-tenant matrix покрывает critical read/write/
+  action/upload/checklist/document/aggregate paths. `superadmin` global scope
+  сохранён явно; обычные роли получают 404 для чужого объекта.
+- **BA-14:** bot token принимается только через `X-Bot-Token`; query fallback
+  удалён, сравнение constant-time.
+- **BA-15:** секретные файлы пишутся атомарно с mode `0600`; добавлен
+  metadata-only preflight без чтения/печати секретов.
+
+### Фактические результаты финальных гейтов
+
+- focused BA-13 tenant/migration: `25 passed`;
+- focused production regression set после исправлений: `532 passed`;
+- полный backend suite, `CRM_TEST_SCHEMA=prod`: `1137 passed`;
+- полный backend suite, `CRM_TEST_SCHEMA=models`: `1124 passed, 13 skipped`;
+  все skip — ожидаемые profile-specific BA-10/DDL/schema checks;
+- migration idempotency/clean fixture: `6 passed` в каждом из профилей `prod` и
+  `models`;
+- v2 rebuild: успешно, generated `site-v2` обновлён;
+- `node --check` для mockup и generated JS: OK; generated HTML содержит только
+  внешние `<script src>`, inline `<style>` и style-атрибутов нет;
+- CSP focused tests, `check_site_v2_fresh.py` (эталонный build во временной
+  копии совпадает с generated `site-v2`, 26 файлов) и `git diff --check`: OK.
+
+### Ограничения и незакрытые внешние действия
+
+- `v2_error_census.py` был запущен с локального стенда, но требует
+  `CRM_USER`/`CRM_PASS`; эти credentials намеренно не читались и не запрашивались,
+  поэтому полный census в этой сессии не выполнен.
+- Browser smoke на локальном стенде ранее подтвердил обе темы, переход на board и
+  открытие card dialog; после BA-13 изменений отдельный авторизованный census не
+  запускался из-за отсутствия credentials.
+- Перед production-выпуском владелец должен отдельно подтвердить backup,
+  применить миграции 0016–0018, задеплоить backend/static, выполнить
+  post-deploy readiness, migration checks и external TLS validation. До этого
+  заявления «production исправлено» делать нельзя.
+
+Production, production DB, `.pm2.env`, реальные ключи, сертификаты, PM2, host
+nginx и TLS/HSTS в этой кампании не изменялись.

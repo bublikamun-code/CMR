@@ -767,7 +767,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
 
           <!-- ТЁМНАЯ КАРТОЧКА-АКЦЕНТ (как в Elera) + ближайшие сборки -->
-          <div style="display:flex;flex-direction:column;gap:var(--s4);min-width:0">
+          <div class="day-side">
             <div class="card card-dark">
             <div class="card-head">
               <span class="card-title">Воронка · активные сделки</span>
@@ -779,7 +779,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
               <i></i><i class="l3"></i><i class="l2"></i><i class="l1"></i><i class="on"></i><i></i><i class="l1"></i>
               <i class="l1"></i><i></i><i class="l2"></i><i class="l3"></i><i class="l1"></i><i></i><i></i>
             </div>
-            <div style="margin-top:16px" id="day-funnel-stats"></div>
+            <div id="day-funnel-stats"></div>
             </div>
 
             <div class="card">
@@ -1023,7 +1023,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <div class="card-head">
               <span class="card-title">Клиенты <span class="pill" id="cl-count">0</span></span>
               <div class="right">
-                <input class="search-pill" id="cl-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск клиентов" style="min-width:210px">
+                <input class="search-pill directory-search" id="cl-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск клиентов">
                 <button class="btn btn-primary btn-sm" id="cl-new">+ Новый клиент</button>
               </div>
             </div>
@@ -1031,11 +1031,11 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <table class="tbl">
               <thead>
                 <tr>
-                  <th style="width:32%">Название</th>
-                  <th style="width:15%">УНП</th>
-                  <th style="width:22%">Контактное лицо</th>
+                  <th class="col-32">Название</th>
+                  <th class="col-15">УНП</th>
+                  <th class="col-22">Контактное лицо</th>
                   <th>Адрес</th>
-                  <th style="width:104px">Действия</th>
+                  <th class="col-actions">Действия</th>
                 </tr>
               </thead>
               <tbody id="cl-rows"></tbody>
@@ -1090,10 +1090,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="cal" id="shell-cal-grid"></div>
           <p class="fin-note" id="cal-note" hidden>В этом месяце событий нет. Здесь появляются сроки сделок, даты оплат и сроки задач.</p>
-          <div class="row wrap mt2" style="gap:12px;font-size:11px;color:var(--muted);margin-top:14px">
-            <span class="row" style="gap:5px"><span class="pill accent" style="padding:0 6px"></span>Сделка</span>
-            <span class="row" style="gap:5px"><span class="pill ok" style="padding:0 6px"></span>Оплата</span>
-            <span class="row" style="gap:5px"><span class="pill warn" style="padding:0 6px"></span>Задача</span>
+          <div class="cal-legend">
+            <span class="cal-legend-item"><span class="pill accent cal-legend-dot"></span>Сделка</span>
+            <span class="cal-legend-item"><span class="pill ok cal-legend-dot"></span>Оплата</span>
+            <span class="cal-legend-item"><span class="pill warn cal-legend-dot"></span>Задача</span>
             
           </div>
         </div>
@@ -1106,13 +1106,13 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           <div class="card-head">
             <span class="card-title">Поставщики <span class="pill" id="mgmt-supplier-count">0</span></span>
             <div class="right">
-              <input class="search-pill" id="mgmt-supplier-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск поставщиков" style="min-width:210px">
+              <input class="search-pill directory-search" id="mgmt-supplier-search" type="search" placeholder="Имя, УНП, телефон…" aria-label="Поиск поставщиков">
               <button class="btn btn-primary btn-sm" id="mgmt-supplier-new" type="button">+ Новый поставщик</button>
             </div>
           </div>
           <div class="table-scroll" role="region" aria-label="Поставщики — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-supplier-table">
-              <thead><tr><th style="width:30%">Название</th><th style="width:16%">УНП</th><th style="width:22%">Контакты</th><th>Адрес</th><th style="width:104px">Действия</th></tr></thead>
+              <thead><tr><th class="col-30">Название</th><th class="col-16">УНП</th><th class="col-22">Контакты</th><th>Адрес</th><th class="col-actions">Действия</th></tr></thead>
               <tbody id="mgmt-supplier-rows"></tbody>
             </table>
           </div>
@@ -1161,7 +1161,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" aria-label="Пользователи — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-user-table">
-              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th style="width:112px">Доступ</th><th style="width:252px">Действия</th></tr></thead>
+              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th class="col-access">Доступ</th><th class="col-user-actions">Действия</th></tr></thead>
               <tbody id="mgmt-user-rows"></tbody>
             </table>
           </div>
@@ -1173,7 +1173,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" aria-label="Магазины — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-store-table">
-              <thead><tr><th style="width:34%">Название</th><th>Адрес</th><th style="width:18%">Телефон</th><th style="width:104px">Действия</th></tr></thead>
+              <thead><tr><th class="col-34">Название</th><th>Адрес</th><th class="col-18">Телефон</th><th class="col-actions">Действия</th></tr></thead>
               <tbody id="mgmt-store-rows"></tbody>
             </table>
           </div>
@@ -1184,7 +1184,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" aria-label="Статусы сделок — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-status-table">
-              <thead><tr><th style="width:30%">Название</th><th style="width:16%">Цвет</th><th style="width:14%">Позиция</th><th>Назначение</th><th style="width:104px">Действия</th></tr></thead>
+              <thead><tr><th class="col-30">Название</th><th class="col-16">Цвет</th><th class="col-14">Позиция</th><th>Назначение</th><th class="col-actions">Действия</th></tr></thead>
               <tbody id="mgmt-status-rows"></tbody>
             </table>
           </div>
@@ -1201,7 +1201,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" aria-label="Вебхуки — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-wh-table">
-              <thead><tr><th style="width:34%">URL</th><th>События</th><th style="width:112px">Состояние</th><th style="width:268px">Действия</th></tr></thead>
+              <thead><tr><th class="col-34">URL</th><th>События</th><th class="col-access">Состояние</th><th class="col-wide-actions">Действия</th></tr></thead>
               <tbody id="mgmt-wh-rows"></tbody>
             </table>
           </div>
@@ -1214,7 +1214,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" aria-label="Кастомные объекты — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-co-table">
-              <thead><tr><th style="width:34%">Название</th><th>Системное имя</th><th style="width:268px">Действия</th></tr></thead>
+              <thead><tr><th class="col-34">Название</th><th>Системное имя</th><th class="col-wide-actions">Действия</th></tr></thead>
               <tbody id="mgmt-co-rows"></tbody>
             </table>
           </div>
@@ -1225,7 +1225,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             </div>
             <div class="table-scroll" role="region" aria-label="Поля кастомного объекта — горизонтальная прокрутка" tabindex="0">
               <table class="tbl" id="mgmt-co-fields-table">
-                <thead><tr><th style="width:26%">Метка</th><th>Системное имя</th><th style="width:132px">Тип</th><th style="width:128px">Обязательность</th><th style="width:200px">Действия</th></tr></thead>
+                <thead><tr><th class="col-26">Метка</th><th>Системное имя</th><th class="col-type">Тип</th><th class="col-required">Обязательность</th><th class="col-field-actions">Действия</th></tr></thead>
                 <tbody id="mgmt-co-field-rows"></tbody>
               </table>
             </div>
@@ -1239,7 +1239,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
           <div class="table-scroll" role="region" aria-label="Автоматизации — горизонтальная прокрутка" tabindex="0">
             <table class="tbl" id="mgmt-wf-table">
-              <thead><tr><th style="width:26%">Название</th><th>Описание</th><th style="width:112px">Состояние</th><th style="width:280px">Действия</th></tr></thead>
+              <thead><tr><th class="col-26">Название</th><th>Описание</th><th class="col-access">Состояние</th><th class="col-workflow-actions">Действия</th></tr></thead>
               <tbody id="mgmt-wf-rows"></tbody>
             </table>
           </div>
@@ -1384,7 +1384,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
         <td>${checkbox(r, 'calculated', 'Просчёт')}</td>
         <td>${checkbox(r, 'posted', 'Списано')}</td>
-        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" style="width:100%" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
+        <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
     </tr>`).join('');
     // Одна ТН — одна строка. В «Документы» она приходит из двух мест: строкой
     // реестра (последняя ТН сделки в KB_FIN_SOURCE — с магазином, счётом,
@@ -1429,7 +1429,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         const numId = String(r.id || '').replace(/\D/g, '');
         let filesHtml;
         if (!hasFiles) {
-            filesHtml = '<p class="fin-note" style="margin:4px 0">Файлов нет</p>';
+            filesHtml = '<p class="fin-note fin-note-compact">Файлов нет</p>';
         } else {
             const photoItems = photos.map((p, i) =>
                 `<li><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(p)}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${i + 1}</button></li>`
@@ -1437,7 +1437,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             const excelItem = hasExcel
                 ? `<li><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${esc(numId)}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>`
                 : '';
-            filesHtml = `<ul class="fin-inc-files" style="list-style:none;padding:0;margin:4px 0;display:flex;flex-direction:column;gap:4px">${photoItems}${excelItem}</ul>`;
+            filesHtml = `<ul class="fin-inc-files">${photoItems}${excelItem}</ul>`;
         }
         const searchText = [r.supplier, r.number, r.date, r.store, money(r.amount)].join(' ');
         return `<tr data-search="${esc(searchText)}">
@@ -1460,7 +1460,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
                 const img = document.createElement('img');
                 img.src = url;
                 img.alt = btn.dataset.nak || filename;
-                img.style.cssText = 'width:80px;height:60px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer;display:block';
+                img.className = 'fin-inc-photo-image';
                 img.dataset.action = 'inc-photo-view';
                 img.dataset.blobUrl = url;
                 img.title = 'Открыть фото в новой вкладке';
@@ -1872,7 +1872,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             <td>${cardOpen(c.id, c.client || 'Без клиента', c.id + ' · ' + c.title)}<small>${esc(c.id + ' · ' + c.title)}</small></td>
             <td>${esc(storeLabel(c.store))}</td><td><span class="fin-status">${esc(statusName(c.stage))}</span></td>
             <td class="num">${money(c.amount || 0)}</td><td class="num">${money(c.paidAmount || 0)}</td>
-            <td class="num" style="font-weight:800">${money(debt)}</td>
+            <td class="num fin-debt-strong">${money(debt)}</td>
             <td class="num">${ageCell(days)}</td>
         </tr>`).join('');
         // «Нет данных» (сбой) и «долгов нет» (норма) — разные состояния.

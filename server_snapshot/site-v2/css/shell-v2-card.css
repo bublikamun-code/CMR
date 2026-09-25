@@ -189,6 +189,7 @@ button.kb-att-dl {
     font: inherit;
 }
 button.kb-att-dl:hover { border-color: var(--accent); }
+button.kb-att-dl-compact { flex: 1; min-width: 0; justify-content: center; gap: 6px; background: transparent; border-color: transparent; padding: 4px 0; }
 
 /* Кнопка «Загрузить файлы» (label со скрытым input) — зона прикрепления;
    .kb-drop-hot — подсветка при перетаскивании файла на пункт закупки

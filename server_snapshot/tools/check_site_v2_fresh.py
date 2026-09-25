@@ -3,7 +3,7 @@
 
 `server_snapshot/site-v2/` — генерируемый каталог (см. `build_site_v2.py`), но
 в git он лежит обычными файлами, и расхождение с источниками
-(`tools/mockups/` + шаблоны `tools/v2-{api,boot}-template.js` + сам сборщик)
+(`tools/mockups/` + шаблоны `tools/v2-{head,api,boot}-template.js` + сам сборщик)
 не ловил ни один существующий гейт: `stamp_assets.py` проверяет хэши ссылок
 legacy-фронта, а `tools/check_js.sh` — только синтаксис.
 
@@ -41,6 +41,7 @@ OUT_DIR = Path("site-v2")
 # Прочие файлы tools/ (stamp_assets.py и пр.) на site-v2 не влияют.
 INPUTS = (
     Path("tools") / "mockups",
+    Path("tools") / "v2-head-template.js",
     Path("tools") / "v2-api-template.js",
     Path("tools") / "v2-boot-template.js",
     BUILDER,
@@ -153,8 +154,9 @@ def _text_report(root: Path, report: dict[str, list[str]], ignored: list[str],
 REBUILD_HINT = (
     "Пересоберите артефакт и закоммитьте его ВМЕСТЕ с правкой источников:\n"
     "    cd server_snapshot && python3 tools/build_site_v2.py\n"
-    "Источники: tools/mockups/, tools/v2-api-template.js, "
-    "tools/v2-boot-template.js, tools/build_site_v2.py.\n"
+    "Источники: tools/mockups/, tools/v2-head-template.js, "
+    "tools/v2-api-template.js, tools/v2-boot-template.js, "
+    "tools/build_site_v2.py.\n"
     "Руками server_snapshot/site-v2/ не править — каталог генерируется."
 )
 

@@ -229,11 +229,11 @@
         var name = u ? String(u.full_name || u.username || '') : '';
         return name + (isOffUser(u) ? ' (отключён)' : '');
     }
-    // Для разметки, которую собирается перекрасить: пилюля и без того
-    // приглушена (--muted), поэтому отключённый уходит на --faint.
+    // Отключённый пользователь остаётся в истории, но получает внешний класс
+    // приглушения и понятную подсказку без inline-стилей.
     function offUserAttrs(u) {
         return isOffUser(u)
-            ? ' style="color:var(--faint)" title="Пользователь отключён: в CRM не входит, ответить не сможет; сделки на нём остались"'
+            ? ' class="user-off-faint" title="Пользователь отключён: в CRM не входит, ответить не сможет; сделки на нём остались"'
             : '';
     }
     // 'cl-22' → 22
@@ -878,7 +878,7 @@
         var views = svRead();
         dlg.innerHTML = '<form id="kb-views-form"><h2 id="kb-views-heading">Сохранённые виды</h2>' +
             '<div class="mgmt-fields">' +
-            '<label for="kb-view-name" style="grid-column:1/-1"><span>Название вида</span>' +
+            '<label for="kb-view-name" class="mgmt-span"><span>Название вида</span>' +
             '<input id="kb-view-name" type="text" maxlength="40" autocomplete="off"></label>' +
             '</div>' +
             '<p id="kb-views-error" class="kb-form-error" role="alert" hidden></p>' +
@@ -1318,8 +1318,10 @@
         window.V2Api.api('/kanban/trash').then(function (list) {
             trashCache = list || [];
             body.innerHTML = '<p class="kb-note">В корзине: ' + trashCache.length + '</p>' + (trashCache.length ? trashCache.map(function (c) {
-                return '<div class="kb-q-row" style="display:flex;align-items:center;gap:8px;cursor:default"><div style="min-width:0"><b>' + esc(c.id + ' · ' + (c.title || '')) + '</b><div>' + esc(c.store_location || '') + '</div></div>' +
-                    '<div class="row" style="gap:6px;margin-left:auto">' +
+                return '<div class="kb-q-row"><div><b>' +
+                    esc(c.id + ' · ' + (c.title || '')) +
+                    '</b><div>' + esc(c.store_location || '') + '</div></div>' +
+                    '<div class="kb-q-actions">' +
                     // «Навсегда» — DELETE /kanban/cards/{id}/permanent, закрыт
                     // require_role admin/superadmin (kanban_router.py:242).
                     // «Восстановить» не помечено: PATCH /cards/{id}/restore
@@ -1950,7 +1952,7 @@
             return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '">' +
                 '<div class="kb-check-line">' +
                 '<input class="kb-sup-combo" data-cl-id="' + rawId + '" value="' + esc(item.supplierName || item.label || '') + '" placeholder="Поставщик (выберите или впишите)" autocomplete="off">' +
-                '<input class="kb-sup-amount" data-cl-id="' + rawId + '" value="' + esc(item.amount || '') + '" placeholder="Сумма, BYN" inputmode="decimal" style="width:110px">' +
+                '<input class="kb-sup-amount" data-cl-id="' + rawId + '" value="' + esc(item.amount || '') + '" placeholder="Сумма, BYN" inputmode="decimal">' +
                 invFileHtml +
                 '</div>' +
                 '<input class="kb-cl-note" data-cl-id="' + rawId + '" value="' + esc(item.note || '') + '" placeholder="Примечание к закупке…" maxlength="500">' +
@@ -2018,8 +2020,8 @@
             '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>Заказано ' + cl.ordered + ' · Получено ' + cl.received + ' (из ' + cl.total + ')</span></h3>' +
             '<p class="kb-detail-hint">Файл до 25 МБ</p>' +
             '<div class="kb-add-check">' +
-            '<input id="kb-add-supplier" placeholder="Поставщик (выберите или впишите)" style="flex:1;min-width:170px">' +
-            '<input id="kb-add-amount" inputmode="decimal" placeholder="Сумма, BYN" style="width:120px">' +
+            '<input id="kb-add-supplier" class="kb-add-supplier" placeholder="Поставщик (выберите или впишите)">' +
+            '<input id="kb-add-amount" class="kb-add-amount" inputmode="decimal" placeholder="Сумма, BYN">' +
             '<button type="button" class="btn btn-primary btn-sm" id="kb-add-check">Добавить</button></div>' +
             (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
             '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +
@@ -2027,7 +2029,7 @@
             ((c.attachments || []).length ? c.attachments.map(function (a) {
                 var attName = displayName(a.name || '') || 'Вложение без имени';
                 return '<div class="kb-check-row kb-att-row" data-att-row="' + esc(a.id) + '">' +
-                    '<button type="button" class="kb-att-dl" data-att-id="' + (a.id || '') + '" data-att-name="' + esc(attName) + '" title="' + esc(attName) + '" style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;background:none;border:none;cursor:pointer;padding:4px 0">' +
+                    '<button type="button" class="kb-att-dl kb-att-dl-compact" data-att-id="' + (a.id || '') + '" data-att-name="' + esc(attName) + '" title="' + esc(attName) + '">' +
                     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
                     '<span class="grow trunc" title="' + esc(attName) + '">' + esc(attName) + '</span></button>' +
                     '<button type="button" class="btn btn-ghost btn-sm kb-att-del" data-att-del="' + esc(a.id) + '" data-att-del-name="' + esc(attName) + '" title="Удалить вложение: ' + esc(attName) + '" aria-label="Удалить вложение ' + esc(attName) + '">✕</button>' +
@@ -3597,7 +3599,7 @@
         // В payload магазина уходит ИМЯ: cards.store_location — строка, а не id.
         dlg.innerHTML = '<form id="kb-nc-form"><h2 id="kb-nc-heading">Новая сделка</h2>' +
             '<div class="mgmt-fields">' +
-            '<label for="kb-nc-title" style="grid-column:1/-1"><span>Название*</span>' +
+            '<label for="kb-nc-title" class="mgmt-span"><span>Название*</span>' +
             '<input id="kb-nc-title" name="title" type="text" maxlength="200" required autocomplete="off"></label>' +
             '<label for="kb-nc-amount"><span>Сумма, BYN</span>' +
             '<input id="kb-nc-amount" name="total_amount" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>' +

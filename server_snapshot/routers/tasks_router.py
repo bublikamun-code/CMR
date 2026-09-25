@@ -1,9 +1,9 @@
 """
 Раздел «Задачи»: отдельные поручения с ответственным и сроком.
 
-Хранение: таблица tasks в ОСНОВНОЙ базе (пользователи глобальны, компания
-одна, а поручения свободно назначаются между сотрудниками). Видимость:
-- admin/superadmin видят все задачи;
+Хранение: таблица tasks в ОСНОВНОЙ базе. Видимость внутри tenant:
+- admin/superadmin видят все задачи tenant (superadmin также сохраняет
+  явную глобальную видимость);
 - остальные — только назначенные им и созданные ими.
 
 Уведомления пишутся в базу получателя (см. notify.py).
@@ -20,6 +20,7 @@ import schemas
 from auth import get_current_user
 from database import get_db
 from notify import notify
+from tenant_policy import assign_tenant, get_tenant_object, tenant_query
 
 router = APIRouter(
     prefix="/tasks",
@@ -28,7 +29,7 @@ router = APIRouter(
 )
 
 
-def _snapshot_title(db: Session, model, obj_id):
+def _snapshot_title(db: Session, model, obj_id, current_user):
     """Название сделки/клиента: ищем в основной базе.
 
     Снимок названия хранится в самой задаче (см. migrate_task_snapshots) —
@@ -36,25 +37,27 @@ def _snapshot_title(db: Session, model, obj_id):
     """
     if not obj_id:
         return None
-    obj = db.get(model, obj_id)
+    obj = tenant_query(db, model, current_user).filter(model.id == obj_id).first()
     if obj is not None:
         return getattr(obj, "title", None) or getattr(obj, "name", None)
     return None
 
 
-def _serialize(db: Session, task: models.Task, usernames: dict | None = None) -> dict:
+def _serialize(db: Session, task: models.Task, current_user, usernames: dict | None = None) -> dict:
     def username(uid):
         if not uid:
             return None
         if usernames is not None:
             return usernames.get(uid)
-        u = db.get(models.User, uid)
+        u = tenant_query(db, models.User, current_user).filter(
+            models.User.id == uid
+        ).first()
         return u.username if u else None
 
     # Снимки названий (заполняются при создании/изменении задачи);
     # lookup — фолбэк для записей, созданных до миграции
-    card_title = task.card_title_snapshot or _snapshot_title(db, models.Card, task.card_id)
-    client_name = task.client_name_snapshot or _snapshot_title(db, models.Client, task.client_id)
+    card_title = task.card_title_snapshot or _snapshot_title(db, models.Card, task.card_id, current_user)
+    client_name = task.client_name_snapshot or _snapshot_title(db, models.Client, task.client_id, current_user)
     checklist = [
         {"id": i.id, "title": i.title, "is_done": bool(i.is_done)}
         for i in sorted(task.checklist_items, key=lambda x: (x.position, x.id))
@@ -81,7 +84,7 @@ def _serialize(db: Session, task: models.Task, usernames: dict | None = None) ->
 
 
 def _get_visible_task_or_404(db: Session, task_id: int, current_user: models.User) -> models.Task:
-    query = db.query(models.Task).filter(models.Task.id == task_id)
+    query = tenant_query(db, models.Task, current_user).filter(models.Task.id == task_id)
     if current_user.role not in ("admin", "superadmin"):
         query = query.filter(or_(models.Task.assignee_id == current_user.id,
                                  models.Task.creator_id == current_user.id))
@@ -94,14 +97,16 @@ def _get_visible_task_or_404(db: Session, task_id: int, current_user: models.Use
 @router.get("/assignees", response_model=List[schemas.TaskAssignee])
 def list_assignees(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """Кому можно поручить задачу — все пользователи системы."""
-    return db.query(models.User.id, models.User.username).order_by(models.User.username).all()
+    return tenant_query(db, models.User, current_user).order_by(
+        models.User.username
+    ).all()
 
 
 @router.get("", response_model=List[schemas.TaskResponse])
 def list_tasks(my: Optional[int] = None, status: Optional[str] = None,
                q: Optional[str] = None,
                db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    query = db.query(models.Task)
+    query = tenant_query(db, models.Task, current_user)
     if current_user.role not in ("admin", "superadmin"):
         query = query.filter(or_(models.Task.assignee_id == current_user.id,
                                  models.Task.creator_id == current_user.id))
@@ -122,11 +127,15 @@ def list_tasks(my: Optional[int] = None, status: Optional[str] = None,
                models.Task.due_date.asc()).limit(500).all()
     # FIX 2026-08-30 (N+1): имена пользователей — одним запросом вместо
     # db.get на каждую задачу.
-    usernames = dict(db.query(models.User.id, models.User.username).all())
-    return [_serialize(db, t, usernames) for t in tasks]
+    usernames = dict(
+        tenant_query(db, models.User, current_user)
+        .with_entities(models.User.id, models.User.username)
+        .all()
+    )
+    return [_serialize(db, t, current_user, usernames) for t in tasks]
 
 
-def _validate_link(db: Session, model, obj_id, label: str):
+def _validate_link(db: Session, model, obj_id, label: str, current_user):
     """Фикс аудита 10.09: card_id/client_id приходят из формы без проверки.
 
     Раньше несуществующий id доезжал до FK-констрейнта и превращался в
@@ -136,11 +145,12 @@ def _validate_link(db: Session, model, obj_id, label: str):
     """
     if not obj_id:
         return
-    if db.get(model, obj_id) is None:
-        raise HTTPException(status_code=404, detail=f"{label} не найдена")
+    get_tenant_object(
+        db, model, obj_id, current_user, detail=f"{label} не найдена"
+    )
 
 
-def _validate_assignee(db: Session, user_id):
+def _validate_assignee(db: Session, user_id, current_user):
     """Ответственный обязан существовать — иначе 400, а не 500.
 
     assignee_id — FK users.id (models.py:410), а PRAGMA foreign_keys=ON
@@ -151,7 +161,9 @@ def _validate_assignee(db: Session, user_id):
     """
     if not user_id:
         return
-    if db.get(models.User, user_id) is None:
+    if tenant_query(db, models.User, current_user).filter(
+        models.User.id == user_id
+    ).first() is None:
         raise HTTPException(status_code=400,
                             detail=f"Пользователь #{user_id} не найден")
 
@@ -163,11 +175,11 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="Укажите название задачи")
     if data.status and data.status not in schemas.TASK_STATUSES:
         raise HTTPException(status_code=400, detail="Недопустимый статус")
-    _validate_link(db, models.Card, data.card_id, "Сделка")
-    _validate_link(db, models.Client, data.client_id, "Клиент")
-    _validate_assignee(db, data.assignee_id)
+    _validate_link(db, models.Card, data.card_id, "Сделка", current_user)
+    _validate_link(db, models.Client, data.client_id, "Клиент", current_user)
+    _validate_assignee(db, data.assignee_id, current_user)
 
-    task = models.Task(
+    task = assign_tenant(models.Task(
         title=data.title.strip()[:255],
         description=data.description,
         status=data.status or "todo",
@@ -180,7 +192,7 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
         card_id=data.card_id,
         client_id=data.client_id,
         completed_at=datetime.now(timezone.utc) if data.status == "done" else None,
-    )
+    ), current_user)
     db.add(task)
     # Атомарность (Фаза 4): задача и снимки названий — одна транзакция.
     # flush вместо промежуточного commit: id задачи и server-defaults
@@ -191,9 +203,9 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
 
     # Снимки названий сделки/клиента (живут в основной базе)
     if task.card_id:
-        task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id)
+        task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id, current_user)
     if task.client_id:
-        task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id)
+        task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id, current_user)
     db.commit()
     db.refresh(task)
 
@@ -203,7 +215,7 @@ def create_task(data: schemas.TaskCreate, db: Session = Depends(get_db),
                type="task_assigned", title=f"Вам поручена задача: {task.title}",
                details=(task.due_date.strftime("%d.%m.%Y %H:%M") if task.due_date else None),
                entity_type="task", entity_id=task.id)
-    return _serialize(db, task)
+    return _serialize(db, task, current_user)
 
 
 @router.patch("/{task_id}", response_model=schemas.TaskResponse)
@@ -243,13 +255,13 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
         # nullable + FK ondelete="SET NULL" — снять ответственного можно (null).
         # Проверка существования — до присваивания: без неё чужой id доходил до
         # FK на flush и давал 500 вместо 400 (пункт 15 плана v2, 23.09).
-        _validate_assignee(db, data.assignee_id)
+        _validate_assignee(db, data.assignee_id, current_user)
         task.assignee_id = data.assignee_id
     if 'card_id' in data.model_fields_set:
-        _validate_link(db, models.Card, data.card_id, "Сделка")
+        _validate_link(db, models.Card, data.card_id, "Сделка", current_user)
         task.card_id = data.card_id
     if 'client_id' in data.model_fields_set:
-        _validate_link(db, models.Client, data.client_id, "Клиент")
+        _validate_link(db, models.Client, data.client_id, "Клиент", current_user)
         task.client_id = data.client_id
     if 'status' in data.model_fields_set:
         # Статус — не nullable по смыслу: вне TASK_STATUSES задача выпадает из
@@ -273,11 +285,11 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
     # уже несуществующей связи.
     if 'card_id' in data.model_fields_set or 'client_id' in data.model_fields_set:
         if task.card_id:
-            task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id)
+            task.card_title_snapshot = _snapshot_title(db, models.Card, task.card_id, current_user)
         else:
             task.card_title_snapshot = None
         if task.client_id:
-            task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id)
+            task.client_name_snapshot = _snapshot_title(db, models.Client, task.client_id, current_user)
         else:
             task.client_name_snapshot = None
     db.commit()
@@ -303,7 +315,7 @@ def update_task(task_id: int, data: schemas.TaskUpdate, db: Session = Depends(ge
                type="task_done", title=f"Задача выполнена: {task.title}",
                entity_type="task", entity_id=task.id)
 
-    return _serialize(db, task)
+    return _serialize(db, task, current_user)
 
 
 @router.delete("/{task_id}")
@@ -321,8 +333,13 @@ def delete_task(task_id: int, db: Session = Depends(get_db),
 # --- Чек-лист (подзадачи) ---
 
 def _get_item_or_404(db: Session, item_id: int, current_user: models.User) -> models.TaskChecklistItem:
-    item = db.query(models.TaskChecklistItem).filter(
-        models.TaskChecklistItem.id == item_id).first()
+    item = get_tenant_object(
+        db,
+        models.TaskChecklistItem,
+        item_id,
+        current_user,
+        detail="Пункт не найден",
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Пункт не найден")
     # Доступ к пункту = доступ к его задаче
@@ -337,13 +354,15 @@ def add_checklist_item(task_id: int, data: schemas.TaskChecklistItemCreate,
     title = (data.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Пустой пункт чек-листа")
-    last_pos = db.query(models.TaskChecklistItem.position).filter(
+    last_pos = tenant_query(db, models.TaskChecklistItem, current_user).with_entities(
+        models.TaskChecklistItem.position
+    ).filter(
         models.TaskChecklistItem.task_id == task.id).order_by(
         models.TaskChecklistItem.position.desc()).first()
-    item = models.TaskChecklistItem(
+    item = assign_tenant(models.TaskChecklistItem(
         task_id=task.id, title=title[:255],
         position=(last_pos[0] + 1) if last_pos and last_pos[0] is not None else 0,
-    )
+    ), current_user)
     db.add(item)
     db.commit()
     db.refresh(item)

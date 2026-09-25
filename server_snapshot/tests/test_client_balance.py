@@ -121,7 +121,7 @@ def test_payment_of_other_client_rejected(client, manager, db, make_card, make_c
     other_card = make_card(title="Чужая", total_amount=100.0, client_id=cl_b.id)
     r = client.post(f"/clients/{cl_a.id}/payments", headers=h,
                     json={"amount": 50.0, "card_id": other_card.id})
-    assert r.status_code == 400, "чужая сделка не проходит"
+    assert r.status_code == 404, "чужая сделка не проходит"
 
 
 def test_card_without_client_patches_normally(client, manager, db, make_card):

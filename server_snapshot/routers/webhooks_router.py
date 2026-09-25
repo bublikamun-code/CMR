@@ -1,103 +1,82 @@
-"""
-Роутер для Webhooks — уведомления внешних систем при событиях.
-"""
-import hashlib
-import hmac
-import ipaddress
+"""Роутер webhook: секреты шифруются, доставка идёт через безопасный transport."""
 import json
 import logging
 import socket
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import models
 from database import SessionLocal, get_db
+from webhook_delivery import (
+    DEFAULT_MAX_ATTEMPTS,
+    DeliveryOutcome,
+    WebhookURLValidationError,
+    create_delivery,
+    deliver_delivery,
+    mark_dead_letter,
+    resolve_public_target,
+    submit_delivery,
+)
+from webhook_security import (
+    MAX_SECRET_LENGTH,
+    WebhookEncryptionConfigError,
+    encrypt_secret,
+    obtain_fernet,
+)
 
 logger = logging.getLogger(__name__)
 
 from auth import get_current_user, require_admin
 
-# Blocked host patterns for SSRF protection
-SSRF_BLOCKED = [
-    "localhost", "127.0.0.1", "0.0.0.0", "::1",
-    "169.254.", "10.", "172.16.", "172.17.", "172.18.", "172.19.",
-    "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
-    "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.",
-    "192.168.", ".internal", ".local",
-]
 
 def _validate_webhook_url(url: str) -> str:
-    """Validate webhook URL to prevent SSRF attacks."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="Webhook URL must use http or https")
-    hostname = parsed.hostname or ""
-    for blocked in SSRF_BLOCKED:
-        if hostname == blocked or hostname.endswith(blocked) or hostname.startswith(blocked):
-            raise HTTPException(status_code=400, detail=f"Webhook URL hostname is not allowed: {hostname}")
-
+    """Проверить схему, hostname, порт и текущий публичный DNS-ответ."""
     try:
-        addrinfo = socket.getaddrinfo(hostname, None)
-        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
-            ip = sockaddr[0]
-            addr = ipaddress.ip_address(ip)
-            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-                raise HTTPException(status_code=400, detail=f"Webhook URL resolves to a private/reserved IP: {ip}")
-    except socket.gaierror as e:
-        raise HTTPException(status_code=400, detail="Webhook URL hostname could not be resolved") from e
+        resolve_public_target(url, resolver=socket.getaddrinfo)
+    except WebhookURLValidationError as exc:
+        raise HTTPException(status_code=400, detail="Недопустимый URL webhook") from exc
+    return url.strip()
 
-    return url
 
 def _assert_public_host(url: str) -> None:
-    """FIX 2026-08-29 (SSRF): повторная проверка хоста непосредственно перед
-    запросом. Раньше валидация была только при создании вебхука — DNS rebinding
-    позволял подменить IP между проверкой и urlopen; test_webhook и
-    notify_webhooks вообще не проверяли адрес."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise ValueError(f"Недопустимый URL вебхука: {url}")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    for info in socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP):
-        addr = ipaddress.ip_address(info[4][0])
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
-            raise ValueError(f"Ходится в непубличный адрес: {addr}")
+    """Совместимый строгий preflight; сам connect всё равно pinning-транспортом."""
+    resolve_public_target(url, resolver=socket.getaddrinfo)
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """FIX 2026-08-29 (SSRF): редиректы запрещены — ими обходят проверку хоста."""
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
 
-def _open_webhook(req: urllib.request.Request):
-    opener = urllib.request.build_opener(_NoRedirect)
-    return opener.open(req, timeout=10)
+def _obtain_webhook_fernet():
+    try:
+        return obtain_fernet()
+    except WebhookEncryptionConfigError as exc:
+        logger.error("Webhook encryption unavailable code=encryption_key_unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail="Шифрование секрета webhook временно недоступно",
+        ) from exc
+
 
 router = APIRouter(
     prefix="/webhooks",
     tags=["Webhooks"],
-    # FIX 2026-08-30 (роли): вебхуки — системная интеграция, отправляющая данные
-    # сделок наружу. Раньше создавать их мог любой аутентифицированный
-    # (включая склад/документы): канал утечки базы. Фичей пока не пользуется
-    # никто (таблица пуста), вкладка в UI скрыта для не-админов.
-    dependencies=[Depends(require_admin())]
+    dependencies=[Depends(require_admin())],
 )
 
+
 class WebhookCreate(BaseModel):
-    url: str
-    secret: Optional[str] = None
-    events: list  # ["card.created", "card.updated", "client.created"]
+    url: str = Field(min_length=1, max_length=500)
+    secret: Optional[str] = Field(default=None, max_length=MAX_SECRET_LENGTH)
+    events: list
+
 
 class WebhookUpdate(BaseModel):
-    url: Optional[str] = None
-    secret: Optional[str] = None
+    url: Optional[str] = Field(default=None, max_length=500)
+    secret: Optional[str] = Field(default=None, max_length=MAX_SECRET_LENGTH)
     events: Optional[list] = None
     is_active: Optional[bool] = None
+
 
 AVAILABLE_EVENTS = [
     "card.created", "card.updated", "card.deleted",
@@ -107,203 +86,215 @@ AVAILABLE_EVENTS = [
     "document.created", "document.updated",
 ]
 
+
 @router.get("/events")
 def list_events():
     return AVAILABLE_EVENTS
 
+
+def _webhook_response(webhook: models.Webhook) -> dict:
+    return {
+        "id": webhook.id,
+        "url": webhook.url,
+        "events": json.loads(webhook.events) if webhook.events else [],
+        "is_active": webhook.is_active,
+        "has_secret": bool(webhook.secret),
+        "created_at": webhook.created_at.isoformat(),
+    }
+
+
 @router.get("/")
 def list_webhooks(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-
     hooks = db.query(models.Webhook).filter(
         models.Webhook.tenant_id == current_user.tenant_id
     ).all()
-    return [{"id": h.id, "url": h.url, "events": json.loads(h.events) if h.events else [],
-             "is_active": h.is_active, "created_at": h.created_at.isoformat()} for h in hooks]
+    # Секрет никогда не входит в сериализацию, даже признаком его значения.
+    return [_webhook_response(webhook) for webhook in hooks]
+
 
 @router.post("/")
-def create_webhook(wh: WebhookCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    _validate_webhook_url(wh.url)
-
-    new_wh = models.Webhook(
-        url=wh.url,
-        secret=wh.secret,
-        events=json.dumps(wh.events),
-        tenant_id=current_user.tenant_id
+def create_webhook(
+    wh: WebhookCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    url = _validate_webhook_url(wh.url)
+    fernet = _obtain_webhook_fernet()
+    encrypted_secret = (
+        encrypt_secret(wh.secret, fernet) if wh.secret is not None else None
     )
-    db.add(new_wh)
+    new_webhook = models.Webhook(
+        url=url,
+        secret=encrypted_secret,
+        events=json.dumps(wh.events),
+        tenant_id=current_user.tenant_id,
+    )
+    db.add(new_webhook)
     db.commit()
-    db.refresh(new_wh)
-    return {"id": new_wh.id, "url": new_wh.url, "message": "Webhook создан"}
+    db.refresh(new_webhook)
+    return {"id": new_webhook.id, "message": "Webhook создан"}
+
 
 @router.patch("/{wh_id}")
-def update_webhook(wh_id: int, wh: WebhookUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    # 23.09 (пункт 15 плана v2): гейт переведён с `is not None` на
-    # model_fields_set — по образцу update_card и update_task. Пока поле
-    # гейтилось не-null-гейтом, null в теле читался как «поле не прислали», и
-    # PATCH не мог ни снять подпись, ни отключить вебхук очисткой: клиент
-    # получал 200 без изменений. Теперь намерение задаёт присутствие ключа.
-    # Проверки идут до записи в объект, а commit — один в конце: отвергнутый
-    # запрос не оставляет следа (сессия закрывается get_db без commit'а).
-    h = db.query(models.Webhook).filter(
+def update_webhook(
+    wh_id: int,
+    wh: WebhookUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    webhook = db.query(models.Webhook).filter(
         models.Webhook.id == wh_id,
-        models.Webhook.tenant_id == current_user.tenant_id
+        models.Webhook.tenant_id == current_user.tenant_id,
     ).first()
-    if not h:
+    if not webhook:
         raise HTTPException(status_code=404, detail="Webhook не найден")
 
-    if 'url' in wh.model_fields_set:
-        # url — NOT NULL (models.py:369): null не очищает, а отвергается.
+    if "url" in wh.model_fields_set:
         url = (wh.url or "").strip()
         if not url:
-            raise HTTPException(status_code=400,
-                                detail="Укажите URL получателя — он не может быть пустым")
-        h.url = _validate_webhook_url(url)
-    if 'secret' in wh.model_fields_set:
-        # secret хранится открытым текстом и в момент отправки из него считают
-        # HMAC-SHA256 подпись (test_webhook, notify_webhooks) — это не хэш
-        # пароля, а общий секретный ключ. Колонка nullable, поэтому снять
-        # подпись МОЖНО: для этого в теле обязано лежать {"secret": null}.
-        # Пустая строка отвергнута нарочно: форма, которая шлёт незаполненное
-        # поле как "", молча лишила бы получателя проверки подписи, а ошибка
-        # была бы видна только на его стороне. Клиент v2 пустой secret не
-        # присылает вообще (shell-v2-management.js:1142), так что явный жест —
-        # только null.
+            raise HTTPException(
+                status_code=400,
+                detail="Укажите URL получателя — он не может быть пустым",
+            )
+        webhook.url = _validate_webhook_url(url)
+    if "secret" in wh.model_fields_set:
         if wh.secret is None:
-            h.secret = None
+            webhook.secret = None
         elif not wh.secret.strip():
-            raise HTTPException(status_code=400, detail=(
-                "Секрет не может быть пустой строкой: чтобы снять подпись, "
-                "пришлите null"))
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Секрет не может быть пустой строкой: чтобы снять подпись, "
+                    "пришлите null"
+                ),
+            )
         else:
-            h.secret = wh.secret.strip()
-    if 'events' in wh.model_fields_set:
-        # events — NOT NULL JSON-колонка: null отвергается. Пустой список [] —
-        # допустимое «ни на что не подписан» (доставка просто не срабатывает).
+            fernet = _obtain_webhook_fernet()
+            webhook.secret = encrypt_secret(wh.secret.strip(), fernet)
+    if "events" in wh.model_fields_set:
         if wh.events is None:
-            raise HTTPException(status_code=400,
-                                detail="Список событий не может быть пустым (null)")
-        h.events = json.dumps(wh.events)
-    if 'is_active' in wh.model_fields_set:
-        # У флага нет третьего состояния: NULL в колонке клиент прочитает как
-        # false, а notify_webhooks фильтрует `is_active == True` — вебхук
-        # выглядел бы включённым в UI и молча не отправлял бы ничего.
+            raise HTTPException(
+                status_code=400, detail="Список событий не может быть пустым (null)"
+            )
+        webhook.events = json.dumps(wh.events)
+    if "is_active" in wh.model_fields_set:
         if wh.is_active is None:
-            raise HTTPException(status_code=400,
-                                detail="Признак активности не может быть null: true или false")
-        h.is_active = bool(wh.is_active)
+            raise HTTPException(
+                status_code=400,
+                detail="Признак активности не может быть null: true или false",
+            )
+        webhook.is_active = bool(wh.is_active)
     db.commit()
     return {"message": "Обновлено"}
 
-@router.delete("/{wh_id}")
-def delete_webhook(wh_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
 
-    h = db.query(models.Webhook).filter(
+@router.delete("/{wh_id}")
+def delete_webhook(
+    wh_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    webhook = db.query(models.Webhook).filter(
         models.Webhook.id == wh_id,
-        models.Webhook.tenant_id == current_user.tenant_id
+        models.Webhook.tenant_id == current_user.tenant_id,
     ).first()
-    if not h:
+    if not webhook:
         raise HTTPException(status_code=404, detail="Webhook не найден")
-    db.delete(h)
+    db.delete(webhook)
     db.commit()
     return {"message": "Удалено"}
 
-@router.post("/{wh_id}/test")
-def test_webhook(wh_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
 
-    h = db.query(models.Webhook).filter(
+def _delivery_response(outcome: DeliveryOutcome) -> dict:
+    return {
+        "status": outcome.response_status or 0,
+        "success": outcome.status == "succeeded",
+        "delivery_status": outcome.status,
+        "attempts": outcome.attempts,
+        "correlation_id": outcome.correlation_id,
+        "error_code": outcome.error_code,
+    }
+
+
+@router.post("/{wh_id}/test")
+def test_webhook(
+    wh_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    webhook = db.query(models.Webhook).filter(
         models.Webhook.id == wh_id,
-        models.Webhook.tenant_id == current_user.tenant_id
+        models.Webhook.tenant_id == current_user.tenant_id,
     ).first()
-    if not h:
+    if not webhook:
         raise HTTPException(status_code=404, detail="Webhook не найден")
 
     payload = {
         "event": "test",
         "data": {"message": "Тестовый webhook от CRM"},
-        # tz-aware UTC: получатель видит однозначный момент времени
-        # (+00:00), а не «локальное время неизвестного сервера».
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    delivery = create_delivery(
+        db,
+        webhook_id=webhook.id,
+        event="test",
+        tenant_id=current_user.tenant_id,
+    )
+    outcome = deliver_delivery(delivery.id, payload)
+    return _delivery_response(outcome)
 
-    headers = {"Content-Type": "application/json"}
-    if h.secret:
-        sig = hmac.new(h.secret.encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
-        headers["X-Webhook-Signature"] = sig
-
-    try:
-        _assert_public_host(h.url)
-        # SSL-контекст вручную не создаём: _open_webhook открывает запрос
-        # через urllib, а его HTTPSHandler по умолчанию проверяет сертификаты.
-        data = json.dumps(payload).encode()
-        req = urllib.request.Request(h.url, data=data, headers=headers, method='POST')
-        resp = _open_webhook(req)
-    except urllib.error.HTTPError as e:
-        return {"status": e.code, "success": False, "error": str(e)}
-    except Exception as e:
-        return {"status": 0, "success": False, "error": str(e)}
-    else:
-        return {"status": resp.status, "success": resp.status < 400}
-
-# === Функция отправки webhook (вызывается из других роутеров) ===
 
 async def notify_webhooks(tenant_id, event, data):
-    """Отправляет webhook всем активным подписчикам для данного tenant."""
+    """Поставить доставки в ограниченный executor без потока на событие."""
+    db = SessionLocal()
+    deliveries = []
     try:
-        # Подписчики ищутся в основной базе: tenant-маршрутизация отключена
-        # (решение 2026-09), у всех пользователей tenant_id = NULL.
-        db = SessionLocal()
-        hooks = []
-        try:
-            q = db.query(models.Webhook).filter(models.Webhook.is_active == True)
-            if tenant_id is None:
-                q = q.filter(models.Webhook.tenant_id == None)
-            else:
-                q = q.filter(models.Webhook.tenant_id == tenant_id)
-            hooks.extend(q.all())
-        finally:
-            db.close()
-        for h in hooks:
-            events = json.loads(h.events) if h.events else []
-            if event not in events:
-                continue
-
-            payload = {
-                "event": event,
-                "data": data,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-
-            headers = {"Content-Type": "application/json"}
-            if h.secret:
-                sig = hmac.new(h.secret.encode(), json.dumps(payload).encode(), hashlib.sha256).hexdigest()
-                headers["X-Webhook-Signature"] = sig
-
+        query = db.query(models.Webhook).filter(models.Webhook.is_active == True)
+        if tenant_id is None:
+            query = query.filter(models.Webhook.tenant_id == None)
+        else:
+            query = query.filter(models.Webhook.tenant_id == tenant_id)
+        for webhook in query.all():
             try:
-                _assert_public_host(h.url)
-                payload_bytes = json.dumps(payload).encode()
-                req = urllib.request.Request(h.url, data=payload_bytes, headers=headers, method='POST')
-                _open_webhook(req)
-            except Exception as e:
-                logger.warning("Webhook %s delivery failed: %s", h.url, e)
+                events = json.loads(webhook.events) if webhook.events else []
+                if event not in events:
+                    continue
+                payload = {
+                    "event": event,
+                    "data": data,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                delivery = create_delivery(
+                    db,
+                    webhook_id=webhook.id,
+                    event=event,
+                    tenant_id=tenant_id,
+                )
+                deliveries.append((delivery.id, payload))
+            except (TypeError, ValueError):
+                logger.error(
+                    "Webhook dispatch rejected code=configuration_invalid webhook_id=%s",
+                    webhook.id,
+                )
     except Exception:
-        logger.warning("Webhook dispatch failed for event %s", event, exc_info=True)
+        logger.error("Webhook dispatch failed code=dispatch_failed")
+    finally:
+        db.close()
+
+    for delivery_id, payload in deliveries:
+        if not submit_delivery(deliver_delivery, delivery_id, payload):
+            correlation_id = mark_dead_letter(delivery_id)
+            logger.error(
+                "Webhook delivery rejected code=queue_full correlation_id=%s",
+                correlation_id,
+            )
+
 
 def notify_webhooks_async(tenant_id, event, data):
-    """FIX 2026-08-29: фоновая отправка вебхуков в отдельном потоке.
-
-    Раньше вызывалось как asyncio.get_event_loop().create_task() из
-    синхронного хендлера: event loop в потоке threadpool отсутствует,
-    вызов падал с RuntimeError и глушился except — вебхуки никогда
-    не отправлялись. asyncio.run() в daemon-потоке решает это, не
-    блокируя ответ API.
-    """
+    """Совместимая точка входа: сама создаёт доставки, поток на событие не нужен."""
     import asyncio
-    import threading
 
-    def _run():
-        try:
-            asyncio.run(notify_webhooks(tenant_id, event, data))
-        except Exception:
-            logger.warning("notify_webhooks crashed for %s", event, exc_info=True)
-
-    threading.Thread(target=_run, daemon=True).start()
+    try:
+        asyncio.run(notify_webhooks(tenant_id, event, data))
+    except Exception:
+        logger.error("Webhook dispatch failed code=dispatch_failed")

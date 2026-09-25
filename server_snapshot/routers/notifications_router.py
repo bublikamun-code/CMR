@@ -22,6 +22,7 @@ import schemas
 from auth import get_current_user, require_cron_token
 from database import get_db
 from notify import notify
+from tenant_policy import tenant_query
 
 router = APIRouter(
     prefix="/notifications",
@@ -44,7 +45,9 @@ DEFAULT_OPEN_STATUSES = ("На списание", "Закрыто")
 def list_notifications(unread_only: bool = False, limit: int = LIST_LIMIT,
                        db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
-        base = db.query(models.Notification).filter(models.Notification.user_id == current_user.id)
+        base = tenant_query(db, models.Notification, current_user).filter(
+            models.Notification.user_id == current_user.id
+        )
         unread_count = base.filter(models.Notification.is_read == False).count()
         query = base
         if unread_only:
@@ -69,7 +72,7 @@ def mark_read(data: schemas.NotificationReadRequest, db: Session = Depends(get_d
               current_user: models.User = Depends(get_current_user)):
     """Отметить прочитанными конкретные ids или всё (если ids пуст)."""
     try:
-        query = (db.query(models.Notification)
+        query = (tenant_query(db, models.Notification, current_user)
                  .filter(models.Notification.user_id == current_user.id,
                          models.Notification.is_read == False))
         if data.ids:
@@ -89,7 +92,7 @@ def mark_read(data: schemas.NotificationReadRequest, db: Session = Depends(get_d
 def delete_notification(notification_id: int, db: Session = Depends(get_db),
                         current_user: models.User = Depends(get_current_user)):
     try:
-        n = (db.query(models.Notification)
+        n = (tenant_query(db, models.Notification, current_user)
              .filter(models.Notification.id == notification_id,
                      models.Notification.user_id == current_user.id).first())
         if not n:

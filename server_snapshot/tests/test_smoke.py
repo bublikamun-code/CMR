@@ -9,6 +9,7 @@ import pytest
 from conftest import SCHEMA_PROFILE
 from sqlalchemy import text
 
+import auth
 import database
 
 
@@ -70,10 +71,10 @@ def test_real_jwt_authenticates(client, manager):
     assert r.status_code == 200, r.text
 
 
-def test_token_without_pv_claim_still_valid(client, make_token):
-    """Старые токены без pv намеренно принимаются — иначе деплой разлогинил бы всех."""
+def test_token_without_pv_claim_rejected(client, make_token):
+    """После миграционного окна legacy-токен без pv больше не авторизует."""
     _, headers = make_token(claims=lambda u: {"sub": u.username, "tenant_id": None})
-    assert client.get("/clients", headers=headers).status_code == 200
+    assert client.get("/clients", headers=headers).status_code == 401
 
 
 def test_wrong_pv_claim_rejected(client, make_token):
@@ -87,8 +88,10 @@ def test_wrong_pv_claim_rejected(client, make_token):
 
 def test_unknown_user_rejected(client, make_token):
     """Валидная подпись, но пользователя нет в БД — 401, не 500."""
-    _, headers = make_token(claims=lambda u: {"sub": "ghost", "tenant_id": None,
-                                              "pv": u.hashed_password[:8]})
+    _, headers = make_token(claims=lambda u: {
+        "sub": "ghost", "tenant_id": None,
+        "pv": auth.password_version(u.hashed_password),
+    })
     assert client.get("/clients", headers=headers).status_code == 401
 
 

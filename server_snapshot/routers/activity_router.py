@@ -8,6 +8,7 @@ import models
 import schemas
 from auth import get_current_user
 from database import get_db
+from tenant_policy import get_tenant_object, tenant_query
 
 router = APIRouter(
     prefix="/activity",
@@ -27,17 +28,14 @@ def _get_own_entry(entry_id: int, db: Session, current_user) -> models.ActivityL
     любой комментарий. Служебные записи (импорт почты,
     накладные) неизменяемы: правится только action='Комментарий'.
     """
-    entry = db.query(models.ActivityLog).filter(models.ActivityLog.id == entry_id).first()
-    if not entry:
-        raise HTTPException(status_code=404, detail="Запись не найдена")
+    entry = get_tenant_object(
+        db, models.ActivityLog, entry_id, current_user, detail="Запись не найден"
+    )
     if entry.action != "Комментарий":
         raise HTTPException(status_code=400, detail="Эту запись нельзя изменять")
     is_admin = current_user.role in ("admin", "superadmin")
     if not is_admin and entry.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Можно изменять только свои комментарии")
-    # изоляция тенантов
-    if current_user.role != "superadmin" and entry.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Доступ запрещён")
     return entry
 
 
@@ -48,8 +46,11 @@ def list_activity(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    query = db.query(models.ActivityLog)
+    query = tenant_query(db, models.ActivityLog, current_user)
     if card_id:
+        get_tenant_object(
+            db, models.Card, card_id, current_user, detail="Карточка не найдена"
+        )
         query = query.filter(models.ActivityLog.card_id == card_id)
     entries = query.order_by(models.ActivityLog.created_at.desc()).limit(limit).all()
     # Имя автора — лента показывает «кто изменил»: раньше фронт собирал

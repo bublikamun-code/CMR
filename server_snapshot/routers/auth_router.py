@@ -10,6 +10,7 @@ import models
 import schemas
 from database import get_db
 from limiter_config import limiter
+from tenant_policy import get_tenant_object, tenant_query
 
 logger = logging.getLogger(__name__)
 
@@ -33,31 +34,31 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     if not user.is_active:
         logger.warning(f"Login rejected (user disabled): {user.username}")
         raise HTTPException(status_code=403, detail="Пользователь отключён. Обратитесь к администратору.")
+    if user.tenant_id is None:
+        # Не выдаём session с неоднозначным tenant. Миграция 0018 либо
+        # назначает однозначный legacy tenant, либо останавливается с ошибкой.
+        raise HTTPException(status_code=403, detail="Tenant пользователя не настроен")
 
     logger.info(f"Login: {user.username} (role={user.role})")
-    # pv (password version) — первые 8 символов хэша: смена пароля
-    # инвалидирует все ранее выданные токены (проверка в get_current_user).
+    # pv (password version) — SHA-256 от хэша: смена пароля инвалидирует все
+    # ранее выданные токены (проверка в get_current_user).
     # «Запомнить меня» (фидбек 07.09): срок токена и куки — 30 дней вместо
     # 24 часов; claim rm включает скользящее продление в get_current_user.
     remember_on = remember.lower() in ("1", "true", "on", "yes")
     minutes = auth.REMEMBER_MINUTES if remember_on else auth.ACCESS_TOKEN_EXPIRE_MINUTES
-    token_data = {"sub": user.username, "tenant_id": user.tenant_id, "pv": user.hashed_password[:8]}
+    token_data = {
+        "sub": user.username,
+        "tenant_id": user.tenant_id,
+        "pv": auth.password_version(user.hashed_password),
+    }
     if remember_on:
         token_data["rm"] = 1
     access_token = auth.create_access_token(token_data, expires_minutes=minutes)
     # P2-1 (аудит 04.09): дублируем токен httpOnly-cookie — JS не может её
     # прочитать, поэтому кража токена через XSS невозможна. SameSite=Lax
-    # закрывает CSRF для кросс-сайтовых POST. Secure — только по https,
-    # пока прод живёт на HTTP (иначе кука не отправится вовсе).
-    response.set_cookie(
-        key="crm_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        secure=(request.url.scheme == "https"),
-        max_age=minutes * 60,
-        path="/",
-    )
+    # закрывает CSRF для кросс-сайтовых POST. Флаг Secure задаёт только
+    # проверенная CRM_COOKIE_SECURE policy и не зависит от forwarded-заголовков.
+    auth.set_auth_cookie(response, access_token, minutes * 60)
     return {"access_token": access_token, "token_type": "bearer", "role": user.role}
 
 
@@ -85,19 +86,20 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 
 @router.get("/users", response_model=List[schemas.UserResponse])
 def list_users(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    # UI FIX 2026-08-26: компания одна — админ видит всех пользователей,
-    # как и суперадмин (раньше фильтр по tenant_id прятал менеджеров,
-    # созданных суперадмином с tenant_id = NULL).
+    # Администратор видит пользователей своего tenant; superadmin сохраняет
+    # явную глобальную видимость. Менеджер видит только себя.
     if current_user.role in ("superadmin", "admin"):
-        return db.query(models.User).order_by(models.User.username).all()
+        return tenant_query(db, models.User, current_user).order_by(
+            models.User.username
+        ).all()
     return [current_user]
 
 
 @router.put("/me/password")
 # FIX 2026-09-06 (аудит С3): здесь проверяется СТАРЫЙ пароль — без лимита
 # эндпоинт годится для брутфорса чужого аккаунта при оставшейся открытой
-# сессии/украденной куке. Ключ — IP; за nginx должен быть включён
-# proxy-headers, иначе лимит станет общим на всех (см. P0-HTTPS).
+# сессии/украденной куке. Ключ — IP; nginx должен быть в явном
+# CRM_TRUSTED_PROXY_NETWORKS, иначе лимит станет общим на всех.
 @limiter.limit("5/minute")
 def change_own_password(request: Request, data: schemas.PasswordChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     """Самостоятельная смена пароля: старый проверяется, после смены
@@ -142,9 +144,9 @@ def create_user(data: schemas.UserCreate, db: Session = Depends(get_db), current
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_admin())):
-    target = db.query(models.User).filter(models.User.id == user_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    target = get_tenant_object(
+        db, models.User, user_id, current_user, detail="Пользователь не найден"
+    )
     if target.role == "superadmin":
         raise HTTPException(status_code=400, detail="Нельзя удалить суперадмина")
     if target.id == current_user.id:
@@ -169,9 +171,9 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
 
 @router.patch("/users/{user_id}")
 def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_admin())):
-    target = db.query(models.User).filter(models.User.id == user_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    target = get_tenant_object(
+        db, models.User, user_id, current_user, detail="Пользователь не найден"
+    )
     if target.role == "superadmin" and current_user.role != "superadmin":
         raise HTTPException(status_code=403, detail="Нельзя изменить суперадмина")
     # UI FIX 2026-08-26: тенант-проверка убрана (компания одна)

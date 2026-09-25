@@ -94,10 +94,15 @@
     - Доска и админка на серверном справочнике `deal_statuses`: решения Р1–Р6, работы по файлам A–E с держателями
     - Почему миграцию 0013 нельзя применять отдельно от клиента и как разведены id `closed` и `done`
 
-18. **[BACKEND-AUDIT-2026-09-24.md](BACKEND-AUDIT-2026-09-24.md)** — backend-аудит и первая волна исправлений (24.09)
-    - Исходный read-only baseline зафиксировал bearer после logout, конкурентный перевыпуск накладной и soft-delete bypass
-    - BA-01/BA-02/BA-03 исправлены локально и покрыты регрессиями; production не изменялся
-    - Финальная регрессия: production DDL 910 passed; ORM 906 passed/4 skipped; targeted 88 / 87+1 skip
+18. **[BACKEND-AUDIT-2026-09-24.md](BACKEND-AUDIT-2026-09-24.md)** — backend-аудит и локальные волны исправлений (24.09)
+    - Исходный read-only baseline и As-built для BA-01—BA-15; tenant isolation, secrets, readiness, concurrency, CSP и transport
+    - Финальные локальные гейты: production DDL 1137 passed; ORM 1124 passed/13 skipped; migration idempotency 6+6; v2 rebuild/JS/CSP/freshness OK
+    - Production, commit, push, deploy, PM2 restart, production migration и TLS/HSTS не выполнялись
+
+19. **[TLS-HSTS-RUNBOOK.md](../deployment/TLS-HSTS-RUNBOOK.md)** — безопасный порядок перехода на доверенный TLS и HSTS
+    - Сертификат, DNS, ordinary TLS validation, HTTP→HTTPS redirect и включение HSTS только после проверки
+    - Репозиторный nginx не является доказательством фактической production-конфигурации; HSTS/preload не включаются автоматически
+
 
 ---
 

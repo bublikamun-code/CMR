@@ -21,6 +21,8 @@ API_JS = (ROOT / "tools" / "v2-api-template.js").read_text(encoding="utf-8")
 
 BOOT_JS = (ROOT / "tools" / "v2-boot-template.js").read_text(encoding="utf-8")
 
+HEAD_JS = (ROOT / "tools" / "v2-head-template.js").read_text(encoding="utf-8")
+
 V2_EXTRA_CSS = r"""/* site-v2: вход и статус источника (нет в прототипе) */
 .login-overlay {
     position: fixed; inset: 0; background: var(--bg);
@@ -52,7 +54,7 @@ HTML_TRANSFORMS = [
     # Демо-модуль данных и остальные скрипты подключает boot.js (см. regex ниже);
     # select.js меняем на пару адаптер+загрузчик
     ('<script src="./shell-v2-select.js" defer></script>', '<script src="js/v2/api.js"></script>\n<script src="js/v2/boot.js"></script>'),
-    ('    </header>', '      <div class="topbar-right"><span id="v2-user" class="row" style="gap:8px"></span><button type="button" class="v2-bell" id="v2-bell" title="Уведомления" aria-label="Уведомления"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="v2-bell-count" class="v2-bell-count" hidden></span></button><div id="v2-notif-panel" class="v2-notif-panel" hidden></div></div>\n    </header>'),
+    ('    </header>', '      <div class="topbar-right"><span id="v2-user" class="row"></span><button type="button" class="v2-bell" id="v2-bell" title="Уведомления" aria-label="Уведомления"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="v2-bell-count" class="v2-bell-count" hidden></span></button><div id="v2-notif-panel" class="v2-notif-panel" hidden></div></div>\n    </header>'),
     # Оверлей входа перед закрытием body
     ('</body>', """<div class="login-overlay" id="login-overlay" hidden>
   <form class="login-box" id="login-form">
@@ -74,6 +76,7 @@ def main():
     # 1. Базовые стили прототипа → отдельный файл
     style_match = re.search(r"<style>\n(.*?)\n</style>", html, re.S)
     assert style_match, "не найден <style> блок прототипа"  # noqa: S101
+    style_block = style_match.group(0)
     base_css = style_match.group(1)
     # В прототипе @font-face ссылается на ./fonts/, а из css/ сборки нужен ../fonts/.
     base_css = re.sub(r'(url\(\s*)\./fonts/([^)]*?)(\s*\))', r'\1../fonts/\2\3', base_css)
@@ -108,7 +111,14 @@ def main():
     body = body[:fin_start] + body[fin_end:]
 
     # 3a. index.html: пути, вынос стилей, boot вместо демо-скриптов, оверлей входа
-    body = body.replace('<style>\n' + base_css + '\n</style>', '<link rel="stylesheet" href="css/shell-v2-base.css">')
+    # Синхронный внешний head.js выполняется до CSS и первой отрисовки: строгий
+    # CSP не требует nonce, а тема всё равно восстанавливается без светлого мигания.
+    body = body.replace(
+        style_block,
+        '<script src="js/v2/head.js"></script>\n'
+        '<link rel="stylesheet" href="css/shell-v2-base.css">',
+    )
+    assert style_block not in body, "inline-стили не вынесены из site-v2/index.html"  # noqa: S101
     for src in sorted(MOCKUPS.glob("shell-v2-*.css")):
         body = body.replace(f'<link rel="stylesheet" href="./{src.name}">', f'<link rel="stylesheet" href="css/{src.name}">')
     for old, new in HTML_TRANSFORMS:
@@ -120,7 +130,8 @@ def main():
     body = body.replace('<html lang="ru" data-theme="light">', '<html lang="ru" data-theme="light">\n<!-- Сгенерировано tools/build_site_v2.py из tools/mockups — не править вручную -->')
     (OUT / "index.html").write_text(body, encoding="utf-8")
 
-    # 4. Адаптер и загрузчик
+    # 4. Инициализация темы, адаптер и загрузчик
+    (OUT / "js" / "v2" / "head.js").write_text(HEAD_JS, encoding="utf-8")
     (OUT / "js" / "v2" / "api.js").write_text(API_JS, encoding="utf-8")
     (OUT / "js" / "v2" / "boot.js").write_text(BOOT_JS, encoding="utf-8")
 
@@ -134,14 +145,8 @@ def main():
         ver.update(f.read_bytes())
     stamp = ver.hexdigest()[:10]
 
-    # Глобальная версия ДО штампов: тег api.js ещё без ?v= — замена сработает.
-    # Тема восстанавливается синхронным inline-скриптом в <head>: иначе тёмная
-    # тема применялась только deferred navigation.js, и до его запуска мигала
-    # светлая. Инлайн здесь допустим, как и у V2_ASSET_VER (CSP v2 пока
-    # разрешает; при ужесточении оба сниппета переносятся в nonce одним списком).
-    body = body.replace('<script src="js/v2/api.js"',
-                        f'<script>try{{var t=localStorage.getItem("kb-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}}catch(e){{}}'
-                        f'window.V2_ASSET_VER="{stamp}"</script>\n<script src="js/v2/api.js"')
+    # Штамп проставляется в index.html и во все динамические загрузки boot.js.
+    # head.js берёт его из собственного URL, поэтому в документе нет inline-кода.
 
     def _stamp(m):
         return f'{m.group(1)}{m.group(2)}?v={stamp}{m.group(4)}'

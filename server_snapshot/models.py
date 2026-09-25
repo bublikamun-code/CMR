@@ -11,7 +11,6 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     event,
     text,
 )
@@ -26,7 +25,7 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     role = Column(String, default="manager")
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     # Пункт 15 плана v2: отключение вместо удаления. NOT NULL и дефолт 1 —
     # «отключён» должно быть явным действием администратора (миграция 0014).
     is_active = Column(Boolean, nullable=False, default=True)
@@ -66,7 +65,7 @@ class Client(Base):
     address = Column(String, nullable=True)
     contact_person = Column(String, nullable=True)
     note = Column(String, nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     cards = relationship("Card", back_populates="client")
@@ -83,7 +82,7 @@ class ClientPayment(Base):
     note = Column(String(500), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 class Supplier(Base):
     __tablename__ = "suppliers"
@@ -95,7 +94,7 @@ class Supplier(Base):
     address = Column(String, nullable=True)
     contact_person = Column(String, nullable=True)
     note = Column(String, nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     # Пункты чек-листов, закреплённые за поставщиком —
@@ -105,9 +104,9 @@ class Supplier(Base):
 class Tag(Base):
     __tablename__ = "tags"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
+    name = Column(String, index=True)
     color = Column(String, default="#4f7cf5")
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 class CardTag(Base):
     __tablename__ = "card_tags"
@@ -124,7 +123,7 @@ class WriteoffGroup(Base):
     invoice_number = Column(String, nullable=True)
     invoice_date = Column(String, nullable=True)
     written_off = Column(Boolean, default=False)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -154,7 +153,7 @@ class Card(Base):
     priority = Column(Integer, default=0)
     position = Column(Integer, default=0, index=True)
     writeoff_group_id = Column(Integer, ForeignKey("writeoff_groups.id", ondelete="SET NULL"), nullable=True, index=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
     owner = relationship("User", back_populates="cards")
     client = relationship("Client", back_populates="cards")
@@ -222,7 +221,7 @@ class Transaction(Base):
     is_warehouse_writeoff = Column(Boolean, default=False)
     card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True, index=True)
     writeoff_group_id = Column(Integer, ForeignKey("writeoff_groups.id", ondelete="SET NULL"), nullable=True, index=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     card = relationship("Card", back_populates="transactions")
@@ -235,7 +234,7 @@ class ActivityLog(Base):
     card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"))
     action = Column(String, nullable=False)
     details = Column(Text, nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
 
@@ -248,7 +247,13 @@ class RecordVersion(Base):
     # FIX 2026-09-03: уникальность (table_name, record_id, version) — в проде
     # индекс добавлен миграцией, тут для новых БД (create_all тенант-движков).
     __table_args__ = (
-        UniqueConstraint("table_name", "record_id", "version", name="ux_record_versions_t_r_v"),
+        Index(
+            "ux_record_versions_t_r_v",
+            "table_name",
+            "record_id",
+            "version",
+            unique=True,
+        ),
     )
     id = Column(Integer, primary_key=True, index=True)
     table_name = Column(String(50), nullable=False, index=True)
@@ -258,7 +263,7 @@ class RecordVersion(Base):
     changed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     change_type = Column(String(20), nullable=False)  # 'create', 'update', 'delete'
     changed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 
 # ============================================================
@@ -271,7 +276,7 @@ class CustomObjectType(Base):
     name = Column(String(100), unique=True, index=True)
     label = Column(String(200), nullable=False)
     icon = Column(String(50), nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class CustomFieldDef(Base):
@@ -285,14 +290,14 @@ class CustomFieldDef(Base):
     options = Column(Text, nullable=True)  # JSON: [{"label":"...","value":"..."}]
     relation_target = Column(String(100), nullable=True)  # имя связанного объекта
     position = Column(Integer, default=0)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 class CustomRecord(Base):
     __tablename__ = "custom_records"
     id = Column(Integer, primary_key=True, index=True)
     object_type_id = Column(Integer, ForeignKey("custom_object_types.id"))
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -316,20 +321,20 @@ class CustomFieldValue(Base):
 class StoreLocation(Base):
     __tablename__ = "store_locations"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
     address = Column(Text, nullable=True)
     phone = Column(String(50), nullable=True)
     is_active = Column(Boolean, default=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 class DealStatus(Base):
     __tablename__ = "deal_statuses"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
     position = Column(Integer, default=0)
     color = Column(String(20), nullable=True)
     is_active = Column(Boolean, default=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 
 # ============================================================
@@ -343,7 +348,7 @@ class Workflow(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -353,7 +358,7 @@ class WorkflowTrigger(Base):
     workflow_id = Column(Integer, ForeignKey("workflows.id", ondelete="CASCADE"))
     trigger_type = Column(String(50), nullable=False)  # record_event, manual, schedule, webhook
     config = Column(Text, nullable=False)  # JSON
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class WorkflowStep(Base):
@@ -365,7 +370,7 @@ class WorkflowStep(Base):
     action_type = Column(String(50), nullable=True)  # create_record, update_record, send_email, http_request
     config = Column(Text, nullable=False)  # JSON
     position = Column(Integer, default=0)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 class WorkflowRun(Base):
     __tablename__ = "workflow_runs"
@@ -378,7 +383,7 @@ class WorkflowRun(Base):
     error = Column(Text, nullable=True)
     started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 
 # ============================================================
@@ -389,11 +394,63 @@ class Webhook(Base):
     __tablename__ = "webhooks"
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String(500), nullable=False)
-    secret = Column(String(200), nullable=True)
+    # Fernet-токен имеет большую длину, чем прежний legacy VARCHAR(200).
+    # В БД хранится только ciphertext; plaintext в ORM/API не возвращается.
+    secret = Column(Text, nullable=True)
     events = Column(Text, nullable=False)  # JSON: ["card.created", "card.updated"]
     is_active = Column(Boolean, default=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class WebhookDelivery(Base):
+    """Минимальный аудит одной доставки без body, URL и секрета."""
+
+    __tablename__ = "webhook_deliveries"
+    id = Column(Integer, primary_key=True, index=True)
+    correlation_id = Column(String(36), nullable=False, unique=True, index=True)
+    webhook_id = Column(
+        Integer,
+        ForeignKey("webhooks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    event = Column(String(100), nullable=False, index=True)
+    status = Column(String(32), nullable=False, default="queued", index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime, nullable=True, index=True)
+    last_error_code = Column(String(64), nullable=True)
+    response_status = Column(Integer, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class WebhookAttempt(Base):
+    """Одна попытка доставки; диагностика хранит только стабильный код."""
+
+    __tablename__ = "webhook_attempts"
+    id = Column(Integer, primary_key=True, index=True)
+    delivery_id = Column(
+        Integer,
+        ForeignKey("webhook_deliveries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    attempt_number = Column(Integer, nullable=False)
+    status = Column(String(32), nullable=False)
+    error_code = Column(String(64), nullable=True)
+    response_status = Column(Integer, nullable=True)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime, nullable=True)
+    __table_args__ = (
+        Index(
+            "ux_webhook_attempts_delivery_number",
+            "delivery_id",
+            "attempt_number",
+            unique=True,
+        ),
+    )
 
 
 # ============================================================
@@ -412,7 +469,7 @@ class SavedView(Base):
     group_by = Column(String(100), nullable=True)
     is_default = Column(Boolean, default=False)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -439,7 +496,7 @@ class Task(Base):
     card_title_snapshot = Column(String(255), nullable=True)
     client_name_snapshot = Column(String(255), nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -455,7 +512,7 @@ class TaskChecklistItem(Base):
     title = Column(String(255), nullable=False)
     is_done = Column(Boolean, default=False, index=True)
     position = Column(Integer, default=0)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # FIX 2026-09-11 (Фаза 2): passive_deletes=True — удаление подзадач отдаём
@@ -515,7 +572,7 @@ class Nakladnaya(Base):
     __table_args__ = (
         Index(
             "uq_nakladnye_doc_key",
-            "doc_series_norm", "doc_number_norm",
+            "tenant_id", "doc_series_norm", "doc_number_norm",
             unique=True,
             sqlite_where=text("doc_number_norm IS NOT NULL AND doc_number_norm <> ''"),
         ),
@@ -550,7 +607,7 @@ class Nakladnaya(Base):
     products_json = Column(Text, nullable=True)  # JSON array of product line items
     excel_path = Column(String(255), nullable=True)  # generated Excel filename
     created_by_bot = Column(Boolean, default=False)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -593,5 +650,5 @@ class Notification(Base):
     entity_id = Column(Integer, nullable=True)
     is_read = Column(Boolean, default=False, index=True)
     read_at = Column(DateTime, nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)

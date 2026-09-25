@@ -1,7 +1,43 @@
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+import math
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+
+MONEY_MAX = Decimal("9999999999.99")
+
+
+def validate_money(value, *, field_name: str = "Сумма", allow_zero: bool = True):
+    """Проверить исходное денежное значение без изменения float-контракта.
+
+    Валидаторы вызываются в режиме ``before``, поэтому ``bool`` и строки ещё
+    не успели превратиться Pydantic-ом в ``1.0``/``0.0``. Хранилище остаётся
+    float, но вход ограничен диапазоном Numeric(12, 2) и точностью до копеек.
+    """
+    if value is None:
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        raise ValueError(f"{field_name} должна быть числом")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{field_name} должна быть конечным числом")
+    if isinstance(value, Decimal) and not value.is_finite():
+        raise ValueError(f"{field_name} должна быть конечным числом")
+    try:
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field_name} должна быть числом") from exc
+    if decimal_value.as_tuple().exponent < -2:
+        raise ValueError(f"{field_name} не может иметь больше двух знаков после запятой")
+    if abs(decimal_value) > MONEY_MAX:
+        raise ValueError(f"{field_name} не может превышать 9999999999.99")
+    if decimal_value < 0:
+        raise ValueError(f"{field_name} не может быть отрицательной")
+    if not allow_zero and decimal_value == 0:
+        raise ValueError(f"{field_name} должна быть больше нуля")
+    return value
+
 
 # --- СХЕМЫ ПОЛЬЗОВАТЕЛЯ ---
 
@@ -127,6 +163,12 @@ class ChecklistBase(BaseModel):
     # чтобы старые записи и удалённые поставщики не теряли подпись.
     supplier_id: Optional[int] = None
 
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, v):
+        return validate_money(v, field_name="Сумма чек-листа")
+
+
 class ChecklistCreate(ChecklistBase):
     company_name: Optional[str] = None      # подставится из справочника
 
@@ -139,6 +181,12 @@ class ChecklistUpdate(BaseModel):
     supplier_id: Optional[int] = None
     ordered: Optional[bool] = None
     received: Optional[bool] = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, v):
+        return validate_money(v, field_name="Сумма чек-листа")
+
 
 class ChecklistResponse(ChecklistBase):
     id: int
@@ -193,12 +241,10 @@ class ClientPaymentCreate(BaseModel):
     note: Optional[str] = None
     card_id: Optional[int] = None
 
-    @field_validator("amount")
+    @field_validator("amount", mode="before")
     @classmethod
     def amount_positive(cls, v):
-        if v is None or v <= 0:
-            raise ValueError("Сумма прихода должна быть больше нуля")
-        return round(v, 2)
+        return validate_money(v, field_name="Сумма прихода", allow_zero=False)
 
 
 class ClientPaymentResponse(BaseModel):
@@ -280,13 +326,16 @@ class CardBase(BaseModel):
             raise ValueError(f"Недопустимый статус оплаты: {v}")
         return v
 
-    @field_validator("total_amount")
+    @field_validator("total_amount", mode="before")
     @classmethod
     def validate_total_amount(cls, v):
         # A8: отрицательная сумма сделки → 422 (Pydantic) вместо 500.
-        if v is not None and v < 0:
-            raise ValueError("Сумма сделки не может быть отрицательной")
-        return v
+        return validate_money(v, field_name="Сумма сделки")
+
+    @field_validator("paid_amount", mode="before")
+    @classmethod
+    def validate_paid_amount(cls, v):
+        return validate_money(v, field_name="Оплаченная сумма")
 
 class CardCreate(CardBase):
     client_id: Optional[int] = None
@@ -378,6 +427,12 @@ class TransactionBase(BaseModel):
     is_bill_doc: Optional[bool] = False
     is_warehouse_writeoff: Optional[bool] = False
 
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, v):
+        return validate_money(v, field_name="Сумма транзакции")
+
+
 class TransactionCreate(TransactionBase):
     pass
 
@@ -418,6 +473,12 @@ class TransactionUpdate(BaseModel):
     date: Optional[str] = None
     company_name: Optional[str] = None
     is_secondary_check: Optional[bool] = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, v):
+        return validate_money(v, field_name="Сумма транзакции")
+
 
 class TransactionResponse(TransactionBase):
     id: int
@@ -496,13 +557,17 @@ class CardUpdate(BaseModel):
             raise ValueError(f"Недопустимый статус оплаты: {v}")
         return v
 
-    @field_validator("total_amount")
+    @field_validator("total_amount", mode="before")
     @classmethod
     def validate_total_amount(cls, v):
         # A8: отрицательная сумма сделки → 422 вместо 500.
-        if v is not None and v < 0:
-            raise ValueError("Сумма сделки не может быть отрицательной")
-        return v
+        return validate_money(v, field_name="Сумма сделки")
+
+    @field_validator("paid_amount", mode="before")
+    @classmethod
+    def validate_paid_amount(cls, v):
+        return validate_money(v, field_name="Оплаченная сумма")
+
 
 class CardPaymentUpdate(BaseModel):
     paid_amount: Optional[float] = None
@@ -521,6 +586,11 @@ class CardPaymentUpdate(BaseModel):
         if v not in VALID:
             raise ValueError(f"Недопустимый статус оплаты: {v}")
         return v
+
+    @field_validator("paid_amount", mode="before")
+    @classmethod
+    def validate_paid_amount(cls, v):
+        return validate_money(v, field_name="Оплаченная сумма")
 
 
 class WriteoffGroupCard(BaseModel):
@@ -760,6 +830,11 @@ class NakladnayaBase(BaseModel):
     def validate_doc_type(cls, v):
         return _check_nakladnaya_doc_type(v)
 
+    @field_validator("amount", "vat_amount", "amount_no_vat", mode="before")
+    @classmethod
+    def validate_money_amounts(cls, v):
+        return validate_money(v, field_name="Сумма накладной")
+
     @model_validator(mode="after")
     def validate_amounts(self):
         _check_nakladnaya_amounts(self.amount, self.vat_amount)
@@ -798,6 +873,11 @@ class NakladnayaUpdate(BaseModel):
     @classmethod
     def validate_doc_type(cls, v):
         return _check_nakladnaya_doc_type(v)
+
+    @field_validator("amount", "vat_amount", "amount_no_vat", mode="before")
+    @classmethod
+    def validate_money_amounts(cls, v):
+        return validate_money(v, field_name="Сумма накладной")
 
     @model_validator(mode="after")
     def validate_amounts(self):

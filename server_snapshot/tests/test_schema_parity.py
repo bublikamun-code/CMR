@@ -43,6 +43,7 @@ from sqlalchemy import inspect, text
 import database
 import models
 import schemas
+from webhook_security import decrypt_secret, obtain_fernet
 
 pytestmark = pytest.mark.schema_parity
 
@@ -451,7 +452,7 @@ def test_card_owner_id_is_reassignable(client, manager, db, make_card, make_user
 
     # чужой id — 400, а не IntegrityError/500: PRAGMA foreign_keys=ON
     r2 = client.patch(f"/cards/{card.id}", headers=h, json={"owner_id": 999999})
-    assert r2.status_code == 400, r2.text
+    assert r2.status_code == 404, r2.text
 
     # null — штатное значение: у FK ondelete="SET NULL", auth_router.remove_user
     # обнуляет owner_id карточек удаляемого пользователя
@@ -671,11 +672,24 @@ def _body_param(fn, local_models):
 
 
 def _handler_model(fn):
-    """models.X из первого db.query(models.X) — модель, в которую пишет хендлер."""
+    """Модель, в которую пишет хендлер.
+
+    После tenant-фильтрации основной lookup идёт через ``tenant_query`` или
+    ``get_tenant_object``; старый гейт видел только ``db.query(models.X)`` и
+    принимал вложенный запрос к дочерней таблице за модель PATCH-объекта.
+    """
     for node in ast.walk(fn):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "query" and node.args):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        if (isinstance(node.func, ast.Attribute)
+                and node.func.attr == "query"):
             arg = ast.unparse(node.args[0])
+            if arg.startswith("models."):
+                return arg.split(".", 1)[1]
+        if isinstance(node.func, ast.Name) and node.func.id in {
+            "tenant_query", "get_tenant_object", "get_tenant_child",
+        } and len(node.args) >= 2:
+            arg = ast.unparse(node.args[1])
             if arg.startswith("models."):
                 return arg.split(".", 1)[1]
     return None
@@ -1498,7 +1512,8 @@ def test_webhook_patch_absent_keys_leave_every_value(client, admin, db, public_d
     db.expire_all()
     fresh = db.get(models.Webhook, wh_id)
     assert fresh.url == "https://example.com/hook"
-    assert fresh.secret == "podpis-123", "PATCH без secret стёр подпись"
+    assert decrypt_secret(fresh.secret, obtain_fernet()) == "podpis-123", \
+        "PATCH без secret стёр подпись"
     assert json.loads(fresh.events) == ["card.updated"]
     assert fresh.is_active is True
 
@@ -1531,8 +1546,9 @@ def test_webhook_patch_empty_secret_is_rejected(client, admin, db, public_dns, b
     assert "null" in r.json()["detail"], r.text
 
     db.expire_all()
-    assert db.get(models.Webhook, wh_id).secret == "podpis-123", \
-        "отклонённый PATCH всё-таки тронул секрет"
+    assert decrypt_secret(
+        db.get(models.Webhook, wh_id).secret, obtain_fernet()
+    ) == "podpis-123", "отклонённый PATCH всё-таки тронул секрет"
 
 
 @pytest.mark.parametrize("field", ["url", "events", "is_active"])
@@ -1548,7 +1564,7 @@ def test_webhook_patch_null_on_not_null_columns_is_400(client, admin, db, public
     db.expire_all()
     fresh = db.get(models.Webhook, wh_id)
     assert fresh.url == "https://example.com/hook"
-    assert fresh.secret == "podpis-123"
+    assert decrypt_secret(fresh.secret, obtain_fernet()) == "podpis-123"
     assert json.loads(fresh.events) == ["card.created", "card.updated"]
     assert fresh.is_active is True
 

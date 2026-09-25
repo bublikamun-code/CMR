@@ -12,19 +12,22 @@ import auth
 import models
 import schemas
 from database import get_db
+from tenant_policy import assign_tenant, get_tenant_object, tenant_query
 
 router = APIRouter(prefix="/dictionaries", tags=["Справочники"])
 
 
 @router.get("/stores", response_model=list[schemas.StoreLocationResponse])
 def list_stores(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.StoreLocation).order_by(models.StoreLocation.name).all()
+    return tenant_query(db, models.StoreLocation, current_user).order_by(
+        models.StoreLocation.name
+    ).all()
 
 
 @router.post("/stores", response_model=schemas.StoreLocationResponse)
 def create_store(data: schemas.StoreLocationCreate, db: Session = Depends(get_db),
                  current_user: models.User = Depends(auth.require_admin())):
-    store = models.StoreLocation(**data.model_dump())
+    store = assign_tenant(models.StoreLocation(**data.model_dump()), current_user)
     db.add(store)
     try:
         db.commit()
@@ -38,7 +41,9 @@ def create_store(data: schemas.StoreLocationCreate, db: Session = Depends(get_db
 @router.patch("/stores/{store_id}", response_model=schemas.StoreLocationResponse)
 def update_store(store_id: int, data: schemas.StoreLocationUpdate, db: Session = Depends(get_db),
                  current_user: models.User = Depends(auth.require_admin())):
-    store = db.query(models.StoreLocation).filter(models.StoreLocation.id == store_id).first()
+    store = get_tenant_object(
+        db, models.StoreLocation, store_id, current_user, detail="Магазин не найден"
+    )
     if not store:
         raise HTTPException(status_code=404, detail="Магазин не найден")
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -54,13 +59,15 @@ def update_store(store_id: int, data: schemas.StoreLocationUpdate, db: Session =
 
 @router.get("/statuses", response_model=list[schemas.DealStatusResponse])
 def list_statuses(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.DealStatus).order_by(models.DealStatus.position, models.DealStatus.id).all()
+    return tenant_query(db, models.DealStatus, current_user).order_by(
+        models.DealStatus.position, models.DealStatus.id
+    ).all()
 
 
 @router.post("/statuses", response_model=schemas.DealStatusResponse)
 def create_status(data: schemas.DealStatusCreate, db: Session = Depends(get_db),
                   current_user: models.User = Depends(auth.require_admin())):
-    status = models.DealStatus(**data.model_dump())
+    status = assign_tenant(models.DealStatus(**data.model_dump()), current_user)
     db.add(status)
     try:
         db.commit()
@@ -74,7 +81,9 @@ def create_status(data: schemas.DealStatusCreate, db: Session = Depends(get_db),
 @router.patch("/statuses/{status_id}", response_model=schemas.DealStatusResponse)
 def update_status(status_id: int, data: schemas.DealStatusUpdate, db: Session = Depends(get_db),
                   current_user: models.User = Depends(auth.require_admin())):
-    status = db.query(models.DealStatus).filter(models.DealStatus.id == status_id).first()
+    status = get_tenant_object(
+        db, models.DealStatus, status_id, current_user, detail="Статус не найден"
+    )
     if not status:
         raise HTTPException(status_code=404, detail="Статус не найден")
     for field, value in data.model_dump(exclude_unset=True).items():
