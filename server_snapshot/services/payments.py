@@ -111,6 +111,7 @@ def delete_transaction(session, transaction_id, actor):
                 session.add(models.Transaction(
                     company_name=card.title, amount=amount,
                     store_location=store, card_id=card_id,
+                    tenant_id=card.tenant_id,
                 ))
             # По сделке снова есть что списывать -> она не может быть закрыта.
             if card.status == "Закрыто":
@@ -264,6 +265,7 @@ def annul_group_writeoff(session, group, actor):
                 company_name=card.title, amount=rest,
                 store_location=card.store_location or group.store_location,
                 card_id=card.id,
+                tenant_id=card.tenant_id,
             )
             session.add(created)
             session.flush()
@@ -386,6 +388,7 @@ def add_invoice(session, card_id, payload, actor=None):
         invoice_number=(payload.invoice_number or None),
         invoice_date=(payload.invoice_date or None),
         card_id=card_id,
+        tenant_id=card.tenant_id,
     )
     session.add(new_tx)
     session.flush()
@@ -411,6 +414,7 @@ def add_invoice(session, card_id, payload, actor=None):
         session.add(models.Transaction(
             company_name=card.title, amount=new_rest,
             store_location=new_tx.store_location, card_id=card_id,
+            tenant_id=card.tenant_id,
         ))
     if card.status in ("На списание", "Закрыто"):
         card.status = writeoff_status_for(card, ledger)
@@ -533,6 +537,7 @@ def issue_invoice(session, card_id, payload, actor):
             invoice_number=number, invoice_date=(payload.invoice_date or None),
             is_invoice_issued=True,
             card_id=card_id,
+            tenant_id=card.tenant_id,
         )
         session.add(invoice)
         if remainder is not None:
@@ -549,6 +554,7 @@ def issue_invoice(session, card_id, payload, actor):
                 new_remainder = models.Transaction(
                     company_name=card.title, amount=rest_after,
                     store_location=store, card_id=card_id,
+                    tenant_id=card.tenant_id,
                 )
                 session.add(new_remainder)
             else:

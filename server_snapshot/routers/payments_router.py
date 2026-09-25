@@ -498,6 +498,7 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
                     db.add(models.Transaction(
                         company_name=card.title, amount=new_rest,
                         store_location=card.store_location, card_id=card.id,
+                        tenant_id=card.tenant_id,
                     ))
                 if card.status in ("На списание", "Закрыто"):
                     card.status = writeoff_status_for(card, ledger)
@@ -587,6 +588,7 @@ def _issue_document(session, tx):
         invoice_number=tx.invoice_number, invoice_date=tx.invoice_date,
         is_calculated=tx.is_calculated, is_invoice_issued=True, is_written_off=True,
         print_status=tx.print_status, note=tx.note, is_document=True, card_id=tx.card_id,
+        tenant_id=tx.tenant_id,
     )
     session.add(doc)
     return doc
@@ -838,6 +840,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                             db.add(models.Transaction(
                                 company_name=card.title, amount=expected_rest,
                                 store_location=card.store_location, card_id=card_id,
+                                tenant_id=card.tenant_id,
                             ))
                     if pending_rows:
                         if expected_rest <= MONEY_EPSILON:

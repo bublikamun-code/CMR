@@ -63,6 +63,8 @@ def ensure_registry_remainder(session, card):
         amount=float(card.total_amount),
         store_location=card.store_location,
         card_id=card.id,
+        # Запись-остаток живёт в tenant той же сделки.
+        tenant_id=card.tenant_id,
     )
     session.add(tx)
     session.flush()
