@@ -851,14 +851,13 @@
     document.getElementById('cal-next').addEventListener('click', function () { cal.m++; if (cal.m > 11) { cal.m = 0; cal.y++; } renderCalendar(); });
     document.getElementById('cal-today').addEventListener('click', function () { var t = todayUTC(); cal = { y: t.getUTCFullYear(), m: t.getUTCMonth() }; renderCalendar(); });
 
-    // ---------- Перечитывание данных без F5 (kb:reloaded) ----------
-    // KBData.reload() (boot: KBApi.all() обновляет коллекции на месте) — единственный
-    // путь, после которого разделы инсайтов остаются на старом снимке. Доску
+    // ---------- Обновление инсайтов после загрузки и reload ----------
+    // KBData.reload() (boot: KBApi.all() обновляет коллекции на месте) — путь,
+    // после которого разделы инсайтов остаются на старом снимке. Доску
     // перерисовывает свой подписчик в board.js, а «Пульт дня» и календарь
-    // догоняют тем же путём: refresh() в board.js рассылает kb:documents, и
-    // обработчик ниже перерисовывает их. Здесь — только задачи и клиенты:
-    // то, чем kb:documents не закрывается (двойной перерисовки того же узла
-    // на одно событие специально избегаем).
+    // догоняют через kb:documents. Здесь — только задачи и клиенты: то, чем
+    // kb:documents не закрывается (двойной перерисовки того же узла на одно
+    // событие специально избегаем).
     // Ленивость пункта 3 плана не ломается: скрытый раздел вхолостую не
     // рисуется, а помечается «устаревшим» и догоняет в момент, когда его
     // показывают. navigation.js ничего не рассылает (переход — pushState +
@@ -877,12 +876,16 @@
         delete staleSections[name];
         if (name === 'clients') renderClients();
         else if (name === 'tasks') renderTasks();
+        else if (name === 'day') {
+            renderDay();
+            renderCalendar();
+        }
     }
     function refreshSection(name) {
         if (viewShown('view-' + name)) renderSection(name);
         else staleSections[name] = true;   // перерисуем при показе
     }
-    ['tasks', 'clients'].forEach(function (name) {
+    ['tasks', 'clients', 'day'].forEach(function (name) {
         var view = document.getElementById('view-' + name);
         if (!view || typeof MutationObserver !== 'function') return;
         new MutationObserver(function () {
@@ -895,7 +898,7 @@
         refreshSection('clients');
     });
 
-    document.addEventListener('kb:documents', function () { renderDay(); renderCalendar(); });
+    document.addEventListener('kb:documents', function () { refreshSection('day'); });
     document.addEventListener('kb:payment-saved', function () { renderCalendar(); });
     document.addEventListener('kb:dictionaries-changed', function () { renderDay(); renderClients(); renderTasks(); renderCalendar(); });
     renderDay();

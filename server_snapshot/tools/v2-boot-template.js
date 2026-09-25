@@ -519,7 +519,7 @@
         cardCtx.stores = kb.stores;
         cardCtx.statuses = kb.statuses;
         cardsLoadingGen = gen;
-        let appended = 0;
+        const appendedCards = [];
         try {
             while (loaded < total) {
                 const batchRaw = await window.V2Api.api('/kanban/cards?limit=80&offset=' + loaded);
@@ -541,7 +541,7 @@
                 }
                 const batch = buildCardBatch(items, cardCtx);
                 kb.cards.push.apply(kb.cards, batch);
-                appended += batch.length;
+                appendedCards.push.apply(appendedCards, batch);
                 loaded += items.length;
                 kb.cardsLoaded = loaded;
                 kb.cardsComplete = loaded >= total;
@@ -554,19 +554,27 @@
             // Сбрасываем только свой флаг: цикл нового поколения не трогаем.
             if (cardsLoadingGen === gen) cardsLoadingGen = 0;
         }
-        if (appended > 0) {
-            // Один сигнал на весь цикл: доска, пульс и очередь перерисуются.
-            document.dispatchEvent(new Event('kb:reloaded'));
+        if (!appendedCards.length || kb.dataGen !== gen) return;
+        try {
             // Фин-реестр собран в фазе 1 на первых 80 карточках — строки сделок
             // за её пределами держат фолбэк-лейбл по транзакции. Пересобираем
             // источник на месте по полным карточкам (transactions/documents/
-            // nakladnye загружены целиком в фазе 1 и на страницы не делятся),
-            // затем kb:documents — fin-модуль перестроит строки. Дописки после
-            // смены поколения не бывает (return в try), значит phaseResults
-            // здесь своего поколения.
+            // nakladnye загружены целиком в фазе 1 и на страницы не делятся).
+            // Дописки после смены поколения не бывает (return в try), значит
+            // phaseResults здесь своего поколения.
             const fin = buildFinSource(window.KBData.cards, phaseResults.transactions, phaseResults.documents, phaseResults.nakladnye);
             if (window.KB_FIN_SOURCE) applyInPlace(window.KB_FIN_SOURCE, fin);
-            document.dispatchEvent(new CustomEvent('kb:documents', { detail: window.KBData.cards }));
+            document.dispatchEvent(new CustomEvent('kb:cards-appended', { detail: {
+                cards: kb.cards,
+                appended: appendedCards,
+                count: appendedCards.length,
+                loaded: kb.cardsLoaded,
+                total: kb.cardsTotal,
+                complete: kb.cardsComplete,
+                dataGen: gen
+            }}));
+        } catch (err) {
+            console.warn('Не удалось завершить дозагрузку карточек:', err);
         }
     }
 
