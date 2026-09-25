@@ -29,7 +29,9 @@ from email_credentials import (
     obtain_fernet,
 )
 import models
+import models_tenant
 from secure_files import atomic_write_private
+from tenant_policy import configured_legacy_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +309,70 @@ def _search_unseen(mail, today: str) -> list:
     return messages[0].split()
 
 
-def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
+def _resolve_sync_tenant_id(
+    db: Session,
+    settings: dict,
+    tenant_id: int | None,
+) -> int | None:
+    """Определить tenant для импорта почты.
+
+    Сначала используется tenant вызывающего tenant-синка, затем явный
+    ``tenant_id`` из настроек главного ящика, legacy-конфигурация и только
+    после этого — единственный tenant из БД. При нескольких tenant нельзя
+    молча выбирать первую строку: это может импортировать письмо в чужую
+    компанию, поэтому вызывающий код должен показать владельцу ошибку.
+    """
+    if tenant_id is not None:
+        return tenant_id
+
+    raw_tenant_id = settings.get("tenant_id")
+    if raw_tenant_id is not None and str(raw_tenant_id).strip():
+        try:
+            if isinstance(raw_tenant_id, bool):
+                raise ValueError("tenant_id должен быть положительным целым числом")
+            if isinstance(raw_tenant_id, str):
+                settings_tenant_id = int(raw_tenant_id.strip())
+            elif isinstance(raw_tenant_id, int):
+                settings_tenant_id = raw_tenant_id
+            else:
+                raise ValueError("tenant_id должен быть положительным целым числом")
+            if settings_tenant_id <= 0:
+                raise ValueError("tenant_id должен быть положительным целым числом")
+        except (TypeError, ValueError):
+            logger.warning(
+                "Некорректный tenant_id в настройках почты: %r; "
+                "применяется следующий источник",
+                raw_tenant_id,
+            )
+        else:
+            return settings_tenant_id
+
+    legacy_tenant_id = configured_legacy_tenant_id()
+    if legacy_tenant_id is not None:
+        return legacy_tenant_id
+
+    tenant_ids = db.query(models_tenant.Tenant.id).order_by(
+        models_tenant.Tenant.id
+    ).all()
+    if len(tenant_ids) == 1:
+        return tenant_ids[0][0]
+    return None
+
+
+def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
+    resolved_tenant_id = _resolve_sync_tenant_id(db, settings, tenant_id)
+    if resolved_tenant_id is None:
+        logger.warning(
+            "Не удалось определить tenant для импорта писем: "
+            "укажите tenant в настройках почты"
+        )
+        return {
+            "tenant_id": None,
+            "success": False,
+            "error": "Не удалось определить tenant для импорта писем: укажите tenant в настройках почты",
+            "count": 0,
+        }
+
     email_addr = settings.get("email")
     imap_server = settings.get("imap_server")
     target_status = settings.get("target_status", "Новый запрос")
@@ -318,7 +383,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
     try:
         password = _get_smtp_password(settings)
         if not email_addr or not password:
-            return {"tenant_id": tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
+            return {"tenant_id": resolved_tenant_id, "success": False, "error": "Настройки почты не заполнены", "count": 0}
         # FIX 2026-09-06 (аудит): таймаут на сам TCP-connect. Раньше settimeout
         # ставился уже после конструктора — «зависший» IMAP-хост подвешивал
         # запрос/cron на системный таймаут (минуты).
@@ -436,7 +501,8 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             # пользователя id=0. NULL = «без ответственного».
                             owner_id=None,
                             client_id=client_id,
-                            sender_email=sender_email_addr
+                            sender_email=sender_email_addr,
+                            tenant_id=resolved_tenant_id,
                         )
                         db.add(new_card)
                         db.commit()
@@ -479,7 +545,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
                             card_id=new_card.id,
                             action="Импорт почты",
                             details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000],
-                            tenant_id=tenant_id,
+                            tenant_id=resolved_tenant_id,
                         )
                         db.add(log_entry)
                         db.commit()
@@ -493,7 +559,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
 
                         mail.store(e_id, "+FLAGS", "\\Seen")
             except Exception as e:
-                logger.warning(f"Failed to process email {e_id} for tenant {tenant_id}: {e}")
+                logger.warning(f"Failed to process email {e_id} for tenant {resolved_tenant_id}: {e}")
                 continue
 
         settings["last_sync"] = datetime.now(timezone.utc).isoformat()
@@ -511,7 +577,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
             logger.exception(f"Не удалось сохранить last_sync (tenant {tenant_id}) — импорт выполнен")
 
         return {
-            "tenant_id": tenant_id,
+            "tenant_id": resolved_tenant_id,
             "success": True,
             "count": len(imported_cards),
             "cards": imported_cards
@@ -523,7 +589,7 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         LegacyPlaintextError,
     ):
         return {
-            "tenant_id": tenant_id,
+            "tenant_id": resolved_tenant_id,
             "success": False,
             "error": "Не удалось безопасно использовать сохранённый пароль почты",
             "count": 0,
@@ -532,13 +598,13 @@ def _sync_tenant_emails(tenant_id: int, settings: dict, db: Session):
         # FIX 2026-09-06 (аудит С7): текст исключения почтового сервера раньше
         # уходил клиенту в detail (там бывают имя хоста и данные сессии) —
         # наружу только обобщённая формулировка, детали в логе выше.
-        logger.exception(f"IMAP error for tenant {tenant_id}")
-        return {"tenant_id": tenant_id, "success": False, "error": "Ошибка авторизации на почтовом сервере: проверьте логин и пароль ящика", "count": 0}
+        logger.exception(f"IMAP error for tenant {resolved_tenant_id}")
+        return {"tenant_id": resolved_tenant_id, "success": False, "error": "Ошибка авторизации на почтовом сервере: проверьте логин и пароль ящика", "count": 0}
     except TimeoutError:
-        return {"tenant_id": tenant_id, "success": False, "error": "Превышено время ожидания при подключении к почте", "count": 0}
+        return {"tenant_id": resolved_tenant_id, "success": False, "error": "Превышено время ожидания при подключении к почте", "count": 0}
     except Exception:
-        logger.exception(f"Email sync error for tenant {tenant_id}")
-        return {"tenant_id": tenant_id, "success": False, "error": "Ошибка подключения к почтовому серверу", "count": 0}
+        logger.exception(f"Email sync error for tenant {resolved_tenant_id}")
+        return {"tenant_id": resolved_tenant_id, "success": False, "error": "Ошибка подключения к почтовому серверу", "count": 0}
     finally:
         # FIX 2026-09-06 (аудит): logout был только на успехе — при ошибке
         # посреди выборки соединение с IMAP оставалось висеть до таймаута.
