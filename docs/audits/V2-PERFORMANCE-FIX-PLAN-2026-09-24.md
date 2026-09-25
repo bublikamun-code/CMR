@@ -142,9 +142,7 @@
 
 ## Итог 25.09 — измеримая кампания облегчения v2
 
-Кампания выполнена локально на стенде с копией production-БД; production,
-production-БД, PM2, nginx и legacy не менялись. Push и deploy в этой кампании
-не выполнялись.
+Кампания выполнена локально на стенде с копией production-БД. После отдельного разрешения владельца push и v2-деплой выполнены 25.09; backend, production-БД, PM2, nginx и legacy при выкладке статики не менялись.
 
 ### Baseline и условия
 
@@ -211,8 +209,9 @@ production-like проверкой загрузки изображений. IAB 
 background throttling, поэтому приведённые миллисекунды — сравнительный
 локальный результат, не норматив для production.
 
-Открытыми остаются TLS/HSTS BA-08 и решения владельца по production-деплою;
-эта кампания их не закрывает.
+Открытыми остаются TLS/HSTS BA-08 и решения владельца по production-деплою; эти пункты
+эта кампания не закрывала. Ниже зафиксирована фактическая read-only проверка после
+разрешённой выкладки v2.
 
 ## Фактические browser-проверки пакета 3 и ленивых загрузок
 
@@ -278,5 +277,27 @@ read-only census без demo с локальной sandbox-учёткой зав
 - измеримый сценарий улучшился либо не хуже baseline;
 - изменения зафиксированы в журнале и отдельном коммите.
 
-Прод и БД не трогать. Деплой — только отдельным решением владельца после
-проверки локального/стендового пакета.
+## Выкатка 25.09 — push и read-only проверка production
+
+После зелёных локальных проверок владелец разрешил push и деплой. Перед выкладкой
+создан predeploy-снимок production-БД через SQLite `.backup`; размер 3 756 032 байта,
+`PRAGMA integrity_check` = `ok`, права файла 600. Push выполнен в `origin/main`
+(`32812dd..397f6a1`), после push ветки синхронизированы (`0 0`).
+
+Выполнен штатный `tools/deploy.sh v2`: сборщик пересобрал `site-v2`, rsync передал
+31 файл с `--delete`; PM2 не перезапускался, поскольку выкладывалась только статика.
+Read-only проверки production на `https://87-232-64-12.nip.io`:
+
+- `/` → 302, `/v2/` → 200, `/legacy` → 200, `/health` → 200;
+- `/kanban/cards?limit=1` без токена → ожидаемый 401;
+- md5 локальных и production-файлов `index.html`, `js/v2/head.js`,
+  `js/v2/boot.js`, `js/shell-v2-fin.js`, `js/shell-v2-board.js`,
+  `js/shell-v2-insights.js` совпали;
+- production содержит маркеры `kb:cards-appended` и `IntersectionObserver`;
+- HTML имеет cache-busting `?v=d621a2436a`; `/v2/` отдаётся с `no-cache`, JS —
+  с `public, max-age=31536000, immutable`;
+- `tools/deploy.sh status`: `crm` и `nakladnye-bot` — `online`.
+
+Логин, authenticated writes, payment/save/write-off/sync/delete/restore на production
+не выполнялись. TLS/HSTS BA-08 остаётся открытым; рабочий адрес по-прежнему nip.io,
+trusted TLS/HSTS completion не заявляется.
