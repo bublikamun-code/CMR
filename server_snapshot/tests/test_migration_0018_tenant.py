@@ -57,6 +57,37 @@ def test_normalizes_unambiguous_legacy_nulls_and_is_idempotent(monkeypatch):
     conn.close()
 
 
+def test_child_without_tenant_column_does_not_block_legacy_normalization(
+    monkeypatch,
+):
+    monkeypatch.delenv("CRM_LEGACY_TENANT_ID", raising=False)
+    conn = _legacy_db(references=(1,))
+    conn.executescript(
+        """
+        CREATE TABLE cards (
+            id INTEGER PRIMARY KEY, tenant_id INTEGER REFERENCES tenants(id)
+        );
+        CREATE TABLE card_attachments (
+            id INTEGER PRIMARY KEY, card_id INTEGER REFERENCES cards(id)
+        );
+        INSERT INTO cards(id, tenant_id) VALUES (20, NULL);
+        INSERT INTO card_attachments(id, card_id) VALUES (30, 20);
+        """
+    )
+    conn.commit()
+
+    import_migration("0018_normalize_tenant_ids.py").up(conn.cursor())
+    conn.commit()
+
+    assert conn.execute(
+        "SELECT tenant_id FROM cards WHERE id = 20"
+    ).fetchone() == (1,)
+    assert conn.execute(
+        "SELECT card_id FROM card_attachments WHERE id = 30"
+    ).fetchone() == (20,)
+    conn.close()
+
+
 def test_explicit_config_can_resolve_null_without_existing_reference(monkeypatch):
     monkeypatch.setenv("CRM_LEGACY_TENANT_ID", "2")
     conn = _legacy_db(references=())

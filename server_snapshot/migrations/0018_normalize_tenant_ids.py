@@ -106,17 +106,20 @@ def _validate_parent_tenants(cur):
             continue
         if not (_column_exists(cur, child, column) and _column_exists(cur, parent, "tenant_id")):
             continue
-        # Внутренние NULL-FK допустимы, но непустой child обязан принадлежать
-        # непустому parent того же tenant.
+        # У части legacy child-таблиц нет собственного tenant_id: их tenant
+        # определяется только через parent. Такой NULL не является конфликтом
+        # и не должен блокировать нормализацию, иначе миграция отказывает на
+        # исходном однозначном single-tenant состоянии.
+        if not _column_exists(cur, child, "tenant_id"):
+            continue
+        # Непустой child обязан принадлежать тому же tenant, что и parent.
+        # Child с NULL будет нормализован вместе с остальными NULL-строками.
         cur.execute(
             f'SELECT COUNT(*) FROM "{child}" c '
             f'JOIN "{parent}" p ON p.id = c."{column}" '
             f'WHERE c."{column}" IS NOT NULL '
-            f'AND (c.tenant_id IS NOT DISTINCT FROM p.tenant_id) = 0'
-            if _column_exists(cur, child, "tenant_id")
-            else f'SELECT COUNT(*) FROM "{child}" c '
-                 f'JOIN "{parent}" p ON p.id = c."{column}" '
-                 f'WHERE c."{column}" IS NOT NULL AND p.tenant_id IS NULL'
+            f'AND c.tenant_id IS NOT NULL '
+            f'AND (p.tenant_id IS NULL OR c.tenant_id <> p.tenant_id)'
         )
         if cur.fetchone()[0]:
             raise AmbiguousLegacyTenant(
