@@ -35,6 +35,13 @@
         if (!fin) { pendingGroups = event.detail; return; }
         fin.applyGroups(event.detail);
     });
+    // kb:reloaded приходит перед синхронной пересборкой KB_FIN_SOURCE в фазе 2.
+    // Микрозадача даёт загрузчику сначала обновить источник, затем один раз
+    // синхронизировать финансовые реестры с новыми массивами на месте.
+    document.addEventListener('kb:reloaded', () => {
+        if (!fin) return;
+        Promise.resolve().then(() => fin.applyDocuments((window.KBData && window.KBData.cards) || []));
+    });
     // Раздел показывает navigation.js — он снимает hidden с #view-fin и вешает
     // .active (клик по меню, hash, back/forward, глубокая ссылка #fin).
     // Наблюдатель закрывает все эти пути одним местом и не требует правок в
@@ -45,16 +52,16 @@
     // что раздел показан, если снят hidden ИЛИ навешан .active.
     // Имя — isShown, а не visible: внутри сборщика уже есть свой `visible`.
     const isShown = () => !root.hidden || root.classList.contains('active');
-    if (isShown()) {
-        build();
-    } else {
-        const observer = new MutationObserver(() => {
-            if (!isShown()) return;
-            observer.disconnect();
-            build();
-        });
-        observer.observe(root, { attributes: true, attributeFilter: ['hidden', 'class'] });
-    }
+    if (isShown()) build();
+    const observer = new MutationObserver(() => {
+        if (isShown()) {
+            if (!fin) build();
+            fin.refreshIncPhotoObservation();
+        } else if (fin) {
+            fin.invalidateIncPhotoRequests();
+        }
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['hidden', 'class'] });
 
     // Тело сборщика сохраняет исходные отступы: переформатирование утопило бы
     // правку в 500 строках пробелов и её нельзя было бы отревьюить по diff'у.
@@ -143,6 +150,8 @@
     // Без видимого текста в label: заголовок колонки уже называет статус.
     // Поиск получает снимок только видимых полей строки, без скрытого содержимого details.
     const INC_FIELD_PROP = { verified: 'checked', arrived: 'arrived', paid: 'paid' };
+    let activeFinTab = 'payments';
+    const incPanel = $('#fin-incoming');
     const incCheck = (r, field, title, numId) => `<label class="fin-check" for="fin-inc-${field}-${r.id}"><input type="checkbox" id="fin-inc-${field}-${r.id}" data-inc-id="${numId}" data-inc-field="${field}" aria-label="${esc(title + ' — ' + r.supplier + ', ' + r.number)}" title="${title}"${r[INC_FIELD_PROP[field]] ? ' checked' : ''}></label>`;
     const incRows = $('#fin-incoming-rows');
     if (incRows && !incoming.length) incRows.closest('table').insertAdjacentHTML('afterend', '<p class="fin-note">Входящих накладных от поставщиков нет.</p>');
@@ -156,45 +165,290 @@
             filesHtml = '<p class="fin-note fin-note-compact">Файлов нет</p>';
         } else {
             const photoItems = photos.map((p, i) =>
-                `<li><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(p)}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${i + 1}</button></li>`
+                `<li data-photo-filename="${esc(p)}"><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(p)}" data-photo-label="Фото ${i + 1}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${i + 1}</button></li>`
             ).join('');
             const excelItem = hasExcel
-                ? `<li><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${esc(numId)}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>`
+                ? `<li data-excel><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${numId}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>`
                 : '';
             filesHtml = `<ul class="fin-inc-files">${photoItems}${excelItem}</ul>`;
         }
         const searchText = [r.supplier, r.number, r.date, r.store, money(r.amount)].join(' ');
-        return `<tr data-search="${esc(searchText)}">
+        return `<tr data-inc-key="${esc(r.id)}" data-search="${esc(searchText)}">
         <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td>
         <td class="num">${money(r.amount)}</td><td>${incCheck(r, 'verified', 'Проверена', numId)}</td><td>${incCheck(r, 'arrived', 'Пришла', numId)}</td><td>${incCheck(r, 'paid', 'Оплачена', numId)}</td>
         <td><details><summary>НДС и файлы</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p>${filesHtml}</details></td>
     </tr>`;
     }).join('');
-    // --- Входящие: загрузка миниатюр фото через авторизованный blob --------
-    (function loadIncPhotoThumbs() {
-        if (!window.V2Api || !window.V2Api.token()) return;
-        document.querySelectorAll('.fin-inc-photo[data-filename]').forEach(async (btn) => {
-            const filename = btn.dataset.filename;
-            if (!filename) return;
-            try {
-                const resp = await window.V2Api.download('/nakladnye/photos/' + encodeURIComponent(filename));
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const img = document.createElement('img');
-                img.src = url;
-                img.alt = btn.dataset.nak || filename;
-                img.className = 'fin-inc-photo-image';
-                img.dataset.action = 'inc-photo-view';
-                img.dataset.blobUrl = url;
-                img.title = 'Открыть фото в новой вкладке';
-                btn.replaceWith(img);
-            } catch (e) {
-                btn.textContent = '📷 ' + filename + ' (ошибка)';
-                btn.title = 'Не удалось загрузить: ' + (e.message || 'неизвестная ошибка');
+    // --- Входящие: ленивые фото через общий FIFO-планировщик --------------
+    // Сеть начинается только для открытого details у видимой вкладки и только
+    // после приближения кнопки к viewport. Один файл не загружается дважды.
+    const incPhotoEntries = new Map();
+    const incPhotoPriorityQueue = [];
+    const incPhotoQueue = [];
+    let incPhotoRunning = 0;
+    let incPhotoGeneration = 0;
+    const INC_PHOTO_LIMIT = 3;
+    const incPanelVisible = () => activeFinTab === 'incoming' && incPanel && !incPanel.hidden &&
+        (!root.hidden || root.classList.contains('active'));
+    const incPhotoApiAvailable = () => {
+        try {
+            return Boolean(window.V2Api && typeof window.V2Api.download === 'function' &&
+                typeof window.V2Api.token === 'function' && window.V2Api.token());
+        } catch (error) {
+            return false;
+        }
+    };
+    const incPhotoAbortError = (message) => typeof DOMException === 'function'
+        ? new DOMException(message, 'AbortError')
+        : Object.assign(new Error(message), { name: 'AbortError' });
+    function rejectIncPhotoWaiters(waiters, error) {
+        waiters.splice(0).forEach((waiter) => waiter.reject(error));
+    }
+    const photoDetails = (button) => button.closest('details');
+    const photoNearViewport = (button) => {
+        if (!button || !button.isConnected) return false;
+        const details = photoDetails(button);
+        if (!details || !details.open || !incPanelVisible()) return false;
+        const rects = button.getClientRects();
+        if (!rects.length) return false;
+        const rect = button.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        return rect.bottom >= -240 && rect.top <= (window.innerHeight || document.documentElement.clientHeight) + 240;
+    };
+    function observeIncPhotoButton(button) {
+        const details = photoDetails(button);
+        if (incPhotoObserver && details && details.open && incPanelVisible() && button.isConnected) {
+            incPhotoObserver.observe(button);
+        }
+    }
+    function setIncPhotoButtonState(button, state, message) {
+        if (!button || !button.isConnected) return;
+        button.dataset.photoState = state;
+        if (state === 'loading') button.textContent = '⏳ Фото загружается…';
+        else if (state === 'error') {
+            button.textContent = `📷 ${button.dataset.photoLabel || 'Фото'} (ошибка)`;
+            button.title = message || 'Не удалось загрузить. Нажмите, чтобы повторить.';
+        } else {
+            button.textContent = `📷 ${button.dataset.photoLabel || 'Фото'}`;
+            button.title = 'Открыть фото в новой вкладке';
+        }
+    }
+    function showIncPhotoImage(button, filename, url) {
+        const details = photoDetails(button);
+        if (!button.isConnected || !details || !details.open || !incPanelVisible()) return false;
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = button.dataset.nak || filename;
+        img.className = 'fin-inc-photo-image';
+        img.dataset.action = 'inc-photo-view';
+        img.dataset.filename = filename;
+        img.dataset.blobUrl = url;
+        img.title = 'Открыть фото в новой вкладке';
+        button.replaceWith(img);
+        return true;
+    }
+    function releaseIncPhotoUrl(blobUrl) {
+        if (!blobUrl) return;
+        const used = Array.from(document.querySelectorAll('img.fin-inc-photo-image[data-blob-url]'))
+            .some((img) => img.dataset.blobUrl === blobUrl);
+        if (used) return;
+        URL.revokeObjectURL(blobUrl);
+        incPhotoEntries.forEach((entry, filename) => {
+            if (entry.url === blobUrl) {
+                entry.url = null;
+                entry.state = 'idle';
+                entry.buttons.clear();
+                incPhotoEntries.delete(filename);
             }
         });
-    })();
+    }
+    function canStartIncPhoto(entry) {
+        return Boolean(entry && Array.from(entry.buttons).some(photoNearViewport));
+    }
+    function failQueuedIncPhoto(task, error, state) {
+        const entry = incPhotoEntries.get(task.filename);
+        if (entry && entry.queuedTask === task) {
+            entry.queuedTask = null;
+            entry.waiters = [];
+            entry.state = state;
+            entry.buttons.forEach((button) => setIncPhotoButtonState(button, state, error.message));
+        }
+        rejectIncPhotoWaiters(task.waiters, error);
+    }
+    function pumpIncPhotos() {
+        while (incPhotoRunning < INC_PHOTO_LIMIT && (incPhotoPriorityQueue.length || incPhotoQueue.length)) {
+            const task = incPhotoPriorityQueue.length ? incPhotoPriorityQueue.shift() : incPhotoQueue.shift();
+            const entry = incPhotoEntries.get(task.filename);
+            if (!entry || task.generation !== incPhotoGeneration) {
+                failQueuedIncPhoto(task, incPhotoAbortError('Загрузка фото отменена'), 'idle');
+                continue;
+            }
+            if (!canStartIncPhoto(entry)) {
+                failQueuedIncPhoto(task, incPhotoAbortError('Фото больше не отображается'), 'idle');
+                if (entry) entry.buttons.forEach((button) => observeIncPhotoButton(button));
+                else observeIncPhotoButton(task.button);
+                continue;
+            }
+            if (!incPhotoApiAvailable()) {
+                failQueuedIncPhoto(task, new Error('Фото доступно только после входа в CRM'), 'error');
+                continue;
+            }
+            entry.queuedTask = null;
+            entry.state = 'loading';
+            const request = {
+                generation: task.generation,
+                controller: new AbortController(),
+                waiters: task.waiters
+            };
+            entry.request = request;
+            entry.waiters = request.waiters;
+            incPhotoRunning++;
+            entry.buttons.forEach((button) => setIncPhotoButtonState(button, 'loading'));
+            const isCurrentRequest = () => incPhotoEntries.get(task.filename) === entry &&
+                entry.request === request && request.generation === incPhotoGeneration;
+            Promise.resolve()
+                .then(() => {
+                    if (!isCurrentRequest()) throw incPhotoAbortError('Загрузка фото отменена');
+                    if (!incPhotoApiAvailable()) throw new Error('Фото доступно только после входа в CRM');
+                    return window.V2Api.download('/nakladnye/photos/' + encodeURIComponent(task.filename), { signal: request.controller.signal });
+                })
+                .then((resp) => {
+                    if (!isCurrentRequest()) throw incPhotoAbortError('Загрузка фото отменена');
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    return resp.blob();
+                })
+                .then((blob) => {
+                    if (!isCurrentRequest()) throw incPhotoAbortError('Загрузка фото отменена');
+                    if (!canStartIncPhoto(entry)) {
+                        entry.state = 'idle';
+                        entry.buttons.forEach((button) => setIncPhotoButtonState(button, 'idle'));
+                        rejectIncPhotoWaiters(request.waiters, incPhotoAbortError('Фото больше не отображается'));
+                        entry.buttons.forEach((button) => observeIncPhotoButton(button));
+                        return;
+                    }
+                    const url = URL.createObjectURL(blob);
+                    let inserted = false;
+                    entry.buttons.forEach((button) => {
+                        if (showIncPhotoImage(button, task.filename, url)) inserted = true;
+                    });
+                    if (!inserted) {
+                        URL.revokeObjectURL(url);
+                        entry.state = 'idle';
+                        entry.buttons.forEach((button) => setIncPhotoButtonState(button, 'idle'));
+                        rejectIncPhotoWaiters(request.waiters, incPhotoAbortError('Фото больше не отображается'));
+                        entry.buttons.forEach((button) => observeIncPhotoButton(button));
+                        return;
+                    }
+                    entry.url = url;
+                    entry.state = 'loaded';
+                    entry.buttons.forEach((button) => button.remove());
+                    entry.buttons.clear();
+                    request.waiters.splice(0).forEach((waiter) => waiter.resolve(url));
+                })
+                .catch((error) => {
+                    if (!isCurrentRequest()) return;
+                    entry.state = 'error';
+                    entry.buttons.forEach((button) => setIncPhotoButtonState(button, 'error', 'Не удалось загрузить: ' + (error.message || 'неизвестная ошибка')));
+                    rejectIncPhotoWaiters(request.waiters, error);
+                    entry.waiters = [];
+                })
+                .finally(() => {
+                    incPhotoRunning--;
+                    if (isCurrentRequest()) {
+                        entry.request = null;
+                        entry.waiters = [];
+                    }
+                    pumpIncPhotos();
+                });
+        }
+    }
+    function enqueueIncPhoto(button, priority) {
+        const filename = button.dataset.filename;
+        if (!filename) return Promise.reject(new Error('Не указано имя файла'));
+        if (!incPhotoApiAvailable()) return Promise.reject(new Error('Фото доступно только после входа в CRM'));
+        let entry = incPhotoEntries.get(filename);
+        if (!entry) {
+            entry = { state: 'idle', url: null, request: null, buttons: new Set(), queuedTask: null, waiters: [] };
+            incPhotoEntries.set(filename, entry);
+        }
+        entry.buttons.add(button);
+        if (entry.state === 'loaded' && entry.url) {
+            showIncPhotoImage(button, filename, entry.url);
+            return Promise.resolve(entry.url);
+        }
+        if (entry.state === 'loading' && entry.request && entry.request.generation === incPhotoGeneration) {
+            const waiters = entry.request.waiters;
+            return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
+        }
+        if (entry.queuedTask && entry.queuedTask.generation === incPhotoGeneration) {
+            const task = entry.queuedTask;
+            const waiters = task.waiters;
+            return new Promise((resolve, reject) => {
+                waiters.push({ resolve, reject });
+                if (priority) {
+                    const normalIndex = incPhotoQueue.indexOf(task);
+                    if (normalIndex !== -1) {
+                        incPhotoQueue.splice(normalIndex, 1);
+                        incPhotoPriorityQueue.push(task);
+                    }
+                }
+            });
+        }
+        entry.state = 'idle';
+        setIncPhotoButtonState(button, 'idle');
+        const task = { filename, button, generation: incPhotoGeneration, waiters: [] };
+        entry.queuedTask = task;
+        entry.waiters = task.waiters;
+        if (priority) incPhotoPriorityQueue.push(task);
+        else incPhotoQueue.push(task);
+        const waiter = new Promise((resolve, reject) => task.waiters.push({ resolve, reject }));
+        pumpIncPhotos();
+        return waiter;
+    }
+    function invalidateIncPhotoRequests() {
+        const previousGeneration = incPhotoGeneration;
+        incPhotoGeneration++;
+        const queuedTasks = incPhotoPriorityQueue.splice(0).concat(incPhotoQueue.splice(0));
+        const queuedTaskSet = new Set(queuedTasks);
+        const abortError = incPhotoAbortError('Загрузка фото отменена');
+        incPhotoEntries.forEach((entry) => {
+            const queuedTask = entry.queuedTask;
+            if (queuedTask && queuedTaskSet.has(queuedTask)) {
+                entry.queuedTask = null;
+                entry.waiters = [];
+            }
+            const request = entry.request;
+            if (request && request.generation === previousGeneration) {
+                request.controller.abort();
+                rejectIncPhotoWaiters(request.waiters, abortError);
+                entry.waiters = [];
+            }
+            if (entry.state === 'loading') {
+                entry.state = 'idle';
+                entry.buttons.forEach((button) => setIncPhotoButtonState(button, 'idle'));
+            }
+        });
+        queuedTasks.forEach((task) => rejectIncPhotoWaiters(task.waiters, abortError));
+    }
+    function refreshIncPhotoObservation() {
+        if (!incPhotoObserver || !incPanelVisible()) return;
+        $$('.fin-inc-photo[data-filename]').forEach((button) => observeIncPhotoButton(button));
+    }
+    const incPhotoObserver = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+            const button = entry.target;
+            if (!entry.isIntersecting || !incPanelVisible() || !incPhotoApiAvailable()) return;
+            const details = photoDetails(button);
+            if (!details || !details.open) return;
+            incPhotoObserver.unobserve(button);
+            enqueueIncPhoto(button, false).catch(() => {});
+        });
+    }, { rootMargin: '240px 0px', threshold: 0.01 }) : null;
+    incRows.addEventListener('toggle', (event) => {
+        const details = event.target;
+        if (!details.matches('details')) return;
+        if (details.open) refreshIncPhotoObservation();
+    }, true);
     // --- Входящие: делегированные обработчики (фото / Excel) ---------------
     document.addEventListener('click', (event) => {
         const target = event.target.closest('[data-action]');
@@ -206,8 +460,6 @@
                 if (t) { t.hidden = false; t.textContent = 'Фото доступно только после входа в CRM'; setTimeout(() => t.hidden = true, 4000); }
                 return;
             }
-            let blobUrl = target.dataset.blobUrl;
-            const filename = target.dataset.filename;
             const openPhoto = (bUrl) => {
                 const w = window.open(bUrl, '_blank', 'noopener');
                 if (!w) {
@@ -215,22 +467,29 @@
                     if (t) { t.hidden = false; t.textContent = 'Разрешите всплывающие окна для просмотра фото'; setTimeout(() => t.hidden = true, 4000); }
                 }
             };
-            if (blobUrl) {
-                openPhoto(blobUrl);
-            } else if (filename) {
-                window.V2Api.download('/nakladnye/photos/' + encodeURIComponent(filename))
-                    .then((resp) => {
-                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                        return resp.blob();
+            if (target.dataset.blobUrl) {
+                openPhoto(target.dataset.blobUrl);
+            } else if (target.dataset.filename) {
+                const pending = window.open('', '_blank');
+                if (!pending) {
+                    const t = document.getElementById('kb-toast');
+                    if (t) { t.hidden = false; t.textContent = 'Разрешите всплывающие окна для просмотра фото'; setTimeout(() => t.hidden = true, 4000); }
+                    return;
+                }
+                pending.opener = null;
+                enqueueIncPhoto(target, true)
+                    .then((bUrl) => {
+                        if (pending.closed) return;
+                        try {
+                            pending.location.replace(bUrl);
+                        } catch (error) {
+                            pending.location.href = bUrl;
+                        }
                     })
-                    .then((blob) => {
-                        blobUrl = URL.createObjectURL(blob);
-                        target.dataset.blobUrl = blobUrl;
-                        openPhoto(blobUrl);
-                    })
-                    .catch((e) => {
+                    .catch((error) => {
+                        pending.close();
                         const t = document.getElementById('kb-toast');
-                        if (t) { t.hidden = false; t.textContent = 'Ошибка загрузки фото: ' + (e.message || 'неизвестная ошибка'); setTimeout(() => t.hidden = true, 4000); }
+                        if (t) { t.hidden = false; t.textContent = 'Ошибка загрузки фото: ' + (error.message || 'неизвестная ошибка'); setTimeout(() => t.hidden = true, 4000); }
                     });
             }
         } else if (action === 'inc-excel') {
@@ -238,7 +497,7 @@
             if (!nakId) return;
             if (!window.V2Api || !window.V2Api.token()) {
                 const t = document.getElementById('kb-toast');
-                if (t) { t.hidden = false; t.textContent = 'Excel доступен только после входа в CRM'; setTimeout(() => t.hidden = true, 4000); }
+                if (t) { t.hidden = false; t.textContent = 'Excel доступно только после входа в CRM'; setTimeout(() => t.hidden = true, 4000); }
                 return;
             }
             window.V2Api.download('/nakladnye/' + nakId + '/excel')
@@ -284,82 +543,462 @@
         if (r.docTxId === null || r.docTxId === undefined) return -1;
         return docs.findIndex((d) => d.txId === r.docTxId);
     }
+    // Стабильная сигнатура не зависит от порядка ключей объекта. События без
+    // изменения данных завершаются до любых строковых и DOM-операций.
+    function stableSignature(value) {
+        if (Array.isArray(value)) return '[' + value.map(stableSignature).join(',') + ']';
+        if (value && Object.prototype.toString.call(value) === '[object Object]') {
+            return '{' + Object.keys(value).sort().map((key) => key + ':' + stableSignature(value[key])).join(',') + '}';
+        }
+        return JSON.stringify(value === undefined ? null : value);
+    }
+    const outgoingSignature = () => stableSignature(outgoing);
+    const incomingSignature = () => stableSignature(incoming);
+    function kanbanDocumentsSignature(detail) {
+        return stableSignature((detail || []).map((card) => ({
+            id: card.id, client: card.client, title: card.title, store: card.store,
+            docs: (card.docs || []).map((doc) => ({
+                txId: doc.txId, originalsReturned: doc.originalsReturned,
+                date: doc.date, series: doc.series, number: doc.number, amount: doc.amount
+            }))
+        })));
+    }
+    let lastOutgoingSourceSignature = outgoingSignature();
+    let lastIncomingSourceSignature = incomingSignature();
+    let lastDocumentsSignature = null;
+    let lastKanbanDocumentsSignature = null;
+    let lastGroupsSignature = null;
+    let registryIds = new Set(outgoing.map((r) => r.id));
+
+    function currentIssuedRows() {
+        const seen = new Set();
+        return outgoing.filter((r) => {
+            if (!r.tn) return false;
+            if (r.docTxId === null || r.docTxId === undefined) return true;
+            if (seen.has(r.docTxId)) return false;
+            seen.add(r.docTxId);
+            return true;
+        });
+    }
+    function makeRow(html) {
+        const template = document.createElement('template');
+        template.innerHTML = html.trim();
+        return template.content.firstElementChild;
+    }
+    function patchCheckbox(row, selector, r, field, label) {
+        const input = row.querySelector(selector);
+        if (!input) return;
+        input.id = 'fin-' + field + '-' + r.id;
+        input.dataset.record = r.id;
+        input.checked = Boolean(r[field]);
+        input.setAttribute('aria-label', label + ' — ' + r.card + ', ' + r.client);
+    }
+    function patchPaymentRow(row, r) {
+        row.dataset.card = r.cardId || '';
+        const dateInput = row.querySelector('.fin-date-input');
+        if (dateInput) dateInput.finRecord = r;
+        const dateButton = row.querySelector('.fin-date-edit');
+        if (dateButton) dateButton.textContent = r.date;
+        const open = row.querySelector('[data-card-open]');
+        if (open) open.textContent = r.client;
+        const cardSmall = row.cells[0].querySelector('small');
+        if (cardSmall) cardSmall.textContent = r.card;
+        row.cells[1].textContent = money(r.amount);
+        row.cells[2].textContent = 'Оплачено ' + money(r.paid);
+        const debt = document.createElement('small');
+        debt.textContent = 'Долг ' + money(r.amount - r.paid);
+        row.cells[2].appendChild(debt);
+        row.cells[3].textContent = r.store;
+        const estimate = document.createElement('small');
+        estimate.textContent = r.estimate;
+        row.cells[3].appendChild(estimate);
+        row.cells[4].textContent = '';
+        if (r.tn) {
+            row.cells[4].textContent = r.tn.number;
+            const date = document.createElement('small');
+            date.textContent = r.tn.date;
+            row.cells[4].appendChild(date);
+        } else row.cells[4].textContent = 'Не оформлена';
+        patchCheckbox(row, 'input[data-field="calculated"]', r, 'calculated', 'Просчёт');
+        patchCheckbox(row, 'input[data-field="posted"]', r, 'posted', 'Списано');
+        const details = row.cells[7].querySelector('details');
+        if (details) {
+            const paragraphs = details.querySelectorAll('p');
+            if (paragraphs[0]) paragraphs[0].textContent = 'Печать: ' + (r.print || '') + '.';
+            if (paragraphs[1]) paragraphs[1].textContent = (r.authority || '') + '.';
+            const area = details.querySelector('textarea');
+            if (area && document.activeElement !== area) area.value = r.note || '';
+        }
+    }
+    function paymentRowHtml(r) {
+        return `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
+            <td>${dateEditButton(r)}<br>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td>
+            <td class="num">${money(r.amount)}</td><td class="num">Оплачено ${money(r.paid)}<small>Долг ${money(r.amount - r.paid)}</small></td>
+            <td>${esc(r.store)}<small>${esc(r.estimate)}</small></td><td>${tnText(r)}</td>
+            <td>${checkbox(r, 'calculated', 'Просчёт')}</td><td>${checkbox(r, 'posted', 'Списано')}</td>
+            <td><details><summary>Реквизиты и примечание</summary><p>Печать: ${esc(r.print)}.</p><p>${esc(r.authority)}.</p><textarea class="fin-note-edit" data-record="${r.id}" rows="3" placeholder="Примечание (сохраняется автоматически)">${esc(r.note || '')}</textarea></details></td>
+        </tr>`;
+    }
+    function documentRowHtml(r, kanban) {
+        if (kanban) return `<tr data-kanban data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
+            <td>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td><td>${esc(r.tn.number)}<small>${esc(r.tn.date)}</small></td>
+            <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td></tr>`;
+        return `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
+            <td>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
+            <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td></tr>`;
+    }
+    function patchDocumentRow(row, r, kanban) {
+        if (r.cardId) row.dataset.card = r.cardId;
+        const open = row.querySelector('[data-card-open]');
+        if (open) open.textContent = r.client;
+        const firstSmall = row.cells[0].querySelector('small');
+        if (firstSmall) firstSmall.textContent = row.hasAttribute('data-group') ? r.card + ': ' + r.cardsText : r.card;
+        row.cells[1].textContent = r.tn.number;
+        const tnDate = document.createElement('small');
+        tnDate.textContent = r.tn.date;
+        row.cells[1].appendChild(tnDate);
+        if (!kanban) {
+            const bill = document.createElement('small');
+            bill.textContent = 'Счёт ' + r.tn.bill;
+            row.cells[1].appendChild(bill);
+        }
+        row.cells[2].textContent = money(r.amount);
+        patchCheckbox(row, 'input[data-field="tnHere"]', r, 'tnHere', 'ТН у нас');
+        if (!kanban) {
+            patchCheckbox(row, 'input[data-field="billHere"]', r, 'billHere', 'Счет у нас');
+            const print = row.querySelector('select.fprint-select');
+            if (print) print.value = r.print || '';
+        }
+    }
+    function journalRowHtml(r) {
+        return `<tr data-record="${r.id}"><td>${esc(r.tn.number)}</td><td class="num">${r.tn.date}</td>
+            <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление № и даты — в карточке сделки, журнал здесь только для просмотра.</p></details></td>
+            <td class="num">${money(r.amount)}</td></tr>`;
+    }
+    function patchJournalRow(row, r) {
+        row.cells[0].textContent = r.tn.number;
+        row.cells[1].textContent = r.tn.date;
+        const details = row.cells[2].querySelector('details');
+        if (details) {
+            const summary = details.querySelector('summary');
+            if (summary) summary.textContent = r.card;
+            const paragraphs = details.querySelectorAll('p');
+            if (paragraphs[0]) paragraphs[0].textContent = r.client + ' · ' + r.store + ' · ' + r.estimate;
+            if (paragraphs[1]) paragraphs[1].textContent = 'Существующая привязка: ' + r.tn.number + ' от ' + r.tn.date + ', вся сумма карточки ' + money(r.amount) + ' BYN.';
+        }
+        row.cells[3].textContent = money(r.amount);
+    }
+    function patchIncomingFiles(details, r) {
+        const photos = Array.isArray(r.photoPaths) ? r.photoPaths : [];
+        let list = details.querySelector('.fin-inc-files');
+        const note = details.querySelector(':scope > .fin-note-compact');
+        if (!photos.length && !r.excelPath) {
+            if (list) list.remove();
+            if (!note) {
+                const empty = document.createElement('p');
+                empty.className = 'fin-note fin-note-compact';
+                empty.textContent = 'Файлов нет';
+                details.appendChild(empty);
+            }
+            return;
+        }
+        if (note) note.remove();
+        if (!list) {
+            list = document.createElement('ul');
+            list.className = 'fin-inc-files';
+            details.appendChild(list);
+        }
+        const wanted = new Set(photos.map(String));
+        Array.from(list.querySelectorAll('li[data-photo-filename]')).forEach((item) => {
+            if (!wanted.has(item.dataset.photoFilename)) {
+                const image = item.querySelector('img[data-blob-url]');
+                const blobUrl = image && image.dataset.blobUrl;
+                item.remove();
+                releaseIncPhotoUrl(blobUrl);
+            }
+        });
+        const excelItem = list.querySelector('li[data-excel]');
+        if (!r.excelPath && excelItem) excelItem.remove();
+        const photoItems = Array.from(list.querySelectorAll('li[data-photo-filename]'));
+        photos.forEach((filename, index) => {
+            let item = photoItems.find((node) => node.dataset.photoFilename === String(filename));
+            if (!item) {
+                item = document.createElement('li');
+                item.dataset.photoFilename = String(filename);
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'fin-inc-photo';
+                button.dataset.action = 'inc-photo';
+                button.dataset.filename = String(filename);
+                button.dataset.photoLabel = 'Фото ' + (index + 1);
+                button.dataset.nak = r.number;
+                button.title = 'Открыть фото в новой вкладке';
+                button.textContent = '📷 Фото ' + (index + 1);
+                item.appendChild(button);
+            }
+            const atIndex = list.children[index];
+            if (atIndex !== item) list.insertBefore(item, atIndex || null);
+        });
+        if (r.excelPath) {
+            if (!excelItem) {
+                excelItem = makeRow(`<li data-excel><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${esc(String(r.id || '').replace(/\D/g, ''))}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>`);
+            }
+            const button = excelItem.querySelector('button');
+            if (button) {
+                button.dataset.nakId = String(r.id || '').replace(/\D/g, '');
+                button.title = 'Скачать Excel для ' + r.number;
+            }
+            const atIndex = list.children[photos.length];
+            if (atIndex !== excelItem) list.insertBefore(excelItem, atIndex || null);
+        }
+    }
+    function patchIncomingRow(row, r) {
+        row.dataset.search = [r.supplier, r.number, r.date, r.store, money(r.amount)].join(' ');
+        row.cells[0].textContent = r.supplier;
+        row.cells[1].textContent = r.number;
+        const date = document.createElement('small');
+        date.textContent = r.date;
+        row.cells[1].appendChild(date);
+        row.cells[2].textContent = r.store;
+        row.cells[3].textContent = money(r.amount);
+        const numId = String(r.id || '').replace(/\D/g, '');
+        ['verified', 'arrived', 'paid'].forEach((field) => {
+            const input = row.querySelector('input[data-inc-field="' + field + '"]');
+            if (!input) return;
+            input.id = 'fin-inc-' + field + '-' + r.id;
+            input.dataset.incId = numId;
+            input.checked = Boolean(r[INC_FIELD_PROP[field]]);
+            const title = { verified: 'Проверена', arrived: 'Пришла', paid: 'Оплачена' }[field];
+            input.setAttribute('aria-label', title + ' — ' + r.supplier + ', ' + r.number);
+        });
+        const details = row.cells[7].querySelector('details');
+        if (details) {
+            const paragraphs = details.querySelectorAll(':scope > p');
+            if (paragraphs[0]) paragraphs[0].textContent = 'Без НДС: ' + money(r.amount - r.vat) + ' BYN.';
+            if (paragraphs[1]) paragraphs[1].textContent = 'НДС 20%: ' + money(r.vat) + ' BYN, включён в сумму.';
+            patchIncomingFiles(details, r);
+        }
+    }
+    function incomingRowHtml(r) {
+        const numId = String(r.id || '').replace(/\D/g, '');
+        const photos = Array.isArray(r.photoPaths) ? r.photoPaths : [];
+        const photoItems = photos.map((filename, index) => `<li data-photo-filename="${esc(filename)}"><button type="button" class="fin-inc-photo" data-action="inc-photo" data-filename="${esc(filename)}" data-photo-label="Фото ${index + 1}" data-nak="${esc(r.number)}" title="Открыть фото в новой вкладке">📷 Фото ${index + 1}</button></li>`).join('');
+        const excelItem = r.excelPath ? `<li data-excel><button type="button" class="fin-inc-excel" data-action="inc-excel" data-nak-id="${numId}" title="Скачать Excel для ${esc(r.number)}">📊 Excel</button></li>` : '';
+        const filesHtml = photos.length || r.excelPath ? `<ul class="fin-inc-files">${photoItems}${excelItem}</ul>` : '<p class="fin-note fin-note-compact">Файлов нет</p>';
+        return `<tr data-inc-key="${esc(r.id)}" data-search="${esc([r.supplier, r.number, r.date, r.store, money(r.amount)].join(' '))}">
+            <td><b>${esc(r.supplier)}</b></td><td>${esc(r.number)}<small>${r.date}</small></td><td>${esc(r.store)}</td><td class="num">${money(r.amount)}</td>
+            <td>${incCheck(r, 'verified', 'Проверена', numId)}</td><td>${incCheck(r, 'arrived', 'Пришла', numId)}</td><td>${incCheck(r, 'paid', 'Оплачена', numId)}</td>
+            <td><details><summary>НДС и файлы</summary><p>Без НДС: ${money(r.amount - r.vat)} BYN.</p><p>НДС 20%: ${money(r.vat)} BYN, включён в сумму.</p>${filesHtml}</details></td></tr>`;
+    }
+    function reconcileOutgoingSource() {
+        const signature = outgoingSignature();
+        if (signature === lastOutgoingSourceSignature) return false;
+        lastOutgoingSourceSignature = signature;
+        const issued = currentIssuedRows();
+        registryDocTxIds.clear();
+        const nextRegistryIds = new Set();
+        outgoing.forEach((r) => { byId.set(r.id, r); nextRegistryIds.add(String(r.id)); });
+        issued.forEach((r) => { byId.set(r.id, r); nextRegistryIds.add(String(r.id)); });
+        registryIds.forEach((id) => { if (!nextRegistryIds.has(id)) byId.delete(id); });
+        registryIds = nextRegistryIds;
+        registryDocTxIds.forEach((id) => { if (!issued.some((r) => String(r.docTxId) === String(id))) registryDocTxIds.delete(id); });
+        issued.forEach((r) => { if (r.docTxId !== null && r.docTxId !== undefined) registryDocTxIds.add(r.docTxId); });
+        const payments = $('#fin-payment-rows');
+        const paymentFragment = document.createDocumentFragment();
+        outgoing.forEach((r) => {
+            let row = payments.querySelector('tr[data-record="' + r.id + '"]');
+            const isNew = !row;
+            if (isNew) row = makeRow(paymentRowHtml(r));
+            patchPaymentRow(row, r);
+            if (isNew) paymentFragment.appendChild(row);
+        });
+        Array.from(payments.querySelectorAll('tr')).forEach((row) => { if (!nextRegistryIds.has(row.dataset.record)) row.remove(); });
+        if (paymentFragment.childNodes.length) payments.appendChild(paymentFragment);
+        const documentBody = $('#fin-document-rows');
+        const issuedIds = new Set(issued.map((r) => String(r.id)));
+        Array.from(documentBody.querySelectorAll('tr:not([data-kanban]):not([data-group])')).forEach((row) => { if (!issuedIds.has(row.dataset.record)) row.remove(); });
+        const docFragment = document.createDocumentFragment();
+        issued.forEach((r) => {
+            let row = documentBody.querySelector('tr[data-record="' + r.id + '"]:not([data-kanban]):not([data-group])');
+            const isNew = !row;
+            if (isNew) row = makeRow(documentRowHtml(r, false));
+            patchDocumentRow(row, r, false);
+            if (isNew) docFragment.appendChild(row);
+        });
+        if (docFragment.childNodes.length) documentBody.appendChild(docFragment);
+        const journalBody = $('#fin-journal-rows');
+        Array.from(journalBody.querySelectorAll('tr:not([data-group])')).forEach((row) => { if (!issuedIds.has(row.dataset.record)) row.remove(); });
+        const journalFragment = document.createDocumentFragment();
+        issued.forEach((r) => {
+            let row = journalBody.querySelector('tr[data-record="' + r.id + '"]:not([data-group])');
+            const isNew = !row;
+            if (isNew) row = makeRow(journalRowHtml(r));
+            patchJournalRow(row, r);
+            if (isNew) journalFragment.appendChild(row);
+        });
+        if (journalFragment.childNodes.length) journalBody.appendChild(journalFragment);
+        return true;
+    }
+    function reconcileIncomingSource() {
+        const signature = incomingSignature();
+        if (signature === lastIncomingSourceSignature) return false;
+        lastIncomingSourceSignature = signature;
+        invalidateIncPhotoRequests();
+        const body = incRows;
+        const existing = new Map(Array.from(body.querySelectorAll('tr[data-inc-key]')).map((row) => [row.dataset.incKey, row]));
+        const wanted = new Set(incoming.map((r) => String(r.id)));
+        const fragment = document.createDocumentFragment();
+        incoming.forEach((r) => {
+            let row = existing.get(String(r.id));
+            const isNew = !row;
+            if (row) patchIncomingRow(row, r);
+            else row = makeRow(incomingRowHtml(r));
+            if (isNew) fragment.appendChild(row);
+            existing.delete(String(r.id));
+        });
+        existing.forEach((row) => {
+            const blobUrls = Array.from(row.querySelectorAll('img[data-blob-url]'))
+                .map((image) => image.dataset.blobUrl)
+                .filter(Boolean);
+            row.remove();
+            blobUrls.forEach((blobUrl) => releaseIncPhotoUrl(blobUrl));
+        });
+        if (fragment.childNodes.length) body.appendChild(fragment);
+        refreshIncPhotoObservation();
+        return true;
+    }
     // Kanban documents are session-local too; one row per partial invoice.
     // Подписку на kb:documents держит обёртка в начале скрипта — она должна
     // срабатывать и до первой сборки раздела.
-    function applyDocuments(detail) {
-        $$('#fin-document-rows tr[data-kanban]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
-        // Одна вставка вместо N: каждая insertAdjacentHTML — отдельный парсинг
-        // и мутация DOM, а реестр ТН перестраивается на каждое kb:documents.
-        const kanbanRows = [];
-        // Проход собирается заново при каждом kb:documents, поэтому список
-        // «уже показанных» документов начинаем со строк реестра.
+    function reconcileKanbanDocuments(detail) {
+        const records = [];
         const listedDocs = new Set(registryDocTxIds);
-        (detail || []).forEach((card) => card.docs.forEach((doc, index) => {
-            // Номер и дата в этом проходе уже есть (строка реестра или второй
-            // документ той же карточки) — дубль не добавляем. index при этом
-            // берётся из исходного массива, поэтому fin:originals продолжает
-            // попадать в нужный документ карточки.
+        (detail || []).forEach((card) => (card.docs || []).forEach((doc, index) => {
             if (doc.txId !== null && doc.txId !== undefined) {
                 if (listedDocs.has(doc.txId)) return;
                 listedDocs.add(doc.txId);
             }
             const id = 'kb-' + card.id + '-' + index;
-            // Запись документа с доски описываем теми же полями, что и строку
-            // реестра (client, card, date, store, tn, amount). Без них поиск по
-            // документам и фильтр «месяц выписки» работали только по строкам
-            // реестра, aria-label галочки читался «undefined», а экспорт CSV
-            // не мог назвать ни клиента, ни номер ТН.
             const r = {
                 id, cardId: card.id, index, docTxId: doc.txId,
                 tnHere: doc.originalsReturned, billHere: false, billRequired: false,
                 client: card.client, card: card.id + ' · ' + card.title, date: doc.date,
                 store: storeLabel(card.store), estimate: '',
-                tn: { number: doc.series + ' ' + doc.number, date: doc.date, bill: '' },
-                amount: doc.amount
+                tn: { number: doc.series + ' ' + doc.number, date: doc.date, bill: '' }, amount: doc.amount
             };
+            records.push(r);
             byId.set(id, r);
-            kanbanRows.push(`<tr data-kanban data-record="${id}"${card.id ? ` data-card="${card.id}"` : ''}>
-                <td>${cardOpen(card.id, card.client, card.id + ' · ' + card.title)}<small>${esc(card.id + ' · ' + card.title)}</small></td>
-                <td>${esc(doc.series + ' ' + doc.number)}<small>${esc(doc.date)}</small></td>
-                <td class="num">${money(doc.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
-            </tr>`);
         }));
-        if (kanbanRows.length) $('#fin-document-rows').insertAdjacentHTML('beforeend', kanbanRows.join(''));
+        const body = $('#fin-document-rows');
+        const wanted = new Set(records.map((r) => r.id));
+        Array.from(body.querySelectorAll('tr[data-kanban]')).forEach((row) => {
+            if (!wanted.has(row.dataset.record)) {
+                byId.delete(row.dataset.record);
+                row.remove();
+            }
+        });
+        const fragment = document.createDocumentFragment();
+        records.forEach((r) => {
+            let row = body.querySelector('tr[data-kanban][data-record="' + r.id + '"]');
+            const isNew = !row;
+            if (isNew) row = makeRow(documentRowHtml(r, true));
+            patchDocumentRow(row, r, true);
+            if (isNew) fragment.appendChild(row);
+        });
+        if (fragment.childNodes.length) body.appendChild(fragment);
+    }
+    function applyDocuments(detail) {
+        const signature = stableSignature(detail || []) + '|' + outgoingSignature() + '|' + incomingSignature();
+        if (signature === lastDocumentsSignature) return;
+        lastDocumentsSignature = signature;
+        reconcileOutgoingSource();
+        reconcileIncomingSource();
+        const kanbanSignature = kanbanDocumentsSignature(detail);
+        if (kanbanSignature !== lastKanbanDocumentsSignature) {
+            lastKanbanDocumentsSignature = kanbanSignature;
+            reconcileKanbanDocuments(detail);
+        }
         syncDocMonths();
-        updateDocuments();
+        updateActiveFinTab();
+        updateJournal();
+    }
+    function patchGroupJournalRow(row, r) {
+        row.cells[0].textContent = r.tn.number;
+        row.cells[1].textContent = r.tn.date;
+        const details = row.cells[2].querySelector('details');
+        if (details) {
+            const summary = details.querySelector('summary');
+            if (summary) summary.textContent = r.card;
+            const paragraphs = details.querySelectorAll('p');
+            if (paragraphs[0]) paragraphs[0].textContent = r.client + ' · ' + r.store;
+            if (paragraphs[1]) paragraphs[1].textContent = 'Карточки: ' + r.cardsText + '.';
+            if (paragraphs[2]) paragraphs[2].textContent = 'Одна накладная на всю группу; отмена возвращает остаток каждой карточке.';
+        }
+        row.cells[3].textContent = money(r.amount);
     }
     // Групповые ТН: одна накладная на несколько карточек (аналог групп списаний).
     function applyGroups(detail) {
-        $$('#fin-document-rows tr[data-group], #fin-journal-rows tr[data-group]').forEach((row) => { byId.delete(row.dataset.record); row.remove(); });
-        // Две таблицы — две сборки и две вставки вместо 2N.
-        const groupDocRows = [];
-        const groupJournalRows = [];
+        const signature = stableSignature(detail || []);
+        if (signature === lastGroupsSignature) return;
+        lastGroupsSignature = signature;
+        const records = [];
+        const body = $('#fin-document-rows');
+        const journalBody = $('#fin-journal-rows');
         (detail || []).forEach((g) => {
             const id = 'kbg-' + g.id;
             const cardsText = g.covers.map((cov) => cov.cardId).join(', ');
-            // P0-хотфикс 23.09 (часть D): флаги группы — флаги её записи-документа
-            // (boot отдаёт docTxId/tnHere/billHere). Без docTxId галочка «ТН у нас»
-            // у групповой ТН не уходила на сервер (doc-flag) и терялась при
-            // перечитывании, хотя у одиночных ТН работала штатно.
-            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, docTxId: g.docTxId || null, tnHere: Boolean(g.tnHere), billHere: Boolean(g.billHere), billRequired: false };
+            const r = { id, card: 'Группа · ' + g.covers.length + ' карточек', client: g.client, date: g.date, store: g.store, estimate: '', tn: { number: g.series + ' ' + g.number, date: g.date, bill: '—' }, amount: g.amount, paid: 0, docTxId: g.docTxId || null, tnHere: Boolean(g.tnHere), billHere: Boolean(g.billHere), billRequired: false, cardsText };
             byId.set(id, r);
-            groupDocRows.push(`<tr data-group data-record="${id}">
-                <td><b>${esc(g.client)}</b><small>${esc(r.card)}: ${esc(cardsText)}</small></td>
-                <td>${esc(g.series + ' ' + g.number)}<small>${esc(g.date)}</small></td>
-                <td class="num">${money(g.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td>
-            </tr>`);
-            groupJournalRows.push(`<tr data-group data-record="${id}">
-                <td>${esc(g.series + ' ' + g.number)}</td><td class="num">${esc(g.date)}</td>
-                <td><details><summary>${esc(r.card)}</summary><p>${esc(g.client)} · ${esc(g.store)}</p><p>Карточки: ${esc(cardsText)}.</p><p>Одна накладная на всю группу; отмена возвращает остаток каждой карточке.</p></details></td>
-                <td class="num">${money(g.amount)}</td>
-            </tr>`);
+            records.push(r);
         });
-        if (groupDocRows.length) $('#fin-document-rows').insertAdjacentHTML('beforeend', groupDocRows.join(''));
-        if (groupJournalRows.length) $('#fin-journal-rows').insertAdjacentHTML('beforeend', groupJournalRows.join(''));
+        const wanted = new Set(records.map((r) => r.id));
+        Array.from(body.querySelectorAll('tr[data-group]')).forEach((row) => {
+            if (!wanted.has(row.dataset.record)) { byId.delete(row.dataset.record); row.remove(); }
+        });
+        Array.from(journalBody.querySelectorAll('tr[data-group]')).forEach((row) => {
+            if (!wanted.has(row.dataset.record)) row.remove();
+        });
+        const docFragment = document.createDocumentFragment();
+        const journalFragment = document.createDocumentFragment();
+        records.forEach((r) => {
+            let docRow = body.querySelector('tr[data-group][data-record="' + r.id + '"]');
+            if (docRow) patchDocumentRow(docRow, r, true);
+            else {
+                docRow = makeRow(documentRowHtml(r, true));
+                docRow.removeAttribute('data-kanban');
+                docRow.dataset.group = '';
+                docRow.dataset.record = r.id;
+                const groupOpen = docRow.querySelector('[data-card-open]');
+                if (groupOpen) groupOpen.remove();
+                const groupLabel = document.createElement('b');
+                groupLabel.textContent = r.client;
+                const groupCards = document.createElement('small');
+                groupCards.textContent = r.card + ': ' + r.cardsText;
+                docRow.cells[0].append(groupLabel, groupCards);
+                docRow.cells[1].textContent = r.tn.number;
+                const date = document.createElement('small');
+                date.textContent = r.tn.date;
+                docRow.cells[1].appendChild(date);
+                docRow.cells[3].replaceWith(checkboxElement(r, 'tnHere', 'ТН у нас'));
+            }
+            if (!docRow.isConnected) docFragment.appendChild(docRow);
+            let journalRow = journalBody.querySelector('tr[data-group][data-record="' + r.id + '"]');
+            if (journalRow) patchGroupJournalRow(journalRow, r);
+            else {
+                journalRow = makeRow(journalRowHtml(r));
+                journalRow.dataset.group = '';
+                patchGroupJournalRow(journalRow, r);
+                journalFragment.appendChild(journalRow);
+            }
+        });
+        if (docFragment.childNodes.length) body.appendChild(docFragment);
+        if (journalFragment.childNodes.length) journalBody.appendChild(journalFragment);
         syncDocMonths();
-        updateDocuments();
+        updateActiveFinTab();
         updateJournal();
+    }
+    function checkboxElement(r, field, title) {
+        return makeRow(`<td>${checkbox(r, field, title)}</td>`);
     }
     function visibleRows(selector, predicate, keepFocused) {
         const visible = [];
@@ -395,16 +1034,18 @@
         const iso = r.date.split('.').reverse().join('-');
         button.outerHTML = `<input type="date" class="fin-date-input" data-record="${r.id}" value="${iso}">`;
         const input = document.querySelector(`.fin-date-input[data-record="${r.id}"]`);
+        input.finRecord = r;
         input.focus();
         const commit = () => {
+            const currentRecord = input.finRecord || r;
             const value = input.value;
-            const ru = value ? value.split('-').reverse().join('.') : r.date;
-            r.date = ru;
+            const ru = value ? value.split('-').reverse().join('.') : currentRecord.date;
+            currentRecord.date = ru;
             if (window.V2Api && window.V2Api.token() && value) {
-                window.V2Api.api('/payments/transactions/' + r.txId, { method: 'PATCH', body: { date: value } })
+                window.V2Api.api('/payments/transactions/' + currentRecord.txId, { method: 'PATCH', body: { date: value } })
                     .catch(() => { const t = document.getElementById('kb-toast'); if (t) { t.hidden = false; t.textContent = 'Дату не сохранить: ' + 'ошибка'; setTimeout(() => t.hidden = true, 3000); } });
             }
-            const label = `Изменить дату оплаты — ${r.card}`;
+            const label = `Изменить дату оплаты — ${currentRecord.card}`;
             const back = document.createElement('button');
             back.type = 'button';
             back.className = 'num fin-date-edit fin-date-edit-link';
@@ -433,7 +1074,7 @@
     const docMonthSelEl = document.getElementById('fin-doc-month');
     if (docMonthSelEl) docMonthSelEl.addEventListener('change', () => { docMonth = docMonthSelEl.value; updateDocuments(); });
     const docSortSelEl = document.getElementById('fin-doc-sort');
-    if (docSortSelEl) docSortSelEl.addEventListener('change', () => { docSort = docSortSelEl.value; sortDocRows(); updateDocuments(); });
+    if (docSortSelEl) docSortSelEl.addEventListener('change', () => { docSort = docSortSelEl.value; updateDocuments(); });
     $('#fin-payment-export').addEventListener('click', () => {
         const rows = lastVisibleRows;
         if (!rows.length) { alert('Нечего экспортировать — список пуст.'); return; }
@@ -491,16 +1132,26 @@
         const d = r.tn ? r.tn.date : '';
         return /^\d{2}\.\d{2}\.\d{4}$/.test(d) ? d.slice(6, 10) + '-' + d.slice(3, 5) + '-' + d.slice(0, 2) : '0000-00-00';
     }
+    let lastDocDataSignature = '';
+    let lastDocOrderSignature = '';
     function sortDocRows() {
         const tbody = document.getElementById('fin-document-rows');
         if (!tbody) return;
         const trs = [...tbody.querySelectorAll('tr')];
+        const dataSignature = docSort + '|' + trs.map((tr) => tr.dataset.record + ':' + docSortKey(byId.get(tr.dataset.record))).join('|');
+        if (dataSignature === lastDocDataSignature) return;
         trs.sort((a, b) => {
             const ra = byId.get(a.dataset.record), rb = byId.get(b.dataset.record);
             const ka = docSortKey(ra), kb = docSortKey(rb);
             return docSort === 'desc' ? kb.localeCompare(ka) : ka.localeCompare(kb);
         });
-        trs.forEach((tr) => tbody.appendChild(tr));
+        const orderSignature = docSort + '|' + trs.map((tr) => tr.dataset.record).join('|');
+        lastDocDataSignature = dataSignature;
+        if (orderSignature === lastDocOrderSignature) return;
+        const fragment = document.createDocumentFragment();
+        trs.forEach((tr) => fragment.appendChild(tr));
+        tbody.appendChild(fragment);
+        lastDocOrderSignature = orderSignature;
     }
     // Видимый набор документов — тот же смысл, что lastVisibleRows для реестра:
     // экспорт отдаёт ровно то, что сейчас показывает фильтр.
@@ -621,23 +1272,32 @@
             ? `Записей без отметки «Списано» — ${unposted.length} на ${money(unposted.reduce((sum, r) => sum + r.amount, 0))} BYN. Это ровно выборка фильтра «Не списано» в реестре оплат.`
             : 'Все записи реестра отмечены как списанные.';
     }
+    function updateActiveFinTab() {
+        if (activeFinTab === 'payments') updatePayments();
+        else if (activeFinTab === 'documents') updateDocuments();
+        else if (activeFinTab === 'incoming') updateIncoming();
+        else if (activeFinTab === 'control') renderControl();
+    }
+    function activateFinTab(tab, shouldUpdate) {
+        const previousTab = activeFinTab;
+        activeFinTab = tab;
+        const button = $('[data-fin-tab="' + tab + '"]');
+        pressed('[data-fin-tab]', button);
+        $$('[data-fin-panel]').forEach((panel) => { panel.hidden = panel.id !== button.getAttribute('aria-controls'); });
+        if (previousTab === 'incoming' && tab !== 'incoming') invalidateIncPhotoRequests();
+        if (tab === 'incoming') refreshIncPhotoObservation();
+        if (shouldUpdate !== false) updateActiveFinTab();
+    }
     const controlUnposted = $('#fin-control-show-unposted');
     if (controlUnposted) controlUnposted.addEventListener('click', () => {
-        const tab = $('[data-fin-tab="payments"]');
         const filter = $('[data-payment-filter="unposted"]');
-        pressed('[data-fin-tab]', tab);
-        $$('[data-fin-panel]').forEach((panel) => { panel.hidden = panel.id !== 'fin-payments'; });
         paymentFilter = 'unposted';
         pressed('[data-payment-filter]', filter);
-        updatePayments();
+        activateFinTab('payments', true);
         filter.focus();
     });
     $$('[data-fin-tab]').forEach((button) => button.addEventListener('click', () => {
-        pressed('[data-fin-tab]', button);
-        $$('[data-fin-panel]').forEach((panel) => { panel.hidden = panel.id !== button.getAttribute('aria-controls'); });
-        updatePayments();
-        updateDocuments();
-        if (button.dataset.finTab === 'control') renderControl();
+        activateFinTab(button.dataset.finTab, true);
     }));
     $$('[data-payment-filter]').forEach((button) => button.addEventListener('click', () => {
         paymentFilter = button.dataset.paymentFilter;
@@ -795,14 +1455,13 @@
             if (!tr.hidden) visibleCount += 1;
         });
         $('#fin-incoming-empty').hidden = !q || visibleCount !== 0;
+        refreshIncPhotoObservation();
     }
     $('#fin-incoming-search').addEventListener('input', updateIncoming);
-    updatePayments();
-    updateDocuments();
+    updateActiveFinTab();
     updateJournal();
-    updateIncoming();
     // Обёртка вызывает их сама, проигрывая kb:documents/kb:groups, которые
     // board.js успел разослать до первого открытия раздела.
-    return { applyDocuments: applyDocuments, applyGroups: applyGroups };
+    return { applyDocuments: applyDocuments, applyGroups: applyGroups, invalidateIncPhotoRequests: invalidateIncPhotoRequests, refreshIncPhotoObservation: refreshIncPhotoObservation };
     }
 })();

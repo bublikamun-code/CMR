@@ -96,11 +96,16 @@
     }
     // Скачивание файлов: сырой Response с авторизацией (токен + кука),
     // тело читает вызывающий (blob) — api() парсит JSON и не годится.
-    async function download(path) {
+    async function download(path, opts) {
+        opts = opts || {};
         const headers = {};
         const t = token();
         if (t) headers['Authorization'] = 'Bearer ' + t;
-        return fetch(API_BASE + path, { headers: headers, credentials: 'include' });
+        return fetch(API_BASE + path, {
+            headers: headers,
+            credentials: 'include',
+            signal: opts.signal
+        });
     }
     // Загрузка файла: multipart с авторизацией (Content-Type ставит браузер)
     async function upload(path, file) {
