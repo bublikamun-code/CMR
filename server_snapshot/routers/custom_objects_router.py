@@ -15,6 +15,12 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user, require_admin
 from database import get_db
+from tenant_policy import (
+    get_tenant_object,
+    tenant_predicate,
+    tenant_query,
+    writable_tenant_id,
+)
 
 router = APIRouter(
     prefix="/custom",
@@ -157,22 +163,28 @@ def _values_in_use(db: Session, field_id: int) -> int:
 
 
 def _get_object_or_404(db: Session, obj_id: int, current_user) -> models.CustomObjectType:
-    obj = db.query(models.CustomObjectType).filter(
-        models.CustomObjectType.id == obj_id,
-        models.CustomObjectType.tenant_id == current_user.tenant_id
-    ).first()
-    if not obj:
-        raise HTTPException(status_code=404, detail="Объект не найден")
-    return obj
+    return get_tenant_object(
+        db, models.CustomObjectType, obj_id, current_user, detail="Объект не найден"
+    )
+
+
+def _get_field_or_404(db: Session, field_id: int, current_user) -> models.CustomFieldDef:
+    return get_tenant_object(
+        db, models.CustomFieldDef, field_id, current_user, detail="Поле не найдено"
+    )
+
+
+def _get_record_or_404(db: Session, record_id: int, current_user) -> models.CustomRecord:
+    return get_tenant_object(
+        db, models.CustomRecord, record_id, current_user, detail="Запись не найдена"
+    )
 
 
 # === ОБЪЕКТЫ ===
 
 @router.get("/objects")
 def list_objects(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    objects = db.query(models.CustomObjectType).filter(
-        models.CustomObjectType.tenant_id == current_user.tenant_id
-    ).all()
+    objects = tenant_query(db, models.CustomObjectType, current_user).all()
     return [_object_dict(o) for o in objects]
 
 
@@ -194,13 +206,17 @@ def create_object(obj: ObjectTypeCreate, db: Session = Depends(get_db), current_
                  blank_clears=True)
     existing = db.query(models.CustomObjectType).filter(
         models.CustomObjectType.name == name,
-        models.CustomObjectType.tenant_id == current_user.tenant_id
+        tenant_predicate(models.CustomObjectType, current_user),
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Объект с таким именем уже существует")
 
+    # writable_tenant_id, а не сырой current_user.tenant_id: у superadmin tenant
+    # пуст, и запись без него отбивал бы BEFORE INSERT триггер миграции 0018 —
+    # то есть 500 вместо внятного отказа.
     new_obj = models.CustomObjectType(
-        name=name, label=label, icon=icon, tenant_id=current_user.tenant_id
+        name=name, label=label, icon=icon,
+        tenant_id=writable_tenant_id(current_user),
     )
     db.add(new_obj)
     db.commit()
@@ -219,7 +235,7 @@ def update_object(obj_id: int, upd: ObjectTypeUpdate, db: Session = Depends(get_
                             limit=OBJ_COLS["name"].type.length)
         clash = db.query(models.CustomObjectType).filter(
             models.CustomObjectType.name == name,
-            models.CustomObjectType.tenant_id == current_user.tenant_id,
+            tenant_predicate(models.CustomObjectType, current_user),
             models.CustomObjectType.id != obj_id
         ).first()
         if clash:
@@ -274,7 +290,7 @@ def delete_object(obj_id: int, db: Session = Depends(get_db), current_user=Depen
 def list_fields(obj_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     fields = db.query(models.CustomFieldDef).filter(
         models.CustomFieldDef.object_type_id == obj_id,
-        models.CustomFieldDef.tenant_id == current_user.tenant_id
+        tenant_predicate(models.CustomFieldDef, current_user),
     ).order_by(models.CustomFieldDef.position).all()
     return [_field_dict(f) for f in fields]
 
@@ -298,7 +314,7 @@ def create_field(obj_id: int, field: FieldCreate, db: Session = Depends(get_db),
         object_type_id=obj.id, name=name, label=label,
         field_type=field_type, is_required=bool(field.is_required),
         options=_dump_options(field.options),
-        position=field.position, tenant_id=current_user.tenant_id
+        position=field.position, tenant_id=writable_tenant_id(current_user)
     )
     db.add(new_field)
     db.commit()
@@ -309,12 +325,7 @@ def create_field(obj_id: int, field: FieldCreate, db: Session = Depends(get_db),
 @router.patch("/fields/{field_id}")
 def update_field(field_id: int, upd: FieldUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user), _=_admin_only):
     """Правка поля: имя, метка, тип, обязательность, варианты списка, порядок."""
-    field = db.query(models.CustomFieldDef).filter(
-        models.CustomFieldDef.id == field_id,
-        models.CustomFieldDef.tenant_id == current_user.tenant_id
-    ).first()
-    if not field:
-        raise HTTPException(status_code=404, detail="Поле не найдено")
+    field = _get_field_or_404(db, field_id, current_user)
 
     if 'name' in upd.model_fields_set:
         name = _system_name(upd.name, label="Системное имя поля",
@@ -367,12 +378,7 @@ def update_field(field_id: int, upd: FieldUpdate, db: Session = Depends(get_db),
 
 @router.delete("/fields/{field_id}")
 def delete_field(field_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user), _=_admin_only):
-    field = db.query(models.CustomFieldDef).filter(
-        models.CustomFieldDef.id == field_id,
-        models.CustomFieldDef.tenant_id == current_user.tenant_id
-    ).first()
-    if not field:
-        raise HTTPException(status_code=404, detail="Поле не найдено")
+    field = _get_field_or_404(db, field_id, current_user)
     db.query(models.CustomFieldValue).filter(models.CustomFieldValue.field_def_id == field_id).delete()
     db.delete(field)
     db.commit()
@@ -385,11 +391,12 @@ def delete_field(field_id: int, db: Session = Depends(get_db), current_user=Depe
 def list_records(obj_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     records = db.query(models.CustomRecord).filter(
         models.CustomRecord.object_type_id == obj_id,
-        models.CustomRecord.tenant_id == current_user.tenant_id
+        tenant_predicate(models.CustomRecord, current_user),
     ).order_by(models.CustomRecord.id.desc()).all()
 
     fields = db.query(models.CustomFieldDef).filter(
-        models.CustomFieldDef.object_type_id == obj_id
+        models.CustomFieldDef.object_type_id == obj_id,
+        tenant_predicate(models.CustomFieldDef, current_user),
     ).all()
     field_map = {f.id: f for f in fields}
 
@@ -427,21 +434,18 @@ def list_records(obj_id: int, db: Session = Depends(get_db), current_user=Depend
 
 @router.post("/objects/{obj_id}/records")
 def create_record(obj_id: int, record: RecordData, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    obj = db.query(models.CustomObjectType).filter(
-        models.CustomObjectType.id == obj_id,
-        models.CustomObjectType.tenant_id == current_user.tenant_id
-    ).first()
-    if not obj:
-        raise HTTPException(status_code=404, detail="Объект не найден")
+    obj = _get_object_or_404(db, obj_id, current_user)
 
     new_record = models.CustomRecord(
-        object_type_id=obj_id, created_by=current_user.id, tenant_id=current_user.tenant_id
+        object_type_id=obj_id, created_by=current_user.id,
+        tenant_id=writable_tenant_id(current_user),
     )
     db.add(new_record)
     db.flush()
 
     fields = db.query(models.CustomFieldDef).filter(
-        models.CustomFieldDef.object_type_id == obj_id
+        models.CustomFieldDef.object_type_id == obj_id,
+        tenant_predicate(models.CustomFieldDef, current_user),
     ).all()
     field_map = {f.name: f for f in fields}
 
@@ -473,12 +477,7 @@ def create_record(obj_id: int, record: RecordData, db: Session = Depends(get_db)
 
 @router.delete("/records/{record_id}")
 def delete_record(record_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    rec = db.query(models.CustomRecord).filter(
-        models.CustomRecord.id == record_id,
-        models.CustomRecord.tenant_id == current_user.tenant_id
-    ).first()
-    if not rec:
-        raise HTTPException(status_code=404, detail="Запись не найдена")
+    rec = _get_record_or_404(db, record_id, current_user)
     # FIX 2026-09-11 (Фаза 2): на эту запись могут ссылаться ДРУГИЕ записи
     # через value_relation, а у FK нет ON DELETE — удаление падало в
     # IntegrityError (500). Отвязываем ссылки, а не сносим чужие записи:
