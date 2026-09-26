@@ -719,7 +719,13 @@
     function renderUser(me) {
         const box = document.getElementById('v2-user');
         if (!box) return;
-        box.innerHTML = '<span class="pill accent">' + esc(me.username) + ' · ' + esc(me.role || '') + '</span>' +
+        // Роль — отдельным элементом .v2-role: на узком экране она скрывается
+        // стилями (shell-v2-navigation.css), иначе панель переносится на вторую
+        // строку и выдавливает доску вниз (CLS 0.21). Разделитель « · » внутри
+        // элемента, а не в gap: у .pill свой gap 5px, иначе на десктопе он
+        // добавил бы лишний зазор. title — полное имя для усечённого ника.
+        box.innerHTML = '<span class="pill accent" title="' + esc(me.full_name || me.username) + '">' +
+            esc(me.username) + '<span class="v2-role"> · ' + esc(me.role || '') + '</span></span>' +
             '<button type="button" class="btn btn-ghost btn-sm" id="v2-logout">Выйти</button>';
         document.getElementById('v2-logout').addEventListener('click', async function () {
             try { await window.V2Api.api('/auth/logout', { method: 'POST' }); } catch (e) { /* сессия уже чиста */ }

@@ -11,7 +11,7 @@
 .topbar { min-height: 68px; }
 .shell-heading { min-width: 0; }
 #shell-title { font-size: var(--font-h1); font-weight: 800; text-wrap: balance; }
-.shell-preview { font-size: 11px; color: var(--text); opacity: .75; }
+.shell-preview { font-size: 11px; color: var(--text); opacity: .75; min-height: 1.45em; }
 .shell-skip { position: fixed; left: 80px; top: -100px; z-index: 100; padding: 12px; background: var(--surface); color: var(--text); }
 .shell-skip:focus { top: 8px; }
 .shell-skip:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
@@ -41,6 +41,32 @@
     .topbar { padding: 10px 12px; min-height: 66px; }
     #shell-calendar { scroll-margin-top: 88px; }
     .shell-skip { left: 8px; }
+
+    /* CLS: перенос верхней панели. renderUser() вставляет плашку с ником и
+       кнопку «Выйти» уже после первого кадра, и до этого .topbar-right был
+       пуст (только колокольчик, 42px). На 390px он не влезал в строку и
+       уезжал на вторую: панель росла с y=91 до y=143, а #shell-content — с
+       y=142 до y=188. Замеренный CLS 0.21. Плюс .topbar в колонке, запертой
+       на 100dvh, имеет flex-shrink: 0 (controls.css), поэтому любой его рост
+       всегда становится сдвигом содержимого.
+       Лечим не запретом переноса, а тем, что содержимое перестаёт требовать
+       второй строки: роль на телефоне не нужна, длинный ник усекается. */
+    .topbar { flex-wrap: nowrap; }
+    .shell-heading { flex: 1 1 auto; min-width: 0; }
+    /* Заголовок тоже не должен переноситься на две строки — иначе панель
+       вырастет, только уже от другой причины. */
+    #shell-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* nowrap нужен и здесь: база даёт .topbar-right свой flex-wrap: wrap на
+       ≤720px, и при длинном нике «Войти» с колокольчиком уезжали на вторую
+       строку ВНУТРИ панели (высота 95px вместо 66). Усечение плашки уже
+       гарантирует, что содержимое помещается, — переноситься нечему. */
+    .topbar-right { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; }
+    #v2-user { min-width: 0; gap: var(--s2); }
+    /* gap: 0 отменяет 5px из .pill: разделитель « · » уже внутри .v2-role,
+       иначе на десктопе между ником и ролью появлялся бы лишний зазор. */
+    #v2-user .pill { display: block; gap: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    #v2-user .v2-role { display: none; }
+    #v2-logout { flex: none; }
 }
 @media (max-height: 650px) and (min-width: 721px) {
     .rail { overflow-y: auto; }
