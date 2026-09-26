@@ -52,8 +52,12 @@ V2_EXTRA_CSS = r"""/* site-v2: вход и статус источника (не
 
 HTML_TRANSFORMS = [
     # Демо-модуль данных и остальные скрипты подключает boot.js (см. regex ниже);
-    # select.js меняем на пару адаптер+загрузчик
-    ('<script src="./shell-v2-select.js" defer></script>', '<script src="js/v2/api.js"></script>\n<script src="js/v2/boot.js"></script>'),
+    # select.js меняем на пару адаптер+загрузчик.
+    # defer обязателен: без него api.js и boot.js (24 КБ gzip вместе) —
+    # синхронные скрипты в <head>, и парсер ждёт их перед разбором тела.
+    # head.js остаётся синхронным — он ставит тему до первой отрисовки.
+    # Порядок исполнения при defer гарантирован документом: api.js раньше boot.js.
+    ('<script src="./shell-v2-select.js" defer></script>', '<script src="js/v2/api.js" defer></script>\n<script src="js/v2/boot.js" defer></script>'),
     ('    </header>', '      <div class="topbar-right"><span id="v2-user" class="row"></span><button type="button" class="v2-bell" id="v2-bell" title="Уведомления" aria-label="Уведомления"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="v2-bell-count" class="v2-bell-count" hidden></span></button><div id="v2-notif-panel" class="v2-notif-panel" hidden></div></div>\n    </header>'),
     # Оверлей входа перед закрытием body
     ('</body>', """<div class="login-overlay" id="login-overlay" hidden>
