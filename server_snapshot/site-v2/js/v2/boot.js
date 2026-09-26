@@ -492,9 +492,20 @@
         return cards;
     }
 
+    // Порядок = порядок исполнения (s.async = false в inject), а не загрузки.
+    // Доска идёт третьей, а не последней: она — самый крупный модуль (75 КБ
+    // gzip) и именно она рисует LCP-элемент, поэтому не должна стоять в
+    // очереди за management (39 КБ) и fin (24 КБ).
+    // Первой её поставить нельзя: board.js на верхнем уровне пишет
+    // window.KBPayment.escape (shell-v2-board.js:1629) и зовёт
+    // window.KBSelect.enhance() (:719) без проверки на null — без select.js и
+    // payment.js он упал бы, не успев определить window.KBBoard, и на доске
+    // не было бы ничего. Поэтому два маленьких поставщика идут перед ней.
+    // fin.js после board.js — штатный сценарий, а не новый риск: он буферизует
+    // kb:documents/kb:groups именно «до первого открытия финансов».
     const APP_SCRIPTS = [
-        'js/shell-v2-select.js', 'js/shell-v2-payment.js', 'js/shell-v2-management.js',
-        'js/shell-v2-fin.js', 'js/shell-v2-board.js', 'js/shell-v2-insights.js',
+        'js/shell-v2-select.js', 'js/shell-v2-payment.js', 'js/shell-v2-board.js',
+        'js/shell-v2-management.js', 'js/shell-v2-fin.js', 'js/shell-v2-insights.js',
         'js/shell-v2-navigation.js'
     ];
     const DEMO_SCRIPTS = ['js/shell-v2-data.js'].concat(APP_SCRIPTS);
