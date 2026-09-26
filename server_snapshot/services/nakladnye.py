@@ -50,18 +50,32 @@ def effective_amounts(nak: models.Nakladnaya, update_data: dict):
     return amount, vat
 
 
-def find_by_doc_key(session, doc_series, doc_number):
-    """Существующая накладная с тем же нормализованным ключом документа."""
+def find_by_doc_key(session, doc_series, doc_number, tenant_id):
+    """Существующая накладная с тем же нормализованным ключом документа.
+
+    FIX 2026-09-26 (tenant): поиск был глобальным, хотя уникальный индекс
+    uq_nakladnye_doc_key построен по (tenant_id, doc_series_norm,
+    doc_number_norm). Из-за этого текст ответа 409 «уже принята (id=…)» мог
+    назвать номер накладной ЧУЖОЙ компании: сам дубль при этом не создавался
+    (индекс не срабатывал), но id и сам факт существования документа у чужого
+    tenant'а утекали в ответ. Ключ документа ищется только внутри tenant'а
+    вызывающего.
+
+    tenant_id обязателен и не имеет значения «искать по всем»: молчаливый
+    возврат к глобальному поиску — это ровно тот дефект, который здесь
+    устраняется.
+    """
     series, number = models.nakladnaya_doc_key(doc_series, doc_number)
     if not number:
         return None
     return session.query(models.Nakladnaya).filter(
+        models.Nakladnaya.tenant_id == tenant_id,
         models.Nakladnaya.doc_series_norm == series,
         models.Nakladnaya.doc_number_norm == number,
     ).first()
 
 
-def commit_with_doc_key_guard(session, doc_series, doc_number):
+def commit_with_doc_key_guard(session, doc_series, doc_number, tenant_id):
     """FIX 2026-09-12 (Фаза 2, дефект 7): commit с переводом дубля в 409.
 
     Уникальность обеспечивает частичный индекс uq_nakladnye_doc_key
@@ -81,12 +95,17 @@ def commit_with_doc_key_guard(session, doc_series, doc_number):
     клиент (v2 boot.js и бот) отличает дубль от ошибки валидации и показывает
     «уже существует» со ссылкой на существующую запись. Тело ответа содержит
     existing_id, чтобы клиент мог дать ссылку на дубль.
+
+    FIX 2026-09-26: tenant_id передаётся аргументом и участвует в поиске
+    дубля — по той же причине, что и остальные значения ключа (объект после
+    rollback разобран). Индекс уникальности per-tenant, значит и поиск
+    дубля обязан быть per-tenant, иначе 409 называет чужой документ.
     """
     try:
         session.commit()
     except IntegrityError as e:
         session.rollback()
-        existing = find_by_doc_key(session, doc_series, doc_number)
+        existing = find_by_doc_key(session, doc_series, doc_number, tenant_id)
         if existing is None:
             raise
         series, number = models.nakladnaya_doc_key(doc_series, doc_number)

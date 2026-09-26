@@ -9,3 +9,6 @@ slowapi==0.1.9
 cryptography==50.0.1
 pydantic==2.8.0
 alembic==1.13.0
+# Выгрузка входящих накладных в Excel. На бою пакет стоял, но в манифест не
+# попал: чистая установка по requirements.txt роняла бы /nakladnye/excel в 500.
+openpyxl==3.1.5
