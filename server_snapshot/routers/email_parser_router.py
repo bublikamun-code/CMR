@@ -6,8 +6,9 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.header import decode_header, make_header
+from email.utils import parseaddr
 from pathlib import Path
 from typing import Optional
 
@@ -31,7 +32,18 @@ from email_credentials import (
 import models
 import models_tenant
 from secure_files import atomic_write_private
-from tenant_policy import configured_legacy_tenant_id
+from tenant_policy import configured_legacy_tenant_id, get_tenant_object, tenant_query
+# Белый список расширений, таблица magic-bytes и лимит размера берём из
+# card_details_router: ручная загрузка файла и импорт вложения из письма —
+# это один и тот же вектор записи на диск, и две копии правил рано или поздно
+# разойдутся. Импорт модуля безопасен: card_details_router не импортирует
+# этот модуль, а main.py тянет card_details_router раньше email_parser_router.
+from routers.card_details_router import (
+    ALLOWED_EXTENSIONS,
+    MAX_UPLOAD_BYTES,
+    _MAGIC_SIGNATURES,
+    _NO_CHECK_EXTS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +128,17 @@ class EmailSettingsSchema(BaseModel):
     imap_server: str = ""
     target_status: str = "Новый запрос"
 
+
+class EmailSettingsReadError(RuntimeError):
+    """Файл настроек ящика существует, но не читается или не разбирается JSON.
+
+    Раньше исключение глоталось и возвращались пустые настройки: адрес ящика
+    и last_sync молча терялись, а следующий save_settings затирал файл уже
+    «пустыми» значениями — пользователь оставался без почты без единого
+    следа в логах. Теперь отказ явный и файл не перезаписывается.
+    """
+
+
 def load_settings(tenant_id: int | None = None):
     settings_file = _get_settings_path(tenant_id)
     if not os.path.exists(settings_file):
@@ -128,15 +151,24 @@ def load_settings(tenant_id: int | None = None):
         }
     try:
         with open(settings_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {
-            "email": "",
-            "password": "",
-            "imap_server": "",
-            "target_status": "Новый запрос",
-            "last_sync": None
-        }
+            settings = json.load(f)
+    except Exception as exc:
+        logger.exception(
+            "Не удалось прочитать настройки почты из %s — настройки не "
+            "сбрасываются и файл не перезаписывается", settings_file
+        )
+        raise EmailSettingsReadError(
+            f"Файл настроек почты не читается: {settings_file}"
+        ) from exc
+    if not isinstance(settings, dict):
+        logger.error(
+            "Файл настроек почты %s не содержит объект JSON — настройки "
+            "не сбрасываются и файл не перезаписывается", settings_file
+        )
+        raise EmailSettingsReadError(
+            f"Файл настроек почты повреждён: {settings_file}"
+        )
+    return settings
 
 def _get_smtp_password(settings):
     """Получить пароль синхронизации с точным приоритетом источников.
@@ -228,7 +260,7 @@ def save_settings(
 @router.get("/settings")
 def get_settings(current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
-    settings = load_settings(tenant_id)
+    settings = _load_settings_or_503(tenant_id)
     masked_pw = ""
     if settings.get("password") or os.environ.get("CRM_SMTP_PASSWORD"):
         masked_pw = "********"
@@ -239,6 +271,22 @@ def get_settings(current_user: models.User = Depends(get_current_user)):
         "target_status": settings.get("target_status", "Новый запрос"),
         "last_sync": settings.get("last_sync")
     }
+
+def _load_settings_or_503(tenant_id: int | None) -> dict:
+    """Прочитать настройки ящика, а нечитаемый файл — явная ошибка 503.
+
+    Раньше вызывающие получали пустые настройки и продолжали работу: форма
+    показывала пустой адрес, а POST /settings затирал файл, закрепляя потерю.
+    Теперь отказ видим администратору и ничего не перезаписывает.
+    """
+    try:
+        return load_settings(tenant_id)
+    except EmailSettingsReadError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Файл настроек почты недоступен — обратитесь к администратору",
+        ) from exc
+
 
 def _credential_http_error(exc: Exception) -> HTTPException:
     """Единая контролируемая ошибка без key/token/пароля и raw exception."""
@@ -257,7 +305,9 @@ def _credential_http_error(exc: Exception) -> HTTPException:
              dependencies=[Depends(require_role("admin", "superadmin"))])
 def update_settings(data: EmailSettingsSchema, current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
-    settings = load_settings(tenant_id)
+    # Читаем настройки ДО любых проверок: если файл не читается, сохранять
+    # нечего — молчаливый откат к пустым настройкам затирал бы ящик.
+    settings = _load_settings_or_503(tenant_id)
     # Раньше пустой imap_server молча сохранялся (или в форму подставлялся дефолт
     # imap.yandex.ru и уезжал в POST), после чего /sync ломался с AUTHENTICATIONFAILED
     # на чужом сервере. Отклоняем заведомо нерабочую конфигурацию сразу.
@@ -359,6 +409,355 @@ def _resolve_sync_tenant_id(
     return None
 
 
+IMPORT_LOG_ACTION = "Импорт почты"
+
+# Письмо из почты — недоверенный ввод: вложение может прийти от кого угодно.
+# Поэтому к нему применяются ровно те же ограничения, что и к ручной загрузке
+# файла в карточку (card_details_router): белый список расширений, проверка
+# magic bytes, лимит размера и запись строго внутрь UPLOAD_DIR.
+MAX_ATTACHMENT_BYTES = MAX_UPLOAD_BYTES
+
+_MESSAGE_ID_RE = re.compile(r"<([^<>]+)>")
+
+# Горизонт поиска ранее импортированного письма (совпадает с ротацией журнала,
+# миграция 0015). Нужен только для того, чтобы LIKE не сканировал всю ленту.
+DEDUP_LOOKBACK_DAYS = 180
+
+
+def _sanitize_attachment_name(name: str) -> str:
+    """Имя вложения письма в безопасном для диска и Content-Disposition виде."""
+    cleaned = os.path.basename(str(name or "")).strip()
+    cleaned = re.sub(r"[\r\n\t]+", " ", cleaned)
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", cleaned)
+    # ведущая точка даёт скрытый файл (".htaccess"), а пустое имя — не файл
+    cleaned = cleaned.lstrip(".")[:120]
+    return cleaned or "attachment"
+
+
+def _validate_attachment(name: str, data: bytes) -> Optional[str]:
+    """Проверить вложение письма. None — вложение можно сохранять.
+
+    Возвращается ПРИЧИНА отказа, а не исключение: битое вложение не должно
+    ронять импорт письма (иначе злоумышленник письмом с .svg кладёт весь
+    синк), но обязано оставлять след в логе.
+    """
+    if not data:
+        return "вложение пустое"
+    ext = os.path.splitext(name or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return f"тип файла {ext or 'без расширения'} не разрешён"
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        return (
+            f"размер {len(data)} байт превышает лимит {MAX_ATTACHMENT_BYTES}"
+        )
+    # Текстовые форматы не проверяем: валидный csv/txt может начинаться с чего
+    # угодно, а исполняемый код под видом .txt браузер не запустит.
+    if ext in _NO_CHECK_EXTS:
+        return None
+    head = data[:16]
+    for signature, allowed_exts in _MAGIC_SIGNATURES:
+        if head.startswith(signature):
+            if ext in allowed_exts:
+                return None
+            return f"содержимое не соответствует типу {ext}"
+    if ext == ".webp" and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return None
+    return f"содержимое не соответствует типу {ext}"
+
+
+def _store_attachment(card_id: int, name: str, data: bytes) -> Optional[str]:
+    """Записать вложение в UPLOAD_DIR и вернуть абсолютный путь.
+
+    Имя формируется как digest от пары (карточка, имя) плюс безопасное
+    исходное имя — так одноимённые вложения разных карточек не сливаются.
+    None означает отказ (небезопасное имя), исключение — сбой записи.
+    """
+    digest = hashlib.md5(
+        f"{card_id}_{name}".encode(), usedforsecurity=False
+    ).hexdigest()[:8]
+    safe_name = digest + "_" + _sanitize_attachment_name(name)
+    att_path = os.path.join(UPLOAD_DIR, safe_name)
+    # Имя пришло из внешнего письма: сохраняем строго внутри UPLOAD_DIR.
+    if not os.path.realpath(att_path).startswith(
+        os.path.realpath(UPLOAD_DIR) + os.sep
+    ):
+        return None
+    try:
+        Path(att_path).write_bytes(data)
+    except OSError:
+        # Частично записанный файл не оставляем мусором на диске.
+        with contextlib.suppress(OSError):
+            os.remove(att_path)
+        raise
+    return att_path
+
+
+def _normalize_message_id(raw) -> Optional[str]:
+    """Привести заголовок Message-ID к каноническому виду ``<local@domain>``."""
+    if not raw:
+        return None
+    value = str(raw).strip()
+    match = _MESSAGE_ID_RE.search(value)
+    if match:
+        value = match.group(1)
+    value = value.strip()
+    if not value or len(value) > 255:
+        return None
+    return value
+
+
+def _find_already_imported(db: Session, tenant_id: int, message_id: str):
+    """Найти ранее импортированное письмо по IMAP Message-ID.
+
+    Отдельной колонки в модели Card нет, а заводить миграцию под один ключ
+    идемпотентности — лишний риск для боевой схемы. Ключ хранится в записи
+    ленты «Импорт почты»: она tenant-owned, переживает мягкое удаление
+    карточки (значит, связанное через /link письмо не вернётся дублем) и уже
+    сужается индексом по tenant_id.
+
+    LIKE по details идёт по всей таблице, поэтому запрос дополнительно
+    ограничен горизонтом ротации журнала (180 дней, миграция 0015): сканируется
+    индексированный диапазон created_at, а не весь лог. Этого заведомо
+    достаточно — синк берёт только непрочитанные письма за сегодня
+    (``UNSEEN SINCE``), то есть вернуться в выборку давнее письмо не может.
+    """
+    pattern = (
+        "%"
+        + message_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        + "%"
+    )
+    horizon = datetime.now(timezone.utc) - timedelta(days=DEDUP_LOOKBACK_DAYS)
+    return (
+        db.query(models.ActivityLog)
+        .filter(
+            models.ActivityLog.tenant_id == tenant_id,
+            models.ActivityLog.action == IMPORT_LOG_ACTION,
+            models.ActivityLog.created_at >= horizon,
+            models.ActivityLog.details.like(pattern, escape="\\"),
+        )
+        .order_by(models.ActivityLog.id.desc())
+        .first()
+    )
+
+
+def _mark_seen(mail, e_id) -> None:
+    """Пометить письмо прочитанным.
+
+    Ошибка STORE не должна откатывать уже зафиксированную карточку: письмо
+    просто вернётся в выборку при следующем запуске, а дедупликация по
+    Message-ID не даст создать вторую карточку.
+    """
+    try:
+        mail.store(e_id, "+FLAGS", "\\Seen")
+    except Exception:
+        logger.warning(
+            "Не удалось пометить письмо %s прочитанным — при следующем "
+            "синке оно вернётся в выборку (дедупликация по Message-ID "
+            "не даст создать дубль)", e_id, exc_info=True,
+        )
+
+
+def _import_email_message(
+    db: Session,
+    msg,
+    e_id,
+    *,
+    tenant_id: int,
+    target_status: str,
+) -> Optional[dict]:
+    """Импортировать одно письмо целиком и зафиксировать одним commit.
+
+    Возвращает описание импортированной карточки либо None, если письмо уже
+    импортировано по Message-ID и повторный импорт не нужен. Любое исключение
+    поднимается наружу: откат сессии и запись в лог делает вызывающий цикл,
+    который после этого идёт к следующему письму.
+    """
+    subject, encoding = decode_header(msg["Subject"])[0]
+    if isinstance(subject, bytes):
+        subject = subject.decode(encoding if encoding else "utf-8", errors="ignore")
+
+    raw_from = msg.get("From", "")
+    display_name, sender_email_addr = parseaddr(raw_from)
+    if display_name and "=?" in display_name:
+        decoded_parts = decode_header(display_name)
+        if decoded_parts:
+            dn_bytes, dn_enc = decoded_parts[0]
+            if isinstance(dn_bytes, bytes):
+                display_name = dn_bytes.decode(dn_enc if dn_enc else "utf-8", errors="ignore")
+    sender = display_name or sender_email_addr
+    if not sender_email_addr:
+        sender_email_addr = sender
+
+    body = ""
+    html_body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            if ctype == "text/plain" and not body:
+                body = _decode_part_text(part)
+            elif ctype == "text/html" and not html_body:
+                html_body = _decode_part_text(part)
+    else:
+        raw = _decode_part_text(msg)
+        if msg.get_content_type() == "text/html":
+            html_body = raw
+        else:
+            body = raw
+
+    # письма из форм на сайте часто приходят ТОЛЬКО в html
+    if not body.strip() and html_body:
+        body = html_to_text(html_body)
+
+    # чистим цитаты, подписи, трекинговые ссылки, режем длину
+    body = clean_email_body(body)
+
+    if not body:
+        body = "Текст письма пуст или недоступен"
+
+    attachments = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_disposition = str(part.get("Content-Disposition", ""))
+            if "attachment" in content_disposition:
+                filename = _decode_attachment_filename(part)
+                if filename:
+                    attachments.append((filename, part.get_payload(decode=True)))
+
+    title_str = f"Письмо: {subject}" if subject else f"Письмо без темы от {sender}"
+    if len(title_str) > 190:
+        title_str = title_str[:190] + "..."
+
+    # Идемпотентность импорта. Окно между commit карточки и флагом \Seen
+    # существовало всегда: падение процесса в этом промежутке (или возврат
+    # того же письма сессией IMAP) создавало вторую карточку-дубль. Message-ID
+    # — естественный ключ, поэтому сверяемся с ним ДО создания карточки.
+    message_id = _normalize_message_id(msg.get("Message-ID"))
+    if message_id:
+        existing = _find_already_imported(db, tenant_id, message_id)
+        if existing is not None:
+            logger.info(
+                "Письмо %s с Message-ID %s уже импортировано (карточка #%s) — "
+                "дубль не создаётся", e_id, message_id, existing.card_id,
+            )
+            return None
+
+    # Раньше сравнивалось с display-name, поэтому клиент почти не находился.
+    # Поиск ограничен tenant'ом синка: адрес в CRM не ключ, а в мультитенантной
+    # базе у разных компаний он совпадает, и письмо привязывалось бы к клиенту
+    # чужой компании. tenant_query здесь не годится — он берёт пользователя, а
+    # в синке тенант известен числом. При нескольких кандидатах берём первого
+    # по id: выбор детерминирован, а не «какая строка первой отдаст SQLite».
+    client = None
+    if tenant_id is not None:
+        for needle in (sender_email_addr, sender):
+            if not needle:
+                continue
+            client = db.query(models.Client).filter(
+                models.Client.email == needle,
+                models.Client.tenant_id == tenant_id,
+            ).order_by(models.Client.id).first()
+            if client:
+                break
+    client_id = client.id if client else None
+
+    # Прошлые сделки того же отправителя здесь НЕ выбираются:
+    # их отдаёт GET /email-parser/related/{card_id}, а карточка
+    # рисует блоком renderRelatedCards. Прежний запрос
+    # выполнялся на каждое импортированное письмо, а результат
+    # выбрасывался — переменная related не читалась.
+
+    # Description (поле заметки) не заполняем: отправитель
+    # хранится в sender_email и в записи ленты, текст письма —
+    # в ленте «Импорт почты». Прошлые сделки отправителя
+    # показываются отдельным блоком в карточке
+    # (renderRelatedCards) — дублировать их в заметке не нужно.
+    desc = ""
+
+    new_card = models.Card(
+        title=title_str,
+        description=desc,
+        status=target_status,
+        total_amount=0.0,
+        # FIX 2026-08-29: было `tenant_id or 0` — в БД
+        # появлялась висячая ссылка на несуществующего
+        # пользователь id=0. NULL = «без ответственного».
+        owner_id=None,
+        client_id=client_id,
+        sender_email=sender_email_addr,
+        tenant_id=tenant_id,
+    )
+    db.add(new_card)
+    # flush, а не commit: id карточки нужен для имён вложений и записи ленты,
+    # но фиксация должна быть одна — на всё письмо целиком.
+    db.flush()
+
+    written_files: list[str] = []
+    try:
+        for att_name, att_data in attachments:
+            if not att_data:
+                continue
+            reason = _validate_attachment(att_name, att_data)
+            if reason:
+                logger.warning(
+                    "Вложение %r письма %s пропущено: %s", att_name, e_id, reason
+                )
+                continue
+            try:
+                stored_path = _store_attachment(new_card.id, att_name, att_data)
+            except OSError:
+                logger.exception(
+                    "Не удалось сохранить вложение %r письма %s",
+                    att_name, e_id,
+                )
+                continue
+            if stored_path is None:
+                logger.warning(
+                    "Вложение %r письма %s пропущено: небезопасное имя файла",
+                    att_name, e_id,
+                )
+                continue
+            written_files.append(stored_path)
+            db.add(models.CardAttachment(
+                file_name=att_name,
+                file_path=os.path.join("uploads", os.path.basename(stored_path)),
+                card_id=new_card.id
+            ))
+
+        sender_line = sender
+        if sender_email_addr and sender_email_addr != sender:
+            sender_line += f" <{sender_email_addr}>"
+        # Message-ID идёт ПЕРВОЙ строкой: детали обрезаются до 4000 символов,
+        # и при длинном письме хвост обрезался бы первым.
+        id_line = f"Message-ID: <{message_id}>\n" if message_id else ""
+        log_entry = models.ActivityLog(
+            user_id=None,
+            card_id=new_card.id,
+            action=IMPORT_LOG_ACTION,
+            details=(
+                f"{id_line}От: {sender_line}\nТема: {subject or '—'}\n\n{body}"
+            )[:4000],
+            tenant_id=tenant_id,
+        )
+        db.add(log_entry)
+        # Единственная точка фиксации на письмо: карточка, вложения и запись
+        # ленты применяются вместе или не применяются вовсе.
+        db.commit()
+    except Exception:
+        # Откат делает вызывающий цикл; здесь — уборка файлов, которые уже
+        # легли на диск, но в БД не попадут.
+        for path in written_files:
+            with contextlib.suppress(OSError):
+                os.remove(path)
+        raise
+
+    return {
+        "id": new_card.id,
+        "title": new_card.title,
+        "sender": sender,
+        "subject": subject
+    }
+
+
 def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
     resolved_tenant_id = _resolve_sync_tenant_id(db, settings, tenant_id)
     if resolved_tenant_id is None:
@@ -406,160 +805,45 @@ def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
             try:
                 res, msg_data = mail.fetch(e_id, "(RFC822)")
                 if res != "OK":
+                    logger.warning(
+                        "Письмо %s не отдано сервером (статус %r) — пропускаем",
+                        e_id, res,
+                    )
                     continue
 
                 for response in msg_data:
-                    if isinstance(response, tuple):
-                        msg = email.message_from_bytes(response[1])
-
-                        subject, encoding = decode_header(msg["Subject"])[0]
-                        if isinstance(subject, bytes):
-                            subject = subject.decode(encoding if encoding else "utf-8", errors="ignore")
-
-                        from email.utils import parseaddr
-                        raw_from = msg.get("From", "")
-                        display_name, sender_email_addr = parseaddr(raw_from)
-                        if display_name and "=?" in display_name:
-                            decoded_parts = decode_header(display_name)
-                            if decoded_parts:
-                                dn_bytes, dn_enc = decoded_parts[0]
-                                if isinstance(dn_bytes, bytes):
-                                    display_name = dn_bytes.decode(dn_enc if dn_enc else "utf-8", errors="ignore")
-                        sender = display_name or sender_email_addr
-                        if not sender_email_addr:
-                            sender_email_addr = sender
-
-                        body = ""
-                        html_body = ""
-                        if msg.is_multipart():
-                            for part in msg.walk():
-                                ctype = part.get_content_type()
-                                if ctype == "text/plain" and not body:
-                                    body = _decode_part_text(part)
-                                elif ctype == "text/html" and not html_body:
-                                    html_body = _decode_part_text(part)
-                        else:
-                            raw = _decode_part_text(msg)
-                            if msg.get_content_type() == "text/html":
-                                html_body = raw
-                            else:
-                                body = raw
-
-                        # письма из форм на сайте часто приходят ТОЛЬКО в html
-                        if not body.strip() and html_body:
-                            body = html_to_text(html_body)
-
-                        # чистим цитаты, подписи, трекинговые ссылки, режем длину
-                        body = clean_email_body(body)
-
-                        if not body:
-                            body = "Текст письма пуст или недоступен"
-
-                        attachments = []
-                        if msg.is_multipart():
-                            for part in msg.walk():
-                                content_disposition = str(part.get("Content-Disposition", ""))
-                                if "attachment" in content_disposition:
-                                    filename = _decode_attachment_filename(part)
-                                    if filename:
-                                        attachments.append((filename, part.get_payload(decode=True)))
-
-                        title_str = f"Письмо: {subject}" if subject else f"Письмо без темы от {sender}"
-                        if len(title_str) > 190:
-                            title_str = title_str[:190] + "..."
-
-                        # Раньше сравнивалось с display-name, поэтому клиент почти не находился
-                        client = None
-                        if sender_email_addr:
-                            client = db.query(models.Client).filter(
-                                models.Client.email == sender_email_addr
-                            ).first()
-                        if not client:
-                            client = db.query(models.Client).filter(models.Client.email == sender).first()
-                        client_id = client.id if client else None
-
-                        # Прошлые сделки того же отправителя здесь НЕ выбираются:
-                        # их отдаёт GET /email-parser/related/{card_id}, а карточка
-                        # рисует блоком renderRelatedCards. Прежний запрос
-                        # выполнялся на каждое импортированное письмо, а результат
-                        # выбрасывался — переменная related не читалась.
-
-                        # Description (поле заметки) не заполняем: отправитель
-                        # хранится в sender_email и в записи ленты, текст письма —
-                        # в ленте «Импорт почты». Прошлые сделки отправителя
-                        # показываются отдельным блоком в карточке
-                        # (renderRelatedCards) — дублировать их в заметке не нужно.
-                        desc = ""
-
-                        new_card = models.Card(
-                            title=title_str,
-                            description=desc,
-                            status=target_status,
-                            total_amount=0.0,
-                            # FIX 2026-08-29: было `tenant_id or 0` — в БД
-                            # появлялась висячая ссылка на несуществующего
-                            # пользователя id=0. NULL = «без ответственного».
-                            owner_id=None,
-                            client_id=client_id,
-                            sender_email=sender_email_addr,
-                            tenant_id=resolved_tenant_id,
-                        )
-                        db.add(new_card)
-                        db.commit()
-                        db.refresh(new_card)
-
-                        for att_name, att_data in attachments:
-                            if att_data:
-                                # md5 не для защиты, а чтобы коротко и стабильно
-                                # различать одноимённые вложения разных карточек.
-                                digest = hashlib.md5(
-                                    f"{new_card.id}_{att_name}".encode(),
-                                    usedforsecurity=False,
-                                ).hexdigest()[:8]
-                                safe_name = digest + "_" + re.sub(r'[^a-zA-Z0-9._-]', '_', att_name)
-                                att_path = os.path.join(UPLOAD_DIR, safe_name)
-                                # Имя вложения приходит из внешнего письма —
-                                # сохраняем строго внутри UPLOAD_DIR.
-                                if not os.path.realpath(att_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
-                                    logger.warning("Rejected unsafe attachment name %r", att_name)
-                                    continue
-                                try:
-                                    Path(att_path).write_bytes(att_data)
-                                except Exception:
-                                    logger.exception(f"Failed to save attachment {att_name!r} for card {new_card.id}")
-                                    raise
-                                attachment = models.CardAttachment(
-                                    file_name=att_name,
-                                    file_path=os.path.join("uploads", safe_name),
-                                    card_id=new_card.id
-                                )
-                                db.add(attachment)
-                        if attachments:
-                            db.commit()
-
-                        sender_line = sender
-                        if sender_email_addr and sender_email_addr != sender:
-                            sender_line += f" <{sender_email_addr}>"
-                        log_entry = models.ActivityLog(
-                            user_id=None,
-                            card_id=new_card.id,
-                            action="Импорт почты",
-                            details=f"От: {sender_line}\nТема: {subject or '—'}\n\n{body}"[:4000],
-                            tenant_id=resolved_tenant_id,
-                        )
-                        db.add(log_entry)
-                        db.commit()
-
-                        imported_cards.append({
-                            "id": new_card.id,
-                            "title": new_card.title,
-                            "sender": sender,
-                            "subject": subject
-                        })
-
-                        mail.store(e_id, "+FLAGS", "\\Seen")
+                    if not isinstance(response, tuple):
+                        continue
+                    msg = email.message_from_bytes(response[1])
+                    imported = _import_email_message(
+                        db,
+                        msg,
+                        e_id,
+                        tenant_id=resolved_tenant_id,
+                        target_status=target_status,
+                    )
+                    if imported is None:
+                        # Уже импортированное письмо: карточка не создаётся,
+                        # но флаг \Seen ставится, чтобы IMAP перестал его отдавать.
+                        _mark_seen(mail, e_id)
+                        continue
+                    imported_cards.append(imported)
+                    # \Seen ставится ТОЛЬКО после успешной фиксации карточки:
+                    # наоборот падение между двумя шагами оставляло письмо
+                    # непрочитанным и при следующем запуске давало дубль.
+                    _mark_seen(mail, e_id)
             except Exception as e:
-                logger.warning(f"Failed to process email {e_id} for tenant {resolved_tenant_id}: {e}")
+                # FIX: отката не было. После IntegrityError сессия остаётся в
+                # состоянии pending-rollback, и ВСЕ следующие письма этого же
+                # запуска падали каскадно с PendingRollbackError — синк умирал
+                # на первом плохом письме. Откат возвращает сессию в рабочее
+                # состояние и позволяет продолжить со следующего письма.
+                db.rollback()
+                logger.warning(
+                    "Не удалось обработать письмо %s (tenant %s): %s: %s",
+                    e_id, resolved_tenant_id, type(e).__name__, e,
+                    exc_info=True,
+                )
                 continue
 
         settings["last_sync"] = datetime.now(timezone.utc).isoformat()
@@ -626,7 +910,7 @@ def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
 @limiter.limit("5/minute")
 def sync_emails(request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tenant_id = current_user.tenant_id if current_user.role != "superadmin" else None
-    settings = load_settings(tenant_id)
+    settings = _load_settings_or_503(tenant_id)
     email_addr = settings.get("email")
     try:
         password = _get_smtp_password(settings)
@@ -656,6 +940,16 @@ def sync_all_tenants(db: Session = Depends(get_db)):
     # Раньше он не синхронизировался вообще: цикл шёл только по таблице tenants.
     try:
         results.append(_sync_tenant_emails(None, load_settings(None), db))
+    except EmailSettingsReadError:
+        # Отказ явный и в ответе cron: иначе watchdog увидит «успешный» прогон
+        # при недоступном файле настроек и не заметит пропавший ящик.
+        logger.exception("Файл настроек главного ящика недоступен — синк пропущен")
+        results.append({
+            "tenant_id": None,
+            "success": False,
+            "error": "Файл настроек почты недоступен — синк не выполнялся",
+            "count": 0,
+        })
     except Exception:
         logger.exception("main account sync failed")
         results.append({
@@ -687,13 +981,17 @@ def get_related_cards(card_id: int, db: Session = Depends(get_db), current_user:
 
     Тему письма намеренно НЕ используем: заявки с сайта всегда приходят
     с одинаковым заголовком, но это разные клиенты и разные сделки.
+
+    Карточка берётся через get_tenant_object: по глобальному card_id ручка
+    отдавала сделки чужой компании. Чужой объект и отсутствующий теперь дают
+    одинаковый 404, а выборка «прошлых сделок» тоже ограничена tenant.
     """
-    card = db.query(models.Card).filter(models.Card.id == card_id).first()
-    if not card:
-        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
     if not card.sender_email:
         return {"card_id": card_id, "sender_email": None, "related": []}
-    rows = db.query(models.Card).filter(
+    rows = tenant_query(db, models.Card, current_user).filter(
         models.Card.sender_email == card.sender_email,
         models.Card.id != card_id,
         models.Card.is_deleted == False
@@ -712,11 +1010,20 @@ def get_related_cards(card_id: int, db: Session = Depends(get_db), current_user:
 
 @router.post("/link/{card_id}")
 def link_card_to_existing(card_id: int, payload: LinkCardRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    """Переносит текст письма комментарием в целевую сделку и удаляет письмо-дубль."""
-    src = db.query(models.Card).filter(models.Card.id == card_id).first()
-    dst = db.query(models.Card).filter(models.Card.id == payload.target_card_id).first()
-    if not src or not dst:
-        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    """Переносит текст письма комментарием в целевую сделку и удаляет письмо-дубль.
+
+    Обе карточки ищутся через get_tenant_object: раньше ручка работала по
+    глобальным id, поэтому по карточке чужой компании можно было дописать
+    письмо в свою сделку и убрать чужую карточку в корзину. Чужой объект и
+    отсутствующий дают одинаковый 404.
+    """
+    src = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
+    dst = get_tenant_object(
+        db, models.Card, payload.target_card_id, current_user,
+        detail="Карточка не найдена",
+    )
 
     stamp = src.created_at.strftime("%d.%m.%Y %H:%M") if src.created_at else ""
     addition = f"\n\n--- Письмо от {stamp} ---\n{src.title}\n{src.description or ''}"
