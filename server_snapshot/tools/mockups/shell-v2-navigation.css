@@ -17,6 +17,23 @@
 .shell-skip:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 .view[hidden] { display: none !important; }
 #shell-calendar { scroll-margin-top: 84px; }
+/* Плашка второй волны данных (этап 2): разделы не приехали, но доска жива.
+   Фиксирована снизу и вне потока документа — вставка в поток сдвинула бы
+   содержимое и добавила CLS именно в том сценарии, где пользователю и так
+   не повезло. Снимается сама, когда разделы догрузятся. */
+.v2-notice {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: var(--s5); z-index: 90; max-width: min(680px, calc(100vw - 32px));
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s3) var(--s4); border-radius: var(--r-lg);
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--warn); box-shadow: var(--sh-2);
+    font-size: var(--font-ui); line-height: 1.4;
+}
+@media (max-width: 720px) {
+    /* Над нижним рельсом (76px), иначе плашка закрывает его целиком. */
+    .v2-notice { bottom: 84px; align-items: flex-start; }
+}
 @media (max-width: 720px) {
     .app { flex-direction: column; }
     .rail {

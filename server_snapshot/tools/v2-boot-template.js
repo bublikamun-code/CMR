@@ -120,6 +120,10 @@
     // страницы, а пересборка KB_FIN_SOURCE после дозагрузки карточек идёт по
     // ним же — хранить отдельным запросом не нужно.
     let phaseResults = { transactions: null, documents: null, nakladnye: null };
+    // Сырые ответы текущего поколения (этап 2). Заполняется на критическом
+    // наборе, дополняется страницами карточек в фазе 2 и разделами второй
+    // волны — пересборка картины всегда идёт отсюда, а не от KBData.
+    let lastRaw = null;
 
     function buildKbData(payload) {
         const cardsRaw = payload.cards, clientsRaw = payload.clients, usersRaw = payload.users,
@@ -551,6 +555,11 @@
                     break;
                 }
                 const batch = buildCardBatch(items, cardCtx);
+                // Сырые страницы копим рядом с собранными карточками: когда
+                // придёт вторая волна, applyRaw пересоберёт картину из
+                // lastRaw, и без накопленного здесь доска откатилась бы к
+                // одной первой странице (applyInPlace перезаписывает массив).
+                if (lastRaw) lastRaw.cards = lastRaw.cards.concat(items);
                 kb.cards.push.apply(kb.cards, batch);
                 appendedCards.push.apply(appendedCards, batch);
                 loaded += items.length;
@@ -629,12 +638,14 @@
             ['клиенты', function () { return window.V2Api.api('/clients'); }],
             ['пользователи', function () { return window.V2Api.users(); }],
             ['поставщики', function () { return window.V2Api.api('/suppliers'); }],
-            ['задачи', function () { return window.V2Api.api('/tasks'); }],
+            // Реестр оплат остался в критическом наборе (решение владельца):
+            // «К выписке» на карточке считается по invoiced_amount отсюда, и эти
+            // суммы должны быть верны с первой отрисовки. Документы для этой
+            // цифры не нужны — сервер проставляет invoiced_amount всегда
+            // (payments_router.py:391); из документов берётся только номер ТН.
             ['реестр оплат', function () { return window.V2Api.api('/payments/transactions'); }],
-            ['документы', function () { return window.V2Api.api('/payments/documents'); }],
             ['магазины', function () { return window.V2Api.api('/dictionaries/stores'); }],
             ['статусы', function () { return window.V2Api.api('/dictionaries/statuses'); }],
-            ['входящие накладные', function () { return window.V2Api.api('/nakladnye'); }],
             ['группы списания', function () { return window.V2Api.api('/writeoffs/groups/'); }]
         ];
         const settled = await Promise.allSettled(sources.map(function (s) { return s[1](); }));
@@ -655,7 +666,6 @@
             throw err;
         }
         const results = settled.map(function (s) { return s.value; });
-        phaseResults = { transactions: results[5], documents: results[6], nakladnye: results[9] };
         // Пункт 16: нормализация ответа сделок. Сервер с пагинацией отдаёт
         // {items,total,limit,offset}; старый — плоский массив (карточки
         // полные: cardsComplete=true, дозагрузчик молчит).
@@ -667,19 +677,21 @@
         } else {
             cardsTotal = cardsRaw.length;
         }
-        buildKbData({ cards: cardsRaw, clients: results[1], users: results[2], suppliers: results[3], tasks: results[4], stores: results[7], statuses: results[8], documents: results[6], nakladnye: results[9], transactions: results[5], groups: results[10] });
-        // Счётчики пагинации для фазы 2 (пункт 16) и поколение данных:
-        // дозагрузчик сверяет поколение перед каждой допиской страницы.
-        window.KBData.cardsTotal = cardsTotal;
-        window.KBData.cardsLoaded = cardsRaw.length;
-        window.KBData.cardsComplete = cardsRaw.length >= cardsTotal;
-        window.KBData.dataGen = dataGen;
-        // Фин-модуль захватывает и объект, и его массивы (`const finSource =
-        // window.KB_FIN_SOURCE`, `const outgoing = finSource.outgoing`) —
-        // поэтому реестры тоже обновляются на месте, а не подменой.
-        const finSource = buildFinSource(window.KBData.cards, results[5], results[6], results[9]);
-        if (window.KB_FIN_SOURCE) applyInPlace(window.KB_FIN_SOURCE, finSource);
-        else window.KB_FIN_SOURCE = finSource;
+        // Сырые ответы текущего поколения. Нужны второй волне: когда приедут
+        // документы, картина пересобирается целиком (applyRaw), и брать её
+        // надо из накопленного lastRaw.cards — к тому моменту карточек уже не
+        // 80, а все, и пересборка по одной первой странице схлопнула бы
+        // applyInPlace-массив обратно, откатив дозагрузку фазы 2.
+        lastRaw = {
+            cards: cardsRaw, cardsTotal: cardsTotal,
+            clients: results[1], users: results[2], suppliers: results[3],
+            transactions: results[4], stores: results[5], statuses: results[6],
+            groups: results[7],
+            // Вторая волна ещё не приехала. Разделы — пустые массивы, а не
+            // undefined: buildKbData сразу зовёт tasksRaw.map без проверки.
+            tasks: [], documents: [], nakladnye: []
+        };
+        applyRaw();
         // Фидбек 18.09: журнал сделки в v2 — из CRM (GET /activity?card_id),
         // включая «Импорт почты» с текстом письма. В демо-режиме загрузчика
         // нет — вкладка остаётся на локальных событиях.
@@ -708,7 +720,119 @@
         // KBData.reload выше не трогаем — он идёт через _loadAndApplyData,
         // фаза 2 перезапускается сама и поколением же гасит прошлый цикл.
         setTimeout(loadRemainingCards, 0);
+        // Вторая волна данных (этап 2): документы, входящие накладные и задачи.
+        // Запускается НЕ из await — доска к этому моменту уже нарисована, и
+        // ждать эти три раздела ради них нельзя: /payments/documents весит
+        // 137 КБ и на мобиле держал первый экран.
+        loadSecondary();
         return window.KBData;
+    }
+
+    // Сборка картины из lastRaw. Отдельная функция, потому что вызывается
+    // дважды: на критическом наборе и повторно, когда приехала вторая волна.
+    // Оба раза идёт ОДИН И ТОТ ЖЕ buildKbData — поэтому документы не могут
+    // «разъехаться» между первичной и догруженной картиной: карточки, группы
+    // и реестры считаются одним кодом в обоих случаях.
+    function applyRaw() {
+        const raw = lastRaw;
+        phaseResults = { transactions: raw.transactions, documents: raw.documents, nakladnye: raw.nakladnye };
+        buildKbData({
+            cards: raw.cards, clients: raw.clients, users: raw.users, suppliers: raw.suppliers,
+            tasks: raw.tasks, stores: raw.stores, statuses: raw.statuses,
+            documents: raw.documents, nakladnye: raw.nakladnye,
+            transactions: raw.transactions, groups: raw.groups
+        });
+        // Счётчики пагинации для фазы 2 (пункт 16) и поколение данных:
+        // дозагрузчик сверяет поколение перед каждой допиской страницы.
+        window.KBData.cardsTotal = raw.cardsTotal;
+        window.KBData.cardsLoaded = raw.cards.length;
+        window.KBData.cardsComplete = raw.cards.length >= raw.cardsTotal;
+        window.KBData.dataGen = dataGen;
+        // Фин-модуль захватывает и объект, и его массивы (`const finSource =
+        // window.KB_FIN_SOURCE`, `const outgoing = finSource.outgoing`) —
+        // поэтому реестры тоже обновляются на месте, а не подменой.
+        const finSource = buildFinSource(window.KBData.cards, raw.transactions, raw.documents, raw.nakladnye);
+        if (window.KB_FIN_SOURCE) applyInPlace(window.KB_FIN_SOURCE, finSource);
+        else window.KB_FIN_SOURCE = finSource;
+    }
+
+    // Вторая волна: разделы, без которых доска уже жива, но часть экранов
+    // ещё пуста (номера ТН в карточках и реестре, входящие накладные, задачи).
+    // Ключевое отличие от критического набора — отказ здесь НЕ блокирует
+    // интерфейс, но и НЕ молчит: плашка с причиной и кнопкой «Повторить» плюс
+    // console.warn. Молчаливая неполная картина опаснее явной ошибки: пустые
+    // «Накладные» читаются как «накладных нет».
+    // [ключ в lastRaw, название раздела, чем это видно снаружи, загрузчик]
+    // Четвёртое поле — не украшение: плашка обязана называть последствие
+    // СВОЕГО отказа. Общий текст «номера накладных, накладные и задачи пустые»
+    // соврал бы, если упал только /tasks.
+    const SECONDARY_SOURCES = [
+        ['documents', 'документы', 'номера накладных в карточках и реестре',
+            function () { return window.V2Api.api('/payments/documents'); }],
+        ['nakladnye', 'входящие накладные', 'входящие накладные',
+            function () { return window.V2Api.api('/nakladnye'); }],
+        ['tasks', 'задачи', 'задачи',
+            function () { return window.V2Api.api('/tasks'); }]
+    ];
+    let secondaryFailed = [];
+
+    async function loadSecondary() {
+        const gen = dataGen;
+        secondaryFailed = [];
+        const settled = await Promise.allSettled(SECONDARY_SOURCES.map(function (s) { return s[3](); }));
+        // Пока грузили, случился reload — результат прошлого поколения
+        // применять нельзя, его уже заменил свежий (см. dataGen).
+        if (gen !== dataGen || !lastRaw) return;
+        const failed = [];
+        settled.forEach(function (s, i) {
+            if (s.status === 'rejected') {
+                const code = s.reason && s.reason.status ? ' (код ' + s.reason.status + ')' : '';
+                failed.push({ label: SECONDARY_SOURCES[i][1] + code, effect: SECONDARY_SOURCES[i][2] });
+            } else {
+                lastRaw[SECONDARY_SOURCES[i][0]] = s.value || [];
+            }
+        });
+        // Успешные разделы применяем ЛИБО ТОЖЕ, что и неуспешные оставляем
+        // пустыми. Ранний return здесь означал бы, что отказ одного раздела
+        // выбрасывает и те, что приехали: плашка писала бы «пусто только
+        // задачи», а на деле пустыми остались бы и документы, и накладные.
+        if (failed.length) {
+            secondaryFailed = failed;
+            console.warn('Вторая волна данных не загрузилась: ' + failed.map(function (f) { return f.label; }).join(', '));
+        } else {
+            secondaryFailed = [];
+        }
+        applyRaw();
+        renderSecondaryNotice();
+        // Подписчики (доска, финансы, инсайты) уже слушают kb:reloaded и
+        // перерисовываются сами. Порядок обязателен: fin.js ждёт микрозадачу,
+        // чтобы источник успел обновиться, — событие после applyInPlace.
+        document.dispatchEvent(new CustomEvent('kb:reloaded'));
+    }
+
+    // Плашка второй волны. Фиксированная снизу и вне потока документа
+    // нарочно: вставка в поток сдвинула бы содержимое и добавила CLS ровно в
+    // том сценарии, когда пользователю и так не повезло. Убирается сама, как
+    // только разделы догрузятся.
+    function renderSecondaryNotice() {
+        let el = document.getElementById('v2-secondary-notice');
+        if (!secondaryFailed.length) { if (el) el.remove(); return; }
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'v2-secondary-notice';
+            el.className = 'v2-notice';
+            el.setAttribute('role', 'alert');
+            document.body.appendChild(el);
+        }
+        el.innerHTML = '<span>Не загрузились: ' +
+            esc(secondaryFailed.map(function (f) { return f.label; }).join(', ')) +
+            '. Доска работает, но пока пусто: ' +
+            esc(secondaryFailed.map(function (f) { return f.effect; }).join('; ')) + '.</span>' +
+            '<button type="button" class="btn btn-sm" id="v2-secondary-retry">Повторить</button>';
+        document.getElementById('v2-secondary-retry').addEventListener('click', function () {
+            el.querySelector('span').textContent = 'Повторяем загрузку…';
+            loadSecondary();
+        });
     }
 
     function esc(value) {
