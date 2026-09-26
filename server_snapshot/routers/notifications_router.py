@@ -12,6 +12,7 @@ sync-overdue вызывается внешним cron'ом (заголовок X
 прочтения старого снова уведомит.
 """
 import contextlib
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,6 +24,8 @@ from auth import get_current_user, require_cron_token
 from database import get_db
 from notify import notify
 from tenant_policy import tenant_query
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/notifications",
@@ -130,6 +133,8 @@ def sync_overdue(db: Session = Depends(get_db)):
     сверяются с таблицей пользователей этой базы.
     """
     created_total = 0
+    errors_total = 0
+    first_error = None
     notif_purged = 0
     versions_purged = 0
     # Ключ дня берём из UTC-времени, а не из date.today(). Локальная дата
@@ -143,6 +148,22 @@ def sync_overdue(db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     day_key = now.date().isoformat()
 
+    def _notify(db, recipients, **kwargs):
+        """Вызвать notify и учесть отказ записи в счётчиках ответа.
+
+        FIX 2026-09-26: раньше возвращаемое число молчало об откате commit'а
+        внутри notify — рассылка могла целиком не записаться, а cron видел
+        обычный 200 с created: 0.
+        """
+        nonlocal created_total, errors_total, first_error
+        result = notify(db, recipients, **kwargs)
+        created_total += int(result)
+        if result.failed:
+            errors_total += 1
+            if first_error is None:
+                first_error = result.error
+        return int(result)
+
     # 0. Просроченные задачи — задачи живут в ОСНОВНОЙ базе, один проход.
     overdue_tasks = (db.query(models.Task)
                      .filter(models.Task.status != "done",
@@ -150,11 +171,10 @@ def sync_overdue(db: Session = Depends(get_db)):
                              models.Task.due_date < now).all())
     for t in overdue_tasks:
         recipients = [r for r in {t.assignee_id, t.creator_id} if r]
-        created_total += notify(
-            db, recipients, type="task_overdue",
-            title=f"Просрочена задача: {t.title}",
-            details=day_key,
-            entity_type="task", entity_id=t.id, dedupe=True)
+        _notify(db, recipients, type="task_overdue",
+                title=f"Просрочена задача: {t.title}",
+                details=day_key,
+                entity_type="task", entity_id=t.id, dedupe=True)
 
     session = db
     # Пользователи базы — только им пишем.
@@ -172,11 +192,10 @@ def sync_overdue(db: Session = Depends(get_db)):
         for c in cards_overdue:
             if c.owner_id not in base_users:
                 continue
-            created_total += notify(
-                db, [c.owner_id], type="card_overdue",
-                title=f"Просрочена сделка: {c.title}",
-                details=day_key,
-                entity_type="card", entity_id=c.id, dedupe=True)
+            _notify(db, [c.owner_id], type="card_overdue",
+                    title=f"Просрочена сделка: {c.title}",
+                    details=day_key,
+                    entity_type="card", entity_id=c.id, dedupe=True)
 
         # 3. Просроченные оплаты (истёк payment_due_date)
         pay_overdue = (session.query(models.Card)
@@ -188,12 +207,18 @@ def sync_overdue(db: Session = Depends(get_db)):
         for c in pay_overdue:
             if c.owner_id not in base_users:
                 continue
-            created_total += notify(
-                db, [c.owner_id], type="card_payment",
-                title=f"Истёк срок оплаты: {c.title}",
-                details=day_key,
-                entity_type="card", entity_id=c.id, dedupe=True)
-    except Exception:
+            _notify(db, [c.owner_id], type="card_payment",
+                    title=f"Истёк срок оплаты: {c.title}",
+                    details=day_key,
+                    entity_type="card", entity_id=c.id, dedupe=True)
+    except Exception as exc:
+        # FIX 2026-09-26: сбой рассылки больше не проходит молча. Раньше
+        # здесь был голый rollback, наружу уходил 200 с created: 0, и
+        # оператор не видел, что просрочки не разослались.
+        errors_total += 1
+        if first_error is None:
+            first_error = str(exc) or exc.__class__.__name__
+        logger.exception("Синхронизация просрочек прервана на %s", type(exc).__name__)
         with contextlib.suppress(Exception):
             session.rollback()
     finally:
@@ -222,4 +247,13 @@ def sync_overdue(db: Session = Depends(get_db)):
         versions_purged += len(ids_to_delete)
         session.commit()
 
-    return {"created": created_total, "notifications_purged": notif_purged, "versions_purged": versions_purged}
+    return {
+        "created": created_total,
+        # FIX 2026-09-26: счётчик отказов. created: 0 больше не читается как
+        # «просрочек нет» — при errors > 0 рассылка упала, и cron/оператор
+        # это видят.
+        "errors": errors_total,
+        "error": first_error,
+        "notifications_purged": notif_purged,
+        "versions_purged": versions_purged,
+    }

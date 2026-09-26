@@ -10,17 +10,48 @@ FIX 2026-09-03: уведомления пишутся в основную БД �
 вмешиваться в чужую транзакцию.
 
 Самоуведомления не создаются: recipient == actor_id пропускается.
+
+FIX 2026-09-26: проглоченный откат commit'а. Раньше ``except Exception`` делал
+rollback и уходил в тишину, а функция возвращала ``created > 0`` — вызывающий
+видел «уведомления созданы» при полном отсутствии результата. Теперь отказ
+логируется с текстом ошибки и виден вызывающему: результат — экземпляр
+``NotifyResult`` (целое число, поэтому ``total += notify(...)`` продолжает
+работать) с полями ``failed`` и ``error``.
 """
 import contextlib
+import logging
 
 import models
+
+logger = logging.getLogger(__name__)
+
+
+class NotifyResult(int):
+    """Число записанных уведомлений с признаком отказа записи.
+
+    Наследует ``int``, поэтому существующие вызовы вида
+    ``created_total += notify(...)`` и ``if notify(...):`` не меняются.
+    ``failed``/``error`` позволяют отличить «нечего было уведомлять» (0) от
+    «запись не удалась, база откатила всё» (0 + failed=True).
+    """
+
+    failed: bool
+    error: str | None
+
+    def __new__(cls, created: int = 0, *, failed: bool = False,
+                error: str | None = None):
+        obj = super().__new__(cls, created)
+        obj.failed = failed
+        obj.error = error
+        return obj
 
 
 def notify(db, recipients, *, actor_id=None, type, title, details=None,
            entity_type=None, entity_id=None, dedupe=False):
     """Записать уведомления списку пользователей (по одному на получателя).
 
-    recipients — Iterable[int] user_id. Возвращает число записанных строк.
+    recipients — Iterable[int] user_id. Возвращает NotifyResult: число
+    ЗАПИСАННЫХ строк (0, если commit не удался), плюс ``failed``/``error``.
     dedupe=True — не писать второе НЕПРОЧИТАННОЕ уведомление того же типа
     по той же сущности тому же получателю (используется cron-просрочками).
     """
@@ -32,7 +63,7 @@ def notify(db, recipients, *, actor_id=None, type, title, details=None,
         seen.add(uid)
         unique_ids.append(uid)
     if not unique_ids:
-        return 0
+        return NotifyResult(0)
 
     users = {u.id: u for u in db.query(models.User)
              .filter(models.User.id.in_(unique_ids)).all()}
@@ -65,11 +96,20 @@ def notify(db, recipients, *, actor_id=None, type, title, details=None,
     if created:
         try:
             db.commit()
-        except Exception:
-            # Уведомление не должно ломать основной сценарий запроса
+        except Exception as exc:
+            # Уведомление не должно ломать основной сценарий запроса,
+            # но молчать о нём нельзя: иначе отчёт об успехе при пустом
+            # результате — худший вид отказа. Пишем в лог текст ошибки и
+            # возвращаем 0 с failed=True, чтобы вызывающий это увидел.
+            logger.exception(
+                "Не удалось записать уведомления: type=%r recipients=%d "
+                "entity_type=%r entity_id=%r",
+                type, len(unique_ids), entity_type, entity_id,
+            )
             with contextlib.suppress(Exception):
                 db.rollback()
-    return created
+            return NotifyResult(0, failed=True, error=str(exc) or exc.__class__.__name__)
+    return NotifyResult(created)
 
 
 def admin_ids(db):
