@@ -125,6 +125,15 @@ def main():
     assert style_block not in body, "inline-стили не вынесены из site-v2/index.html"  # noqa: S101
     for src in sorted(MOCKUPS.glob("shell-v2-*.css")):
         body = body.replace(f'<link rel="stylesheet" href="./{src.name}">', f'<link rel="stylesheet" href="css/{src.name}">')
+    # 1.2: preload модулей второй волны. В прототипе пути ./…, в сборке js/…,
+    # чтобы в предпросмотре макета (file://) ссылки не врали, — так же, как
+    # со стилями выше. Список задан здесь явно: shell-v2-fin.js не имеет
+    # файла-источника в mockups (его вырезает сборщик из inline-скрипта).
+    for mod in ("select", "payment", "board", "management", "fin", "insights", "navigation"):
+        old_link = f'<link rel="preload" as="script" href="./shell-v2-{mod}.js">'
+        new_link = f'<link rel="preload" as="script" href="js/shell-v2-{mod}.js">'
+        assert old_link in body, "не найден preload модуля: " + mod  # noqa: S101
+        body = body.replace(old_link, new_link)
     for old, new in HTML_TRANSFORMS:
         assert old in body, "не найден фрагмент: " + old[:60]  # noqa: S101
         body = body.replace(old, new)
