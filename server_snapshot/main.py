@@ -1,6 +1,8 @@
 import os
 
 from runtime_config import (
+    RuntimeConfigError,
+    deployment_mode,
     trusted_proxy_networks,
     uploads_dir,
     validate_startup_config,
@@ -16,9 +18,10 @@ from webhook_security import validate_encryption_config as validate_webhook_encr
 validate_startup_config()
 validate_webhook_encryption_config()
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -30,6 +33,7 @@ import models
 # обязан быть импортирован ДО create_all ниже — иначе таблица tenants не
 # создастся. Тот же приём с пояснением есть в tests/conftest.py.
 import models_tenant  # noqa: F401
+from auth import require_superadmin
 from database import engine
 import health_checks
 from limiter_config import limiter
@@ -62,11 +66,87 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Режим публичной документации API (CRM_API_DOCS) -------------------------
+#
+# FastAPI по умолчанию открывает /docs, /redoc и /openapi.json любому, кто знает
+# адрес. Для CRM это полная карта API: все эндпоинты, параметры, структуры
+# моделей и имена эндпоинтов служебных подсистем. Ни фронт v2, ни legacy эти
+# маршруты не используют (проверено grep'ом по site/, site-v2/ и
+# tools/mockups/), поэтому закрыть их ничего не ломает.
+#
+#   disabled  — маршрутов документации нет вообще (404);
+#   superadmin — документация и схема только для роли superadmin (по умолчанию);
+#   public    — открыто всем, ТОЛЬКО для локальной разработки: в production
+#               такой режим запрещён и поднимает процесс с ошибкой.
+#
+# Неизвестное значение закрывает startup, а не откатывается к открытой
+# документации: опечатка в окружении не должна расширять доступ.
+_DOCS_MODES = ("disabled", "superadmin", "public")
+_DOCS_FALSE = ("0", "false", "no", "off")
+_DOCS_TRUE = ("1", "true", "yes", "on")
+
+
+def _api_docs_mode(environ=None) -> str:
+    """Разобрать CRM_API_DOCS с безопасным значением по умолчанию."""
+    env = os.environ if environ is None else environ
+    raw = env.get("CRM_API_DOCS", "superadmin").strip().lower()
+    if not raw:
+        return "superadmin"
+    if raw in _DOCS_FALSE:
+        return "disabled"
+    if raw in _DOCS_TRUE:
+        return "superadmin"
+    if raw in _DOCS_MODES:
+        if raw == "public" and deployment_mode(env) == "production":
+            raise RuntimeConfigError(
+                "CRM_API_DOCS=public запрещён в production: "
+                "используйте superadmin или disabled"
+            )
+        return raw
+    raise RuntimeConfigError(
+        "CRM_API_DOCS должен быть disabled, superadmin или public"
+    )
+
+
+API_DOCS_MODE = _api_docs_mode()
+logger.info("Режим документации API: %s", API_DOCS_MODE)
+
+# docs_url/redoc_url/openapi_url=None отключают встроенные маршруты: ниже они
+# регистрируются вручную, чтобы навесить require_superadmin.
 app = FastAPI(
     title="Снабжение и Продажи API",
     description="Бэкенд для Канбан-доски, учета оплат и списаний",
-    version=__version__
+    version=__version__,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
+if API_DOCS_MODE != "disabled":
+    # В режиме superadmin каждый из трёх маршрутов закрыт валидным токеном
+    # суперадмина (тот же механизм, что и в роутерах: httpOnly-cookie crm_token
+    # или заголовок Authorization). Документация попадает в схему только под
+    # include_in_schema=False, поэтому не засоряет её.
+    _docs_guards = [] if API_DOCS_MODE == "public" else [Depends(require_superadmin())]
+
+    @app.get("/openapi.json", include_in_schema=False, dependencies=_docs_guards)
+    def api_openapi_schema():
+        """Машиночитаемая схема API (закрыта тем же guard, что /docs)."""
+        return JSONResponse(app.openapi())
+
+    @app.get("/docs", include_in_schema=False, dependencies=_docs_guards)
+    def api_swagger_ui():
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json",
+            title=f"{app.title} — Swagger UI",
+        )
+
+    @app.get("/redoc", include_in_schema=False, dependencies=_docs_guards)
+    def api_redoc():
+        return get_redoc_html(
+            openapi_url="/openapi.json",
+            title=f"{app.title} — ReDoc",
+        )
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -188,6 +268,23 @@ CSP_LEGACY = (
     "frame-ancestors 'none'; "
     "base-uri 'self'"
 )
+# Swagger UI и ReDoc грузят свой код со cdn.jsdelivr.net и вставляют инлайн-
+# стили: под политиками выше страница отдавалась бы с 200, но осталась бы пустой
+# (браузер блокирует ресурс). Это единственная страница приложения, которой
+# нужен внешний CDN, и она доступна только суперадмину.
+CSP_API_DOCS = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "font-src 'self' https://fonts.gstatic.com data:; "
+    "img-src 'self' data: https:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'"
+)
+
+DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 
 
 def _uses_v2_csp(path: str) -> bool:
@@ -195,6 +292,13 @@ def _uses_v2_csp(path: str) -> bool:
     if path == "/v2" or path.startswith("/v2/"):
         return True
     return FRONTEND_MODE == "v2" and path in {"/", "/admin"}
+
+
+def _csp_for(path: str) -> str:
+    """Политика CSP для маршрута: документация, v2 или legacy."""
+    if path in DOCS_PATHS:
+        return CSP_API_DOCS
+    return CSP_V2 if _uses_v2_csp(path) else CSP_LEGACY
 
 
 @app.get("/")
@@ -285,7 +389,7 @@ async def add_headers(request: Request, call_next):
     # скачивание файлов (<a download>) и window.open(blob:) CSP не влияет.
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    response.headers["Content-Security-Policy"] = CSP_V2 if _uses_v2_csp(path) else CSP_LEGACY
+    response.headers["Content-Security-Policy"] = _csp_for(path)
     return response
 
 app.mount("/css", StaticFiles(directory="css"), name="css")

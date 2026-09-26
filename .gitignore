@@ -12,6 +12,10 @@ __pycache__/
 .secret_key
 .email_secret_key
 .cron_token
+# Ключ шифрования webhook. Создаётся автоматически (0600) при первом
+# использовании, когда не задан CRM_DATA_DIR, — то есть оказывается прямо
+# в server_snapshot/ и легко проскочил бы в коммит мимо всех проверок.
+.webhook_encryption_key
 *.env
 .env*
 # ...but the template carries no secrets and must be in the repo.
