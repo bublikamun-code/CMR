@@ -209,3 +209,32 @@ def test_from_balance_requires_client(client, manager, db, make_card):
                            "from_balance": True})
     assert r.status_code == 400, r.text
     assert "клиентом" in r.json()["detail"]
+
+
+def test_general_card_patch_cannot_set_paid_amount(client, manager, db, make_card):
+    """Обход оплаты (аудит 2026-09-26): общий PATCH /cards/{id} больше не
+    принимает оплату — иначе списание проходило мимо проверки баланса и
+    уводило кредит клиента в минус."""
+    _, h = manager
+    card = make_card(title="Обход", total_amount=1000.0, paid_amount=0.0,
+                     payment_status="Не оплачен")
+
+    r = client.patch(f"/cards/{card.id}", headers=h,
+                     json={"paid_amount": 1000.0, "payment_status": "Оплачен"})
+    assert r.status_code == 400, r.text
+    assert "/payment" in r.json()["detail"]
+
+    db.expire_all()
+    db.refresh(card)
+    assert float(card.paid_amount) == 0.0
+    assert card.payment_status == "Не оплачен"
+
+
+def test_general_card_patch_still_saves_other_fields(client, manager, db, make_card):
+    """Запрет не должен мешать обычной правке карточки."""
+    _, h = manager
+    card = make_card(title="Правка", total_amount=1000.0)
+
+    r = client.patch(f"/cards/{card.id}", headers=h, json={"title": "Новое имя"})
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "Новое имя"

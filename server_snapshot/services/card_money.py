@@ -13,7 +13,7 @@ v2-контракт (план V2-FIX-PLAN-2026-09-19):
   issued_total    — сумма непустых документов сделки.
 """
 
-from constants import MONEY_EPSILON
+from services.writeoffs import money_is_zero
 
 
 def _is_issued_row(t) -> bool:
@@ -46,9 +46,12 @@ def compute_card_money(card, ledger_rows: list) -> dict:
 
     remaining_kop = int(round(remaining * 100))
 
-    if not ledger_rows or issued <= MONEY_EPSILON:
+    # Аудит денег 2026-09-26: «выписан / не выписан / частично» решается по
+    # округлению до копеек, а не по MONEY_EPSILON. Иначе остаток в одну копейку
+    # (валидные деньги) объявлялся выписанным, и сделка выглядела закрытой.
+    if not ledger_rows or money_is_zero(issued):
         status = "not_written"
-    elif remaining <= MONEY_EPSILON:
+    elif money_is_zero(remaining):
         status = "written"
     else:
         status = "partially_written"

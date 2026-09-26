@@ -5,7 +5,28 @@
 """
 
 import models
-from constants import MONEY_EPSILON
+
+# FIX 2026-09-26 (аудит денег): MONEY_EPSILON — это ДОПУСК СРАВНЕНИЯ («почти
+# равно»), а не «существует ли остаток». Смешивать эти два смысла нельзя:
+# 0.01 — это одна копейка, валидная сумма сделки, но `rest > MONEY_EPSILON`
+# даёт False, сделка закрывается, а запись-остаток УДАЛЯЕТСЯ — деньги исчезают
+# без возврата клиенту. Обратная защита тоже нужна: после ряда вычитаний float
+# накапливает хвост (0.010000000000000009 или 1e-15), и такой мусор не должен
+# висеть в реестре вечно.
+#
+# Поэтому решение «остаток равен нулю / сделка закрыта» принимается по
+# ОКРУГЛЕНИЮ ДО КОПЕЕК, а сравнения «почти равно» остаются на MONEY_EPSILON.
+def money_is_zero(value) -> bool:
+    """Остаток в денежном смысле равен нулю.
+
+    Копейка (0.01) — деньги, двоичный хвост (1e-15, 0.0100000000001) — нет.
+    """
+    return round(float(value or 0), 2) <= 0
+
+
+def money_is_present(value) -> bool:
+    """Остаток в денежном смысле существует (есть что выписывать/списывать)."""
+    return not money_is_zero(value)
 
 
 def writeoff_status_for(card, ledger):
@@ -25,7 +46,9 @@ def writeoff_status_for(card, ledger):
         issued = round(sum(float(t.amount or 0) for t in ledger
                            if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
         rest = round(float(card.total_amount or 0) - issued, 2)
-        return "На списание" if rest > MONEY_EPSILON else "Закрыто"
+        # «Закрыто» — остатка в денежном смысле нет. Копейка (0.01) остаток
+        # ЕСТЬ: сделка остаётся «На списание» (см. money_is_zero).
+        return "На списание" if money_is_present(rest) else "Закрыто"
     return "На списание" if any(not t.is_warehouse_writeoff for t in ledger) else "Закрыто"
 
 

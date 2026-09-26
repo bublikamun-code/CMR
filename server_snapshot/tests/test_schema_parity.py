@@ -619,6 +619,15 @@ def test_transaction_company_name_is_still_overwritten_by_card_title(
 
 # Поля, которые хендлер заведомо НЕ переносит в запись, с причиной.
 UPDATE_NOT_PERSISTED = {
+    ("CardUpdate", "paid_amount"):
+        "общий PATCH /cards/{id} отвергает поле (400) и отправляет в "
+        "PATCH /cards/{id}/payment: здесь не было проверки баланса клиента и "
+        "writer slot, а баланс выводится из Σ paid_amount, то есть списание "
+        "можно было обойти. Оба фронта шлют оплату только в /payment "
+        "(аудит 2026-09-26)",
+    ("CardUpdate", "payment_status"):
+        "по той же причине, что и paid_amount: факт оплаты меняется только "
+        "через PATCH /cards/{id}/payment (аудит 2026-09-26)",
     ("CardUpdate", "clear_client"):
         "не колонка, а управляющий флаг PATCH /cards/{id}: client_id=null "
         "обнуляет клиента только вместе с clear_client=true (защита A7)",

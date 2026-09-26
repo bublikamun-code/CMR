@@ -6,13 +6,42 @@ add_invoice / issue_invoice / delete_transaction и сериализатор tx_
 FastAPI как есть — коды ответов те же, что были в хендлерах.
 """
 
+import contextlib
+
 from fastapi import HTTPException
 
 import models
 from constants import MONEY_EPSILON
 from services.invoices import find_duplicate_invoice, find_invoice_twins
 from services.sqlite_writer import reserve_model_rows
-from services.writeoffs import ensure_registry_remainder, writeoff_status_for
+from services.writeoffs import (
+    ensure_registry_remainder,
+    money_is_present,
+    money_is_zero,
+    writeoff_status_for,
+)
+from tenant_policy import get_tenant_object, tenant_query
+
+
+@contextlib.contextmanager
+def rollback_on_error(session):
+    """Откатить незавершённую операцию и поднять исходную ошибку дальше.
+
+    FIX 2026-09-26 (аудит): многошаговые операции этого модуля (выписка,
+    добавление накладной, отмена) состоят из десятка SELECT/INSERT/DELETE и
+    завершаются одним commit. Любой сбой на промежуточном шаге оставлял сессию
+    в состоянии pending-rollback, и ВСЕ последующие обращения к базе в том же
+    запросе падали каскадом с «This Session's transaction has been rolled
+    back due to a previous exception», маскируя исходную причину.
+
+    Откат делаем в finally-подобном виде: swallow ничего, исходное исключение
+    поднимается без изменений (в т.ч. HTTPException с его кодом и detail).
+    """
+    try:
+        yield
+    except Exception:
+        session.rollback()
+        raise
 
 
 def _detect_advance(t) -> bool:
@@ -68,13 +97,51 @@ def tx_dict(t, parts=1, invoices=0, paid=None, partial=False, paid_amount=None, 
 
 def delete_transaction(session, transaction_id, actor):
     """Удаление записи реестра. Вынесено из delete_transaction в
-    routers/payments_router.py (Фаза 4) — тело перенесено посимвольно."""
-    query = session.query(models.Transaction).filter(models.Transaction.id == transaction_id)
+    routers/payments_router.py (Фаза 4) — тело перенесено посимвольно.
+
+    FIX 2026-09-26 (tenant): запись искалась по глобальному id, поэтому
+    пользователь одного tenant отменял чужую накладную. Теперь и запись, и
+    карточка сделки загружаются через tenant-policy, а чужой объект даёт тот
+    же 404, что и отсутствующий. Ошибка на любом шаге откатывает сессию
+    (rollback_on_error), иначе после IntegrityError весь запрос падал каскадом.
+    """
+    with rollback_on_error(session):
+        return _delete_transaction(session, transaction_id, actor)
+
+
+def _tenant_card(session, card_id, actor, *, detail="Карточка не найдена"):
+    """Карточка сделки в tenant вызывающего. Отсутствующая и чужая — 404.
+
+    Без актора (tenant-контекста) сделку не показываем никому: глобальный
+    поиск по id здесь означал бы ровно тот дефект, который тут устраняется.
+    """
+    if actor is None:
+        raise HTTPException(status_code=404, detail=detail)
+    return get_tenant_object(session, models.Card, card_id, actor, detail=detail)
+
+
+def _in_chunks(ids, size=500):
+    """Разбить список id на куски под ограничение числа параметров SQLite.
+
+    Один IN(...) на тысячу сделок — это тысяча связанных переменных в
+    одном statement; у SQLite лимит на них исторически 999 (сейчас выше, но
+    он версионный). Куски дают тот же результат без риска «too many SQL
+    variables» на большой группе.
+    """
+    ordered = list(ids)
+    for start in range(0, len(ordered), size):
+        yield ordered[start:start + size]
+
+
+def _delete_transaction(session, transaction_id, actor):
+    query = tenant_query(session, models.Transaction, actor).filter(
+        models.Transaction.id == transaction_id
+    )
     tx = query.first()
     if not tx:
         raise HTTPException(status_code=404, detail="Транзакция не найдена")
     if tx.card_id and not tx.is_document:
-        card = session.query(models.Card).filter(models.Card.id == tx.card_id).first()
+        card = _tenant_card(session, tx.card_id, actor)
         if card and card.writeoff_group_id is not None:
             raise HTTPException(status_code=400, detail="Сначала выведите карточку из группы")
 
@@ -96,7 +163,7 @@ def delete_transaction(session, transaction_id, actor):
 
     # Сумма удалённой накладной возвращается в остаток по сделке
     if card_id is not None and was_invoice:
-        card = session.query(models.Card).filter(models.Card.id == card_id).first()
+        card = _tenant_card(session, card_id, actor)
         if card:
             left = session.query(models.Transaction).filter(
                 models.Transaction.card_id == card_id,
@@ -106,10 +173,15 @@ def delete_transaction(session, transaction_id, actor):
             rest_rows = [t for t in left
                          if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()]
             if rest_rows:
-                rest_rows[0].amount = float(rest_rows[0].amount or 0) + amount
+                # FIX 2026-09-26 (накопление float): сложение остатка и
+                # возвращаемой суммы округляем на границе ЗАПИСИ. Внутри
+                # цикла округлять нечего — цикла нет, а копейки должны
+                # уехать в базу ровно, иначе ошибка растёт с каждой отменой
+                # накладной и дрейфует в остатке сделки.
+                rest_rows[0].amount = round(float(rest_rows[0].amount or 0) + amount, 2)
             else:
                 session.add(models.Transaction(
-                    company_name=card.title, amount=amount,
+                    company_name=card.title, amount=round(amount, 2),
                     store_location=store, card_id=card_id,
                     tenant_id=card.tenant_id,
                 ))
@@ -122,7 +194,7 @@ def delete_transaction(session, transaction_id, actor):
     # меняет статус до удаления записи, и безусловный пересчёт возвращал
     # карточку обратно в «Сборку» поверх только что выставленного статуса.
     if card_id is not None:
-        card = session.query(models.Card).filter(models.Card.id == card_id).first()
+        card = _tenant_card(session, card_id, actor)
         if card:
             left = session.query(models.Transaction).filter(
                 models.Transaction.card_id == card_id,
@@ -183,7 +255,20 @@ def annul_group_writeoff(session, group, actor):
     считается выписанной независимо от флажка), а след остаётся в журнале.
     Ручную галочку «Списание» (is_written_off) не трогаем — как и выписка
     (фидбек 18.09).
+
+    FIX 2026-09-26: (а) тело обёрнуто в rollback_on_error — раньше сбой на
+    промежуточном шаге (например, нарушение uq_remainder_per_card) оставлял
+    сессию в pending-rollback и ломал весь запрос каскадом; (б) записи всех
+    карточек группы читаются ОДНИМ запросом с IN(...) вместо запроса на
+    карточку; (в) порог «остаток есть / остаток исчерпан» — округление до
+    копеек (money_is_zero), а не MONEY_EPSILON: копейка не должна закрывать
+    сделку и удаляться.
     """
+    with rollback_on_error(session):
+        return _annul_group_writeoff(session, group, actor)
+
+
+def _annul_group_writeoff(session, group, actor):
     actor_id = actor.id if actor is not None else None
     actor_tenant_id = actor.tenant_id if actor is not None else None
     number = (group.invoice_number or "").strip()
@@ -206,12 +291,24 @@ def annul_group_writeoff(session, group, actor):
     group.invoice_number = None
     group.invoice_date = None
 
+    # FIX 2026-09-26 (N+1): записи карточек группы читаем одним запросом.
+    # Раньше на каждую карточку уходил свой SELECT — на группе из 30 сделок
+    # это 30 запросов плюс по одному на остальные шаги цикла.
+    group_cards = list(group.cards)
+    card_ids = [c.id for c in group_cards]
+    rows_by_card = {cid: [] for cid in card_ids}
+    if card_ids:
+        for chunk in _in_chunks(card_ids):
+            ledger_rows = session.query(models.Transaction).filter(
+                models.Transaction.card_id.in_(chunk),
+                models.Transaction.is_document == False,  # noqa: E712
+            ).order_by(models.Transaction.id.asc()).all()
+            for row in ledger_rows:
+                rows_by_card.setdefault(row.card_id, []).append(row)
+
     cards_report = []
-    for card in list(group.cards):
-        rows = session.query(models.Transaction).filter(
-            models.Transaction.card_id == card.id,
-            models.Transaction.is_document == False,  # noqa: E712
-        ).order_by(models.Transaction.id.asc()).all()
+    for card in group_cards:
+        rows = rows_by_card.get(card.id, [])
 
         # «Выписано» после отмены групповой ТН — только настоящие накладные
         # карточки (строки с номером): групповая выписка своих строк по
@@ -228,7 +325,7 @@ def annul_group_writeoff(session, group, actor):
         # DELETE на мгновение дал бы две записи-остатка на карточку.
         remainders = [r for r in rows if not (r.invoice_number or "").strip()]
         dropped = []
-        if rest is not None and rest <= MONEY_EPSILON:
+        if rest is not None and money_is_zero(rest):
             # остаток покрыт накладными — нулевые записи не оставляем
             dropped = list(remainders)
         elif len(remainders) > 1:
@@ -259,7 +356,7 @@ def annul_group_writeoff(session, group, actor):
         # непокрытая сумма есть — запись-остаток создаётся, как это делает
         # delete_transaction: сделка должна быть видна в «Реестре оплат».
         created = None
-        if rest is not None and rest > MONEY_EPSILON and not [
+        if rest is not None and money_is_present(rest) and not [
                 r for r in kept if not (r.invoice_number or "").strip()]:
             created = models.Transaction(
                 company_name=card.title, amount=rest,
@@ -304,9 +401,16 @@ def _reserve_card_write(session, card_id, actor):
     FastAPI уже прочитал пользователя этой же сессией, поэтому общий сервис
     резервирования завершает read-транзакцию до UPDATE. Значения актора
     копируются заранее, потому что rollback делает ORM-объект expired.
+
+    FIX 2026-09-26 (tenant): резервирование идёт по ГЛОБАЛЬНОМУ id карточки,
+    поэтому до него обязателен tenant-lookup — иначе no-op UPDATE на чужой
+    строке. Порядок: сначала 404 для чужой/отсутствующей сделки, потом
+    резервирование, потом повторное чтение карточки (reserve_model_rows
+    делает session.rollback(), которым ORM-объект инвалидируется).
     """
     actor_id = actor.id if actor is not None else None
     actor_tenant_id = actor.tenant_id if actor is not None else None
+    _tenant_card(session, card_id, actor)
     reserve_model_rows(
         session,
         models.Card,
@@ -325,15 +429,22 @@ def add_invoice(session, card_id, payload, actor=None):
 
     Вынесено из add_invoice в routers/payments_router.py (Фаза 4) —
     тело перенесено посимвольно.
+
+    FIX 2026-09-26: карточка и записи реестра берутся в tenant вызывающего
+    (раньше — по глобальному id, поэтому накладную можно было выписать по
+    ЧУЖОЙ сделке); ошибка на промежуточном шаге откатывает сессию.
     """
+    with rollback_on_error(session):
+        return _add_invoice(session, card_id, payload, actor)
+
+
+def _add_invoice(session, card_id, payload, actor=None):
     _reserve_card_write(session, card_id, actor)
-    card = session.query(models.Card).filter(models.Card.id == card_id).first()
-    if not card:
-        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    card = _tenant_card(session, card_id, actor)
     if card.writeoff_group_id is not None:
         raise HTTPException(status_code=400, detail="Карточка объединена в групповое списание. Добавляйте накладную по группе.")
 
-    existing = session.query(models.Transaction).filter(
+    existing = tenant_query(session, models.Transaction, actor).filter(
         models.Transaction.card_id == card_id,
         models.Transaction.is_document == False
     ).all()
@@ -396,7 +507,7 @@ def add_invoice(session, card_id, payload, actor=None):
     # выписанное, статус — по остатку. Без этого дописанная извне
     # накладная оставляла остаток разъехавшимся, а сделку — в старом
     # статусе.
-    ledger = session.query(models.Transaction).filter(
+    ledger = tenant_query(session, models.Transaction, actor).filter(
         models.Transaction.card_id == card_id,
         models.Transaction.is_document == False,
     ).all()
@@ -406,11 +517,14 @@ def add_invoice(session, card_id, payload, actor=None):
     remainder = next((t for t in ledger
                       if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
     if remainder is not None:
-        if new_rest <= MONEY_EPSILON:
+        # Копейка — это остаток, а не «почти ноль»: `new_rest <= MONEY_EPSILON`
+        # закрывал сделку на одну копейку и УДАЛЯЛ запись-остаток, то есть
+        # деньги исчезали из реестра без возврата (аудит 2026-09-26).
+        if money_is_zero(new_rest):
             session.delete(remainder)
         else:
             remainder.amount = new_rest
-    elif new_rest > MONEY_EPSILON:
+    elif money_is_present(new_rest):
         session.add(models.Transaction(
             company_name=card.title, amount=new_rest,
             store_location=new_tx.store_location, card_id=card_id,
@@ -438,17 +552,24 @@ def issue_invoice(session, card_id, payload, actor):
       4. Остаток закрыт полностью — запись-остаток исчезает, сделка закрывается.
 
     Вынесено из issue_invoice в routers/payments_router.py (Фаза 4) —
-    тело перенеслено посимвольно.
+    тело перенесено посимвольно.
+
+    FIX 2026-09-26: tenant-фильтр на карточку и записи реестра, откат
+    сессии при любой ошибке и денежный порог «остаток исчерпан» по
+    округлению до копеек вместо MONEY_EPSILON (см. services.writeoffs).
     """
+    with rollback_on_error(session):
+        return _issue_invoice(session, card_id, payload, actor)
+
+
+def _issue_invoice(session, card_id, payload, actor):
     actor_id, actor_tenant_id = _reserve_card_write(session, card_id, actor)
     # Ленивый импорт: _issue_document остался в routers.payments_router
     # (явно вне среза Фазы 4), а прямой импорт верхнего уровня дал бы
     # цикл router → services → router.
     from routers.payments_router import _issue_document
 
-    card = session.query(models.Card).filter(models.Card.id == card_id).first()
-    if not card:
-        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    card = _tenant_card(session, card_id, actor)
     if card.writeoff_group_id is not None:
         raise HTTPException(status_code=400, detail="Карточка объединена в групповое списание. Выписывайте накладную по группе.")
 
@@ -460,7 +581,7 @@ def issue_invoice(session, card_id, payload, actor):
     if not number:
         raise HTTPException(status_code=400, detail="Укажите номер накладной")
 
-    txs = session.query(models.Transaction).filter(
+    txs = tenant_query(session, models.Transaction, actor).filter(
         models.Transaction.card_id == card_id,
         models.Transaction.is_document == False,
     ).order_by(models.Transaction.id.asc()).all()
@@ -500,8 +621,10 @@ def issue_invoice(session, card_id, payload, actor):
     if not store:
         raise HTTPException(status_code=400, detail="Не выбран магазин для списания")
 
-    issued_total = sum(float(t.amount or 0) for t in txs
-                       if t.is_warehouse_writeoff or (t.invoice_number or "").strip())
+    # FIX 2026-09-26 (накопление float): сумму округляем на границе расчёта,
+    # дальше все сравнения идут по копейкам (round идёт до max(0.0, ...)).
+    issued_total = round(sum(float(t.amount or 0) for t in txs
+                             if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
     card_amount = round(float(card.total_amount or 0), 2)
     # Остаток считаем ОТ СУММЫ СДЕЛКИ, а не от записи-остатка: запись —
     # производное состояние и расходилась с сделкой (сумму правили уже
@@ -518,7 +641,11 @@ def issue_invoice(session, card_id, payload, actor):
 
     rest_after = round(rest_before - amount, 2)
 
-    if remainder is not None and rest_after <= MONEY_EPSILON:
+    # Копейка остатка — это деньги, а не «почти закрыто»: при
+    # rest_after = 0.01 накладная не должна ПЕРЕПИСЫВАТЬ запись-остаток
+    # (иначе 0.01 исчезают), остаток должен остаться отдельной записью
+    # (аудит 2026-09-26).
+    if remainder is not None and money_is_zero(rest_after):
         # накладная закрывает остаток целиком — превращаем саму запись-остаток в накладную
         invoice = remainder
         invoice.invoice_number = number
@@ -541,7 +668,7 @@ def issue_invoice(session, card_id, payload, actor):
         )
         session.add(invoice)
         if remainder is not None:
-            if rest_after <= MONEY_EPSILON:
+            if money_is_zero(rest_after):
                 # остаток исчерпан — удаляем пустую запись вместо нулевой
                 session.delete(remainder)
                 new_remainder = None
@@ -550,7 +677,7 @@ def issue_invoice(session, card_id, payload, actor):
                 remainder.store_location = store
                 new_remainder = remainder
         else:
-            if rest_after > MONEY_EPSILON:
+            if money_is_present(rest_after):
                 new_remainder = models.Transaction(
                     company_name=card.title, amount=rest_after,
                     store_location=store, card_id=card_id,

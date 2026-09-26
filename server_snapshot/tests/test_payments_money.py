@@ -658,10 +658,17 @@ def test_writeoff_status_fully_covered(client, manager, db, make_card):
     (1000.0, 333.33, 666.67),
     (100.0, 33.33, 66.67),
     (0.3, 0.1, 0.2),          # классика float: 0.3 - 0.1 = 0.19999999999999998
-    (10.0, 9.99, 0.0),        # разница равна допуску 0.01 — остаток закрывается
+    (10.0, 10.0, 0.0),        # остаток ровно ноль — сделка закрывается
+    (10.0, 9.99, 0.01),       # недобор на копейку — копейка ЭТО ДЕНЬГИ (аудит 26.09)
 ])
 def test_remainder_rounding(client, manager, db, make_card, a, b, expected_rest):
-    """Деньги — float (решение владельца 2026-09-11), поэтому округление фиксируем явно."""
+    """Деньги — float (решение владельца 2026-09-11), поэтому округление фиксируем явно.
+
+    FIX 2026-09-26 (аудит денег): закрывает сделку только остаток, который
+    после округления до копеек равен нулю. Раньше порогом был MONEY_EPSILON,
+    поэтому недобор в 0.01 «закрывал» сделку, а запись-остаток удалялась —
+    копейка исчезала из реестра.
+    """
     _, h = manager
     card = make_card(total_amount=a, status="Сборка")
     assert _trigger(client, h, card.id).status_code == 200
@@ -671,8 +678,8 @@ def test_remainder_rounding(client, manager, db, make_card, a, b, expected_rest)
 
     _reload(db)
     rest = [t for t in _txs(db, card.id) if not t.invoice_number and not t.is_document]
-    if expected_rest <= 0.01:
-        assert rest == [], "остаток в пределах допуска должен закрыться"
+    if expected_rest <= 0:
+        assert rest == [], "остаток в копейках нулевой — сделка закрывается"
     else:
         assert len(rest) == 1
         assert round(float(rest[0].amount), 2) == expected_rest

@@ -1,4 +1,5 @@
 import contextlib
+import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -21,8 +22,15 @@ from services.payments import add_invoice as add_invoice_svc
 from services.payments import delete_transaction as delete_transaction_svc
 from services.payments import issue_invoice as issue_invoice_svc
 from services.payments import tx_dict
-from services.writeoffs import ensure_registry_remainder, writeoff_status_for
-from tenant_policy import assign_tenant, get_tenant_object, tenant_predicate, tenant_query
+from services.writeoffs import (
+    ensure_registry_remainder,
+    money_is_present,
+    money_is_zero,
+    writeoff_status_for,
+)
+from tenant_policy import assign_tenant, get_tenant_object, tenant_query
+
+logger = logging.getLogger(__name__)
 
 
 def _backup_db_snapshot(session):
@@ -31,7 +39,18 @@ def _backup_db_snapshot(session):
     Пишется рядом с базой (CRM_DATA_DIR/backups/before_repair_*.db) штатным
     backup-API SQLite, поэтому безопасна при живом приложении (WAL).
     Ошибка копии не отменяет починку — в отчёте будет backup: null.
+
+    FIX 2026-09-26 (аудит): `except: return None` глотал исключение молча
+    (в отчёте потом просто «backup: null», и починка идёт без страховки, а
+    причину не видно нигде), а файловые дескрипторы оставались открытыми при
+    любом сбое копирования — на боевой БД это утечка соединений к файлу.
+    Теперь: исключение логируется, оба дескриптора закрываются гарантированно
+    (contextlib.closing), а `target` вычисляется ДО копирования и
+    возвращается в finally-совместимой форме — раньше он был локальной
+    переменной блока try, то есть при ошибке `return target` был недостижим
+    и опирался на то, что имя вообще успело присвоиться.
     """
+    target = None
     try:
         rows = session.connection().exec_driver_sql("PRAGMA database_list").fetchall()
         db_path = next((row[2] for row in rows if row[1] == "main" and row[2]), None)
@@ -45,15 +64,16 @@ def _backup_db_snapshot(session):
         stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
         target = os.path.join(backup_dir, f"before_repair_{stamp}.db")
         src = sqlite3.connect(db_path)
-        dst = sqlite3.connect(target)
-        with dst:
-            src.backup(dst)
-        src.close()
-        dst.close()
+        # closing закрывает дескриптор даже если backup() упал, поэтому
+        # частично записанный файл не держит соединение и не остаётся в БД.
+        with contextlib.closing(src):
+            with contextlib.closing(sqlite3.connect(target)) as dst:
+                with dst:
+                    src.backup(dst)
     except Exception:
+        logger.exception("Не удалось сохранить копию базы перед починкой списаний")
         return None
-    else:
-        return target
+    return target
 
 # FIX 2026-08-30: предохранитель от неограниченной выборки (реестр и документы
 # раньше читали ВСЮ таблицу транзакций). Это не пагинация: сейчас в базе 188
@@ -101,6 +121,83 @@ class TransactionPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# FIX 2026-09-26 (пагинация grouped-реестра). Ключ группы: сделка (card_id)
+# либо отдельная запись без карточки — она в реестре тоже самостоятельная
+# строка. Возвращается список ключей в ИТОМ ЖЕ порядке, что даёт полный
+# grouped-ответ, и общее число строк сделок.
+def _grouped_registry_page_keys(query, page):
+    """Какие сделки попадают на страницу — без загрузки ORM-объектов.
+
+    Дешёвый проход выбирает только (id, card_id, date) по тому же фильтру и
+    в том же порядке, что и основная выборка, поэтому порядок страницы,
+    `total` и содержимое совпадают с полным ответом байт в байт. Стоимость
+    прохода линейна по числу строк, но это три колонки без join'а карточек и
+    без создания объектов — в отличие от прежнего варианта, который
+    материализовал до REGISTRY_HARD_LIMIT полных записей с догрузкой cards
+    ради любой страницы.
+    """
+    light_rows = query.with_entities(
+        models.Transaction.id,
+        models.Transaction.card_id,
+        models.Transaction.date,
+    ).order_by(
+        models.Transaction.card_id.desc(), models.Transaction.id.asc()
+    ).limit(REGISTRY_HARD_LIMIT).all()
+
+    keys, base_dates, seen = [], {}, set()
+    loose, loose_dates = [], {}
+    for row_id, card_id, row_date in light_rows:
+        if card_id is None:
+            # Записи без карточки в основном коде попадают в результат
+            # ПЕРВЫМИ (их цикл идёт раньше групп сделок), поэтому и здесь
+            # они должны идти раньше — иначе порядок совпал бы только при
+            # различных датах.
+            loose.append(("tx", row_id))
+            loose_dates[("tx", row_id)] = row_date
+            continue
+        key = ("card", card_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        keys.append(key)
+        base_dates[key] = row_date
+    keys = loose + keys
+    base_dates.update(loose_dates)
+    # Тот же ключ сортировки, что и в основном коде: строковый ISO-date
+    # плюс стабильность sort (порядок внутри равных дат — порядок ключей).
+    keys.sort(key=lambda k: (base_dates[k].isoformat() if base_dates[k] else ""),
+              reverse=True)
+    return keys[page.offset:page.offset + page.limit], len(keys)
+
+
+def _in_chunks(ids, size=500):
+    """Разбить список id на куски под ограничение числа параметров SQLite.
+
+    Один IN(...) на все сделки реестра — это тысячи связанных переменных в
+    одном statement; лимит на них у SQLite версионный (исторически 999).
+    Куски дают тот же результат без «too many SQL variables».
+    """
+    ordered = list(ids)
+    for start in range(0, len(ordered), size):
+        yield ordered[start:start + size]
+
+
+def _load_registry_rows(ordered, page_keys):
+    """Полные строки реестра только для сделок выбранной страницы."""
+    card_ids = [key[1] for key in page_keys if key[0] == "card"]
+    row_ids = [key[1] for key in page_keys if key[0] == "tx"]
+    rows = []
+    if card_ids:
+        rows.extend(ordered.filter(
+            models.Transaction.card_id.in_(card_ids)
+        ).all())
+    if row_ids:
+        rows.extend(ordered.filter(
+            models.Transaction.id.in_(row_ids)
+        ).all())
+    return rows
 
 
 @router.post("/trigger_from_card/{card_id}", response_model=schemas.TransactionResponse)
@@ -181,7 +278,18 @@ def get_transactions(grouped: bool = True,
     и возвращает {items, total, limit, offset}. Без параметров ответ прежний —
     плоский массив и прежние заголовки, поэтому клиент можно перевести на
     страницы отдельным шагом. `total` всегда считает те же единицы, что лежат
-    в `items`: строки таблицы при grouped=False и строки сделок при grouped=True.
+        в `items`: строки таблицы при grouped=False и строки сделок при grouped=True.
+
+    FIX 2026-09-26 (пагинация): при grouped=True страница резалась ПОСЛЕ
+    выборки ВСЕХ строк реестра (до 5000 ORM-объектов с догрузкой карточек),
+    поэтому номер страницы не влиял на объём чтения — реестросъёмная кнопка
+    «Обновить» стоила столько же, сколько первая страница. Теперь страница
+    grouped определяется ДЕШЁВЫМ проходом (только id/card_id/date, без ORM и
+    без join'а карточек), после чего полные строки грузятся только для
+    сделок, попавших на страницу. Порядок, total и формат ответа прежние.
+
+    Без limit/offset (клиент грузит реестр целиком — v2-boot) поведение не
+    меняется: это осознанный полный проход, а не пагинация.
     """
     try:
         page = resolve_page(limit, offset)
@@ -199,17 +307,26 @@ def get_transactions(grouped: bool = True,
         ordered = query.options(selectinload(models.Transaction.card)).order_by(
             models.Transaction.card_id.desc(), models.Transaction.id.asc()
         )
-        total = None
+        # Имя НЕ total: ниже в цикле группировки `total` — это сумма строки
+        # сделки, и затирание им числа строк ломало бы ответ страницы.
+        page_total = None
+        paged_grouped = False
         if page is not None and not grouped:
             # Сырой режим: элемент ответа = строка таблицы, поэтому и общее число,
             # и сам кусок считаются в SQL. COUNT — один запрос по ТОМУ ЖЕ фильтру
             # и до применения limit/offset. LEFT JOIN на cards не размножает
             # строки (cards.id — первичный ключ), так что count честный.
-            total = query.with_entities(func.count()).scalar() or 0
+            page_total = query.with_entities(func.count()).scalar() or 0
             ordered = ordered.limit(page.limit).offset(page.offset)
+            rows = ordered.all()
+        elif page is not None and grouped:
+            # Двухпроходная выборка: сначала дёшево вычисляем, какие СДЕЛКИ
+            # попадают на страницу, затем читаем их строки целиком.
+            page_keys, page_total = _grouped_registry_page_keys(query, page)
+            rows = _load_registry_rows(ordered, page_keys)
+            paged_grouped = True
         else:
-            ordered = ordered.limit(REGISTRY_HARD_LIMIT)
-        rows = ordered.all()
+            rows = ordered.limit(REGISTRY_HARD_LIMIT).all()
         if page is None and response is not None:
             response.headers["X-Total-Count"] = str(len(rows))
             if len(rows) >= REGISTRY_HARD_LIMIT:
@@ -220,8 +337,8 @@ def get_transactions(grouped: bool = True,
             items = [tx_dict(r) for r in rows]
             if page is None:
                 return items
-            set_page_headers(response, total)
-            return {"items": items, "total": total,
+            set_page_headers(response, page_total)
+            return {"items": items, "total": page_total,
                     "limit": page.limit, "offset": page.offset}
 
         # ВАЖНО: чек-лист карточки — это ЗАКУПКА У ПОСТАВЩИКОВ
@@ -288,13 +405,20 @@ def get_transactions(grouped: bool = True,
         # поэтому резать в SQL нельзя без смены порядка. Порядок выше задаётся
         # сортировкой по строковой дате в Python (форматы дат в базе смешанные,
         # и SQL ORDER BY дал бы другую последовательность — страницы начали бы
-        # перекрываться на стыках). Группируем и сортируем ровно как раньше,
-        # а уже готовый список режем: клиент видит тот же порядок, что и до
-        # пагинации, и total считает строки сделок, а не транзакции.
-        total = len(result)
-        set_page_headers(response, total)
+        # перекрываться на стыках). Порядок определяет ОДИН и тот же ключ:
+        # сортировка по строковой дате + стабильность Python, поэтому и
+        # отсортированный по дате список сделок, и постраничный проход дают
+        # одну и ту же последовательность.
+        if paged_grouped:
+            # Строки этой страницы уже отобраны по сделкам страницы, резать
+            # список повторно нельзя — иначе вторая страница была бы пустой.
+            set_page_headers(response, page_total)
+            return {"items": result, "total": page_total,
+                    "limit": page.limit, "offset": page.offset}
+        page_total = len(result)
+        set_page_headers(response, page_total)
         return {"items": result[page.offset:page.offset + page.limit],
-                "total": total, "limit": page.limit, "offset": page.offset}
+                "total": page_total, "limit": page.limit, "offset": page.offset}
     finally:
         db.close()
 
@@ -490,11 +614,15 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
                 remainder = next((t for t in ledger
                                   if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
                 if remainder is not None:
-                    if new_rest <= MONEY_EPSILON:
+                    # FIX 2026-09-26 (аудит денег): «остаток исчерпан» —
+                    # округление до копеек, а не MONEY_EPSILON. Иначе остаток
+                    # в одну копейку закрывал сделку и запись-остаток
+                    # УДАЛЯЛАСЬ, то есть деньги исчезали из реестра.
+                    if money_is_zero(new_rest):
                         db.delete(remainder)
                     else:
                         remainder.amount = new_rest
-                elif new_rest > MONEY_EPSILON and card.status in ("Сборка", "На списание", "Закрыто"):
+                elif money_is_present(new_rest) and card.status in ("Сборка", "На списание", "Закрыто"):
                     db.add(models.Transaction(
                         company_name=card.title, amount=new_rest,
                         store_location=card.store_location, card_id=card.id,
@@ -521,12 +649,15 @@ class WriteoffStatus(BaseModel):
 
 @router.get("/cards/{card_id}/writeoff-status", response_model=WriteoffStatus)
 def card_writeoff_status(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    """Сводка по накладным одной сделки: сколько выписано, сколько списано, покрыта ли сумма."""
+    """Сводка по накладным одной сделки: сколько выписано, сколько списано, покрыта ли сумма.
+
+    FIX 2026-09-26 (tenant): карточка и её записи брались по глобальному id,
+    поэтому сводку по чужой сделке (и суммы её накладных) видел любой
+    аутентифицированный пользователь. Теперь 404 — как для отсутствующей сделки.
+    """
     try:
-        card = db.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
-        txs = db.query(models.Transaction).filter(
+        card = get_tenant_object(db, models.Card, card_id, current_user, detail="Карточка не найдена")
+        txs = tenant_query(db, models.Transaction, current_user).filter(
             models.Transaction.card_id == card_id,
             models.Transaction.is_document == False
         ).all()
@@ -604,13 +735,15 @@ def issue_invoice(card_id: int, payload: IssueInvoiceRequest, db: Session = Depe
 
 @router.get("/cards/{card_id}/invoices")
 def list_card_invoices(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    """Чек-лист накладных по сделке: выписанные пункты + текущий остаток."""
-    try:
-        card = db.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
+    """Чек-лист накладных по сделке: выписанные пункты + текущий остаток.
 
-        txs = db.query(models.Transaction).filter(
+    FIX 2026-09-26 (tenant): карточка и её записи читались по глобальному id —
+    чужой чек-лист накладных с чужими суммами отдавался любому пользователю.
+    """
+    try:
+        card = get_tenant_object(db, models.Card, card_id, current_user, detail="Карточка не найдена")
+
+        txs = tenant_query(db, models.Transaction, current_user).filter(
             models.Transaction.card_id == card_id,
             models.Transaction.is_document == False,
         ).order_by(models.Transaction.id.asc()).all()
@@ -663,17 +796,22 @@ def remove_card_from_writeoff(card_id: int, db: Session = Depends(get_db), curre
     («Списание», site/js/writeoffs.js:401 и site/js/payments.js:297) — v2 её
     не зовёт; если владелец решит вернуть складу право отмены списания,
     гейт снимается одной строкой (см. V2-PLAN-RECON §6).
+
+    FIX 2026-09-26 (tenant): сделка и её записи брались по глобальному id, то
+    есть админ одного tenant сносил ВСЕ записи реестра чужой сделки и менял
+    ей статус. Теперь карточка загружается через tenant-policy, а записи
+    удаляются только из своего tenant; чужой id даёт тот же 404, что и
+    несуществующий. Смысл 404 «записей уже нет, но карточку вернуть надо»
+    сохранён: 404 теперь только на самой сделке.
     """
     try:
-        rows = db.query(models.Transaction).filter(
+        card = get_tenant_object(db, models.Card, card_id, current_user, detail="Сделка не найдена")
+        if card.writeoff_group_id is not None:
+            raise HTTPException(status_code=400, detail="Сначала выведите карточку из группы")
+
+        rows = tenant_query(db, models.Transaction, current_user).filter(
             models.Transaction.card_id == card_id
         ).all()
-
-        card = db.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card and not rows:
-            raise HTTPException(status_code=404, detail="Сделка не найдена")
-        if card and card.writeoff_group_id is not None:
-            raise HTTPException(status_code=400, detail="Сначала выведите карточку из группы")
 
         # 404 больше не бросаем: если записей нет, значит их уже удалили
         # (двойной клик, параллельная вкладка). Карточку всё равно нужно
@@ -720,13 +858,16 @@ def sync_writeoff_status(card_id: int, db: Session = Depends(get_db), current_us
     даже если по ней оставались выписанные накладные — карточка исчезала
     с доски списания, а внутри накладные оставались. Теперь статус
     вычисляется по данным, а не назначается вслепую.
+
+    FIX 2026-09-26 (tenant): статус ЧУЖОЙ карточки переписывался по
+    глобальному id — ручка не только читала чужую сделку, но и ПИСАЛА ей
+    статус. Теперь сделка и её записи берутся в tenant вызывающего, 404 для
+    чужой сделки неотличим от отсутствующей.
     """
     try:
-        card = db.query(models.Card).filter(models.Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Карточка не найдена")
+        card = get_tenant_object(db, models.Card, card_id, current_user, detail="Карточка не найдена")
 
-        txs = db.query(models.Transaction).filter(
+        txs = tenant_query(db, models.Transaction, current_user).filter(
             models.Transaction.card_id == card_id,
             models.Transaction.is_document == False
         ).all()
@@ -764,6 +905,21 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
 
     Перед применением (dry_run=false) сохраняется копия базы в
     backups/before_repair_*.db рядом с файлом базы — страховка отката.
+
+    FIX 2026-09-26 (tenant): починка была МАССОВОЙ и шла по всем tenant'ам
+    сразу — админ одного tenant правил статусы, остатки и документы чужих
+    сделок (и dry_run показывал чужую карточку в отчёте). Теперь область
+    действия — tenant вызывающего; superadmin (has_global_scope) сохраняет
+    глобальный охват, это его административный контракт.
+
+    FIX 2026-09-26 (N+1): карточки по сделкам и проверка «есть ли запись
+    реестра» собираются ОДНИМ запросом с IN(...) вместо запроса на каждую
+    сделку (было 2N+1 SELECT).
+
+    FIX 2026-09-26 (деньги): «остаток исчерпан» и «нулевая запись-остаток»
+    определяются округлением до копеек (money_is_zero), а не сравнением с
+    MONEY_EPSILON / хардкодом 0.005: копейка — это деньги, и её удаление
+    вместе с закрытием сделки было прямой потерей.
     """
     if current_user.role not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -775,13 +931,22 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
         def _norm(v):
             return norm_invoice_number(v)
 
-        all_tx = db.query(models.Transaction).filter(
+        all_tx = tenant_query(db, models.Transaction, current_user).filter(
             models.Transaction.card_id.isnot(None)
         ).all()
 
         by_card = {}
         for t in all_tx:
             by_card.setdefault(t.card_id, []).append(t)
+
+        # N+1: карточки всех затронутых сделок — запросами с IN(...) вместо
+        # SELECT на каждую сделку (кусками — см. _in_chunks).
+        cards_by_id = {}
+        for chunk in _in_chunks(list(by_card)):
+            for c in tenant_query(db, models.Card, current_user).filter(
+                models.Card.id.in_(chunk)
+            ).all():
+                cards_by_id[c.id] = c
 
         orphan_docs, fixed_status = [], []
         remainder_fixes, orphan_groups = [], []
@@ -804,7 +969,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                                         "invoice_number": d.invoice_number,
                                         "amount": float(d.amount or 0)})
 
-            card = db.query(models.Card).filter(models.Card.id == card_id).first()
+            card = cards_by_id.get(card_id)
 
             # Сначала остатки, потом статус: после удаления лишних записей
             # сделка может оказаться полностью списанной, и статус должен
@@ -827,7 +992,7 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                         "extra_rows": len(pending_rows) - 1,
                     })
                     if not dry_run:
-                        if expected_rest <= MONEY_EPSILON:
+                        if money_is_zero(expected_rest):
                             # остаток исчерпан — записи-остатки удаляются,
                             # а не остаются нулевыми
                             for p in pending_rows:
@@ -843,14 +1008,19 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                                 tenant_id=card.tenant_id,
                             ))
                     if pending_rows:
-                        if expected_rest <= MONEY_EPSILON:
+                        if money_is_zero(expected_rest):
                             will_delete_ids = {p.id for p in pending_rows}
                         else:
                             will_delete_ids = {p.id for p in pending_rows[1:]}
                 else:
                     # Остаток сходится, но нулевые записи-остатки — мусор,
                     # засоряющий реестр: выписанного покрытие не оставляет.
-                    zero_rows = [t for t in pending_rows if float(t.amount or 0) <= 0.005]
+                    # FIX 2026-09-26: было `<= 0.005` — хардкод, который
+                    # означал не «почти ноль», а «ноль в копейках» и потому
+                    # стоял врозь с MONEY_EPSILON. Теперь это именованный
+                    # предикат денежного нуля: 0.004 (двоичный мусор) удаляется,
+                    # 0.01 остаётся деньгами.
+                    zero_rows = [t for t in pending_rows if money_is_zero(t.amount)]
                     if zero_rows:
                         zero_rows_removed.append({"card_id": card_id, "title": card.title,
                                                   "rows": len(zero_rows)})
@@ -871,7 +1041,9 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
                     if not dry_run:
                         card.status = want
 
-        for g in db.query(models.WriteoffGroup).options(selectinload(models.WriteoffGroup.cards)).all():
+        for g in tenant_query(db, models.WriteoffGroup, current_user).options(
+            selectinload(models.WriteoffGroup.cards)
+        ).all():
             if not g.cards:
                 orphan_groups.append({"id": g.id, "name": g.name,
                                       "total_amount": float(g.total_amount or 0)})
@@ -882,25 +1054,38 @@ def repair_writeoffs(dry_run: bool = True, db: Session = Depends(get_db), curren
         # их не было видно, пока статус не «пинали» туда-обратно
         # (кейс «ТрансЛИДИЯсервис», фидбек 09.09).
         missing_registry = []
-        for c in db.query(models.Card).filter(
+        assembly_cards = tenant_query(db, models.Card, current_user).filter(
             models.Card.status == "Сборка",
             models.Card.is_deleted == False,
-        ).all():
+        ).all()
+        # N+1: наличие записи реестра проверяем ОДНИМ запросом по всем
+        # кандидатам, а не SELECT на каждую карточку «Сборки».
+        card_ids_with_tx = set()
+        for chunk in _in_chunks([c.id for c in assembly_cards]):
+            card_ids_with_tx |= {
+                row[0] for row in tenant_query(db, models.Transaction, current_user).filter(
+                    models.Transaction.card_id.in_(chunk),
+                    models.Transaction.is_document == False,
+                ).with_entities(models.Transaction.card_id).all()
+            }
+        for c in assembly_cards:
             if c.writeoff_group_id is not None or float(c.total_amount or 0) <= 0:
                 continue
-            has_tx = db.query(models.Transaction).filter(
-                models.Transaction.card_id == c.id,
-                models.Transaction.is_document == False,
-            ).first()
-            if not has_tx:
-                missing_registry.append({"card_id": c.id, "title": c.title,
-                                         "amount": float(c.total_amount or 0)})
-                if not dry_run:
-                    ensure_registry_remainder(db, c)
+            if c.id in card_ids_with_tx:
+                continue
+            missing_registry.append({"card_id": c.id, "title": c.title,
+                                     "amount": float(c.total_amount or 0)})
+            if not dry_run:
+                ensure_registry_remainder(db, c)
 
         if not dry_run:
             for o in orphan_docs:
-                row = db.query(models.Transaction).filter(models.Transaction.id == o["id"]).first()
+                # Починка ограничена tenant вызывающего — удаляем только
+                # строку своего tenant (иначе id из отчёта позволил бы снести
+                # чужой документ).
+                row = tenant_query(db, models.Transaction, current_user).filter(
+                    models.Transaction.id == o["id"]
+                ).first()
                 if row:
                     db.delete(row)
             db.commit()

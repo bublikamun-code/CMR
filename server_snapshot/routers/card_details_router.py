@@ -1,8 +1,11 @@
 import contextlib
+import logging
 import os
 import re
+import unicodedata
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -12,13 +15,14 @@ import models
 import schemas
 from auth import get_current_user
 from constants import MONEY_EPSILON
+from services.writeoffs import money_is_present, money_is_zero
 from database import get_db
 from limiter_config import limiter
+from services.sqlite_writer import reserve_model_rows, sqlite_write_transaction
 from tenant_policy import (
     assign_tenant,
     get_tenant_child,
     get_tenant_object,
-    tenant_predicate,
     tenant_query,
     writable_tenant_id,
 )
@@ -38,6 +42,46 @@ UPLOAD_DIR = os.path.abspath(
     or os.path.join(os.environ.get("CRM_DATA_DIR") or _APP_DIR, "uploads")
 )
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+logger = logging.getLogger(__name__)
+
+
+def _uploads_root() -> str:
+    """Реальный (symlink-развёрнутый) путь каталога загрузок."""
+    return os.path.realpath(UPLOAD_DIR)
+
+
+def _path_inside_uploads(file_path: str) -> bool:
+    """Лежит ли путь ФИЗИЧЕСКИ внутри каталога загрузок.
+
+    FIX 2026-09-26: os.sep на конце обязателен. Без него проверка
+    ``real.startswith(realpath(UPLOAD_DIR))`` пропускала соседний каталог:
+    ``/var/uploads_evil/файл`` начинается с ``/var/uploads``, поэтому файл
+    из чужого каталога проходил как «свой» и отдавался на скачивание.
+    """
+    root = _uploads_root()
+    real = os.path.realpath(file_path)
+    return real.startswith(root + os.sep)
+
+
+def _require_inside_uploads(file_path: str) -> None:
+    """Проверка ДО записи: не создаём файл за пределами каталога загрузок."""
+    if not _path_inside_uploads(file_path):
+        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+
+
+def _require_written_inside_uploads(file_path: str) -> None:
+    """Проверка ПОСЛЕ записи: файл обязан лежать в каталоге и быть обычным.
+
+    Симлинк внутри uploads (или подмена каталога) мог бы вывести запись за
+    его пределы уже после открытия файла на запись — тогда остаётся только
+    удалить то, что не должно было появиться.
+    """
+    if _path_inside_uploads(file_path) and os.path.isfile(file_path):
+        return
+    with contextlib.suppress(OSError):
+        os.remove(file_path)
+    raise HTTPException(status_code=400, detail="Недопустимое имя файла")
 
 
 # ============================================================
@@ -245,8 +289,7 @@ def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFi
     # Defense-in-depth: сохраняем строго внутри UPLOAD_DIR (в имя файла
     # попадает исходное имя вложения — проверяем, что оно не вынесло нас
     # за пределы каталога).
-    if not os.path.realpath(file_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
-        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+    _require_inside_uploads(file_path)
     size = 0
     with Path(file_path).open("wb") as buffer:
         while chunk := file.file.read(1024 * 1024):
@@ -256,6 +299,7 @@ def upload_checklist_invoice(request: Request, checklist_id: int, file: UploadFi
                 os.remove(file_path)
                 raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
             buffer.write(chunk)
+    _require_written_inside_uploads(file_path)
     item.invoice_file_name = original_name
     item.invoice_file_path = file_path
     db.commit()
@@ -343,6 +387,9 @@ def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db
         original_name = "file"
     safe_filename = f"{card_id}_{uuid.uuid4().hex[:8]}_{original_name}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
+    # FIX 2026-09-26: проверки реального пути здесь не было вообще — ни до
+    # записи, ни после. Оба соседних загрузчика её имели, этот — нет.
+    _require_inside_uploads(file_path)
     size = 0
     with Path(file_path).open("wb") as buffer:
         while chunk := file.file.read(1024 * 1024):
@@ -352,6 +399,7 @@ def upload_file(request: Request, card_id: int, file: UploadFile = File(...), db
                 os.remove(file_path)
                 raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
             buffer.write(chunk)
+    _require_written_inside_uploads(file_path)
     new_attachment = models.CardAttachment(file_name=original_name, file_path=file_path, card_id=card_id)
     db.add(new_attachment)
     db.commit()
@@ -384,8 +432,7 @@ def upload_file_v2_compat(request: Request, card_id: int, file: UploadFile = Fil
         original_name = "file"
     safe_filename = f"{card_id}_{uuid.uuid4().hex[:8]}_{original_name}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
-    if not os.path.realpath(file_path).startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
-        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+    _require_inside_uploads(file_path)
     size = 0
     with Path(file_path).open("wb") as buffer:
         while chunk := file.file.read(1024 * 1024):
@@ -395,6 +442,7 @@ def upload_file_v2_compat(request: Request, card_id: int, file: UploadFile = Fil
                 os.remove(file_path)
                 raise HTTPException(status_code=413, detail="Файл слишком большой (макс. 25 МБ)")
             buffer.write(chunk)
+    _require_written_inside_uploads(file_path)
     new_attachment = models.CardAttachment(file_name=original_name, file_path=file_path, card_id=card_id)
     db.add(new_attachment)
     db.commit()
@@ -430,6 +478,19 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
     )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
+    # Аудит 2026-09-26: общий PATCH карточки писал paid_amount и payment_status
+    # напрямую, минуя PATCH /cards/{id}/payment — то есть мимоя проверки баланса
+    # клиента и без writer slot. Поскольку баланс клиента выводится из
+    # Σ paid_amount его карточек, этим обходилось списание: кредит уходил в
+    # минус. Оба фронта (v2 и legacy) шлют оплату только в /payment — проверил
+    # по tools/mockups/shell-v2-board.js и site/js/card_modal.js, — поэтому
+    # запрет здесь ничего не ломает, а обход закрывает.
+    if 'paid_amount' in card_update.model_fields_set or \
+            'payment_status' in card_update.model_fields_set:
+        raise HTTPException(
+            status_code=400,
+            detail="Оплату меняйте через PATCH /cards/{id}/payment",
+        )
     # FIX 2026-09-12 (Фаза 2, дефект 13): owner_id вернулся в CardUpdate —
     # переназначить владельца сделки было нельзя, PATCH отвечал 200 и ничего
     # не менял. Проверка существования вынесена ДО мутаций: FK enforcement
@@ -523,11 +584,11 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         remainder = next((t for t in ledger
                           if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
         if remainder is not None:
-            if new_rest <= MONEY_EPSILON:
+            if money_is_zero(new_rest):
                 db.delete(remainder)
             else:
                 remainder.amount = new_rest
-        elif new_rest > MONEY_EPSILON and card.status in ("Сборка", "На списание", "Закрыто"):
+        elif money_is_present(new_rest) and card.status in ("Сборка", "На списание", "Закрыто"):
             # Фикс аудита 10.09: остаток = «сделка в реестре оплат»
             # (инвариант: запись появляется при входе в «Сборку»).
             # Правка суммы в «Новом запросе»/«В работе» раньше сразу
@@ -608,10 +669,6 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         card.due_date = card_update.due_date
     if 'priority' in card_update.model_fields_set:
         card.priority = card_update.priority
-    if 'paid_amount' in card_update.model_fields_set:
-        card.paid_amount = card_update.paid_amount
-    if 'payment_status' in card_update.model_fields_set:
-        card.payment_status = card_update.payment_status
     if 'payment_due_date' in card_update.model_fields_set:
         card.payment_due_date = card_update.payment_due_date
     if 'payment_terms' in card_update.model_fields_set:
@@ -642,6 +699,33 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
     return card
 
 
+def _reserve_balance_write(session, card_id: int, client_id: int) -> None:
+    """Захватить писательский слот SQLite до чтения баланса клиента.
+
+    Тот же механизм, что у пути списания/выписки
+    (``services.payments._reserve_card_write`` → ``reserve_model_rows``):
+    короткий no-op UPDATE переводит сессию в write-транзакцию и удерживает
+    writer slot до commit. Второй конкурентный запрос либо дожидается
+    освобождения слота и читает уже устоявшийся баланс, либо получает
+    управляемый 503 — но не «успевает» списать по устаревшему остатку.
+    """
+    reserve_model_rows(
+        session,
+        models.Client,
+        [client_id],
+        not_found_detail="Клиент не найден",
+        busy_detail="Баланс клиента занят другой операцией. Повторите попытку.",
+    )
+    reserve_model_rows(
+        session,
+        models.Card,
+        [card_id],
+        not_found_detail="Карточка не найдена",
+        busy_detail="Сделка занята другой операцией. Повторите попытку.",
+        reset_session=False,
+    )
+
+
 @router.patch("/cards/{card_id}/payment", response_model=schemas.CardResponse)
 def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     card = get_tenant_object(
@@ -649,74 +733,99 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
     )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
+    if payload.from_balance and card.client_id is None:
+        raise HTTPException(status_code=400,
+            detail="Закрытие из баланса доступно только для сделок с клиентом")
 
-    _old_pay = {
-        "paid_amount": card.paid_amount,
-        "payment_status": card.payment_status,
-        "payment_due_date": card.payment_due_date,
-    }
-    # V1 (аудит прода 19.09): закрытие из баланса тратит кредит клиента —
-    # деньги, реально внесённые в кассу (client_payments) и ещё не
-    # потреблённые покрытием счетов (Σ paid_amount неудалённых карточек).
-    # Без проверки касса-минус молча уходила в минус. Кассу закрытие из
-    # баланса не двигает вовсе: paid_amount — покрытие счёта, не приход.
-    # Проверка ДО мутаций: отказ не должен оставлять в сессии
-    # полуизменённую карточку.
-    draw = 0.0  # сколько списывается из баланса этой правкой (для журнала)
-    if payload.from_balance:
-        if card.client_id is None:
-            raise HTTPException(status_code=400,
-                detail="Закрытие из баланса доступно только для сделок с клиентом")
-        new_paid = float(card.paid_amount or 0) if payload.paid_amount is None else max(0.0, payload.paid_amount)
-        draw = round(new_paid - float(card.paid_amount or 0), 2)
-        if draw > MONEY_EPSILON:
-            # Ленивый импорт: clients_router не зависит от card_details_router,
-            # цикла нет; формула баланса одна — здесь её дублировать нельзя.
-            from routers.clients_router import _client_balance_payload
-            bal = _client_balance_payload(db, card.client_id, current_user)
-            available = round(bal["payments_total"] - bal["paid_on_cards"], 2)
-            if draw > available + MONEY_EPSILON:
+    # FIX 2026-09-26 (денежный дефект): writer slot берётся ДО чтения
+    # баланса. Раньше проверка была обычным SELECT, поэтому два параллельных
+    # PATCH с from_balance оба видели один и тот же остаток и оба
+    # увеличивали Σ paid_amount — кредит клиента уходил в минус, и
+    # _client_balance_payload потом показывал отрицательный остаток.
+    # Резервируем те же строки, что и путь выписки накладной
+    # (services.payments._reserve_card_write): клиента — потому что кредит
+    # общий на все его сделки, карточку — потому что её мы и правим.
+    # sqlite_write_transaction сверху превращает ожидаемую конкуренцию в
+    # 503 с Retry-After, а любую другую ошибку — в откат без полузаписанной
+    # карточки.
+    with sqlite_write_transaction(db):
+        if payload.from_balance:
+            _reserve_balance_write(db, card_id, card.client_id)
+            # reserve_model_rows завершил read-транзацию сессии откатом,
+            # поэтому карточка expired — перечитываем её по свежим данным.
+            db.expire_all()
+            card = get_tenant_object(
+                db, models.Card, card_id, current_user, detail="Карточка не найдена"
+            )
+            if card.client_id is None:
                 raise HTTPException(status_code=400,
-                    detail=f"Баланса клиента не хватает: доступно {available} BYN, требуется {draw} BYN")
-    if payload.paid_amount is not None:
-        card.paid_amount = max(0, payload.paid_amount)
-    # V2 (аудит прода 19.09): явный null стирает дату отсрочки — оба фронта
-    # шлют payment_due_date: null при статусе «Не оплачен». Поле не пришло
-    # в запросе — дату не трогаем (та же логика model_fields_set, что
-    # у client_id в PATCH /cards/{id}).
-    if 'payment_due_date' in payload.model_fields_set:
-        card.payment_due_date = payload.payment_due_date
-    if payload.payment_status is not None:
-        card.payment_status = payload.payment_status
-    else:
-        # автоопределение статуса по сумме
-        total = float(card.total_amount or 0)
-        paid = float(card.paid_amount or 0)
-        if total <= 0:
-            card.payment_status = "Не оплачен"
-        elif paid >= total - MONEY_EPSILON:
-            card.payment_status = "Оплачен"
-        elif paid >= MONEY_EPSILON:
-            card.payment_status = "Частично"
+                    detail="Закрытие из баланса доступно только для сделок с клиентом")
+
+        _old_pay = {
+            "paid_amount": card.paid_amount,
+            "payment_status": card.payment_status,
+            "payment_due_date": card.payment_due_date,
+        }
+        # V1 (аудит прода 19.09): закрытие из баланса тратит кредит клиента —
+        # деньги, реально внесённые в кассу (client_payments) и ещё не
+        # потреблённые покрытием счетов (Σ paid_amount неудалённых карточек).
+        # Без проверки касса-минус молча уходила в минус. Кассу закрытие из
+        # баланса не двигает вовсе: paid_amount — покрытие счёта, не приход.
+        # Проверка ДО мутаций: отказ не должен оставлять в сессии
+        # полуизменённую карточку.
+        draw = 0.0  # сколько списывается из баланса этой правкой (для журнала)
+        if payload.from_balance:
+            new_paid = float(card.paid_amount or 0) if payload.paid_amount is None else max(0.0, payload.paid_amount)
+            draw = round(new_paid - float(card.paid_amount or 0), 2)
+            if draw > MONEY_EPSILON:
+                # Ленивый импорт: clients_router не зависит от card_details_router,
+                # цикла нет; формула баланса одна — здесь её дублировать нельзя.
+                from routers.clients_router import _client_balance_payload
+                bal = _client_balance_payload(db, card.client_id, current_user)
+                available = round(bal["payments_total"] - bal["paid_on_cards"], 2)
+                if draw > available + MONEY_EPSILON:
+                    raise HTTPException(status_code=400,
+                        detail=f"Баланса клиента не хватает: доступно {available} BYN, требуется {draw} BYN")
+        if payload.paid_amount is not None:
+            card.paid_amount = max(0, payload.paid_amount)
+        # V2 (аудит прода 19.09): явный null стирает дату отсрочки — оба фронта
+        # шлют payment_due_date: null при статусе «Не оплачен». Поле не пришло
+        # в запросе — дату не трогаем (та же логика model_fields_set, что
+        # у client_id в PATCH /cards/{id}).
+        if 'payment_due_date' in payload.model_fields_set:
+            card.payment_due_date = payload.payment_due_date
+        if payload.payment_status is not None:
+            card.payment_status = payload.payment_status
         else:
-            card.payment_status = "Не оплачен"
+            # автоопределение статуса по сумме
+            total = float(card.total_amount or 0)
+            paid = float(card.paid_amount or 0)
+            if total <= 0:
+                card.payment_status = "Не оплачен"
+            elif paid >= total - MONEY_EPSILON:
+                card.payment_status = "Оплачен"
+            elif paid >= MONEY_EPSILON:
+                card.payment_status = "Частично"
+            else:
+                card.payment_status = "Не оплачен"
 
-    _pay_changes = []
-    if (card.payment_status or "") != (_old_pay.get("payment_status") or ""):
-        _pay_changes.append(f'Оплата: {_old_pay.get("payment_status") or "—"} → {card.payment_status}')
-    if float(card.paid_amount or 0) != float(_old_pay.get("paid_amount") or 0):
-        _pay_changes.append(f'Оплачено: {_fmt_money_log(_old_pay.get("paid_amount"))} → {_fmt_money_log(card.paid_amount)} BYN')
-    if (card.payment_due_date or None) != (_old_pay.get("payment_due_date") or None):
-        _pay_changes.append(f'Отсрочка до: {_fmt_date_log(_old_pay.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
-    # «Закрыто из баланса…» — часть той же записи «Изменение»: после
-    # _log_card_changes дописывать бессмысленно, в ленту уже не попадёт.
-    if draw > MONEY_EPSILON:
-        _pay_changes.append(f'Закрыто из баланса клиента на {_fmt_money_log(draw)} BYN')
-    _log_card_changes(db, card, current_user, _pay_changes)
+        _pay_changes = []
+        if (card.payment_status or "") != (_old_pay.get("payment_status") or ""):
+            _pay_changes.append(f'Оплата: {_old_pay.get("payment_status") or "—"} → {card.payment_status}')
+        if float(card.paid_amount or 0) != float(_old_pay.get("paid_amount") or 0):
+            _pay_changes.append(f'Оплачено: {_fmt_money_log(_old_pay.get("paid_amount"))} → {_fmt_money_log(card.paid_amount)} BYN')
+        if (card.payment_due_date or None) != (_old_pay.get("payment_due_date") or None):
+            _pay_changes.append(f'Отсрочка до: {_fmt_date_log(_old_pay.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
+        # «Закрыто из баланса…» — часть той же записи «Изменение»: после
+        # _log_card_changes дописывать бессмысленно, в ленту уже не попадёт.
+        if draw > MONEY_EPSILON:
+            _pay_changes.append(f'Закрыто из баланса клиента на {_fmt_money_log(draw)} BYN')
+        _log_card_changes(db, card, current_user, _pay_changes)
 
-    db.commit()
-    db.refresh(card)
-    return card
+        db.commit()
+        db.refresh(card)
+        return card
+
 # FIX 2026-09-06 (аудит): эндпоинт GET /files/{filename} удалён.
 # Он отдавал любой файл из uploads любому авторизованному пользователю без
 # проверки владельца/тенанта (IDOR), а фронтенд им уже не пользуется —
@@ -724,12 +833,23 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
 # /checklists/{id}/invoice/download.
 
 
+_UNSAFE_NAME_CHARS = re.compile(r'[\x00-\x1f\x7f"\\/:*?<>|]')
+# Браузер и файловая система всё равно не примут длинное имя; обрезаем здесь,
+# чтобы не упереться в лимит заголовка (RFC 6266) на не-ASCII именах.
+MAX_DOWNLOAD_NAME_LEN = 120
+
+
 def _sanitize_download_name(name: str) -> str:
     """Чистит имя файла для заголовка Content-Disposition.
 
     Старые вложения, импортированные из почты, могли сохранить имя сырой
-    MIME-строкой (=?UTF-8?B?...?= с переносами строк). CRLF внутри имени
+    MIME-строкой (=?UTF-8?B?...?= с перевонами строк). CRLF внутри имени
     ломает установку заголовка (header injection), и скачивание падает 500.
+
+    FIX 2026-09-26: кроме переводов строк убираем путь (имя могло прийти
+    как ``../../etc/passwd`` или с чужой Windows-разделителем), кавычки и
+    прочие управляющие/служебные символы — иначе они либо ломают заголовок,
+    либо подставляют в него произвольное значение filename.
     """
     if not name:
         return "attachment"
@@ -737,8 +857,40 @@ def _sanitize_download_name(name: str) -> str:
         with contextlib.suppress(Exception):
             from email.header import decode_header, make_header
             name = str(make_header(decode_header(name)))
-    name = re.sub(r"[\r\n\t]+", " ", name).strip()
+    # Сначала разделители пути (в т.ч. и обратный слэш), потом — управляющие
+    # символы: после basename в имени может остаться хвост вида "a\rb".
+    name = name.replace("\\", "/").split("/")[-1]
+    name = _UNSAFE_NAME_CHARS.sub("_", name).strip(" .")
+    name = name[:MAX_DOWNLOAD_NAME_LEN].strip(" .")
     return name or "attachment"
+
+
+def _content_disposition(filename: str) -> str:
+    """Собрать Content-Disposition с ASCII-запасным именем и RFC 5987.
+
+    Значения заголовков Starlette кодирует в latin-1, поэтому не-ASCII имя
+    в filename= роняло ответ 500 ещё на этапе сборки заголовка. Имя
+    уходит в ``filename*=UTF-8''…`` (RFC 5987), а в кавычках — безопасная
+    ASCII-транслитерация, которую понимают старые клиенты.
+    """
+    ascii_fallback = unicodedata.normalize("NFKD", filename).encode(
+        "ascii", "ignore"
+    ).decode("ascii")
+    ascii_fallback = re.sub(r"\s+", "_", ascii_fallback).strip("._") or "attachment"
+    return (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+
+
+def _file_download_response(file_path: str, stored_name: str) -> FileResponse:
+    """Ответ со скачиванием: безопасное имя + корректный Content-Disposition."""
+    safe_name = _sanitize_download_name(stored_name or os.path.basename(file_path))
+    return FileResponse(
+        file_path,
+        filename=safe_name,
+        headers={"Content-Disposition": _content_disposition(safe_name)},
+    )
 
 
 def _resolve_file_path(stored_path: str) -> str:
@@ -765,7 +917,10 @@ def _resolve_file_path(stored_path: str) -> str:
         if real in seen:
             continue
         seen.add(real)
-        if real.startswith(os.path.realpath(UPLOAD_DIR)) and os.path.isfile(real):
+        # FIX 2026-09-26: сравнение с os.sep на конце. Без него соседний
+        # каталог с тем же префиксом (uploads_evil, uploads.bak) проходил
+        # проверку как свой, и файл оттуда отдавался на скачивание.
+        if _path_inside_uploads(real) and os.path.isfile(real):
             return real
     return ''
 
@@ -787,13 +942,14 @@ def download_attachment_by_id(attachment_id: int, db: Session = Depends(get_db),
     file_path = _resolve_file_path(attachment.file_path)
     if not file_path:
         # Диагностика: путь из БД и папка, где искали (как в /files/)
-        import logging
-        logging.getLogger(__name__).warning(
+        logger.warning(
             "Attachment not found: id=%r stored=%r upload_dir=%r",
-            attachment_id, attachment.file_path, os.path.realpath(UPLOAD_DIR)
+            attachment_id, attachment.file_path, _uploads_root()
         )
         raise HTTPException(status_code=404, detail="Файл не найден на сервере")
-    return FileResponse(file_path, filename=_sanitize_download_name(attachment.file_name or os.path.basename(file_path)))
+    return _file_download_response(
+        file_path, attachment.file_name or os.path.basename(file_path)
+    )
 
 
 @router.get("/checklists/{checklist_id}/invoice/download")
@@ -815,10 +971,14 @@ def download_checklist_invoice_by_id(checklist_id: int, db: Session = Depends(ge
     file_path = _resolve_file_path(item.invoice_file_path)
     if not file_path:
         # Диагностика: путь из БД и папка, где искали (как в /files/)
-        import logging
-        logging.getLogger(__name__).warning(
+        logger.warning(
             "Checklist invoice not found: checklist_id=%r stored=%r upload_dir=%r",
-            checklist_id, item.invoice_file_path, os.path.realpath(UPLOAD_DIR)
+            checklist_id, item.invoice_file_path, _uploads_root()
         )
         raise HTTPException(status_code=404, detail="Файл счёта не найден на сервере")
-    return FileResponse(file_path, filename=item.invoice_file_name or os.path.basename(file_path))
+    # FIX 2026-09-26: имя счёта уходило в ответ сырым — с не-ASCII символами
+    # ответ падал 500 на кодировке заголовка, с кавычками и переводами
+    # строк — позволял подменить filename в Content-Disposition.
+    return _file_download_response(
+        file_path, item.invoice_file_name or os.path.basename(file_path)
+    )
