@@ -33,13 +33,19 @@ Legacy-фронт `site/` заморожен (маркер `site/ARCHIVED.md`, �
 - Бэк: FastAPI + SQLite — `server_snapshot/` (миграции `python3 migrate.py`,
   тесты `server_snapshot/tests/`, окружение `server_snapshot/.venv`).
 - Раздача: nginx отдаёт статику; API — PM2 (прод).
-- CSP (прод): `script-src 'self' 'unsafe-inline'` (`server_snapshot/main.py:194-203`),
-  `img-src` включает `blob:`. Инлайн-атрибуты событий (`onclick="..."`) и eval
-  запрещены. `data-handler` — конвенция legacy `site/`; в v2 его нет, там
-  `addEventListener` и присваивание `.onclick=` в JS-коде. Инлайн-скрипт в
-  собранном `site-v2/index.html` один тег с двумя сниппетами (тема +
-  `V2_ASSET_VER`, генерирует сборщик) — при ужесточении CSP переносить в nonce
-  одним списком.
+- CSP (прод): у v2 строгий — `script-src 'self'; style-src 'self'` без
+  `unsafe-inline` (`server_snapshot/main.py:246-257`, константа `CSP_V2`),
+  `img-src` включает `blob:`. `unsafe-inline` остался только в `CSP_LEGACY`
+  для замороженного `site/` и для режима `CRM_FRONTEND=legacy`. Инлайн-атрибуты
+  событий (`onclick="..."`) и eval запрещены. `data-handler` — конвенция
+  legacy `site/`; в v2 его нет, там `addEventListener` и присваивание
+  `.onclick=` в JS-коде. В собранном `site-v2/index.html` инлайн-скриптов
+  **ноль**: тема и `V2_ASSET_VER` вынесены сборщиком в
+  `tools/v2-head-template.js` → `js/v2/head.js`, так что ужесточать CSP
+  до отключения `unsafe-inline` в legacy не нужно — v2 к нему не привязан.
+  Единственный оставшийся инлайн-`<script>` в репозитории — в неиспользуемом
+  макете `tools/mockups/card-modal-d5-v1.html`, который не является входом
+  сборки `build_site_v2.py`.
 
 ## Верификация
 
