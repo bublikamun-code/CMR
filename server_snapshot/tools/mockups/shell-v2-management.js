@@ -11,22 +11,18 @@ const MGMT_ROLE = (function () {
 
 /* Один тост на весь модуль управления: раньше текст ошибки показывали три
    копии с таймером (в persist, в почтовом блоке и в новом пункте 15), и
-   первое же из них гасило второй тост раньше времени. */
-const MGMT_TOAST = (function () {
-    let timer = 0;
-    return function toast(text, isError) {
-        const el = document.getElementById('kb-toast');
-        if (!el) return;
-        el.hidden = false;
-        el.textContent = text;
-        el.classList.toggle('toast-error', Boolean(isError));
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-            el.hidden = true;
-            el.classList.remove('toast-error');
-        }, 4000);
-    };
-})();
+   первое же из них гасило второй тост раньше времени. Теперь таймер и сам
+   элемент — общие на весь интерфейс (KBToast в boot.js): #kb-toast один на
+   страницу, и тост доски/инсайтов гасил этот по своему таймеру. */
+const MGMT_TOAST = function toast(text, isError) {
+    if (window.KBToast) { window.KBToast.show(text, isError); return; }
+    // Предпросмотр мокапа (file://, ?demo=1) — загрузчика нет.
+    const el = document.getElementById('kb-toast');
+    if (!el) return;
+    el.hidden = false;
+    el.textContent = text;
+    el.classList.toggle('toast-error', Boolean(isError));
+};
 
 /* ── Ленивые загрузки админских экранов (пункт 15 плана) ────────────────
    Раздел «Управление» отрисован в разметке целиком, но сетевые списки —
@@ -166,6 +162,37 @@ const MGMT_DICT = (() => {
     };
     const titles = {supplier:'Поставщик', user:'Пользователь', store:'Магазин', status:'Статус сделки'};
     let sequence = 10, editing, opener;
+
+    // 27.09, аудит мёртвого кода/консоли: deal_statuses.color на проде
+    // хранит ИМЯ токена ('ok', 'warn', 'accent', 'faint', 'danger'), а не
+    // hex — так его и клали канонические статусы, и так же его читает
+    // KBData.statusColor, который понимает оба вида. Но <input type="color">
+    // понимает только #rrggbb: браузер отбрасывал 'ok' и подставлял #000000,
+    // то есть правка позиции статуса молча перекрашивала колонку доски в
+    // чёрный, а в консоль падало 6 предупреждений о формате значения.
+    // Поэтому показываем токен, разрешённый в hex ТЕКУЩЕЙ темы, и запоминаем
+    // исходное значение: если админ цвет не трогал, в БД уходит то же имя
+    // токена (оно остаётся темно- и светлым), а не его разовая копия.
+    const STATUS_COLOR_FALLBACK = '#626962';
+    function statusColorToHex(raw) {
+        const value = String(raw || '').trim();
+        const plain = value.replace(/^#/, '');
+        if (/^[0-9a-f]{6}$/i.test(plain)) return '#' + plain;
+        if (!/^[a-z][a-z0-9-]*$/i.test(value)) return STATUS_COLOR_FALLBACK;
+        // Токен может оказаться не hex (например, oklch из новой темы) —
+        // тогда показываем нейтральный цвет, но в БД по-прежнему уйдёт имя.
+        const css = getComputedStyle(document.documentElement)
+            .getPropertyValue('--' + value).trim();
+        if (/^#[0-9a-f]{6}$/i.test(css)) return css;
+        if (/^#[0-9a-f]{3}$/i.test(css)) {
+            return '#' + css.slice(1).split('').map(c => c + c).join('');
+        }
+        return STATUS_COLOR_FALLBACK;
+    }
+    // Что показали в поле и что лежало в справочнике — нужно, чтобы отличить
+    // «админ выбрал цвет» от «цвет не трогали».
+    let colorShown = '', colorStored = '', colorIsToken = false;
+
     // Состояние блока «Доступ пользователя» (низ этого модуля). Объявлено
     // здесь: render() вызывается при загрузке модуля, а render → isSelfUser
     // читает selfId, и let-биндинг ниже ещё не был бы инициализирован.
@@ -250,11 +277,26 @@ const MGMT_DICT = (() => {
         // цвет и позиция правятся свободно.
         const lockedName = kind === 'status' && isCanonName(record.name);
         editing = {kind, id}; opener = button;
+        colorShown = ''; colorStored = ''; colorIsToken = false;
+        if (kind === 'status') {
+            colorStored = String((record && record.color) || '').trim();
+            colorIsToken = colorStored !== '' && colorStored !== statusColorToHex(colorStored)
+                && !/^#?[0-9a-f]{6}$/i.test(colorStored);
+            colorShown = statusColorToHex(colorStored);
+        }
         dialog.innerHTML = '<form id="mgmt-form"><h2 id="mgmt-title">'+titles[kind]+'</h2><div class="mgmt-fields">'+fields[kind].map(([key,label,type='text',required])=>{
             const attrs = ' id="mgmt-'+key+'" name="'+key+'"'+(required?' required':'');
             let control;
             if (type==='select') control='<select'+attrs+'>'+Object.entries(roles).map(([value,text])=>'<option value="'+value+'"'+(record[key]===value?' selected':'')+'>'+text+'</option>').join('')+'</select>';
             else if (type==='textarea') control='<textarea'+attrs+' maxlength="2000" rows="3">'+esc(record[key])+'</textarea>';
+            else if (type==='color') {
+                // В поле уходит разрешённый hex, а не имя токена: иначе
+                // браузер молча заменит его на #000000 (см. statusColorToHex).
+                return '<label for="mgmt-'+key+'"><span>'+label+'</span><input'+attrs+' type="color" value="'+colorShown+'">'+
+                    (colorIsToken
+                        ? '<span class="mgmt-note">Сейчас '+esc(colorStored)+' — токен темы, поэтому в тёмной и светлой он разный. Выберите свой цвет, чтобы задать конкретный.</span>'
+                        : '')+'</label>';
+            }
             else if (type==='checkbox') {
                 // Р5: тот же вид переключателя, что в формах вебхуков
                 // (.mgmt-check); для новой записи флаг включён по умолчанию.
@@ -287,6 +329,12 @@ const MGMT_DICT = (() => {
         }
         if (data[kind].some(r=>r.id!==id && r[key].toLocaleLowerCase('ru')===values[key].toLocaleLowerCase('ru'))) {
             $('mgmt-error').textContent='Такая запись уже есть.'; return;
+        }
+        // Цвет статуса: если админ его не выбирал, возвращаем в справочник то
+        // имя токена, что там было, — иначе правка позиции записала бы в БД
+        // разовый hex темы и навсегда выбила бы статус из палитры.
+        if (kind === 'status' && colorIsToken && values.color === colorShown) {
+            values.color = colorStored;
         }
         // Статусы — отдельный путь (пункт 12): тело для сервера собирает
         // saveStatus (имя канона не отправляется, is_active отправляется),

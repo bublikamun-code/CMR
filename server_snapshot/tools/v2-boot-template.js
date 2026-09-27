@@ -840,6 +840,50 @@
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
         });
     }
+
+    // ── Тост: один владелец на весь интерфейс ──────────────────────────
+    // #kb-toast — один элемент на страницу, а писали в него четыре модуля
+    // (board.notify, management.MGMT_TOAST, insights.toast и этот файл), и
+    // таймеры были независимы: два из них вообще не гасили предыдущий. Сценарий
+    // «тост от доски, через секунду тост от инсайтов» гасил второй на 4-й
+    // секунде вместо его собственных 6. Ещё хуже — показ тоста в разделах,
+    // где его не ждут, оставлял предыдущий текст висеть на чужом таймере.
+    // Теперь таймер один и всегда перезапускается, а hide() обязателен.
+    let toastTimer = 0;
+    function hideToast() {
+        clearTimeout(toastTimer);
+        toastTimer = 0;
+        const el = document.getElementById('kb-toast');
+        if (!el) return;
+        el.hidden = true;
+        el.classList.remove('toast-error');
+        el.textContent = '';
+    }
+    // action — подпись кнопки рядом с текстом (доска зовёт с «Списано»),
+    // onAction — обработчик. Без действия кнопка не строится вовсе.
+    function toast(text, isError, action, onAction, ms) {
+        const el = document.getElementById('kb-toast');
+        if (!el) return;
+        clearTimeout(toastTimer);
+        el.hidden = false;
+        el.classList.toggle('toast-error', Boolean(isError));
+        if (action) {
+            el.innerHTML = '<span>' + esc(text) + '</span>' +
+                '<button type="button" class="btn-quiet" id="kb-toast-action">' + esc(action) + '</button>' +
+                '<button type="button" class="btn-quiet" id="kb-dismiss" aria-label="Закрыть уведомление">×</button>';
+            el.querySelector('#kb-toast-action').addEventListener('click', function () {
+                hideToast();
+                if (onAction) onAction();
+            });
+            el.querySelector('#kb-dismiss').addEventListener('click', hideToast);
+        } else {
+            el.textContent = text;
+        }
+        // Ошибку не даём убрать молча: она держится вдвое дольше обычного.
+        toastTimer = setTimeout(hideToast, ms || (isError ? 8000 : 4000));
+    }
+    window.KBToast = { show: toast, hide: hideToast };
+
     function renderUser(me) {
         const box = document.getElementById('v2-user');
         if (!box) return;
@@ -1155,12 +1199,7 @@
                 return true;
             } catch (err) {
                 console.error('Изменение не сохранено в CRM:', err);
-                const toast = document.getElementById('kb-toast');
-                if (toast) {
-                    toast.hidden = false;
-                    toast.textContent = 'Не сохранено в CRM: ' + (err.detail || err.message || 'ошибка');
-                    setTimeout(function () { toast.hidden = true; }, 4000);
-                }
+                toast('Не сохранено в CRM: ' + (err.detail || err.message || 'ошибка'), true);
                 return false;
             }
         };

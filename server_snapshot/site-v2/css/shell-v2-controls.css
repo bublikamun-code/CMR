@@ -28,9 +28,20 @@ body:has(#view-board.active) .content { flex: 1; min-height: 0; padding-bottom: 
 .kb-card { cursor: grab; }
 #view-board { --muted: #626962; --faint: #626962; }
 html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
-.kb-board[hidden], .kb-queue[hidden], .kb-menu[hidden] { display: none; }
+.kb-board[hidden], .kb-queue[hidden] { display: none; }
 .kb-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; min-width: 0; }
-.kb-modes { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-2); }
+/* overflow-x: auto обязателен: на узком экране переключатель режимов шире
+   контейнера, а прокручивать его было нечем — кнопка «Корзина» уезжала за
+   кадр (left 403 при ширине 390), и нажатие в её точке попадало в соседнюю
+   кнопку. Скрытый скроллбар: полоса съедала бы высоту 76px-строки, а
+   аффорданс «есть ещё» даёт затенение справа (см. .kb-modes в board.css). */
+.kb-modes {
+    display: flex; gap: 4px; padding: 4px;
+    border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--surface-2);
+    max-width: 100%; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.kb-modes::-webkit-scrollbar { display: none; }
+.kb-modes button { flex: none; }
 .kb-modes button { border-radius: var(--r-pill); padding: 8px 12px; color: var(--muted); font-weight: 700; white-space: nowrap; }
 .kb-modes button[aria-pressed="true"] { color: var(--text); background: var(--surface); box-shadow: var(--sh-1); }
 .kb-modes button:hover { color: var(--text); }
@@ -76,11 +87,6 @@ html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
 @media (pointer: coarse) { .kb-search-clear { width: 44px; height: 44px; right: 0; } }
 .kb-store-menu { position: relative; }
 #kb-store { display: flex; gap: 6px; align-items: center; min-height: 38px; padding: 0 10px; border-radius: var(--r-md); background: var(--surface); }
-.kb-menu { position: absolute; top: calc(100% + 4px); right: 0; width: 168px; padding: 4px; border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--sh-2); background: var(--surface); z-index: 30; }
-.kb-menu button { display: block; text-align: left; width: 100%; min-height: 34px; padding: 6px 8px; font-size: 12px; border-radius: var(--r-sm); }
-@media (pointer: coarse) { .kb-menu button { min-height: 44px; } }
-.kb-menu button:hover { background: var(--surface-2); }
-.kb-menu button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); font-weight: 700; }
 .kb-queue { flex: 1; min-height: 0; padding: 0; overflow: auto; overscroll-behavior: contain; background: var(--surface); }
 #kb-queue-body > .kb-note { position: sticky; top: 0; z-index: 1; max-width: none; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .kb-q-row { padding: 12px 16px; }
@@ -89,7 +95,10 @@ html[data-theme="dark"] #view-board { --muted: #a4aaa5; --faint: #a4aaa5; }
 .kb-card-foot b { font-size: var(--font-h2); letter-spacing: -.3px; }
 .kb-card-meta { margin-top: 5px; }
 @media (max-width: 600px) {
-  .kb-modes { max-width: 100%; }
+  /* На телефоне перенос вместо горизонтальной прокрутки: полоса скролла в
+     тулбаре доски неочевидна, а пункт, до которого надо доскроллить, легко
+     не заметить. С переносом все режимы видны сразу. */
+  .kb-modes { flex-wrap: wrap; border-radius: var(--r-lg); justify-content: flex-start; }
   .kb-modes button { padding: 8px 9px; font-size: 12px; }
   .kb-tools { margin-left: 0; width: 100%; }
   .kb-search.is-open { flex: 1 1 100%; }

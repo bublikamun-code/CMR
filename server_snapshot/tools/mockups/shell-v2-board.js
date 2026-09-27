@@ -400,6 +400,13 @@
 
     function renderBoard() {
         var list = visibleCards();
+        // Скелет ожидания лежит в разметке прототипа (см. .kb-skeleton в
+        // shell-v2-board.css). Первая отрисовка снимает его и aria-busy, чтобы
+        // скринридер перестал объявлять область как загружающуюся.
+        if (boardEl.classList.contains('kb-skeleton')) {
+            boardEl.classList.remove('kb-skeleton');
+            boardEl.removeAttribute('aria-busy');
+        }
         boardEl.innerHTML = '';
         boardStatuses().forEach(function (st) {
             var inCol = list.filter(function (c) { return c.stage === st.id; });
@@ -1520,27 +1527,28 @@
         state.listPage += btn.dataset.listPage === 'next' ? 1 : -1;
         renderList();
     });
-    // Фидбек 20.09: тост больше не висит вечно — авто-закрытие через 6 с
-    // (достаточно прочитать и успеть нажать «Списано»; вручную — крестик).
-    // isError — стиль ошибки (класс toast-error, как в management.js/insights.js)
-    // и без кнопки «Списано»: к отказу записи очередь выписки не относится.
-    var toastTimer = 0;
+    // Фидбек 20.09: тост больше не висит вечно — авто-закрытие.
+    // isError — стиль ошибки (класс toast-error) и без кнопки «Списано»:
+    // к отказу записи очередь выписки не относится. Сам тост и его таймер
+    // теперь общие на весь интерфейс (KBToast в boot.js): #kb-toast один на
+    // страницу, а писали в него ещё insights и management со своими
+    // таймерами — свежий тост гас по чужому. Здесь 6 с, потому что «Списано»
+    // надо успеть нажать, а у общего тоста по умолчанию 4.
     function notify(text, isError) {
+        if (window.KBToast) {
+            window.KBToast.show(text, isError, isError ? '' : 'Списано', function () {
+                queueMode('history');
+                document.getElementById('kb-q-history').focus();
+            }, 6000);
+            return;
+        }
+        // Предпросмотр мокапа (file://, ?demo=1): загрузчика нет, тост пишем
+        // прямо. Своего таймера не заводим — скрывать некому, элемент живёт
+        // до перезагрузки страницы.
         var toast = document.getElementById('kb-toast');
         toast.hidden = false;
         toast.classList.toggle('toast-error', Boolean(isError));
-        toast.innerHTML = '<span>' + esc(text) + '</span>' +
-            (isError ? '' : '<button class="btn-quiet" id="kb-see-history">Списано</button>') +
-            '<button class="btn-quiet" id="kb-dismiss" aria-label="Закрыть уведомление">×</button>';
-        clearTimeout(toastTimer);
-        var hideToast = function () { clearTimeout(toastTimer); toast.hidden = true; toast.classList.remove('toast-error'); };
-        toastTimer = setTimeout(hideToast, 6000);
-        document.getElementById('kb-dismiss').onclick = hideToast;
-        var seeHistory = document.getElementById('kb-see-history');
-        if (seeHistory) seeHistory.onclick = function() {
-            queueMode('history');
-            document.getElementById('kb-q-history').focus(); hideToast();
-        };
+        toast.textContent = text;
     }
     // ---------- Подтверждение вместо window.confirm (фидбек 20.09) ----------
     // Нативный confirm не стилизован. Один <dialog> на страницу, вопросы
@@ -1953,13 +1961,18 @@
                 : '<label class="kb-inv-up">Прикрепить файл<input type="file" class="kb-inv-input" data-inv-up="' + rawId + '" hidden></label>';
             // Компактный пункт: поставщик (с поиском) + сумма + файл в одну
             // строку; примечание ниже. Без дублей имени и нативных селектов.
+            // aria-label, а не только placeholder: у placeholder нет
+            // доступного имени — он гаснет при вводе и не всегда озвучивается
+            // скринридером. Имя включает номер пункта, иначе в длинном
+            // чек-листе все поля звучат одинаково.
+            var itemNo = i + 1;
             return '<div class="kb-check-item" data-procurement-item="' + esc(item.id) + '">' +
                 '<div class="kb-check-line">' +
-                '<input class="kb-sup-combo" data-cl-id="' + rawId + '" value="' + esc(item.supplierName || item.label || '') + '" placeholder="Поставщик (выберите или впишите)" autocomplete="off">' +
-                '<input class="kb-sup-amount" data-cl-id="' + rawId + '" value="' + esc(item.amount || '') + '" placeholder="Сумма, BYN" inputmode="decimal">' +
+                '<input class="kb-sup-combo" data-cl-id="' + rawId + '" value="' + esc(item.supplierName || item.label || '') + '" placeholder="Поставщик (выберите или впишите)" aria-label="Поставщик — пункт ' + itemNo + '" autocomplete="off">' +
+                '<input class="kb-sup-amount" data-cl-id="' + rawId + '" value="' + esc(item.amount || '') + '" placeholder="Сумма, BYN" aria-label="Сумма, BYN — пункт ' + itemNo + '" inputmode="decimal">' +
                 invFileHtml +
                 '</div>' +
-                '<input class="kb-cl-note" data-cl-id="' + rawId + '" value="' + esc(item.note || '') + '" placeholder="Примечание к закупке…" maxlength="500">' +
+                '<input class="kb-cl-note" data-cl-id="' + rawId + '" value="' + esc(item.note || '') + '" placeholder="Примечание к закупке…" aria-label="Примечание к закупке — пункт ' + itemNo + '" maxlength="500">' +
                 '<div class="kb-check-row"><label><input type="checkbox" data-check="' + i + '" data-flag="ordered" ' + (item.ordered ? 'checked' : '') + (item.received ? ' disabled' : '') + '> Заказано</label><label><input type="checkbox" data-check="' + i + '" data-flag="received" ' + (item.received ? 'checked' : '') + (!item.ordered || c.stage === 'done' ? ' disabled' : '') + '> Получено</label></div></div>';
         }).join('');
         var docs = c.docs.map(function(d, i) {
@@ -2024,8 +2037,8 @@
             '<h3 class="kb-detail-section-title">Закупка у поставщиков <span>Заказано ' + cl.ordered + ' · Получено ' + cl.received + ' (из ' + cl.total + ')</span></h3>' +
             '<p class="kb-detail-hint">Файл до 25 МБ</p>' +
             '<div class="kb-add-check">' +
-            '<input id="kb-add-supplier" class="kb-add-supplier" placeholder="Поставщик (выберите или впишите)">' +
-            '<input id="kb-add-amount" class="kb-add-amount" inputmode="decimal" placeholder="Сумма, BYN">' +
+            '<input id="kb-add-supplier" class="kb-add-supplier" placeholder="Поставщик (выберите или впишите)" aria-label="Поставщик — новый пункт закупки">' +
+            '<input id="kb-add-amount" class="kb-add-amount" inputmode="decimal" placeholder="Сумма, BYN" aria-label="Сумма, BYN — новый пункт закупки">' +
             '<button type="button" class="btn btn-primary btn-sm" id="kb-add-check">Добавить</button></div>' +
             (checks || '<p class="kb-detail-empty">Закупка не требуется.</p>') +
             '<h3 class="kb-detail-section-title">Вложения сделки <span>' + (c.attachments || []).length + '</span></h3>' +

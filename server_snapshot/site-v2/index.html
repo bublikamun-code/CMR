@@ -5,31 +5,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<script src="js/v2/head.js?v=e26e78c0cf"></script>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=e26e78c0cf">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=e26e78c0cf">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=e26e78c0cf">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=e26e78c0cf">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=e26e78c0cf">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=e26e78c0cf">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=e26e78c0cf">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=e26e78c0cf">
+<script src="js/v2/head.js?v=bd30f02fc4"></script>
+<link rel="stylesheet" href="css/shell-v2-base.css?v=bd30f02fc4">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=bd30f02fc4">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=bd30f02fc4">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=bd30f02fc4">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=bd30f02fc4">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=bd30f02fc4">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=bd30f02fc4">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=bd30f02fc4">
 <!-- Предзагрузка модулей второй волны. Сборщик вырезает из прототипа все
      <script src="./shell-v2-*"> — их подключает загрузчик сам (APP_SCRIPTS),
      и без preload браузер узнаёт о 169 КБ модулей только после ответа API,
      то есть качает их строго после данных. Здесь они идут параллельно со
      стилями и запросами данных. Порядок в списке — как в APP_SCRIPTS, но
      сам preload порядка не задаёт: скрипты исполняются в порядке вставки. -->
-<link rel="preload" as="script" href="js/shell-v2-select.js?v=e26e78c0cf">
-<link rel="preload" as="script" href="js/shell-v2-payment.js?v=e26e78c0cf">
-<link rel="preload" as="script" href="js/shell-v2-board.js?v=e26e78c0cf">
-<link rel="preload" as="script" href="js/shell-v2-management.js?v=e26e78c0cf">
-<link rel="preload" as="script" href="js/shell-v2-fin.js?v=e26e78c0cf">
-<link rel="preload" as="script" href="js/shell-v2-insights.js?v=e26e78c0cf">
-<link rel="preload" as="script" href="js/shell-v2-navigation.js?v=e26e78c0cf">
-<script src="js/v2/api.js?v=e26e78c0cf" defer></script>
-<script src="js/v2/boot.js?v=e26e78c0cf" defer></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=e26e78c0cf">
+<link rel="preload" as="script" href="js/shell-v2-select.js?v=bd30f02fc4">
+<link rel="preload" as="script" href="js/shell-v2-payment.js?v=bd30f02fc4">
+<link rel="preload" as="script" href="js/shell-v2-board.js?v=bd30f02fc4">
+<link rel="preload" as="script" href="js/shell-v2-management.js?v=bd30f02fc4">
+<link rel="preload" as="script" href="js/shell-v2-fin.js?v=bd30f02fc4">
+<link rel="preload" as="script" href="js/shell-v2-insights.js?v=bd30f02fc4">
+<link rel="preload" as="script" href="js/shell-v2-navigation.js?v=bd30f02fc4">
+<script src="js/v2/api.js?v=bd30f02fc4" defer></script>
+<script src="js/v2/boot.js?v=bd30f02fc4" defer></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=bd30f02fc4">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -237,7 +237,42 @@
             <p id="kb-no-results-note"></p>
             <button type="button" class="btn btn-ghost btn-sm" id="kb-reset-filters">Сбросить фильтры</button>
           </div>
-          <div class="kb-board" id="kb-board"></div>
+          <!-- Скелет доски. Модули доски грузятся ПОСЛЕ критических данных
+               (boot.js: _loadAndApplyData → injectAll), поэтому от первого
+               кадра до первой отрисовки колонок контейнер был пуст: страница
+               выглядела готовой, но смотреть было не на что. Статические
+               силуэты в разметке — единственный способ показать ожидание без
+               правок JS: renderBoard() начинает с boardEl.innerHTML = '' и
+               заменяет их живыми колонками. aria-busy снимает первый
+               renderBoard. -->
+          <div class="kb-board kb-skeleton" id="kb-board" aria-busy="true" aria-label="Доска сделок — загрузка">
+            <section class="kb-col kb-skel-col">
+              <header class="kb-col-head"><span class="kb-col-title"></span><span class="kb-col-count num"></span></header>
+              <div class="kb-cards">
+                <span class="kb-skel-row"></span><span class="kb-skel-row"></span><span class="kb-skel-row"></span>
+              </div>
+            </section>
+            <section class="kb-col kb-skel-col">
+              <header class="kb-col-head"><span class="kb-col-title"></span><span class="kb-col-count num"></span></header>
+              <div class="kb-cards">
+                <span class="kb-skel-row"></span><span class="kb-skel-row"></span>
+              </div>
+            </section>
+            <section class="kb-col kb-skel-col">
+              <header class="kb-col-head"><span class="kb-col-title"></span><span class="kb-col-count num"></span></header>
+              <div class="kb-cards">
+                <span class="kb-skel-row"></span><span class="kb-skel-row"></span><span class="kb-skel-row"></span><span class="kb-skel-row"></span>
+              </div>
+            </section>
+            <section class="kb-col kb-skel-col">
+              <header class="kb-col-head"><span class="kb-col-title"></span><span class="kb-col-count num"></span></header>
+              <div class="kb-cards"><span class="kb-skel-row"></span></div>
+            </section>
+            <section class="kb-col kb-skel-col">
+              <header class="kb-col-head"><span class="kb-col-title"></span><span class="kb-col-count num"></span></header>
+              <div class="kb-cards"><span class="kb-skel-row"></span><span class="kb-skel-row"></span></div>
+            </section>
+          </div>
           <section class="kb-queue" id="kb-queue" tabindex="0" aria-label="Очередь и история выписки — прокрутка списка" hidden>
             <div id="kb-queue-body"></div>
           </section>
@@ -248,7 +283,11 @@
       <section class="view" id="view-fin" hidden aria-label="Финансы">
         <div class="card">
           <div class="card-head">
-            <h1 class="card-title">Финансы</h1>
+            <!-- Заголовок раздела — не второй h1: он уже есть в шапке оболочки
+                 (#shell-title, меняется на название раздела при навигации), а
+                 два h1 на странице ломают структуру документа. Разметка
+                 повторяет остальные виды (.card-head > span.card-title). -->
+            <span class="card-title">Финансы</span>
           </div>
           <div class="fin-tabs" role="group" aria-label="Раздел финансов">
             <button type="button" class="btn btn-ghost" data-fin-tab="payments" aria-pressed="true" aria-controls="fin-payments">Реестр оплат</button>

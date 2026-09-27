@@ -36,6 +36,13 @@
 }
 @media (max-width: 720px) {
     .app { flex-direction: column; }
+    /* Нижний рельс на 390px вмещает 6 из 8 пунктов, и до «Админ-панели» с
+       переключателем темы надо ещё доскроллить. Полосы прокрутки у него нет,
+       а край элемента в обрезке выглядит как конец списка — намёка на
+       продолжение не оставалось. Тот же приём, что у .table-scroll: пара
+       linear-gradient с background-attachment local (едет с содержимым) и
+       scroll (прибит к краю) даёт тень, которая появляется только у края, за
+       которым есть что показывать, и исчезает, когда доскроллили до конца. */
     .rail {
         display: flex; flex-direction: row; align-items: center; gap: 4px;
         width: 100%; height: 76px; flex: 0 0 76px;
@@ -43,6 +50,23 @@
         border-right: 0; border-bottom: 1px solid var(--border);
         overflow-x: auto; overscroll-behavior-x: contain;
         position: sticky; top: 0;
+        background:
+            linear-gradient(to right, var(--surface) 30%, transparent) left center,
+            linear-gradient(to left, var(--surface) 30%, transparent) right center,
+            radial-gradient(farthest-side at 0 50%, var(--border-strong), transparent) left center,
+            radial-gradient(farthest-side at 100% 50%, var(--border-strong), transparent) right center;
+        background-repeat: no-repeat;
+        background-size: 28px 100%, 28px 100%, 12px 100%, 12px 100%;
+        background-attachment: local, local, scroll, scroll;
+    }
+    /* Тот же приём на тёмной теме: тень на светлом фоне рамки не читается,
+       а на тёмном читается. */
+    html[data-theme="dark"] .rail {
+        background:
+            linear-gradient(to right, var(--surface) 30%, transparent) left center,
+            linear-gradient(to left, var(--surface) 30%, transparent) right center,
+            radial-gradient(farthest-side at 0 50%, #555c57, transparent) left center,
+            radial-gradient(farthest-side at 100% 50%, #555c57, transparent) right center;
     }
     .rail-brand, .rail-spacer { display: none; }
     .rail-group { display: flex; flex: none; gap: 4px; padding: 0; margin: 0; border: 0; }

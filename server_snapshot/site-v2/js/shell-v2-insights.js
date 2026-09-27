@@ -698,6 +698,10 @@
     }
     // Снимок событий показываемого месяца — по нему же открывается список дня.
     var calMonthEvents = {};
+    // Короткое имя дня недели. На узком экране сетка превращается в повестку
+    // (см. .cal в @media max-width: 600px), где одного числа мало: подпись
+    // подставляется через content: attr(data-wd), в сетке она не нужна.
+    var CAL_WD = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
     // Подпись дня для aria-атрибутов и заголовка диалога — числовой формат
     // «05.09.2026»: склонение месяца («5 сентября») в сборном виде ломается.
     function calDayLabel(day) {
@@ -723,7 +727,7 @@
             var shown = dayEvents.slice(0, 2);
             var hidden = dayEvents.length - shown.length;
             var caption = esc(calDayLabel(day));
-            html += '<div class="day' + (isToday ? ' today' : '') + '"' + (dayEvents.length ? ' data-cal-day="' + day + '"' : '') + '>' +
+            html += '<div class="day' + (isToday ? ' today' : '') + '" data-wd="' + CAL_WD[(offset + i) % 7] + '"' + (dayEvents.length ? ' data-cal-day="' + day + '"' : '') + '>' +
                 // День с событиями — кнопка: так список дня доступен и с клавиатуры.
                 (dayEvents.length
                     ? '<button type="button" class="n" aria-label="События дня ' + caption + ': ' + dayEvents.length + '">' + day + '</button>'
@@ -927,15 +931,17 @@
     }
     function refreshAll() { location.reload(); }
 
-    // Локальный тост по образцу management.js: alert блокирует страницу,
-    // тост — нет (kb-toast живёт в прототипе глобально).
+    // Тост — общий на весь интерфейс (KBToast в boot.js), как и в доске и
+    // админке: элемент #kb-toast один на страницу, и локальный таймер
+    // гасил бы чужое сообщение. alert блокирует страницу, тост — нет.
     function toast(text, isError) {
+        if (window.KBToast) { window.KBToast.show(text, isError); return; }
+        // Предпросмотр мокапа (file://, ?demo=1) — загрузчика нет.
         var t = document.getElementById('kb-toast');
         if (!t) return;
         t.hidden = false;
         t.textContent = text;
         t.classList.toggle('toast-error', Boolean(isError));
-        setTimeout(function () { t.hidden = true; t.classList.remove('toast-error'); }, 4000);
     }
 
     // Фидбек 20.09: создание/редактирование клиента было цепочкой нативных

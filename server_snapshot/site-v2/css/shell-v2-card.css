@@ -32,12 +32,6 @@
 #kb-dialog .kb-detail-money small { font-size: var(--font-ui); font-weight: 600; }
 #kb-dialog .kb-detail-total { grid-column: 1 / -1; padding-bottom: var(--s3); border-bottom: 1px solid var(--border-strong); }
 #kb-dialog .kb-detail-total dd { color: var(--accent); font-size: 34px; line-height: 1.2; letter-spacing: -1px; }
-#kb-dialog .kb-detail-payment { margin: var(--s4) 0 0; padding-top: var(--s3); border-top: 1px solid var(--border); font-size: var(--font-ui); }
-#kb-dialog .kb-detail-stages { margin: var(--s6) 0; }
-#kb-dialog .kb-detail-stages ol { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s2); list-style: none; padding: 0; }
-#kb-dialog .kb-detail-stages li { border-top: 3px solid var(--border); padding-top: var(--s2); font-size: var(--font-micro); overflow-wrap: anywhere; }
-#kb-dialog .kb-detail-stages li > span { display: block; margin-bottom: 4px; font-weight: 800; font-variant-numeric: tabular-nums; }
-#kb-dialog .kb-detail-stages [aria-current] { border-color: var(--accent); color: var(--accent); font-weight: 800; }
 #kb-dialog .kb-detail-tabs { display: flex; border-bottom: 1px solid var(--border); gap: var(--s4); }
 #kb-dialog .kb-detail-tabs button { padding: 12px 2px; min-height: 44px; border-bottom: 3px solid transparent; font-weight: 700; }
 #kb-dialog .kb-detail-tabs button:hover { color: var(--accent); }
@@ -45,13 +39,9 @@
 #kb-dialog .kb-detail-content { flex: 1; padding: var(--s6) 0; overflow-wrap: anywhere; }
 #kb-dialog .kb-detail-section-title { margin: 0 0 var(--s4); font-size: var(--font-h2); font-weight: 800; }
 #kb-dialog .kb-detail-section-title > span { color: var(--accent); margin-left: var(--s2); }
-#kb-dialog .kb-detail-info { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); margin: 0; }
-#kb-dialog .kb-detail-info dt { font-size: var(--font-ui); margin-bottom: 4px; }
-#kb-dialog .kb-detail-info dd { margin: 0; font-size: var(--font-body); font-weight: 700; }
 #kb-dialog .kb-detail-note { margin-top: var(--s6); padding: var(--s4); border-radius: var(--r-md); background: var(--surface-2); border-left: 3px solid var(--border-strong); }
 #kb-dialog .kb-detail-note h3 { font-size: var(--font-ui); margin: 0 0 var(--s2); }
 #kb-dialog .kb-detail-note p { white-space: pre-wrap; }
-#kb-dialog .kb-detail-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s2); margin-top: var(--s5); }
 #kb-dialog .kb-detail-hint { margin: var(--s3) 0 0; font-size: var(--font-ui); color: var(--text); opacity: .8; }
 
 #kb-dialog .kb-check-item { margin-top: var(--s3); padding: var(--s4); border: 1px solid var(--border); border-radius: var(--r-md); }
@@ -93,10 +83,8 @@
     #kb-dialog .kb-detail-summary { padding: var(--s4); }
     #kb-dialog .kb-detail-money dd { font-size: 18px; }
     #kb-dialog .kb-detail-total dd { font-size: 30px; }
-    #kb-dialog .kb-detail-stages ol { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: var(--s3); }
     #kb-dialog .kb-detail-tabs { gap: 0; justify-content: space-between; }
     #kb-dialog .kb-detail-tabs button { font-size: var(--font-ui); }
-    #kb-dialog .kb-detail-info { grid-template-columns: 1fr; gap: var(--s4); }
     #kb-dialog .kb-detail-doc { flex-wrap: wrap; }
     #kb-dialog .kb-dialog-foot > div { width: 100%; }
     #kb-dialog .kb-dialog-foot .btn { flex: 1 1 auto; }

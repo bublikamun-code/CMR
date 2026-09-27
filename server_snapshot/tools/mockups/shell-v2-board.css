@@ -28,7 +28,6 @@
 .kb-filters-panel[hidden] { display: none; }
 #kb-filters-toggle[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 #kb-filters-count { min-width: 20px; justify-content: center; padding-inline: 6px; }
-.kb-toolbar-right { margin-left: auto; }
 .kb-density { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--r-pill); overflow: hidden; }
 .kb-density button {
     padding: 6px 14px; font-size: var(--font-ui); font-weight: 700; color: var(--muted);
@@ -54,7 +53,14 @@
 }
 .kb-col-head {
     display: flex; align-items: baseline; gap: var(--s2);
-    padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border);
+    /* Горизонтальный отступ — 20px, как у .card в остальных видах, а не
+       --s3 (12px). Замер: левый край самого контейнера у доски и у карточек
+       других видов совпадает (96px), но текст заголовка на доске начинался
+       на 109px против 117px в остальных видах — на 8px левее. Глаз ведёт
+       по заголовку раздела, и при переходе «Клиенты → Доска» левое поле
+       прыгало. Внутри колонки карточки остаются на 8px (.kb-cards): они
+       плотнее по устройству, отступ заголовка их не должен сдвигать. */
+    padding: var(--s2) var(--s5); border-bottom: 1px solid var(--border);
 }
 .kb-col-title { font-size: var(--font-body); font-weight: 700; letter-spacing: -.2px; }
 .kb-col-count {
@@ -64,6 +70,43 @@
 .kb-col-sum { margin-left: auto; font-size: var(--font-micro); color: var(--muted); }
 .kb-cards { overflow-y: auto; padding: var(--s2); display: flex; flex-direction: column; gap: var(--s2); min-height: 0; }
 .kb-empty { color: var(--faint); font-size: var(--font-ui); padding: var(--s3); text-align: center; }
+
+/* ---------- Скелет ожидания ----------
+   Модули доски подгружаются после критических данных, поэтому контейнер
+   #kb-board от первого кадра до первого renderBoard() пуст. Силуэты лежат
+   в разметке прототипа и снимаются тем же boardEl.innerHTML = '' — отдельной
+   логики показа/скрытия не нужно, класс .kb-skeleton остаётся только на
+   время ожидания. Мерцание — на ::after, а не на самой строке: иначе
+   перекрашивался бы весь ряд и было бы заметно «дёрганье» при загрузке. */
+.kb-skel-col { --stage-color: var(--border); }
+.kb-skeleton .kb-col-head { gap: var(--s2); }
+.kb-skeleton .kb-col-title { width: 62px; height: 12px; border-radius: var(--r-sm); }
+.kb-skeleton .kb-col-count { width: 26px; height: 14px; }
+.kb-skel-row {
+    display: block; height: 56px; border-radius: var(--r-md);
+    background: var(--surface-3); position: relative; overflow: hidden; flex: none;
+}
+.kb-skeleton .kb-col-title,
+.kb-skeleton .kb-col-count,
+.kb-skel-row { background: var(--surface-3); }
+/* Свечение ходит бесконечно, но с задержкой по колонкам: волна показывает
+   направление загрузки, а не мигание всех строк разом. Анимация только на
+   ::after и только по transform — в композиторе, без перерисовки строк. */
+.kb-skel-row::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, var(--surface-2), transparent);
+    transform: translateX(-100%); animation: kb-skel 1.15s var(--ease) infinite;
+}
+.kb-skeleton .kb-col:nth-child(2) .kb-skel-row::after { animation-delay: .12s; }
+.kb-skeleton .kb-col:nth-child(3) .kb-skel-row::after { animation-delay: .24s; }
+.kb-skeleton .kb-col:nth-child(4) .kb-skel-row::after { animation-delay: .36s; }
+.kb-skeleton .kb-col:nth-child(5) .kb-skel-row::after { animation-delay: .48s; }
+@keyframes kb-skel { to { transform: translateX(100%); } }
+/* Меньше движения — по запросу пользователя. Статичные силуэты всё равно
+   сообщают, что доска грузится, а не что она пустая. */
+@media (prefers-reduced-motion: reduce) {
+    .kb-skel-row::after { animation: none; }
+}
 
 /* Пункт 7 V2-WORKPLAN: под активным поиском/фильтром с нулевым результатом
    — одна общая подсказка со сбросом, а не четыре колонки по «Пусто». Узел
@@ -206,10 +249,6 @@
 .kb-counter[data-counter="received"] .kb-counter-ico {
     --kb-ico: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10m-5-6 3 3 6-6'/></svg>");
 }
-.kb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); display: inline-block; }
-.kb-dot.ok { background: var(--ok); }
-.kb-dot.warn { background: var(--warn); }
-.kb-dot.danger { background: var(--danger); }
 /* Цветной акцент колонки — тонкая полоса сверху; цвет задаёт справочник
    статусов через --stage-color (имя токена или hex из админки). */
 .kb-col { border-top: 3px solid var(--stage-color, var(--faint)); }
@@ -231,19 +270,11 @@
 .kb-queue summary::-webkit-details-marker { display: none; }
 .kb-queue summary::after { content: '▸'; margin-left: auto; color: var(--muted); transition: transform 140ms var(--ease); }
 .kb-queue[open] summary::after { transform: rotate(90deg); }
-.kb-queue-modes { display: inline-flex; gap: var(--s1); margin: var(--s3) 0; }
-.kb-queue-modes button {
-    padding: 5px 12px; border-radius: var(--r-pill); font-size: var(--font-ui); font-weight: 700;
-    border: 1px solid var(--border-strong); color: var(--muted); background: var(--surface);
-}
-.kb-queue-modes button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .kb-q-row {
     display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3);
     padding: var(--s2) 0; border-top: 1px solid var(--border); font-size: var(--font-ui);
 }
 .kb-q-row:first-child { border-top: none; }
-.kb-q-title { font-weight: 700; }
-.kb-q-meta { color: var(--muted); }
 .kb-q-row .num { white-space: nowrap; }
 .kb-q-actions { margin-left: auto; display: flex; gap: var(--s2); flex-wrap: wrap; }
 
@@ -319,8 +350,6 @@
 .kb-dialog::backdrop { background: rgba(23, 26, 23, .45); }
 html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .kb-dialog h2 { font-size: var(--font-h1); letter-spacing: -.3px; }
-.kb-dialog-sub { color: var(--muted); font-size: var(--font-ui); margin-top: 2px; }
-.kb-dialog-close { position: absolute; top: 14px; right: 14px; }
 .kb-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); margin-top: var(--s4); }
 .kb-form .kb-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .kb-form .kb-field.wide { grid-column: 1 / -1; }
@@ -336,7 +365,6 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .kb-dialog-foot { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: var(--s5); }
 .kb-check-row { display: flex; align-items: center; gap: var(--s2); padding: 5px 0; font-size: var(--font-body); }
 .kb-check-row input { width: 16px; height: 16px; accent-color: var(--accent); }
-.kb-section-title { font-size: var(--font-body); font-weight: 700; margin-top: var(--s4); }
 .kb-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--s3); font-size: var(--font-ui); margin-top: var(--s2); }
 .kb-kv dt { color: var(--muted); }
 .kb-kv dd { margin: 0; overflow-wrap: anywhere; }

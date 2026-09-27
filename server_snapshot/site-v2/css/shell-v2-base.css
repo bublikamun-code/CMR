@@ -213,6 +213,13 @@ html[data-v2-route="admin"] #view-admin { display: flex !important; }
 .card-head { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s4); }
 .card-title { font-size: var(--font-h2); font-weight: 700; letter-spacing: -.2px; }
 .card-sub { font-size: var(--font-ui); color: var(--muted); font-weight: 500; }
+/* Пояснительный абзац внутри карточки. Класс не только диалоговый: его
+   носят подсказки в админке (почта, смена пароля) и пустые состояния панели
+   уведомлений, а правило в shell-v2-card.css ограничено #kb-dialog — там
+   они попадали в браузерный дефолт для <p> и теряли сетку (16px вместо
+   --s3) и цвет текста. Диалоговое правило оставлено как есть: внутри
+   модалки подсказка светлее намеренно. */
+.kb-detail-hint { margin: var(--s3) 0 0; font-size: var(--font-ui); color: var(--muted); line-height: 1.45; }
 .card-head .right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
 
 .kpi { display: flex; align-items: stretch; }
@@ -227,7 +234,9 @@ html[data-v2-route="admin"] #view-admin { display: flex !important; }
 html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--text); }
 .kpi-label { font-size: var(--font-ui); color: var(--muted); font-weight: 500; }
 .kpi-value { font-size: var(--font-display); font-weight: 800; letter-spacing: -.8px; line-height: 1.15; }
-.kpi-value small { font-size: var(--font-body); font-weight: 600; color: var(--faint); letter-spacing: 0; }
+/* Подпись валюты — смысловая часть KPI, а не декор: на --faint она давала
+   2.67:1 в светлой теме и 3.39:1 в тёмной. --muted даёт 5.9:1 в обеих. */
+.kpi-value small { font-size: var(--font-body); font-weight: 600; color: var(--muted); letter-spacing: 0; }
 .delta {
     font-size: var(--font-micro); font-weight: 800; padding: 2px 8px; border-radius: var(--r-pill);
     background: var(--ok-soft); color: var(--ok);
@@ -332,8 +341,30 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 .acc { border-top: 1px solid var(--border); padding: 10px 0; font-size: var(--font-body); font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .acc .plus { margin-left: auto; color: var(--faint); }
 /* ============ ТАБЛИЦЫ: ОБЩИЕ УТИЛИТЫ ============ */
-.table-scroll { max-width: 100%; overflow-x: auto; }
+/* Реестр оплат на телефоне — 1140px в окне 316px, то есть читаются 2 колонки
+   из 8, и ничто не сообщает, что таблица едет вбок. Затенение у правого края
+   — дешёвый аффорданс: исчезает, когда прокрутка доехала до конца. Маска
+   рисуется ::after на самом скроллере, поэтому не требует правок разметки. */
+.table-scroll {
+    max-width: 100%; overflow-x: auto;
+    background:
+        linear-gradient(to right, var(--surface) 30%, transparent) left / 24px 100% no-repeat,
+        linear-gradient(to left, var(--surface) 30%, transparent) right / 24px 100% no-repeat,
+        radial-gradient(farthest-side at 0 50%, rgba(23,26,23,.14), transparent) left / 10px 100% no-repeat,
+        radial-gradient(farthest-side at 100% 50%, rgba(23,26,23,.14), transparent) right / 10px 100% no-repeat;
+    background-attachment: local, local, scroll, scroll;
+}
+html[data-theme="dark"] .table-scroll {
+    background:
+        linear-gradient(to right, var(--surface) 30%, transparent) left / 24px 100% no-repeat,
+        linear-gradient(to left, var(--surface) 30%, transparent) right / 24px 100% no-repeat,
+        radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.4), transparent) left / 10px 100% no-repeat,
+        radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.4), transparent) right / 10px 100% no-repeat;
+}
 .table-scroll:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+/* Обрезанный без многоточия контакт читается как обрывок слова, а не как
+   «здесь длиннее» — многоточие обязано стоять на самом обрезе. */
+td.trunc { text-overflow: ellipsis; }
 .who { display: flex; align-items: center; gap: 10px; }
 
 /* ============ ⌘K ПАЛИТРА ============ */
@@ -458,6 +489,46 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
    ховера не перебивала бы базовый цвет. */
 .cal .day button.n:hover, .cal .day button.more:hover { color: var(--accent); }
 .cal .day button:focus-visible { outline: 2px solid var(--muted); outline-offset: 1px; }
+/* Календарь на телефоне — повестка, а не сетка. Сетка из 7 колонок на 358px
+   даёт ячейку 40×78 с номером дня в 10px: число не прочитать, а чип события
+   обрезается до двух-трёх букв. Та же разметка раскладывается здесь в список
+   «день — события»: колонки уходят, остаются строки, которые читаются целиком
+   и прокладываются пальцем. Пустые дни скрыты (иначе в повестке 30 строк без
+   единого события), день недели подставляется из data-wd. */
+@media (max-width: 600px) {
+  .cal { display: flex; flex-direction: column; gap: 0; }
+  .cal .wname { display: none; }
+  .cal .day {
+      display: grid; grid-template-columns: 52px 1fr; align-items: start; gap: 4px 10px;
+      min-height: 0; padding: 10px 0; border-top: 1px solid var(--border);
+      border-radius: 0; background: none;
+  }
+  /* Дни без событий в повестке — шум (в месяце их большинство), поэтому они
+     скрыты. Разделитель между строками повестки — верхняя рамка ячейки, а у
+     первой строки после пустого промежутка она убирается: иначе первая
+     группа событий отделилась бы от карточки пустой полосой. */
+  .cal .day:not([data-cal-day]) { display: none; }
+  .cal .day:not([data-cal-day]) + .day, .cal .wname + .day { border-top: 0; }
+  .cal .day.today { outline: 0; background: none; }
+  .cal .day[data-cal-day]:hover { background: none; }
+  /* Селектор дублирован: `.cal .day button` (0,2,1) перебил бы `.cal .day .n`
+     (0,2,0) и вернул бы номеру дня display:block — подпись недели встала бы
+     под числом, а не рядом. */
+  .cal .day .n, .cal .day button.n {
+      grid-row: 1 / -1; align-self: start; width: 100%; text-align: left;
+      font-size: 17px; font-weight: 700; color: var(--text); padding: 3px 0;
+      display: flex; align-items: baseline; gap: 5px;
+  }
+  .cal .day .n::after, .cal .day button.n::after { content: attr(data-wd); font-size: var(--font-micro); font-weight: 600; color: var(--muted); }
+  .cal .day.today .n, .cal .day.today button.n { color: var(--accent); }
+  .cal .day .n:hover { color: var(--accent); }
+  .cal .ev {
+      grid-column: 2; font-size: var(--font-ui); font-weight: 600; text-align: left;
+      padding: 8px 10px; margin-top: 0; white-space: normal; line-height: 1.35;
+      border: 1px solid var(--border); border-radius: var(--r-md);
+  }
+  .cal .more { grid-column: 2; font-size: var(--font-ui); margin-top: 6px; padding: 7px 0; }
+}
 /* Диалог «События дня» — открывается кликом по дню или «+N ещё». */
 .cal-day-dialog {
     margin: auto; width: min(460px, 92vw); max-height: 80dvh; overflow: auto;
@@ -603,6 +674,17 @@ html[data-theme="dark"] #view-fin { --fin-muted: #b1b8b1; color-scheme: dark; }
 #view-fin .fin-date-edit-link { text-decoration: underline dotted; }
 #view-fin .fin-row-open { font-weight: 700; }
 #view-fin :is(.fin-date-edit-link, .fin-row-open):hover { color: var(--accent); }
+/* Зона нажатия. Строка реестра — это таблица, а не список: увеличение
+   padding растянуло бы 207 строк с высоты 77px до ~105px и реестр перестал бы
+   читаться. Поэтому на тач-экранах растягиваем кликабельную область
+   псевдоэлементом — рамка кнопки и её текст остаются как есть, но
+   «Изменить дату» и «Открыть карточку» перестают быть мишенью в 19px. */
+@media (hover: none) {
+  #view-fin :is(.fin-date-edit-link, .fin-row-open) { position: relative; }
+  #view-fin :is(.fin-date-edit-link, .fin-row-open)::after {
+      content: ''; position: absolute; inset: -12px -6px;
+  }
+}
 #view-fin .fin-total { padding-top: var(--s4); margin-top: var(--s3); border-top: 1px solid var(--border); font-weight: 700; }
 #view-fin summary { cursor: pointer; padding: 8px 0; font-weight: 700; }
 #view-fin details p { margin: 8px 0; }
