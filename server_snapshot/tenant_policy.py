@@ -158,7 +158,11 @@ def assign_tenant(instance, current_user) -> object:
     return instance
 
 
-def require_tenant_reference(current_user, tenant_id: int) -> int:
-    if int(tenant_id) != writable_tenant_id(current_user):
-        raise HTTPException(status_code=404, detail="Объект не найден")
-    return int(tenant_id)
+# 27.09: отсюда удалён require_tenant_reference() — «сверь переданный в теле
+# запроса tenant_id с tenant текущего пользователя, иначе 404». Ни один
+# роутер его не импортировал: чтение проверяется через get_tenant_object()/
+# tenant_query(), а на записи tenant проставляется сервером через
+# assign_tenant(). Клиентский tenant_id в тело запроса не принимает ни один
+# маршрут, и проверять нечего. Оставлять такую функцию в модуле
+# tenant-изоляции нельзя: её имя читается как «здесь проверяется», и
+# следующий автор вызовет её, решив, что этого достаточно.

@@ -147,14 +147,9 @@ def html_to_text(html_body: str) -> str:
     return '\n'.join(out).strip()
 
 
-def normalize_subject(subject: str) -> str:
-    """Убирает Re:/Fwd:/[номер] для сравнения тем."""
-    if not subject:
-        return ''
-    s = subject.strip()
-    for _ in range(6):
-        new = re.sub(r'^\s*(RE|Re|FW|Fwd|FWD|ПЕР|Ответ)\s*(\[\d+\])?\s*:\s*', '', s)
-        if new == s:
-            break
-        s = new
-    return re.sub(r'\s+', ' ', s).strip().lower()
+# 27.09: отсюда удалён normalize_subject() — «убирает Re:/Fwd: для сравнения
+# тем». Ни один модуль его не звал: темы писем сопоставляются в
+# email_parser_router по message_id/дате, а не по нормализованной теме, и
+# функция осталась от версии, где сравнение тем ещё планировалось. Мёртвый
+# код в модуле чистки писем опасен тем, что читается как рабочая точка
+# нормализации и провоцирует подключать его повторно.

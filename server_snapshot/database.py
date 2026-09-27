@@ -112,14 +112,13 @@ async def get_db():
         _active_sessions["count"] -= 1
         db.close()
 
-def get_pool_status():
-    return {
-        "pool_size": engine.pool.size(),
-        "pool_checked_in": engine.pool.checkedin(),
-        "pool_checked_out": engine.pool.checkedout(),
-        "pool_overflow": engine.pool.overflow(),
-        "active_sessions": _active_sessions["count"],
-    }
+# 27.09: отсюда удалён get_pool_status() — снимок состояния пула соединений
+# (size/checked-in/checked-out/overflow/активные сессии). Ни один маршрут его
+# не звал: /health и /health/ready смотрят на connectivity и миграции
+# (health_checks.py), а диагностики пула в проекте нет. Функция осталась от
+# версии, где планировался диагностический эндпоинт. Пул настроен
+# статически (pool_size=10, max_overflow=10, pool_timeout=120), так что
+# наблюдать за ним в рантайме было нечем.
 
 _tenant_engines = {}
 
