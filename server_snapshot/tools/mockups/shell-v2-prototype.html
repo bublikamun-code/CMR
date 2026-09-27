@@ -741,13 +741,22 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
      и без preload браузер узнаёт о 169 КБ модулей только после ответа API,
      то есть качает их строго после данных. Здесь они идут параллельно со
      стилями и запросами данных. Порядок в списке — как в APP_SCRIPTS, но
-     сам preload порядка не задаёт: скрипты исполняются в порядке вставки. -->
+     сам preload порядка не задаёт: скрипты исполняются в порядке вставки.
+
+     Этап 3.2: management и insights вынесены загрузчиком во вторую волну —
+     они рисуют только свои ленивые секции, а доске не нужны. Их подсказки
+     поэтому не preload, а prefetch: preload даёт им тот же приоритет, что
+     у первой волны, и 60 КБ gzip уходят в канал до того, как доска
+     нарисовалась, — то есть ровно тогда, когда канал нужен доске.
+     prefetch сообщает браузеру «это пригодится», но ставит загрузку в самый
+     низ приоритета: байты качаются, когда критичное уже скачано, и раздел
+     «Администрирование» открывается без ожидания. -->
 <link rel="preload" as="script" href="./shell-v2-select.js">
 <link rel="preload" as="script" href="./shell-v2-payment.js">
 <link rel="preload" as="script" href="./shell-v2-board.js">
-<link rel="preload" as="script" href="./shell-v2-management.js">
+<link rel="prefetch" as="script" href="./shell-v2-management.js">
 <link rel="preload" as="script" href="./shell-v2-fin.js">
-<link rel="preload" as="script" href="./shell-v2-insights.js">
+<link rel="prefetch" as="script" href="./shell-v2-insights.js">
 <link rel="preload" as="script" href="./shell-v2-navigation.js">
 <script src="./shell-v2-select.js" defer></script>
 <script src="./shell-v2-payment.js" defer></script>

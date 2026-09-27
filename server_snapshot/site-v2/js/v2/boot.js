@@ -45,6 +45,20 @@
         });
     }
     async function injectAll(list) { await Promise.all(list.map(inject)); }
+    // Уступить кадр до того, как браузер нарисует текущее состояние.
+    // Один requestAnimationFrame ждёт СЛЕДУЮЩЕГО кадра, то есть уже после
+    // paint; в фоне (вкладка не видна) rAF не срабатывает вовсе, поэтому
+    // страхуемся таймером — иначе скрытая вкладка ждала бы их вечно.
+    function nextFrame() {
+        return new Promise(function (resolve) {
+            let done = false;
+            const finish = function () { if (!done) { done = true; resolve(); } };
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(function () { setTimeout(finish, 0); });
+            }
+            setTimeout(finish, 200);
+        });
+    }
 
     // Канон статусов сделки (schemas.CARD_STATUSES) → идентификаторы/цвета v2.
     const STATUS_MAP = [
@@ -497,9 +511,12 @@
     }
 
     // Порядок = порядок исполнения (s.async = false в inject), а не загрузки.
-    // Доска идёт третьей, а не последней: она — самый крупный модуль (75 КБ
-    // gzip) и именно она рисует LCP-элемент, поэтому не должна стоять в
-    // очереди за management (39 КБ) и fin (24 КБ).
+    // Модули разбиты на две волны: сначала то, без чего не рисуется первый
+    // экран, затем то, что нужно только после клика по рельсу.
+    //
+    // Доска идёт третьей в первой волне, а не последней: она — самый крупный
+    // модуль (75 КБ gzip) и именно она рисует LCP-элемент, поэтому не должна
+    // стоять в очереди за fin (24 КБ) и management (39 КБ).
     // Первой её поставить нельзя: board.js на верхнем уровне пишет
     // window.KBPayment.escape (shell-v2-board.js:1629) и зовёт
     // window.KBSelect.enhance() (:719) без проверки на null — без select.js и
@@ -509,10 +526,28 @@
     // kb:documents/kb:groups именно «до первого открытия финансов».
     const APP_SCRIPTS = [
         'js/shell-v2-select.js', 'js/shell-v2-payment.js', 'js/shell-v2-board.js',
-        'js/shell-v2-management.js', 'js/shell-v2-fin.js', 'js/shell-v2-insights.js',
-        'js/shell-v2-navigation.js'
+        'js/shell-v2-fin.js', 'js/shell-v2-navigation.js'
     ];
-    const DEMO_SCRIPTS = ['js/shell-v2-data.js'].concat(APP_SCRIPTS);
+    // Вторая волна. injectAll — это Promise.all, поэтому await в bootApi()
+    // ждал ВСЕ модули, а management.js (39 КБ gzip) и insights.js (21 КБ)
+    // рисуют только свои ленивые секции: справочники админки и «Пульт дня»,
+    // которые до первого клика по рельсу и не видны. Раньше доска первой
+    // отрисовки ждала их загрузки и разбора, и на мобильном троттлинге это
+    // была самая длинная часть до LCP.
+    //
+    // Порядок внутри волны тот же, что был в общем списке: management до
+    // insights. Взаимной зависимости между ними нет — оба рисуют свой раздел
+    // на верхнем уровне, не по событию, и наружу ничего не выставляют, кроме
+    // KBInsightsBalance, который читает только сам insights.
+    //
+    // Граница волн выбрана по одному признаку: модуль второй волны не нужен
+    // для отрисовки доски. fin.js остался в первой — реестр оплат нужен
+    // колонке «К выписке» с первого кадра (решение владельца), а navigation
+    // держит переключение видов, к которому обращается тулбар.
+    const APP_SCRIPTS_LAZY = [
+        'js/shell-v2-management.js', 'js/shell-v2-insights.js'
+    ];
+    const DEMO_SCRIPTS = ['js/shell-v2-data.js'].concat(APP_SCRIPTS, APP_SCRIPTS_LAZY);
 
     // Пункт 16, фаза 2: дозагрузка остальных страниц карточек. Кик двойной —
     // автозапуск после первой отрисовки и скролл доски (медленная сеть);
@@ -616,6 +651,20 @@
         renderUser(meUser);
         setText('CRM');
         await injectAll(APP_SCRIPTS);
+        // Этап 3.2. Вторая волна — строго после того, как браузер показал
+        // доску. await на промиссе сам по себе кадра не даёт: парсер отдаёт
+        // управление движку только между задачами, а микрозадача resolve
+        // выполняется раньше следующего paint. Поэтому уступаем кадр явно —
+        // без этого ленивые модули всё равно успевали бы загрузиться
+        // до первой отрисовки, то есть выигрыш был бы на бумаге.
+        await nextFrame();
+        // Дальше не ждём: management и insights не нужны первому экрану.
+        // Ошибка не теряется — её видно в консоли, и повторная попытка
+        // перезагрузит модуль заново, потому что inject() на отказе чистит
+        // свой реестр.
+        injectAll(APP_SCRIPTS_LAZY).catch(function (err) {
+            console.error('Ленивые модули не загрузились:', err);
+        });
         announceRole();
     }
 

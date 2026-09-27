@@ -5,31 +5,40 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<script src="js/v2/head.js?v=bd30f02fc4"></script>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=bd30f02fc4">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=bd30f02fc4">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=bd30f02fc4">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=bd30f02fc4">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=bd30f02fc4">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=bd30f02fc4">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=bd30f02fc4">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=bd30f02fc4">
+<script src="js/v2/head.js?v=9ccba8e206"></script>
+<link rel="stylesheet" href="css/shell-v2-base.css?v=9ccba8e206">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=9ccba8e206">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=9ccba8e206">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=9ccba8e206">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=9ccba8e206">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=9ccba8e206">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=9ccba8e206">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=9ccba8e206">
 <!-- Предзагрузка модулей второй волны. Сборщик вырезает из прототипа все
      <script src="./shell-v2-*"> — их подключает загрузчик сам (APP_SCRIPTS),
      и без preload браузер узнаёт о 169 КБ модулей только после ответа API,
      то есть качает их строго после данных. Здесь они идут параллельно со
      стилями и запросами данных. Порядок в списке — как в APP_SCRIPTS, но
-     сам preload порядка не задаёт: скрипты исполняются в порядке вставки. -->
-<link rel="preload" as="script" href="js/shell-v2-select.js?v=bd30f02fc4">
-<link rel="preload" as="script" href="js/shell-v2-payment.js?v=bd30f02fc4">
-<link rel="preload" as="script" href="js/shell-v2-board.js?v=bd30f02fc4">
-<link rel="preload" as="script" href="js/shell-v2-management.js?v=bd30f02fc4">
-<link rel="preload" as="script" href="js/shell-v2-fin.js?v=bd30f02fc4">
-<link rel="preload" as="script" href="js/shell-v2-insights.js?v=bd30f02fc4">
-<link rel="preload" as="script" href="js/shell-v2-navigation.js?v=bd30f02fc4">
-<script src="js/v2/api.js?v=bd30f02fc4" defer></script>
-<script src="js/v2/boot.js?v=bd30f02fc4" defer></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=bd30f02fc4">
+     сам preload порядка не задаёт: скрипты исполняются в порядке вставки.
+
+     Этап 3.2: management и insights вынесены загрузчиком во вторую волну —
+     они рисуют только свои ленивые секции, а доске не нужны. Их подсказки
+     поэтому не preload, а prefetch: preload даёт им тот же приоритет, что
+     у первой волны, и 60 КБ gzip уходят в канал до того, как доска
+     нарисовалась, — то есть ровно тогда, когда канал нужен доске.
+     prefetch сообщает браузеру «это пригодится», но ставит загрузку в самый
+     низ приоритета: байты качаются, когда критичное уже скачано, и раздел
+     «Администрирование» открывается без ожидания. -->
+<link rel="preload" as="script" href="js/shell-v2-select.js?v=9ccba8e206">
+<link rel="preload" as="script" href="js/shell-v2-payment.js?v=9ccba8e206">
+<link rel="preload" as="script" href="js/shell-v2-board.js?v=9ccba8e206">
+<link rel="prefetch" as="script" href="js/shell-v2-management.js?v=9ccba8e206">
+<link rel="preload" as="script" href="js/shell-v2-fin.js?v=9ccba8e206">
+<link rel="prefetch" as="script" href="js/shell-v2-insights.js?v=9ccba8e206">
+<link rel="preload" as="script" href="js/shell-v2-navigation.js?v=9ccba8e206">
+<script src="js/v2/api.js?v=9ccba8e206" defer></script>
+<script src="js/v2/boot.js?v=9ccba8e206" defer></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=9ccba8e206">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
