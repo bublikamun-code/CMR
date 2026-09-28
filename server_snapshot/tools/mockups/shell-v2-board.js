@@ -2844,11 +2844,15 @@
             else body.company_name = supplier;
             window.V2Api.api('/cards/' + Number(c.id) + '/checklists', { method: 'POST', body: body })
                 .then(function (saved) {
-                    // Пункт появляется сразу, без перезагрузки страницы
+                    // Пункт появляется сразу, без перезагрузки страницы.
+                    // Сумма — из ответа сервера: openCard(c) ниже перерисовывает
+                    // дровер, и без amount здесь поле показывалось пустым
+                    // (сумма выглядела «сброшенной», хотя POST её сохранил).
                     c.checklist.push({
                         id: 'ck-' + saved.id,
                         label: supplier,
                         supplier_id: sup ? sup.id : null,
+                        amount: saved.amount === null || saved.amount === undefined ? '' : Number(saved.amount),
                         note: '', invFile: null,
                         ordered: false, received: false
                     });
