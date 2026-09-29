@@ -598,9 +598,19 @@ def _import_email_message(
     поднимается наружу: откат сессии и запись в лог делает вызывающий цикл,
     который после этого идёт к следующему письму.
     """
-    subject, encoding = decode_header(msg["Subject"])[0]
-    if isinstance(subject, bytes):
-        subject = subject.decode(encoding if encoding else "utf-8", errors="ignore")
+    # Заголовка Subject у письма может не быть вовсе (тогда msg["Subject"]
+    # возвращает None), а decode_header(None) падает TypeError. Такое письмо
+    # терялось целиком: исключение уходило наверх, карточка не создавалась.
+    # Пустое значение subject дальше уже обрабатывается — заголовок карточки
+    # станет «Письмо без темы от <отправитель>».
+    raw_subject = msg.get("Subject")
+    subject = ""
+    if raw_subject:
+        decoded = decode_header(raw_subject)
+        if decoded:
+            subject, encoding = decoded[0]
+            if isinstance(subject, bytes):
+                subject = subject.decode(encoding if encoding else "utf-8", errors="ignore")
 
     raw_from = msg.get("From", "")
     display_name, sender_email_addr = parseaddr(raw_from)

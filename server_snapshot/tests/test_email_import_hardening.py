@@ -128,9 +128,14 @@ def _mail(
     message_id="<letter-1@example.com>",
     attachments=(),
 ):
-    """Собрать сырое письмо. attachments — кортежи (имя, данные, maintype, subtype)."""
+    """Собрать сырое письмо. attachments — кортежи (имя, данные, maintype, subtype).
+
+    subject=None — письмо БЕЗ заголовка Subject вовсе (не пустая строка):
+    именно такие письма роняли decode_header.
+    """
     message = EmailMessage()
-    message["Subject"] = subject
+    if subject is not None:
+        message["Subject"] = subject
     message["From"] = sender
     message["To"] = "sale@example.com"
     if message_id:
@@ -176,6 +181,34 @@ def _sync(db, settings, tenant_id=None):
 
 def _upload_dir_files() -> set[str]:
     return set(os.listdir(email_parser_router.UPLOAD_DIR))
+
+
+# --- 0. Отсутствующий заголовок Subject ------------------------------------
+
+
+def test_letter_without_subject_is_imported(db, mailbox, caplog):
+    """Письмо без заголовка Subject импортируется, а не теряется.
+
+    На проде 29.09 письмо b'3137' роняло весь цикл синка на
+    ``decode_header(None)`` -> TypeError: expected string or bytes-like
+    object, got 'NoneType'. Карточка не создавалась, письмо терялось.
+    Заголовок карточки собирается из отправителя.
+    """
+    messages = [_mail(subject=None, message_id="<no-subject@example.com>")]
+    harness, settings = mailbox(messages)
+
+    with caplog.at_level(logging.WARNING):
+        result = _sync(db, settings)
+
+    assert result["success"] is True, result
+    assert result["count"] == 1, result
+    assert "TypeError" not in caplog.text
+
+    db.expire_all()
+    card = db.query(models.Card).one()
+    assert card.title == "Письмо без темы от sender@example.com", card.title
+    # Письмо без темы — обычное, а не битое: оно отмечается прочитанным.
+    assert {flags for _, flags in harness.stored_flags} == {"\\Seen"}
 
 
 # --- 1. Откат сессии: одно плохое письмо не убивает синк -------------------
