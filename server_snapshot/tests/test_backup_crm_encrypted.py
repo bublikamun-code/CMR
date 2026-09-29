@@ -193,6 +193,66 @@ os.execv({real!r}, [{real!r}] + args)
         tenant.close()
 
 
+def test_uploads_archive_published_when_files_change_during_read(sandbox):
+    """Живой uploads не отменяет бэкап: tar отдаёт 1, архив целый — публикуем.
+
+    GNU tar на каталоге, куда во время чтения приезжают файлы, пишет
+    «file changed as we read it» и возвращает 1. Это предупреждение, а не
+    поломка: сам .tar.gz дописан целиком. Скрипт раньше трактовал любой
+    ненулевой код как фатальный сбой, поэтому с 26.09 фото накладных не
+    бэкапились четыре ночи подряд.
+    """
+    _, data, dst, bins, key, env = sandbox
+    conn = database(data / 'crm_app.db')
+    real = shutil.which('tar')
+    # Имитируем ровно продовое поведение: архив создан и читается, но код 1.
+    # Признак — имя архива, а не флаг: на macOS tar — это bsdtar и скрипт
+    # не подставит --warning=no-file-changed, а на проде GNU tar подставит.
+    # Заглушка обязана воспроизводить прод в обоих случаях, иначе тест на
+    # macOS проходит в обход проверяемой ветки.
+    command(bins / 'tar', f'''import os, sys
+args = sys.argv[1:]
+if 'czf' in args and os.path.basename(args[args.index('czf') + 1]).startswith('uploads_'):
+    args = [a for a in args if a != '--warning=no-file-changed']
+    sys.stderr.write("tar: uploads: file changed as we read it\\n")
+    sys.stderr.flush()
+    code = __import__('subprocess').call([{real!r}] + args)
+    sys.exit(1 if code == 0 else code)
+os.execv({real!r}, [{real!r}] + args)
+''')
+    try:
+        result = run(env)
+        assert result.returncode == 0, result.stdout + result.stderr
+        published = [p for p in dst.iterdir() if p.name.startswith('uploads_')]
+        assert len(published) == 1, [p.name for p in dst.iterdir()]
+        # Архив не только создан, но и читается, и содержит вложение.
+        raw = unseal(published[0], key)
+        assert tar_member(raw, 'uploads/image.txt') == b'attachment'
+        assert not list(dst.glob('.crm-backup.*'))
+    finally:
+        conn.close()
+
+
+def test_uploads_tar_failure_is_not_swallowed(sandbox):
+    """Настоящая ошибка tar (exit 2) по-прежнему проваливает бэкап."""
+    _, data, dst, bins, _, env = sandbox
+    conn = database(data / 'crm_app.db')
+    real = shutil.which('tar')
+    command(bins / 'tar', f'''import os, sys
+args = sys.argv[1:]
+if 'czf' in args and os.path.basename(args[args.index('czf') + 1]).startswith('uploads_'):
+    sys.exit(2)
+os.execv({real!r}, [{real!r}] + args)
+''')
+    try:
+        result = run(env)
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert 'FAIL: tar uploads' in result.stdout + result.stderr
+        assert not [p for p in dst.iterdir() if p.name.startswith('uploads_')]
+    finally:
+        conn.close()
+
+
 def test_concurrent_runs_publish_both(sandbox):
     _, data, dst, _, _, env = sandbox
     conn = database(data / 'crm_app.db')

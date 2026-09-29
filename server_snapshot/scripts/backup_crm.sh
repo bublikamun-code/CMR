@@ -46,6 +46,16 @@ command -v openssl >/dev/null 2>&1 || { log 'FAIL: openssl not found'; exit 1; }
 
 STAGE="$(mktemp -d "$DST/.crm-backup.XXXXXXXXXX")"
 FAILED=0
+
+# Флаг --warning есть только у GNU tar; на macOS tar — это bsdtar, который
+# такой опции не знает и падает с Usage. Определяем поддержку один раз.
+# Именно строка, а не массив: пустой массив под set -u роняет bash 3.2
+# (системный на macOS, где гоняются тесты), а пустая строка в unquoted
+# подстановке просто исчезает. Значение не содержит пробелов и glob-символов.
+TAR_NO_FILE_CHANGED=""
+if tar --warning=no-file-changed --version >/dev/null 2>&1; then
+    TAR_NO_FILE_CHANGED="--warning=no-file-changed"
+fi
 cleanup() {
     local status=$?
     trap - EXIT
@@ -133,14 +143,37 @@ fi
 
 # 2) Загруженные файлы — ежедневно, дешевле потери
 if [ -d "$DATA/uploads" ]; then
-    if tar czf "$STAGE/uploads_$TS.tar.gz" -C "$DATA" uploads; then
+    # uploads — живой каталог: за ночь в него приезжают новые файлы, и tar
+    # сообщает «file changed as we read it». Это ПРЕДУПРЕЖДЕНИЕ, а не поломка
+    # архива: сам .tar.gz дописан целиком и читается (проверено на проде).
+    # С 26.09 скрипт трактовал любой ненулевой код как фатальный сбой и не
+    # публиковал архив — фото накладных не бэкапились четыре ночи подряд.
+    #
+    # Два механизма, оба нужны:
+    #   $TAR_NO_FILE_CHANGED убирает шум в stderr на GNU tar, но НЕ
+    #     меняет код возврата — проверено, tar всё равно отдаёт 1;
+    #   ветка rc==1 ниже публикует архив, потому что он цел. Именно она
+    #     работает и на bsdtar, где флага нет.
+    # Настоящие ошибки (нет места, нечитаемый файл) дают exit 2 и сюда не
+    # попадают — для них отдельная строка FAIL.
+    if tar czf "$STAGE/uploads_$TS.tar.gz" -C "$DATA" $TAR_NO_FILE_CHANGED uploads; then
         if seal_and_publish "$STAGE/uploads_$TS.tar.gz" "uploads_$TS.tar.gz.enc"; then
             log "OK uploads -> uploads_$TS.tar.gz.enc ($(du -h "$DST/uploads_$TS.tar.gz.enc" | cut -f1))"
         else
             log 'FAIL: шифрование uploads (проверьте место/квоту)'; FAILED=1
         fi
     else
-        log 'FAIL: tar uploads'; FAILED=1
+        rc=$?
+        if [ "$rc" -eq 1 ]; then
+            # Файлы менялись прямо во время чтения — архив цел, публикуем.
+            if seal_and_publish "$STAGE/uploads_$TS.tar.gz" "uploads_$TS.tar.gz.enc"; then
+                log "OK uploads (файлы менялись при чтении) -> uploads_$TS.tar.gz.enc ($(du -h "$DST/uploads_$TS.tar.gz.enc" | cut -f1))"
+            else
+                log 'FAIL: шифрование uploads (проверьте место/квоту)'; FAILED=1
+            fi
+        else
+            log "FAIL: tar uploads (exit $rc)"; FAILED=1
+        fi
     fi
 fi
 
