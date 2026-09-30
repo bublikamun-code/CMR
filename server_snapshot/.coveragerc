@@ -1,0 +1,48 @@
+# Конфигурация coverage для тестов бэка CRM.
+#
+# Замер:  ./.venv/bin/python -m pytest -q --cov --cov-report=term-missing
+# Отчёт о маршрутах (не строки, а вызванные ручки API) — плагин
+# tests/route_coverage.py, включается флагом -p tests.route_coverage.
+#
+# Список источников задан явно, а не «вся папка»: иначе в отчёт попадают
+# .venv, scripts/ и сгенерированный site-v2, и цифра покрытия перестаёт
+# что-то значить. migrate.py и telegram_nakladnye_bot.py сюда не включены
+# осознанно — pytest их не импортирует, и coverage ругается
+# «Module was never imported».
+
+[run]
+source =
+    main,
+    auth,
+    constants,
+    database,
+    db_utils,
+    email_cleaner,
+    email_credentials,
+    health_checks,
+    notify,
+    runtime_config,
+    schemas,
+    secure_files,
+    tenant_policy,
+    trusted_proxy,
+    version,
+    versioning,
+    webhook_delivery,
+    webhook_security,
+    limiter_config,
+    models,
+    models_tenant,
+    routers,
+    services
+omit =
+    tests/*
+    .venv/*
+
+[report]
+skip_covered = True
+show_missing = True
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError

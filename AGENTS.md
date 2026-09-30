@@ -73,6 +73,21 @@ v2 (основной фронт):
   пробуют обычный клик и при таймауте диспатчат событие. Станду режут
   10 логинов в минуту (slowapi) — прогоны строго последовательные.
 - Тесты бэка: `cd server_snapshot && ./.venv/bin/python -m pytest -q`.
+  Второй профиль схемы (create_all по models.py вместо прод-DDL):
+  `CRM_TEST_SCHEMA=models ./.venv/bin/python -m pytest -q`.
+- Покрытие маршрутов (не входит в обычный прогон, включается флагом):
+  `./.venv/bin/python -m pytest -q -p tests.route_coverage
+  --route-coverage-report=docs/audits/ROUTE-COVERAGE.md`. Плагин
+  `tests/route_coverage.py` считает, какие ручки API вообще вызваны
+  тестами, и печатает непокрытые; `--route-coverage-strict` превращает их
+  в падение. Осознанные исключения — в `tests/route_coverage_allow.json`
+  (сейчас список пуст: покрыты все 155 маршрутов). Плагин патчит
+  `APIRoute.get_route_handler` и НЕ импортирует `main` заранее: ранний
+  импорт тянет `create_all` и ломает накатку прод-схемы в conftest.
+- Покрытие строк: `./.venv/bin/python -m pytest -q --cov --cov-config=<cfg>`
+  (источники — `routers/`, `services/` и корневые модули; `migrate.py` и
+  `telegram_nakladnye_bot.py` pytest не импортирует). Ориентир на 30.09.2026:
+  88% строк, 1481 тест, 155/155 маршрутов.
 
 Legacy (по договорённости):
 - JS: `bash tools/check_js.sh` (после правок site/js). Покрывает только
