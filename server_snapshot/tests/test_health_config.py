@@ -27,9 +27,12 @@ def test_shell_scripts_have_valid_bash_syntax(script):
 def test_docker_compose_examples_have_valid_syntax(tmp_path):
     if not shutil.which("docker"):
         pytest.skip("docker compose недоступен")
+    # docker-compose.override.yml лежит в .gitignore (машина владельца), поэтому
+    # копируем только то, что реально отслеживает git: иначе тест падал с
+    # FileNotFoundError на любой свежей копии репозитория. В списке проверки
+    # его нет — валидируются ровно два отслеживаемых файла.
     for name in (
         "docker-compose.yml",
-        "docker-compose.override.yml",
         "docker-compose.production.yml",
     ):
         shutil.copyfile(ROOT / name, tmp_path / name)

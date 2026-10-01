@@ -35,8 +35,11 @@ for file in tools/check_js.sh tools/check_handlers.js tools/stamp_assets.py \
 done
 "$PYTHON" - <<'PY' || fail 'в выбранном Python отсутствуют зависимости (автоустановка отключена)'
 import importlib.util
+# Список держим вровень с requirements.txt. alembic убран 27.09 (эволюцию схемы
+# ведёт migrate.py): требование осталось здесь и роняло preflight на любом venv,
+# собранном по requirements.txt, — гейт не проходил ни разу после того коммита.
 modules = ('pytest', 'httpx', 'fastapi', 'uvicorn', 'multipart', 'sqlalchemy',
-           'jwt', 'passlib', 'bcrypt', 'slowapi', 'cryptography', 'pydantic', 'alembic')
+           'jwt', 'passlib', 'bcrypt', 'slowapi', 'cryptography', 'pydantic')
 missing = [name for name in modules if importlib.util.find_spec(name) is None]
 if missing:
     raise SystemExit('Не найдены модули: ' + ', '.join(missing))
