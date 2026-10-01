@@ -17,11 +17,47 @@ clients, users).
 колокольчик; разделы; ошибки консоли. Мутации — только на тестовых
 карточках AUDIT v2 тест и AUDIT v2 UI-сделка.
 """
-import json, os
+import argparse, json, os, sys
 from playwright.sync_api import sync_playwright
 
 OUT = "/tmp/crm_matrix"; os.makedirs(OUT, exist_ok=True)
-BASE = os.environ.get("V2_BASE", "http://87-232-64-12.nip.io/v2/")
+
+# FIX 2026-09-30: инструмент больше не умеет молча уйти на боевой сайт.
+#
+# Раньше адрес брался ТОЛЬКО из V2_BASE, а по умолчанию был боевым:
+#     BASE = os.environ.get("V2_BASE", "http://87-232-64-12.nip.io/v2/")
+# Флаг --base не существовал, его молча игнорировал argparse, и запуск
+# «--base http://127.0.0.1:8151/v2/» спокойно открывал ПРОДАКШН. Это не
+# мелкое неудобство: аудит логинится и ходит по кнопкам, то есть способ
+# без спроса ударить по боевой базе. Именно так однажды и вышло: прогон,
+# запущенный явно со стенда, ушёл на 87-232-64-12.nip.io.
+#
+# Теперь адрес обязателен, --base и V2_BASE равноправны, а запуск без явного
+# указания стенда падает с внятным сообщением вместо похода в прод.
+PRODUCTION_BASE = "http://87-232-64-12.nip.io/v2/"
+_ap = argparse.ArgumentParser(description="Функциональный аудит v2 по стенду")
+_ap.add_argument("--base", default=None,
+                 help="адрес стенда, напр. http://127.0.0.1:8151/v2/ "
+                      "(обязателен: без него скрипт не запускается)")
+_args, _unknown = _ap.parse_known_args()
+
+BASE = _args.base or os.environ.get("V2_BASE")
+if not BASE:
+    sys.exit(
+        "Не указан адрес стенда.\n"
+        "  Запуск: python3 tools/v2_functional_audit.py --base http://127.0.0.1:8151/v2/\n"
+        "Или через переменную окружения V2_BASE=...\n"
+        f"Боевой адрес {PRODUCTION_BASE} НЕ подставляется по умолчанию намеренно: "
+        "аудит логинится и нажимает кнопки."
+    )
+if BASE == PRODUCTION_BASE:
+    sys.exit(
+        f"Отказ: {PRODUCTION_BASE} — боевой адрес.\n"
+        "Аудит логинится и проходит по кнопкам, на боевой базе это недопустимо.\n"
+        "Укажите стенд: --base http://127.0.0.1:8151/v2/"
+    )
+print(f"Аудит идёт по стенду {BASE}")
+
 V2_USER = os.environ.get("V2_USER", "v2_audit")
 V2_PASS = os.environ.get("V2_PASS", "V2Audit2026!")
 results = []
@@ -140,14 +176,75 @@ with sync_playwright() as p:
     d_cnt = page.locator(".kb-q-row").count()
     check("4. Очереди «На списание»/«Списано» соответствуют данным", p_cnt == q["pending"], f"на списание {p_cnt}/{q['pending']}, списано {d_cnt}/{q['done']}")
 
-    # --- 5. Сводка карточки 553 на живых данных ---
-    page.locator("#kb-q-pending").click(timeout=5000)
-    page.wait_for_timeout(500)
-    open_card("553")
-    summ = page.evaluate("""() => { const dl = document.querySelector('.kb-detail-money'); const o = {};
-        if (dl) dl.querySelectorAll('div').forEach(d => { const dt = d.querySelector('dt'), dd = d.querySelector('dd'); if (dt && dd) o[dt.textContent.trim()] = dd.textContent.trim(); }); return o; }""")
-    check("5. Сводка 553: выписано/осталось верны",
-          "38 824,52" in summ.get("Выписано", "") and "18 221,86" in summ.get("Осталось выписать", ""), json.dumps(summ, ensure_ascii=False))
+    # --- 5. Сводка карточки: интерфейс против сервера ---
+    # FIX 2026-09-30: сверяем интерфейс с API, а не с зашитыми числами.
+    #
+    # Раньше здесь стояло open_card("553") и проверка, что в сводке написаны
+    # именно «38 824,52» и «18 221,86». И то, и другое — наследие одного
+    # конкретного среза данных: на другой копии базы карточки «553» нет,
+    # open_card ничего не открывал, .kb-detail-money оставался пустым, и
+    # проверка падала с «{}» — не потому что сводка врёт, а потому что её
+    # не на чем было проверить.
+    #
+    # Теперь карточка берётся первая с суммой, а эталон — те же поля из API.
+    # Проверка честно ломается, когда интерфейс показывает не то, что сервер.
+    page.keyboard.press("Escape"); page.wait_for_timeout(200)
+    money_check = page.evaluate("""async () => {
+        const cards = await window.V2Api.api('/kanban/cards');
+        const c = cards.filter(x => !x.is_deleted && Number(x.total_amount) > 0)[0];
+        if (!c) return {error: 'нет ни одной сделки с суммой'};
+        const openCardById = (id) => {
+            // Атрибут на карточке называется data-card, а внутри есть отдельная
+            // кнопка data-card-open. Раньше здесь искалось .kb-card[data-id=...],
+            // чего на доске нет вовсе, поэтому шаг падал с «нет элемента».
+            const btn = document.querySelector('.kb-card[data-card="' + id + '"] .kb-card-open')
+                || document.querySelector('[data-card-open="' + id + '"]');
+            if (btn) { btn.click(); return true; }
+            return false;
+        };
+        if (!openCardById(c.id)) return {error: 'карточку не открыть: нет элемента'};
+        await new Promise(r => setTimeout(r, 1200));
+        const dl = document.querySelector('.kb-detail-money');
+        if (!dl) return {error: '.kb-detail-money не появился'};
+        const o = {};
+        dl.querySelectorAll('div').forEach(d => {
+            const dt = d.querySelector('dt'), dd = d.querySelector('dd');
+            if (dt && dd) o[dt.textContent.trim()] = dd.textContent.trim();
+        });
+        return {
+            api: {
+                'Сумма сделки': c.total_amount,
+                'Оплачено': c.paid_amount,
+                'Выписано': c.issued_total,
+                'Осталось выписать': c.remaining,
+            },
+            ui: o,
+        };
+    }""")
+    if money_check.get("error"):
+        check("5. Сводка сделки: выписано/осталось совпадает с сервером",
+              False, money_check["error"])
+    else:
+        # «123,45 BYN» → 123.45. Пробелы в разрядах и неразрывные пробелы — норма.
+        def _num(text):
+            digits = "".join(ch for ch in str(text).replace("\xa0", "")
+                             if ch.isdigit() or ch in ",.-")
+            try:
+                return round(float(digits.replace(",", ".")), 2)
+            except ValueError:
+                return None
+
+        mismatches = []
+        for label, expected in money_check["api"].items():
+            got = _num(money_check["ui"].get(label, ""))
+            if got is None or expected is None:
+                if got != expected:
+                    mismatches.append(f"{label}: показано {money_check['ui'].get(label)!r}")
+            elif abs(got - float(expected)) > 0.01:
+                mismatches.append(f"{label}: в интерфейсе {got}, у сервера {float(expected)}")
+        check("5. Сводка сделки: выписано/осталось совпадает с сервером",
+              not mismatches,
+              "; ".join(mismatches) if mismatches else json.dumps(money_check["ui"], ensure_ascii=False))
     page.keyboard.press("Escape"); page.wait_for_timeout(300)
 
     # --- 6. Тестовая сделка: все ключевые операции (мутации только на ней) ---
