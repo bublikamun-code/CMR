@@ -54,20 +54,67 @@ TASKS = [
     ("Отгрузка LED-лент РемонтСити", 0, "open"),
 ]
 
+# Статусы для справочника deal_statuses. Доска берёт колонки из
+# /dictionaries/statuses (KBData.boardStatuses фильтрует по role), а роль
+# выводится клиентом из ИМЕНИ: «На списание» → writeoff, «Закрыто» → archive,
+# остальное → board. Поэтому справочник обязан содержать канонические имена
+# (schemas.CARD_STATUSES), иначе стенд поднимается с нулём колонок и проверять
+# в нём нечего. Порядок здесь — это position, он же порядок колонок.
+STAND_STATUSES = [
+    ("Новый запрос", "faint"),
+    ("В работе", "accent"),
+    ("Ждет оплаты", "warn"),
+    ("Сборка", "ok"),
+    ("На списание", "danger"),
+    ("Закрыто", "faint"),
+]
+
 
 def days_from_now(days):
     return (datetime.now(timezone.utc) + timedelta(days=days)).date()
 
 
+def resolve_tenant(db):
+    """Арендатор для сида.
+
+    tenant_id — NOT NULL у users/suppliers/clients/cards/tasks/transactions,
+    поэтому сид без этого падал на IntegrityError на самой первой вставке.
+    Порядок: явный CRM_TENANT_ID → единственный существующий арендатор →
+    новый «stand».
+    """
+    explicit = os.environ.get("CRM_TENANT_ID")
+    if explicit:
+        tenant = db.get(models_tenant.Tenant, int(explicit))
+        if not tenant:
+            raise SystemExit(f"CRM_TENANT_ID={explicit}: такого арендатора нет в tenants")
+        return tenant
+    existing = db.query(models_tenant.Tenant).order_by(models_tenant.Tenant.id).all()
+    if len(existing) == 1:
+        return existing[0]
+    if existing:
+        names = ", ".join(f"{t.id}={t.name!r}" for t in existing)
+        raise SystemExit("В базе несколько арендаторов, сид не угадывает: "
+                         f"{names}. Задайте CRM_TENANT_ID.")
+    tenant = models_tenant.Tenant(name="stand", db_path="stand")
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return tenant
+
+
 def main():
     db = SessionLocal()
     try:
+        tenant = resolve_tenant(db)
+        tenant_id = tenant.id
+
         for data in STAND_USERS:
             if not db.query(models.User).filter_by(username=data["username"]).first():
                 db.add(models.User(
                     username=data["username"],
                     hashed_password=auth.get_password_hash(data["password"]),
                     role=data["role"],
+                    tenant_id=tenant_id,
                 ))
         db.commit()
 
@@ -77,7 +124,7 @@ def main():
         for data in SUPPLIERS:
             obj = db.query(models.Supplier).filter_by(name=data["name"]).first()
             if not obj:
-                obj = models.Supplier(**data)
+                obj = models.Supplier(**data, tenant_id=tenant_id)
                 db.add(obj)
                 db.flush()
             suppliers[data["name"]] = obj
@@ -86,13 +133,22 @@ def main():
         for data in CLIENTS:
             obj = db.query(models.Client).filter_by(name=data["name"]).first()
             if not obj:
-                obj = models.Client(**data)
+                obj = models.Client(**data, tenant_id=tenant_id)
                 db.add(obj)
                 db.flush()
             clients[data["name"]] = obj
 
         manager = db.query(models.User).filter_by(role="manager").first()
         owner_id = manager.id if manager else None
+
+        # Справочник статусов: без него у доски ноль колонок (см. STAND_STATUSES).
+        if db.query(models.DealStatus).count() == 0:
+            for position, (name, color) in enumerate(STAND_STATUSES):
+                db.add(models.DealStatus(
+                    name=name, position=position, color=color,
+                    is_active=True, tenant_id=tenant_id,
+                ))
+            db.commit()
 
         for index, (title, status, total, paid, store, due_in) in enumerate([] if cards_exist else CARDS):
             card = models.Card(
@@ -106,6 +162,7 @@ def main():
                 owner_id=owner_id,
                 client_id=clients[CLIENTS[index % len(CLIENTS)]["name"]].id,
                 position=index,
+                tenant_id=tenant_id,
             )
             db.add(card)
             db.flush()
@@ -127,6 +184,7 @@ def main():
                     assignee_id=owner_id,
                     card_id=card.id,
                     client_id=card.client_id,
+                    tenant_id=tenant_id,
                 ))
         db.add(models.Task(
             title="Позвонить СветлогорскДом по отсрочке",
@@ -136,6 +194,7 @@ def main():
             priority=0,
             assignee_id=owner_id,
             client_id=clients[CLIENTS[0]["name"]].id,
+            tenant_id=tenant_id,
         ))
 
         # Реестр оплат: по сделке запись-остаток (is_document=False) и, где была
@@ -144,9 +203,9 @@ def main():
             supplier = suppliers[SUPPLIERS[0]["name"]]
             db.execute(text(
                 "INSERT INTO nakladnye (supplier_id, doc_number, doc_date, amount, vat_amount,"
-                " amount_no_vat, store, is_verified, is_arrived, is_paid, status, created_by_bot)"
-                " VALUES (:sid, 'ВХ-501', '16.09.2026', 2400, 400, 2000, 'Матусевича', 1, 0, 1, 'paid', 1)"
-            ), {"sid": supplier.id})
+                " amount_no_vat, store, is_verified, is_arrived, is_paid, status, created_by_bot, tenant_id)"
+                " VALUES (:sid, 'ВХ-501', '16.09.2026', 2400, 400, 2000, 'Матусевича', 1, 0, 1, 'paid', 1, :tid)"
+            ), {"sid": supplier.id, "tid": tenant_id})
 
         if db.query(models.Transaction).count() == 0:
             for card in db.query(models.Card).all():
@@ -158,6 +217,7 @@ def main():
                     store_location=card.store_location or "",
                     card_id=card.id,
                     is_document=False,
+                    tenant_id=tenant_id,
                 ))
                 if paid > 0:
                     db.add(models.Transaction(
@@ -170,6 +230,7 @@ def main():
                         invoice_number="ТН-09%02d" % card.id,
                         invoice_date="17.09.2026",
                         date=datetime.now(timezone.utc),
+                        tenant_id=tenant_id,
                     ))
 
         db.commit()
