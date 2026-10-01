@@ -286,6 +286,27 @@ async def notify_webhooks(tenant_id, event, data):
                     "Webhook dispatch rejected code=configuration_invalid webhook_id=%s",
                     webhook.id,
                 )
+            except Exception:
+                # FIX 2026-09-30 (аудит, Ф-8): сбой на ОДНОМ webhook'е больше
+                # не выключает остальные. Раньше здесь ловились только
+                # TypeError/ValueError (битая конфигурация), а любая другая
+                # ошибка — в том числе OperationalError из commit внутри
+                # create_delivery — вылетала во внешний except, который глушил
+                # цикл целиком.
+                #
+                # Почему это дорого: create_delivery делает session.commit(),
+                # и после неудачи сессия остаётся в pending-rollback, поэтому
+                # следующий вызов падал бы с PendingRollbackError. В итоге
+                # webhook'и после неудачного не получали ни доставки, ни строки
+                # в webhook_deliveries — то есть не было даже dead-letter, по
+                # которому потеря была бы видна. Ошибка одного получателя не
+                # должна отменять доставку остальным.
+                db.rollback()
+                logger.error(
+                    "Webhook dispatch rejected code=delivery_create_failed webhook_id=%s",
+                    webhook.id,
+                    exc_info=True,
+                )
     except Exception:
         logger.error("Webhook dispatch failed code=dispatch_failed")
     finally:

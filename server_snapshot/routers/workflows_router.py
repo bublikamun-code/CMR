@@ -65,8 +65,19 @@ def list_workflows(db: Session = Depends(get_db), current_user=Depends(get_curre
 
 @router.post("/")
 def create_workflow(wf: WorkflowCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    # FIX 2026-09-30 (аудит, С-7): имя проверяется на создании той же проверкой,
+    # что и в PATCH. Раньше POST её не делал, и схема (name: str) пропускала
+    # пробельное имя: в БД попадал воркфлоу с невидимым названием из одних
+    # пробелов — NOT NULL доволен, в списке сценарий выглядит безымянным, и
+    # редактор уезжал за пределы видимой области. Расхождение было тем заметнее,
+    # что PATCH ровно эту проверку уже выполнял.
+    name = (wf.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400,
+                            detail="Укажите название сценария — оно не может быть пустым")
     new_wf = models.Workflow(
-        name=wf.name, description=wf.description,
+        name=name,
+        description=(wf.description or "").strip() or None,
         created_by=current_user.id, tenant_id=writable_tenant_id(current_user),
     )
     db.add(new_wf)

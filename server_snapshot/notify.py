@@ -77,7 +77,18 @@ def notify(db, recipients, *, actor_id=None, type, title, details=None,
             exists = db.query(models.Notification.id).filter(
                 models.Notification.type == type,
                 models.Notification.user_id == uid,
-                models.Notification.entity_type != "client",
+                # FIX 2026-09-30 (аудит, С-11): было жёстко зашито
+                # `entity_type != "client"`. Подразумевалось-то «та же сущность»,
+                # но сравнение шло с константой, а не с переданным значением.
+                # Следствия были оба неприятные: (1) уведомление по карточке с
+                # id=5 подавлялось «непрочитанным» уведомлением по ЗАДАЧЕ с
+                # таким же id — разные сущности, разные тексты, а числовые id
+                # из разных таблиц пересекаются постоянно; (2) для
+                # entity_type="client" условие не срабатывало никогда, то есть
+                # дедупликация для клиентов не работала бы вообще. Сейчас
+                # вызывающие передают "card" и "task", поэтому второй случай
+                # пока латентный, но условие всё равно было неверным.
+                models.Notification.entity_type == entity_type,
                 models.Notification.entity_id == entity_id if entity_id is not None else True,
                 models.Notification.is_read == False,
             ).first()

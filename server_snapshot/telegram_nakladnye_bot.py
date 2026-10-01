@@ -70,6 +70,40 @@ STORES = {
 CHOOSING_STORE, RECEIVING_PHOTOS = range(2)
 
 
+async def upload_photos(client, nak_id, photos) -> list[str]:
+    """Загрузить фото накладной и ВЕРНУТЬ список неудавшихся.
+
+    FIX 2026-09-30 (аудит, Ф-7). Раньше ответ на POST /photos не проверялся
+    вообще: клиент шёл к следующему документу, а пользователю печаталось
+    «✅ Сохранено в CRM». Фото тяжелее 25 МБ отбивается сервером с 413
+    (nakladnye_router.py:782), но бот об этом не узнавал — первичный документ
+    создавался без фото, и потеря замечалась только при ручной сверке. Тот же
+    код повторялся в трёх местах, поэтому все три молчали одинаково.
+
+    Ошибка одного фото не отменяет остальные: терять их все из-за одного
+    тяжёлого снимка хуже. Неудавшиеся собираются и показываются пользователю
+    явно — «сохранено» без единого фото это ровно тот обман, который чинится.
+    """
+    failed = []
+    for photo in photos:
+        try:
+            resp = await client.post(
+                f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
+                headers={"X-Bot-Token": BOT_TOKEN},
+                files={"file": (photo["filename"], photo["data"], "image/jpeg")},
+            )
+        except Exception as exc:  # сеть/таймаут — тоже потерянное фото
+            logger.error("Фото %s не отправлено: %s: %s",
+                         photo.get("filename"), type(exc).__name__, exc)
+            failed.append(photo.get("filename") or "без имени")
+            continue
+        if resp.status_code != 200:
+            logger.error("CRM отверг фото %s: %s %s",
+                         photo.get("filename"), resp.status_code, resp.text[:200])
+            failed.append(photo.get("filename") or "без имени")
+    return failed
+
+
 def get_store_keyboard():
     buttons = [
         [InlineKeyboardButton(s["label"], callback_data=f"store:{key}")]
@@ -187,6 +221,11 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Для каждой группы: данные с первой страницы, суммы с последней
         merged = []
+        # FIX 2026-09-30 (Ф-7): список неудачных фото для ветки «ничего не
+        # распознано». Инициализируется здесь, иначе при merged без
+        # нераспознанных документов сводка упала бы с NameError именно там,
+        # где пользователь ждёт ответа.
+        unrecognised_photo_errors: list[str] = []
         for num, pages in invoices.items():
             first = pages[0]
             last = pages[-1]
@@ -255,12 +294,12 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             headers={"X-Bot-Token": BOT_TOKEN},
                             json={"products": inv["products"]},
                         )
-                    for photo in inv["photos"]:
-                        await client.post(
-                            f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
-                            headers={"X-Bot-Token": BOT_TOKEN},
-                            files={"file": (photo["filename"], photo["data"], "image/jpeg")},
-                        )
+                    # FIX 2026-09-30 (Ф-7): раньше и здесь фото грузились без
+                    # проверки ответа — четвёртое молчаливое место того же
+                    # дефекта (ветка дубля, найденного через check-duplicate,
+                    # до create).
+                    inv["_photo_errors"] = await upload_photos(
+                        client, nak_id, inv["photos"])
                     inv["_duplicate"] = True
                     continue
 
@@ -272,12 +311,8 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if resp.status_code == 200:
                     nak = resp.json()
                     nak_id = nak["id"]
-                    for photo in inv["photos"]:
-                        await client.post(
-                            f"{CRM_API_URL}/nakladnye/bot/{nak_id}/photos",
-                            headers={"X-Bot-Token": BOT_TOKEN},
-                            files={"file": (photo["filename"], photo["data"], "image/jpeg")},
-                        )
+                    inv["_photo_errors"] = await upload_photos(
+                        client, nak_id, inv["photos"])
                 elif resp.status_code == 409:
                     # FIX 2026-09-19 (A4): дубль по уникальному индексу
                     # (гонка между check-duplicate и create). Сервер вернул
@@ -289,12 +324,8 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception:
                         dup_id = None
                     if dup_id:
-                        for photo in inv["photos"]:
-                            await client.post(
-                                f"{CRM_API_URL}/nakladnye/bot/{dup_id}/photos",
-                                headers={"X-Bot-Token": BOT_TOKEN},
-                                files={"file": (photo["filename"], photo["data"], "image/jpeg")},
-                            )
+                        inv["_photo_errors"] = await upload_photos(
+                            client, dup_id, inv["photos"])
                         inv["_duplicate"] = True
                         logger.info(f"Duplicate (409 race): doc {inv.get('doc_series')} "
                                     f"{inv.get('doc_number')} → existing id={dup_id}")
@@ -315,12 +346,8 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 if resp.status_code == 200:
                     nak = resp.json()
-                    for photo in photos:
-                        await client.post(
-                            f"{CRM_API_URL}/nakladnye/bot/{nak['id']}/photos",
-                            headers={"X-Bot-Token": BOT_TOKEN},
-                            files={"file": (photo["filename"], photo["data"], "image/jpeg")},
-                        )
+                    unrecognised_photo_errors = await upload_photos(
+                        client, nak["id"], photos)
 
         # Фильтр «Свет в доме» из supplier_name
         svet_v_dome = {"свет в доме", "ооо свет в доме"}
@@ -349,10 +376,29 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not inv.get("_duplicate") and inv.get("has_second_page") and len(inv.get("photos", [])) < 2:
                 num = inv.get("doc_number", "?")
                 ser = inv.get("doc_series", "")
-                warnings.append(
-                    f"⚠️ {inv.get('doc_type','')} {ser} №{num}: "
+                warnings.append(                    f"⚠️ {inv.get('doc_type','')} {ser} №{num}: "
                     f"документ имеет 2-ю страницу, но она не отправлена"
                 )
+
+        # FIX 2026-09-30 (Ф-7): потерянные фото показываются пользователю, а не
+        # прячутся за «✅ Сохранено в CRM». Список документов остаётся — запись в
+        # CRM создана и с неё работают, — но молчать о недогруженных снимках
+        # было прямой причиной расхождений, которые замечали лишь на сверке.
+        for inv in merged:
+            lost = inv.get("_photo_errors") or []
+            if lost:
+                num = inv.get("doc_number", "?")
+                ser = inv.get("doc_series", "")
+                warnings.append(
+                    f"❌ {inv.get('doc_type','')} {ser} №{num}: "
+                    f"не загружено {len(lost)} фото ({', '.join(map(str, lost[:3]))}"
+                    f"{'…' if len(lost) > 3 else ''}) — документ сохранён БЕЗ них"
+                )
+        if unrecognised_photo_errors:
+            warnings.append(
+                f"❌ Документ без распознанных данных: не загружено "
+                f"{len(unrecognised_photo_errors)} фото"
+            )
 
         if not summary_lines and not dup_lines:
             summary_lines = ["• Фото сохранены, данные не распознаны — проверьте вручную"]
@@ -367,12 +413,21 @@ async def handle_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         saved_count = sum(1 for inv in merged if not inv.get("_duplicate"))
         dup_count = sum(1 for inv in merged if inv.get("_duplicate"))
+        lost_photos = sum(len(inv.get("_photo_errors") or []) for inv in merged)
 
-        header = "✅ *Сохранено в CRM*" if saved_count > 0 else "ℹ️ *Результат*"
+        # Шапка врёт, если фото потеряны: «Сохранено» без снимков — это ровно то
+        # расхождение, из-за которого Ф-7 и нашли. Пишем «сохранено частично».
+        if saved_count > 0 and not lost_photos:
+            header = "✅ *Сохранено в CRM*"
+        elif saved_count > 0:
+            header = "⚠️ *Сохранено частично*"
+        else:
+            header = "ℹ️ *Результат*"
         await query.edit_message_text(
             f"{header}\n\n"
             f"Склад: {store}\n"
-            f"Новых: {saved_count}" + (f", дублей: {dup_count}" if dup_count else "") + "\n\n"
+            f"Новых: {saved_count}" + (f", дублей: {dup_count}" if dup_count else "")
+            + (f", фото не загружено: {lost_photos}" if lost_photos else "") + "\n\n"
             + all_text
             + "\n\n/start — принять ещё",
             parse_mode="Markdown",
