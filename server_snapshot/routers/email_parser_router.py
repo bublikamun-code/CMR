@@ -44,6 +44,7 @@ from routers.card_details_router import (
     _MAGIC_SIGNATURES,
     _NO_CHECK_EXTS,
 )
+from services.single_instance import LockBusy, single_instance
 
 logger = logging.getLogger(__name__)
 
@@ -347,6 +348,16 @@ def update_settings(data: EmailSettingsSchema, current_user: models.User = Depen
     )
     return {"detail": "Настройки успешно сохранены"}
 
+# FIX 2026-09-30 (аудит, Ф-6): потолок на размер выборки. Ящик, не
+# прочитанный неделю, давал несколько тысяч писем, и синк делал столько же
+# mail.fetch и столько же коммитов в одном СИНХРОННОМ хендлере при двух
+# воркерах и busy_timeout=10с. Такой прогон гарантированно не укладывался в
+# 120 секунд watchdog'а, то есть сам порождал Ф-2 (наложение прогонов).
+# Порядок — от новых к старым (UID IMAP монотонно растёт), поэтому при
+# переполнении первыми обрабатываются актуальные письма, а за остальными
+# вернётся следующий прогон.
+MAX_UNSEEN_PER_RUN = 300
+
 def _search_unseen(mail, today: str) -> list:
     """Ищет непрочитанные письма за сегодня (UTC) и возвращает их id.
 
@@ -356,7 +367,17 @@ def _search_unseen(mail, today: str) -> list:
     status, messages = mail.search(None, f'(UNSEEN SINCE "{today}")')
     if status != "OK":
         raise HTTPException(status_code=500, detail="Не удалось получить список писем с почтового сервера")
-    return messages[0].split()
+    ids = messages[0].split()
+    if len(ids) > MAX_UNSEEN_PER_RUN:
+        # Обрезаем с конца: в IMAP больший UID — более позднее письмо, а при
+        # переполнении важно доставить свежие, а не копить хвост.
+        logger.info(
+            "Непрочитанных писем %d, обработаю %d за этот запуск — "
+            "остальные вернутся следующим",
+            len(ids), MAX_UNSEEN_PER_RUN,
+        )
+        ids = ids[-MAX_UNSEEN_PER_RUN:]
+    return ids
 
 
 def _resolve_sync_tenant_id(
@@ -809,6 +830,16 @@ def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
         today = datetime.now(timezone.utc).strftime("%d-%b-%Y")
         email_ids = _search_unseen(mail, today)
 
+        # FIX 2026-09-30 (аудит, Ф-1): счётчик отказов. Раньше упавшее письмо
+        # молча уходило в warning, цикл продолжался, а ответ был
+        # {"success": True, "count": 0}. Импортировано 0 из 20 и «всё прошло
+        # успешно» неразличимы — а watchdog смотрит только на код ответа curl,
+        # так что оператор узнавал бы о полной потере почты из лога записи
+        # 18.09 или вообще никогда. Схема ответа сверена с sync_overdue
+        # (notifications_router.py:252-256), где такой счётчик уже есть.
+        failed_ids: list[str] = []
+        first_failure: str | None = None
+
         for e_id in email_ids:
             try:
                 res, msg_data = mail.fetch(e_id, "(RFC822)")
@@ -817,6 +848,9 @@ def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
                         "Письмо %s не отдано сервером (статус %r) — пропускаем",
                         e_id, res,
                     )
+                    failed_ids.append(str(e_id))
+                    if first_failure is None:
+                        first_failure = f"письмо {e_id}: сервер вернул {res!r}"
                     continue
 
                 for response in msg_data:
@@ -847,6 +881,12 @@ def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
                 # на первом плохом письме. Откат возвращает сессию в рабочее
                 # состояние и позволяет продолжить со следующего письма.
                 db.rollback()
+                # FIX 2026-09-30 (Ф-1): падение считается, а не только пишется
+                # в лог. Письмо остаётся непрочитанным и вернётся при следующем
+                # прогоне, но оператор обязан видеть, что прогон был неполным.
+                failed_ids.append(str(e_id))
+                if first_failure is None:
+                    first_failure = f"письмо {e_id}: {type(e).__name__}: {e}"
                 logger.warning(
                     "Не удалось обработать письмо %s (tenant %s): %s: %s",
                     e_id, resolved_tenant_id, type(e).__name__, e,
@@ -872,6 +912,13 @@ def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
             "tenant_id": resolved_tenant_id,
             "success": True,
             "count": len(imported_cards),
+            # FIX 2026-09-30 (Ф-1): count: 0 больше не читается как «писем не
+            # было». При errors > 0 прогон неполный, и это видно и в ответе, и
+            # в логе. success остаётся True намеренно: синк СДЕЛАЛ свою работу
+            # (добрал и отметил остальные письма) — падение одного письма не
+            # повод отменять запись last_sync и выбрасывать успешный импорт.
+            "errors": len(failed_ids),
+            "error": first_failure,
             "cards": imported_cards
         }
 
@@ -943,6 +990,31 @@ def sync_emails(request: Request, db: Session = Depends(get_db), current_user: m
 
 @cron_router.post("/sync-all")
 def sync_all_tenants(db: Session = Depends(get_db)):
+    # FIX 2026-09-30 (аудит, Ф-2): синк больше не запускается поверх себя.
+    # Cron ходит каждые 5 минут, запрос живёт до 120 секунд, и неуложившийся
+    # прогон раньше просто накладывался на следующий: оба брали один список
+    # непрочитанных, оба проходили дедупликацию (записи ленты ещё нет) и оба
+    # создавали карточку. Блокировка неблокирующая: ждать бессмысленно, к
+    # следующему прогону предыдущий либо закончит, либо упадёт.
+    try:
+        with single_instance("crm-email-sync"):
+            return _run_sync_all(db)
+    except LockBusy:
+        logger.info("Синк почты уже выполняется — этот запуск пропущен")
+        return {
+            "success": True,
+            # skipped: 1 означает «ничего не сделано», и это отличается от
+            # «ничего не нашлось»: без флага молчаливый пропуск выглядел бы
+            # как успешный прогон без писем.
+            "skipped": 1,
+            "total_count": 0,
+            "tenants_processed": 0,
+            "tenants_failed": 0,
+            "results": [],
+        }
+
+
+def _run_sync_all(db: Session):
     results = []
     # Главный аккаунт (без тенанта) — именно в нём лежат все рабочие карточки.
     # Раньше он не синхронизировался вообще: цикл шёл только по таблице tenants.
@@ -975,6 +1047,10 @@ def sync_all_tenants(db: Session = Depends(get_db)):
         "total_count": total_count,
         "tenants_processed": len(results),
         "tenants_failed": len(errors),
+        # FIX 2026-09-30 (Ф-1): ошибки импорта видны на верхнем уровне.
+        # Раньше их глотал построчный warning, и «импортировано 0 из 20»
+        # рапортовалось как обычный успех.
+        "errors": sum(r.get("errors", 0) for r in results),
         "results": results
     }
 
