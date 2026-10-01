@@ -202,6 +202,30 @@ class CardChecklist(Base):
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    # FIX 2026-09-30 (аудит денег): uq_remainder_per_card жил ТОЛЬКО как побочный
+    # продукт миграции 0004 — в models.py его не было, поэтому ни одна схема,
+    # построенная create_all, защиты не получала: свежая установка, том Docker,
+    # восстановление из бэкапа без прогона migrate.py и любая tenant-БД.
+    # На такой схеме два параллельных вызова trigger_from_card проходили оба
+    # (там чистый check-then-insert, writer slot не резервируется) и оставляли
+    # ДВЕ записи-остатка по полной сумме сделки: реестр отдавал parts_count: 2,
+    # а удаление возвращало деньги только в rest_rows[0], то есть вторая сумма
+    # висела до ручного repair-writeoffs.
+    #
+    # Условие взято из самой миграции 0004 — важно, чтобы оно совпадало с боевой
+    # БД, иначе приложение и схема разойдутся на существующих данных.
+    __table_args__ = (
+        Index(
+            "uq_remainder_per_card",
+            "card_id",
+            unique=True,
+            sqlite_where=text(
+                "card_id IS NOT NULL AND is_document = 0 "
+                "AND (invoice_number IS NULL OR invoice_number = '') "
+                "AND is_warehouse_writeoff = 0"
+            ),
+        ),
+    )
     id = Column(Integer, primary_key=True, index=True)
     date = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     company_name = Column(String, index=True)
