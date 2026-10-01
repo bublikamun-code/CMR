@@ -3716,14 +3716,53 @@
                 })
                 .catch(function (e2) { notify('Не восстановлено: ' + (e2.detail || e2.message || 'ошибка')); });
         } else if (purge) {
+            var purgeId = purge.dataset.trashPurge;
+            // Д-1 (аудит 2026-09-30): сервер теперь отвечает 409, если у сделки
+            // есть записи в реестре оплат, и требует повторного подтверждения.
+            // Раньше диалог просто говорил «восстановить будет невозможно» и
+            // молча сносил накладные вместе со снимком. Здесь первый диалог
+            // предупреждает про деньги, а 409 показывает точное число записей
+            // и сумму, которые действительно пропадут.
+            var purgeCard = trashCache.filter(function (c) { return String(c.id) === purgeId; })[0];
+            var purgeHasMoney = purgeCard && (purgeCard.paid_amount > 0
+                || purgeCard.total_amount > 0 || purgeCard.payment_status === 'paid');
             KBConfirm.ask({
                 title: 'Удалить карточку НАВСЕГДА?',
-                message: 'Восстановить будет невозможно.'
+                message: purgeHasMoney
+                    ? 'У сделки есть оплаты. Будут удалены её записи в реестре оплат и накладные. Перед удалением сервер сохранит снимок содержимого.'
+                    : 'Восстановить будет невозможно.'
             }).then(function (ok) {
                 if (!ok) return;
-                window.V2Api.api('/kanban/cards/' + purge.dataset.trashPurge + '/permanent', { method: 'DELETE' })
-                    .then(function () { trashCache = trashCache.filter(function (c) { return String(c.id) !== purge.dataset.trashPurge; }); renderTrash(); notify('Карточка удалена навсегда.'); })
-                    .catch(function (e2) { notify('Не удалено: ' + (e2.detail || e2.message || 'ошибка')); });
+                function doPurge(force) {
+                    var url = '/kanban/cards/' + purgeId + '/permanent'
+                        + (force ? '?force=1' : '');
+                    window.V2Api.api(url, { method: 'DELETE' })
+                        .then(function (r) {
+                            trashCache = trashCache.filter(function (c) { return String(c.id) !== purgeId; });
+                            renderTrash();
+                            var extra = r && r.transactions_removed
+                                ? ' Удалено записей в реестре: ' + r.transactions_removed + '.'
+                                : '';
+                            var snap = r && r.backup
+                                ? ' Снимок: ' + r.backup.split('/').pop() + '.'
+                                : ' Снимок содержимого НЕ записан — см. журнал сервера.';
+                            notify('Карточка удалена навсегда.' + extra + snap);
+                        })
+                        .catch(function (e2) {
+                            // 409 — сервер требует осознанного подтверждения.
+                            if (e2 && e2.status === 409) {
+                                KBConfirm.ask({
+                                    title: 'Удалить вместе с оплатами?',
+                                    message: e2.detail || 'У сделки есть записи в реестре оплат.'
+                                }).then(function (yes) {
+                                    if (yes) doPurge(true);
+                                });
+                                return;
+                            }
+                            notify('Не удалено: ' + (e2.detail || e2.message || 'ошибка'));
+                        });
+                }
+                doPurge(false);
             });
         }
     });

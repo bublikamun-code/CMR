@@ -5,15 +5,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<script src="js/v2/head.js?v=9ccba8e206"></script>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=9ccba8e206">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=9ccba8e206">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=9ccba8e206">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=9ccba8e206">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=9ccba8e206">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=9ccba8e206">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=9ccba8e206">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=9ccba8e206">
+<script src="js/v2/head.js?v=42587cb083"></script>
+<link rel="stylesheet" href="css/shell-v2-base.css?v=42587cb083">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=42587cb083">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=42587cb083">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=42587cb083">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=42587cb083">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=42587cb083">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=42587cb083">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=42587cb083">
 <!-- Предзагрузка модулей второй волны. Сборщик вырезает из прототипа все
      <script src="./shell-v2-*"> — их подключает загрузчик сам (APP_SCRIPTS),
      и без preload браузер узнаёт о 169 КБ модулей только после ответа API,
@@ -28,17 +28,16 @@
      нарисовалась, — то есть ровно тогда, когда канал нужен доске.
      prefetch сообщает браузеру «это пригодится», но ставит загрузку в самый
      низ приоритета: байты качаются, когда критичное уже скачано, и раздел
-     «Администрирование» открывается без ожидания. -->
-<link rel="preload" as="script" href="js/shell-v2-select.js?v=9ccba8e206">
-<link rel="preload" as="script" href="js/shell-v2-payment.js?v=9ccba8e206">
-<link rel="preload" as="script" href="js/shell-v2-board.js?v=9ccba8e206">
-<link rel="prefetch" as="script" href="js/shell-v2-management.js?v=9ccba8e206">
-<link rel="preload" as="script" href="js/shell-v2-fin.js?v=9ccba8e206">
-<link rel="prefetch" as="script" href="js/shell-v2-insights.js?v=9ccba8e206">
-<link rel="preload" as="script" href="js/shell-v2-navigation.js?v=9ccba8e206">
-<script src="js/v2/api.js?v=9ccba8e206" defer></script>
-<script src="js/v2/boot.js?v=9ccba8e206" defer></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=9ccba8e206">
+     «Администрирование» открывается без ожидания.
+
+     Этап 4 (аудит 2026-09-30): сами подсказки убраны из разметки и теперь
+     ставятся загрузчиком (hintAssets в v2-boot-template.js) уже ПОСЛЕ входа.
+     Здесь они срабатывали при разборе index.html — то есть ~106 КБ gzip кода
+     приложения уезжали человеку на экране входа, который мог и не войти.
+     Расстановка приоритетов сохранена целиком, изменился момент списания. -->
+<script src="js/v2/api.js?v=42587cb083" defer></script>
+<script src="js/v2/boot.js?v=42587cb083" defer></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=42587cb083">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>

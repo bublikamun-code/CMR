@@ -125,22 +125,32 @@ def main():
     assert style_block not in body, "inline-стили не вынесены из site-v2/index.html"  # noqa: S101
     for src in sorted(MOCKUPS.glob("shell-v2-*.css")):
         body = body.replace(f'<link rel="stylesheet" href="./{src.name}">', f'<link rel="stylesheet" href="css/{src.name}">')
-    # 1.2: подсказки загрузки модулей второй волны. В прототипе пути ./…, в
-    # сборке js/…, чтобы в предпросмотре макета (file://) ссылки не врали, —
-    # так же, как со стилями выше. Список задан здесь явно: shell-v2-fin.js не
-    # имеет файла-источника в mockups (его вырезает сборщик из inline-скрипта).
+    # Этап 4 (аудит 2026-09-30): подсказок загрузки модулей в разметке больше
+    # нет. Раньше здесь стоял гейт «ссылка обязана быть», и сборщик дописывал к
+    # ней префикс js/ — то есть пять preload и два prefetch выставлялись прямо в
+    # index.html и начинали качать ~106 КБ gzip кода приложения ещё на экране
+    # входа. Теперь их ставит загрузчик (hintAssets в v2-boot-template.js) уже
+    # после входа: та же расстановка приоритетов, но по счёту вошедшего.
     #
-    # Этап 3.2: rel переносится из прототипа, а не задаётся здесь. У ленивых
-    # модулей он prefetch, и это меняет смысл: загрузчик всё равно ставит их
-    # вторую волну, но prefetch не отнимает канал у первой.
+    # Гейт перевернут: раньше он защищал от СИТУАЦИИ «модуль забыли объявить»,
+    # и пропуск был бы тихим. Теперь защищать надо от обратного — от возврата
+    # подсказок в разметку, где они снова станут платежом экрана входа. Поэтому
+    # утверждение отрицательное: любая такая ссылка в собранном index.html —
+    # это регресс, и сборка должна на нём остановиться.
     for mod, rel in (("select", "preload"), ("payment", "preload"),
                      ("board", "preload"), ("management", "prefetch"),
                      ("fin", "preload"), ("insights", "prefetch"),
                      ("navigation", "preload")):
-        old_link = f'<link rel="{rel}" as="script" href="./shell-v2-{mod}.js">'
-        new_link = f'<link rel="{rel}" as="script" href="js/shell-v2-{mod}.js">'
-        assert old_link in body, "не найден %s модуля: %s" % (rel, mod)  # noqa: S101
-        body = body.replace(old_link, new_link)
+        stray = f'<link rel="{rel}" as="script" href="js/shell-v2-{mod}.js">'
+        stray_draft = f'<link rel="{rel}" as="script" href="./shell-v2-{mod}.js">'
+        assert stray not in body, (  # noqa: S101
+            "подсказка загрузки вернулась в разметку — экрану входа снова "
+            "достанется ~106 КБ gzip: %s" % mod
+        )
+        assert stray_draft not in body, (  # noqa: S101
+            "в прототипе осталась подсказка загрузки %s — убери её, её ставит "
+            "загрузчик" % mod
+        )
     for old, new in HTML_TRANSFORMS:
         assert old in body, "не найден фрагмент: " + old[:60]  # noqa: S101
         body = body.replace(old, new)

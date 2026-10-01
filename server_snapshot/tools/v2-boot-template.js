@@ -45,6 +45,36 @@
         });
     }
     async function injectAll(list) { await Promise.all(list.map(inject)); }
+    // FIX 2026-09-30 (аудит, Фаза 4): подсказки загрузки перенесены из HTML в
+    // загрузчик и теперь срабатывают ПОСЛЕ входа, а не при разборе index.html.
+    //
+    // Раньше пять preload/prefetch висели в разметке, то есть начинали качать
+    // ~106 КБ gzip кода приложения ещё на экране входа — человеку, который
+    // может вообще не войти, особенно на мобильном интернете. Приоритеты,
+    // ради которых хинты и заводились, при этом терялись: подсказка
+    // first-wave модулей оказывалась полезнее самой загрузки, но платил за неё
+    // посетитель логина.
+    //
+    // Теперь та же расстановка приоритетов, но по счёту вошедшего: перед
+    // injectAll первой волны ставим preload, перед второй — prefetch (низкий
+    // приоритет, чтобы не отнимать канал у доски). Смысл не изменился, изменился
+    // момент списания. Браузер, не поддерживающий rel=preload, просто не
+    // получит подсказку и скачает модуль обычным inject() — как раньше.
+    function hintAssets(assets) {
+        var version = (window.V2_ASSET_VER ? '?v=' + window.V2_ASSET_VER : '');
+        assets.forEach(function (a) {
+            try {
+                var link = document.createElement('link');
+                link.rel = a.rel;
+                link.as = 'script';
+                link.href = a.path + version;
+                document.head.appendChild(link);
+            } catch (err) {
+                // Подсказка — необязательная вещь: любой сбой не должен
+                // помешать загрузке самих модулей.
+            }
+        });
+    }
     // Уступить кадр до того, как браузер нарисует текущее состояние.
     // Один requestAnimationFrame ждёт СЛЕДУЮЩЕГО кадра, то есть уже после
     // paint; в фоне (вкладка не видна) rAF не срабатывает вовсе, поэтому
@@ -528,6 +558,19 @@
         'js/shell-v2-select.js', 'js/shell-v2-payment.js', 'js/shell-v2-board.js',
         'js/shell-v2-fin.js', 'js/shell-v2-navigation.js'
     ];
+    // Первая волна — preload (тот же приоритет, что у обычного <script>).
+    // Вторая — prefetch: management и insights рисуют только ленивые секции,
+    // и поднимать их до приоритета первой волны значит отнять канал у доски
+    // именно тогда, когда он ей нужен.
+    const APP_SCRIPTS_HINTS = [
+        { rel: 'preload', path: 'js/shell-v2-select.js' },
+        { rel: 'preload', path: 'js/shell-v2-payment.js' },
+        { rel: 'preload', path: 'js/shell-v2-board.js' },
+        { rel: 'preload', path: 'js/shell-v2-fin.js' },
+        { rel: 'preload', path: 'js/shell-v2-navigation.js' },
+        { rel: 'prefetch', path: 'js/shell-v2-management.js' },
+        { rel: 'prefetch', path: 'js/shell-v2-insights.js' }
+    ];
     // Вторая волна. injectAll — это Promise.all, поэтому await в bootApi()
     // ждал ВСЕ модули, а management.js (39 КБ gzip) и insights.js (21 КБ)
     // рисуют только свои ленивые секции: справочники админки и «Пульт дня»,
@@ -650,6 +693,7 @@
         enableMutations();
         renderUser(meUser);
         setText('CRM');
+        hintAssets(APP_SCRIPTS_HINTS);
         await injectAll(APP_SCRIPTS);
         // Этап 3.2. Вторая волна — строго после того, как браузер показал
         // доску. await на промиссе сам по себе кадра не даёт: парсер отдаёт

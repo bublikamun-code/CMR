@@ -1,5 +1,8 @@
 import contextlib
+import json
+import logging
 import os
+from datetime import datetime, timezone
 from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -7,6 +10,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
+
+logger = logging.getLogger(__name__)
 
 import models
 import runtime_config
@@ -282,31 +287,118 @@ def delete_card(card_id: int, db: Session = Depends(get_db), current_user: model
     return {"detail": "Карточка перемещена в архив"}
 
 
+def _snapshot_deleted_card(db, card, rows) -> str | None:
+    """Положить содержимое сделки в JSON рядом с базой — страховка отката.
+
+    FIX 2026-09-30 (аудит, Д-1). Отдельный снимок именно этих данных, а не копия
+    всей базы: при удалении навсегда пропадают транзакции (включая выписанные
+    накладные) и след правок, по которому суммы можно было бы восстановить.
+    Копия базы целиком весит столько, что на бое её перестают делать регулярно, а
+    именно этот файл нужен сразу и точечно.
+
+    Путь возвращается, чтобы показать его в ответе и записи в ленту. Ошибка
+    снимка ЛОГИРУЕТСЯ и не отменяет удаление: иначе неисправный диск запретил бы
+    админу приводить в порядок корзину, и снимок тихо перестал бы страховкой
+    ровно тогда, когда он нужен.
+    """
+    target = None
+    try:
+        # Путь к БД берём из самой сессии (PRAGMA database_list) — тот же
+        # приём, что в payments_router._backup_db_snapshot. Именно этот файл
+        # сейчас открыт приложением, и в multi-tenant раскладке он не обязан
+        # лежать рядом с CRM_DATA_DIR.
+        path_rows = db.connection().exec_driver_sql("PRAGMA database_list").fetchall()
+        db_path = next((r[2] for r in path_rows if r[1] == "main" and r[2]), None)
+        if not db_path:
+            logger.warning(
+                "Путь к базе не определён, снимок сделки не записан "
+                "code=purge_backup_no_db_path card_id=%s", card.id,
+            )
+            return None
+        backup_dir = os.path.join(os.path.dirname(db_path), "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        target = os.path.join(backup_dir, f"before_card_purge_{card.id}_{stamp}.json")
+        payload = {
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+            "card_id": card.id,
+            "tenant_id": card.tenant_id,
+            "card": {c.name: _jsonable(getattr(card, c.name))
+                     for c in card.__table__.columns},
+            "transactions": [
+                {c.name: _jsonable(getattr(t, c.name))
+                 for c in t.__table__.columns}
+                for t in rows
+            ],
+        }
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+        return target
+    except Exception:
+        logger.error(
+            "Снимок сделки перед удалением не записан code=purge_backup_failed "
+            "card_id=%s", card.id, exc_info=True,
+        )
+        return None
+
+
+def _jsonable(value):
+    """SQLite не знает datetime/Decimal — приводим к тому, чем умеет json."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 @router.delete("/cards/{card_id}/permanent", dependencies=[Depends(require_role("admin", "superadmin"))])
-def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def permanent_delete_card(card_id: int, force: bool = False, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     card = get_tenant_object(
         db, models.Card, card_id, current_user, detail="Карточка не найдена"
     )
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
+
+    # FIX 2026-09-30 (аудит, Д-1), часть 1: ГЕЙТ и ПОРЯДОК.
+    #
+    # Гейт. Сделка с выписанными накладными — это реальные деньги и документы
+    # контрагента. Раньше один клик по «Удалить навсегда» сносил их вместе с
+    # аудит-трейлом, и «Восстановить будет невозможно» из диалога было чистой
+    # правдой. Теперь такая сделка отвечает 409 с перечислением того, что
+    # пропадёт, и требует force=1 — то есть второго, осознанного подтверждения.
+    # Сделка без транзакций удаляется как раньше, без лишнего клика.
+    rows = tenant_query(db, models.Transaction, current_user).filter(
+        models.Transaction.card_id == card_id
+    ).all()
+    if rows and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"У сделки {len(rows)} записей в реестре оплат, они будут удалены "
+                f"вместе с накладными. Повторите с подтверждением, если это нужно."
+            ),
+        )
+
+    # Порядок. Раньше файлы вложений и накладных удалялись ПЕРВЫМИ, а коммит
+    # базы — в самом конце. Любой сбой между этими точками (переполнение
+    # диска, блокировка SQLite, исключение) оставлял БД с живой ссылкой на
+    # файл, которого уже нет: снимок в CRM ведёт в никуда, восстановить счёт
+    # нечем. Теперь сначала коммитится база, и только потом снимаются файлы.
+    # Обратный порядок тоже терпим: неудалённый файл — это осиротевший мусор,
+    # а не битая ссылка в работающей системе.
     upload_dir = os.path.realpath(os.fspath(runtime_config.uploads_dir()))
+    doomed_files = []
     for att in card.attachments:
-        real_path = os.path.realpath(att.file_path)
-        try:
-            inside_uploads = os.path.commonpath((upload_dir, real_path)) == upload_dir
-        except ValueError:
-            inside_uploads = False
-        if inside_uploads and os.path.exists(real_path):
-            os.remove(real_path)
+        doomed_files.append(att.file_path)
     for cl in card.checklists:
         if cl.invoice_file_path:
-            real_path = os.path.realpath(cl.invoice_file_path)
-            try:
-                inside_uploads = os.path.commonpath((upload_dir, real_path)) == upload_dir
-            except ValueError:
-                inside_uploads = False
-            if inside_uploads and os.path.exists(real_path):
-                os.remove(real_path)
+            doomed_files.append(cl.invoice_file_path)
+
+    # Снимок содержимого — до того, как что-либо разрушено.
+    backup_path = _snapshot_deleted_card(db, card, rows)
+
+    tx_ids = [t.id for t in rows]
+    tenant_query(db, models.Transaction, current_user).filter(
+        models.Transaction.card_id == card_id
+    ).delete(synchronize_session=False)
     # FIX 2026-08-29 (FK ON) + V3 (аудит прода 19.09): карточка удалена навсегда —
     # её собственность удаляется вместе с ней, а не остаётся сиротой. Ленту
     # (activity_log) раньше зануляли: сироты без card_id были источником редких
@@ -319,13 +411,12 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
     # и записи остались бы в «Реестре оплат» как «старые записи без привязки»
     # (V3, аудит прода 19.09). Кассу клиента (client_payments) не трогаем —
     # это реальные деньги, её card_id занулится сам по своему FK.
-    rows = tenant_query(db, models.Transaction, current_user).filter(
-        models.Transaction.card_id == card_id
-    ).all()
-    tx_ids = [t.id for t in rows]
-    tenant_query(db, models.Transaction, current_user).filter(
-        models.Transaction.card_id == card_id
-    ).delete(synchronize_session=False)
+    #
+    # ВАЖНО: rows и tx_ids выше уже собраны ОДИН раз — до снимка и до удаления.
+    # Дубль запроса после delete возвращал бы пустоту, из-за чего в ответе и в
+    # ленте показывалось бы «удалено записей: 0» при реально удалённых
+    # накладных, а чистка record_versions по tx_ids не задевала бы ничего.
+    # Транзакции удаляются ниже, одним запросом.
     # История версий карточки и её транзакций без самой записи бессмысленна.
     tenant_query(db, models.RecordVersion, current_user).filter(
         models.RecordVersion.table_name == "cards",
@@ -342,6 +433,11 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
     tenant_query(db, models.Task, current_user).filter(
         models.Task.card_id == card_id
     ).update({"card_id": None}, synchronize_session=False)
+    # Снимок сделки и счёт её транзакций читаем ДО db.delete(card): после
+    # удаления ORM-объект уже недоступен, а эти два значения нужны и для записи
+    # в ленту, и для ответа.
+    card_title = card.title
+    tx_total = sum(float(t.amount or 0) for t in rows)
     db.delete(card)
     # flush, а не commit: карточка уходит из сессии в БД, чтобы group.cards
     # ниже отразил её отсутствие, но транзакция оставалась атомарной.
@@ -358,8 +454,51 @@ def permanent_delete_card(card_id: int, db: Session = Depends(get_db), current_u
             recompute_group_total(group)
             if not group.cards:
                 db.delete(group)
+    # FIX 2026-09-30 (аудит, Д-1), часть 2: ЗАПИСЬ ОБ УДАЛЕНИИ.
+    #
+    # Лента сделки только что стёрта (строки выше), и потому само удаление не
+    # оставляло в базе НИКАКОГО следа: нельзя было даже понять, что сделка
+    # была, не говоря о том, кто и когда её снёс. Запись пишется с card_id=None
+    # — как раз тот случай, для которого в ActivityLog.card_id и допускает null
+    # (миграция 0010 чистила именно такие сироты). Имена и суммы вшиты в текст,
+    # потому что самой сделки к моменту просмотра уже не существует.
+    db.add(models.ActivityLog(
+        action="Удаление сделки навсегда",
+        card_id=None,
+        user_id=current_user.id,
+        tenant_id=current_user.tenant_id,
+        details=(
+            f"«{card_title}» (id={card_id}) удалена безвозвратно администратором "
+            f"{current_user.username}. Удалено записей в реестре оплат: "
+            f"{len(rows)}, на сумму {tx_total:.2f}."
+            + (f" Снимок содержимого: {backup_path}" if backup_path else
+               " Снимок содержимого НЕ записан — см. журнал сервера.")
+        ),
+    ))
     db.commit()
-    return {"detail": "Карточка удалена навсегда"}
+
+    # Финально и только теперь снимаем файлы: база уже приведена в порядок,
+    # и ошибка удаления файла не оставит ссылки в никуда.
+    for raw_path in doomed_files:
+        real_path = os.path.realpath(raw_path)
+        try:
+            inside_uploads = os.path.commonpath((upload_dir, real_path)) == upload_dir
+        except ValueError:
+            inside_uploads = False
+        if inside_uploads and os.path.exists(real_path):
+            try:
+                os.remove(real_path)
+            except OSError:
+                # Осиротевший файл — это мусор, а не потерянные деньги.
+                logger.warning(
+                    "Файл сделки не удалён, остался сиротой code=purge_file_failed "
+                    "card_id=%s", card_id, exc_info=True,
+                )
+    return {
+        "detail": "Карточка удалена навсегда",
+        "backup": backup_path,
+        "transactions_removed": len(rows),
+    }
 
 
 @router.get("/cards/{card_id}/versions")

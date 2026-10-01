@@ -750,14 +750,13 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
      нарисовалась, — то есть ровно тогда, когда канал нужен доске.
      prefetch сообщает браузеру «это пригодится», но ставит загрузку в самый
      низ приоритета: байты качаются, когда критичное уже скачано, и раздел
-     «Администрирование» открывается без ожидания. -->
-<link rel="preload" as="script" href="./shell-v2-select.js">
-<link rel="preload" as="script" href="./shell-v2-payment.js">
-<link rel="preload" as="script" href="./shell-v2-board.js">
-<link rel="prefetch" as="script" href="./shell-v2-management.js">
-<link rel="preload" as="script" href="./shell-v2-fin.js">
-<link rel="prefetch" as="script" href="./shell-v2-insights.js">
-<link rel="preload" as="script" href="./shell-v2-navigation.js">
+     «Администрирование» открывается без ожидания.
+
+     Этап 4 (аудит 2026-09-30): сами подсказки убраны из разметки и теперь
+     ставятся загрузчиком (hintAssets в v2-boot-template.js) уже ПОСЛЕ входа.
+     Здесь они срабатывали при разборе index.html — то есть ~106 КБ gzip кода
+     приложения уезжали человеку на экране входа, который мог и не войти.
+     Расстановка приоритетов сохранена целиком, изменился момент списания. -->
 <script src="./shell-v2-select.js" defer></script>
 <script src="./shell-v2-payment.js" defer></script>
 <link rel="stylesheet" href="./shell-v2-management.css">

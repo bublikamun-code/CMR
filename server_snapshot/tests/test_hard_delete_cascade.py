@@ -60,7 +60,9 @@ def test_hard_delete_cleans_transactions_log_versions_and_recomputes_group(
     save_version(db, "transactions", remainder_id,
                  {"amount": 1000.0}, change_type="create")
 
-    r = client.delete(f"/kanban/cards/{card_a_id}/permanent", headers=h)
+    # Д-1 (2026-09-30): сделка с записями в реестре требует force=1 —
+# гейт на удаление денежных записей проверяется в test_card_purge_safety.py.
+    r = client.delete(f"/kanban/cards/{card_a_id}/permanent?force=1", headers=h)
     assert r.status_code == 200, r.text
 
     db.expire_all()
@@ -113,7 +115,9 @@ def test_payments_registry_is_clean_after_hard_delete(
     card_id = card.id
     make_transaction(card, amount=700.0)
 
-    assert client.delete(f"/kanban/cards/{card_id}/permanent",
+    # Д-1 (2026-09-30): сделка с записями в реестре требует force=1 —
+# гейт на удаление денежных записей проверяется в test_card_purge_safety.py.
+    assert client.delete(f"/kanban/cards/{card_id}/permanent?force=1",
                          headers=admin_h).status_code == 200
 
     r = client.get("/payments/transactions", headers=manager_h)

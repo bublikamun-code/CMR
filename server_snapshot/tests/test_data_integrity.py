@@ -53,7 +53,9 @@ def test_delete_card_permanently_cascades_and_unlinks(client, admin, db, make_ca
     db.add(models.Task(title="Задача по сделке", card_id=card_id))
     db.commit()
 
-    r = client.delete(f"/kanban/cards/{card_id}/permanent", headers=h)
+    # Д-1 (2026-09-30): сделка с записями в реестре требует force=1 —
+# гейт на удаление денежных записей проверяется в test_card_purge_safety.py.
+    r = client.delete(f"/kanban/cards/{card_id}/permanent?force=1", headers=h)
     assert r.status_code == 200, r.text
 
     _reload(db)
@@ -68,7 +70,15 @@ def test_delete_card_permanently_cascades_and_unlinks(client, admin, db, make_ca
     assert _count(db, models.Transaction, card_id=card_id) == 0
     assert _count(db, models.Transaction) == 0, "транзакции удалённой сделки не остаются сиротами"
     assert _count(db, models.ActivityLog, card_id=card_id) == 0
-    assert _count(db, models.ActivityLog) == 0, "лента удалённой сделки чистится, а не зануляется"
+    # Д-1: лента САМОЙ сделки чистится, как и раньше. Но запись о факте
+    # удаления остаётся намеренно — с card_id=None, без сироты: без неё
+    # об удалении в базе не остаётся вообще никакого следа.
+    assert _count(db, models.ActivityLog, card_id=card_id) == 0, (
+        "лента удалённой сделки чистится, а не зануляется")
+    purge_notes = db.query(models.ActivityLog).filter(
+        models.ActivityLog.action == "Удаление сделки навсегда").all()
+    assert len(purge_notes) == 1, "удаление должно быть записано в ленту"
+    assert purge_notes[0].card_id is None, "запись об удалении не висит на сделке"
     # SET NULL — задачи это чужие поручения: отвязываются, но живут
     assert _count(db, models.Task, card_id=card_id) == 0
     assert _count(db, models.Task) == 1, "задача должна остаться, но без card_id"
@@ -78,7 +88,9 @@ def test_delete_card_permanently_requires_admin(client, manager, db, make_card):
     _, h = manager
     card = make_card()
     card_id = card.id
-    r = client.delete(f"/kanban/cards/{card_id}/permanent", headers=h)
+    # Д-1 (2026-09-30): сделка с записями в реестре требует force=1 —
+# гейт на удаление денежных записей проверяется в test_card_purge_safety.py.
+    r = client.delete(f"/kanban/cards/{card_id}/permanent?force=1", headers=h)
     assert r.status_code == 403
     _reload(db)
     assert _exists(db, models.Card, card_id)
@@ -93,7 +105,10 @@ def test_no_fk_violations_after_card_deletion(client, admin, db, make_card,
     db.add(models.CardAttachment(card_id=card_id, file_name="x", file_path="/tmp/x"))
     db.commit()
 
-    assert client.delete(f"/kanban/cards/{card_id}/permanent", headers=h).status_code == 200
+    # Д-1: сделка с транзакцией требует force=1 — гейт проверяется
+    # отдельно в tests/test_card_purge_safety.py.
+    assert client.delete(
+        f"/kanban/cards/{card_id}/permanent?force=1", headers=h).status_code == 200
     assert foreign_key_violations() == []
 
 
@@ -329,7 +344,10 @@ def test_no_fk_violations_after_bulk_deletions(client, admin, db, make_user, mak
     assert client.delete(f"/suppliers/{sup_id}", headers=h).status_code == 200
     assert client.delete(f"/clients/{cli_id}", headers=h).status_code == 200
     assert client.delete(f"/auth/users/{u_id}", headers=h).status_code == 200
-    assert client.delete(f"/kanban/cards/{card_id}/permanent", headers=h).status_code == 200
+    # Д-1: сделка с транзакцией требует force=1 — гейт проверяется
+    # отдельно в tests/test_card_purge_safety.py.
+    assert client.delete(
+        f"/kanban/cards/{card_id}/permanent?force=1", headers=h).status_code == 200
 
     assert foreign_key_violations() == []
 
