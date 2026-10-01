@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -42,8 +42,83 @@ class FieldCreate(BaseModel):
     options: Optional[list] = None
     position: int = 0
 
+# Порог на число полей в одной записи кастомного объекта.
+# Обоснование — в docstring RecordData ниже.
+MAX_RECORD_FIELDS = 200
+
+
 class RecordData(BaseModel):
-    data: dict
+    # FIX 2026-09-30 (аудит, С-5): ограничение на размер полезной нагрузки.
+    #
+    # Раньше data принимал словарь любого размера, и одна запись могла втянуть
+    # в себя сколько угодно полей — то есть сколько угодно строк в
+    # custom_field_values за одну операцию. Это уже не «пользователь ошибся»,
+    # а способ положить таблицу одним запросом, и он не требовал ни прав, ни
+    # понимания устройства системы. Лимит считается по числу КЛЮЧЕЙ, потому что
+    # именно столько значений превратится в строки: неизвестные поля
+    # отбрасываются, но место в лимите занимают.
+    #
+    # 200 полей — с большим запасом для реальных справочников (у самого
+    # насыщенного объекта их единицы) и намеренно круглое, чтобы число
+    # не выглядело точной гарантией, которой нет.
+    data: dict = Field(..., max_length=MAX_RECORD_FIELDS)
+
+
+def _coerce_number(raw, field):
+    """Число из значения формы — 400 вместо 500.
+
+    Раньше здесь стоял голый float(value): строка «abc» из поля ввода роняла
+    ValueError прямо в хендлере, то есть в 500, и клиент видел «внутренняя
+    ошибка сервера» вместо «в это поле надо число». Отдельная функция нужна и
+    потому, что разбор повторяется в трёх местах (создание записи, правка
+    значения, калькулятор), и раньше каждое место вело себя по-своему.
+    """
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        # bool — подкласс int, но «да/нет» в денежном поле бессмысленно:
+        # молча превращать его в 1.0 значит записать в поле значение, которого
+        # никто не вводил.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Нужно число в поле «{field.name}», а получено да/нет")
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Некорректное число в поле «{field.name}»: {raw!r}") from e
+
+
+def _check_select_option(field, value):
+    """Значение поля «список» должно быть одним из объявленных вариантов.
+
+    Раньше любая строка молча ложилась в select как есть. Человек (или
+    подставляющий скрипт) мог записать в поле «Статус» что угодно, и потом
+    фильтры по этому полю переставали работать — то есть данные становились
+    невидимыми для всех, кто ими пользуется, без единого признака ошибки.
+    """
+    if value is None or value == "":
+        return None
+    if not field.options:
+        raise HTTPException(
+            status_code=400,
+            detail=f"У поля «{field.name}» не задано ни одного варианта")
+    try:
+        options = json.loads(field.options)
+    except (TypeError, ValueError):
+        # Список вариантов испорчен настройкой справочника. Это не ошибка
+        # пользователя, но и пропускать значение нельзя — иначе мусор снова
+        # окажется в данных. Отказ с внятным текстом честнее.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Варианты поля «{field.name}» заданы некорректно — обратитесь к администратору")
+    if value not in options:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Значение {str(value)!r} отсутствует в списке поля «{field.name}». "
+                   f"Допустимо: {', '.join(str(o) for o in options[:10])}")
+    return value
 
 # 23.09 (пункт 15 плана v2): правка существующего типа и его поля. Тело —
 # только изменяемые атрибуты; отсутствие ключа означает «не трогать», а null —
@@ -463,10 +538,17 @@ def create_record(obj_id: int, record: RecordData, db: Session = Depends(get_db)
         if not field:
             continue
         fv = models.CustomFieldValue(record_id=new_record.id, field_def_id=field.id)
-        if field.field_type in ('text', 'select'):
+        if field.field_type == 'select':
+            # С-5: значение сверяется со списком вариантов поля, а не
+            # кладётся как есть. Прежние полотна и сводки по этому полю
+            # строились из объявленных вариантов, и неучтённое значение делало
+            # запись невидимой для фильтров без единого признака ошибки.
+            fv.value_text = (str(_check_select_option(field, value))
+                             if value is not None else None)
+        elif field.field_type == 'text':
             fv.value_text = str(value) if value is not None else None
         elif field.field_type in ('number', 'currency'):
-            fv.value_number = float(value) if value is not None else None
+            fv.value_number = _coerce_number(value, field)
         elif field.field_type == 'boolean':
             fv.value_boolean = bool(value)
         elif field.field_type == 'date':
