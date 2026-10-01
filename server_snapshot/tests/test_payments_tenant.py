@@ -277,6 +277,14 @@ def test_superadmin_keeps_global_scope_on_payments_routes(
     (0.1 - 0.1, True),
     (0.1 + 0.2 - 0.3, True),     # хвост 5.55e-17 после трёх вычитаний
     (1.01, False),
+    # FIX 2026-09-30 (аудит денег). Отрицательный остаток — это переизбыток,
+    # а не ноль: раньше `<= 0` отвечал на нём True, из-за чего запись-остаток
+    # удалялась, сделка помечалась «Закрыто», а переизбыток не оставался ни
+    # в реестре, ни в отчётах. Отсутствие этих трёх строк в параметрах и
+    # было причиной, почему баг дожил до 30.09.
+    (-0.01, False),
+    (-0.01, False),
+    (-1.0, False),
 ])
 def test_money_zero_predicate(value, is_zero):
     assert money_is_zero(value) is is_zero
@@ -306,6 +314,35 @@ def test_writeoff_status_closes_float_dust(db, make_card, make_transaction):
     assert writeoff_status_for(card, db.query(models.Transaction).filter(
         models.Transaction.card_id == card.id
     ).all()) == "Закрыто"
+
+
+def test_issue_invoice_rejects_penny_over_issue(db, make_card, make_user, client):
+    """Накладная сверх остатка на копейку отклоняется, а не проходит молча.
+
+    Регрессия на аудит 2026-09-30. Проверка была `amount > rest + MONEY_EPSILON`,
+    поэтому при остатке 0.00 условие 0.01 > 0.00 + 0.01 давало False, накладная
+    проходила, остаток уходил в минус, а money_is_zero(-0.01) отвечал True —
+    запись-остаток удалялась и сделка закрывалась. Итог: сделка выставлена на
+    копейку больше своей суммы, и переизбыток не был виден нигде.
+    """
+    card = make_card(total_amount=0.0, status="Сборка")
+    _user, headers = make_user(role="manager")
+
+    response = client.post(f"/payments/cards/{card.id}/issue-invoice", headers=headers, json={
+        "invoice_number": "ТН-999",
+        "amount": 0.01,
+        "invoice_date": "2026-09-30",
+        "store_location": "Матусевича 72",
+    })
+
+    assert response.status_code == 400, response.text
+    assert "больше остатка" in response.json()["detail"]
+
+    # и переизбытка в реестре действительно не появилось
+    db.expire_all()
+    assert db.query(models.Transaction).filter(
+        models.Transaction.card_id == card.id
+    ).count() == 0
 
 
 def test_issue_invoice_leaving_penny_keeps_remainder(

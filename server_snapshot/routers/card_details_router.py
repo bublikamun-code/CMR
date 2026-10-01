@@ -783,7 +783,11 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
                 from routers.clients_router import _client_balance_payload
                 bal = _client_balance_payload(db, card.client_id, current_user)
                 available = round(bal["payments_total"] - bal["paid_on_cards"], 2)
-                if draw > available + MONEY_EPSILON:
+                # FIX 2026-09-30 (аудит денег): обе величины округлены до копеек,
+                # поэтому допуск на границе небаланса не нужен. На проверке выше
+                # (draw > MONEY_EPSILON) он остаётся — там он отвечает на другой
+                # вопрос: «изменение значимое или это хвост», а не «хватает ли денег».
+                if draw > available:
                     raise HTTPException(status_code=400,
                         detail=f"Баланса клиента не хватает: доступно {available} BYN, требуется {draw} BYN")
         if payload.paid_amount is not None:

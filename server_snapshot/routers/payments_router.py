@@ -604,7 +604,11 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
                                           if t.id != tx.id
                                           and (t.is_warehouse_writeoff or (t.invoice_number or "").strip())), 2)
                 available = round(float(card.total_amount or 0) - others_issued, 2)
-                if float(tx.amount or 0) > available + MONEY_EPSILON:
+                # FIX 2026-09-30 (аудит денег): available уже округлено до копеек,
+                # а tx.amount приходит из Numeric(12,2), который диалект квантует
+                # при чтении, — обе стороны чистые, допуск не нужен. С ним правка
+                # накладной на копейку сверх остатка проходила молча.
+                if float(tx.amount or 0) > available:
                     raise HTTPException(status_code=400,
                         detail=f"Сумма накладной ({round(float(tx.amount or 0), 2)}) больше остатка по сделке ({available})")
             if card is not None:

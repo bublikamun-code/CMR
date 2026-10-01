@@ -11,7 +11,6 @@ import contextlib
 from fastapi import HTTPException
 
 import models
-from constants import MONEY_EPSILON
 from services.invoices import find_duplicate_invoice, find_invoice_twins
 from services.sqlite_writer import reserve_model_rows
 from services.writeoffs import (
@@ -473,7 +472,13 @@ def _add_invoice(session, card_id, payload, actor=None):
         issued_before = round(sum(float(t.amount or 0) for t in existing
                                   if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
         rest_before = round(float(card.total_amount or 0) - issued_before, 2)
-        if amount > rest_before + MONEY_EPSILON:
+        # FIX 2026-09-30 (аудит денег): MONEY_EPSILON стоял здесь ради хвостов
+        # float, но обе величины уже округлены до копеек — хвоста на них не бывает.
+        # Вредил он так: при rest_before = 0.00 проверка 0.01 > 0.00 + 0.01 даёт
+        # False, накладная на копейку проходит, остаток уходит в минус и молча
+        # удаляется — сделка оказывается выставлена на копейку больше, и нигде
+        # это не отражено.
+        if amount > rest_before:
             raise HTTPException(
                 status_code=400,
                 detail=f"Сумма накладной ({amount}) больше остатка по сделке ({rest_before})",
@@ -633,7 +638,11 @@ def _issue_invoice(session, card_id, payload, actor):
     # списания считается так же, теперь и модалка показывает то же число.
     rest_before = max(0.0, round(card_amount - issued_total, 2))
 
-    if amount > rest_before + MONEY_EPSILON:
+    # FIX 2026-09-30 (аудит денег): см. замечание выше по add_invoice. Здесь хвост
+    # float тем более невозможен — rest_before уже прошёл max(0.0, round(..., 2)),
+    # а amount округлён на входе. С допуском проверка при остатке 0.00 пропускала
+    # накладную на 0.01 и закрывала сделку с переизбытком.
+    if amount > rest_before:
         raise HTTPException(
             status_code=400,
             detail=f"Сумма накладной {amount:.2f} больше остатка по сделке {rest_before:.2f}"
