@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.utils import parseaddr
 from pathlib import Path
@@ -419,9 +419,11 @@ MAX_ATTACHMENT_BYTES = MAX_UPLOAD_BYTES
 
 _MESSAGE_ID_RE = re.compile(r"<([^<>]+)>")
 
-# Горизонт поиска ранее импортированного письма (совпадает с ротацией журнала,
-# миграция 0015). Нужен только для того, чтобы LIKE не сканировал всю ленту.
-DEDUP_LOOKBACK_DAYS = 180
+# FIX 2026-09-30 (К-1): DEDUP_LOOKBACK_DAYS удалён вместе с горизонтом поиска.
+# Он существовал только чтобы удержать LIKE от сканирования всей ленты, а
+# дедупликация переведена на точное сравнение по колонке email_message_id
+# (миграция 0019), которое идёт по индексу. Константа оставлена бы мёртвым
+# числом, читающимся как действующее правило хранения.
 
 
 def _sanitize_attachment_name(name: str) -> str:
@@ -509,31 +511,34 @@ def _normalize_message_id(raw) -> Optional[str]:
 def _find_already_imported(db: Session, tenant_id: int, message_id: str):
     """Найти ранее импортированное письмо по IMAP Message-ID.
 
-    Отдельной колонки в модели Card нет, а заводить миграцию под один ключ
-    идемпотентности — лишний риск для боевой схемы. Ключ хранится в записи
-    ленты «Импорт почты»: она tenant-owned, переживает мягкое удаление
-    карточки (значит, связанное через /link письмо не вернётся дублем) и уже
-    сужается индексом по tenant_id.
+    FIX 2026-09-30 (аудит, К-1). Раньше ключ искался подстрокой в details
+    (``details LIKE '%<message-id>%'``), а в details пишется ТЕЛО письма.
+    Ответ на письмо почти всегда цитирует заголовки оригинала, и среди
+    процитированных есть ``Message-ID`` исходного письма: ответ со своим
+    новым Message-ID считался уже импортированным, карточка не создавалась,
+    письмо помечалось флагом ``\\Seen`` — и содержимое ответа пропадало
+    навсегда. Теперь сравнение ТОЧНОЕ, по отдельной колонке
+    ``email_message_id`` (миграция 0019), поэтому цитата в теле на него не
+    влияет.
 
-    LIKE по details идёт по всей таблице, поэтому запрос дополнительно
-    ограничен горизонтом ротации журнала (180 дней, миграция 0015): сканируется
-    индексированный диапазон created_at, а не весь лог. Этого заведомо
-    достаточно — синк берёт только непрочитанные письма за сегодня
-    (``UNSEEN SINCE``), то есть вернуться в выборку давнее письмо не может.
+    Ключ хранится в записи ленты «Импорт почты»: она tenant-owned и переживает
+    мягкое удаление карточки (значит, связанное через /link письмо не вернётся
+    дублем). Горизонт в 180 дней оставлен намеренно: он совпадает с ротацией
+    журнала (миграция 0015), то есть не даёт опрашивать заведомо срезанные
+    строки. Стоимость запроса на него больше не влияет — сравнение идёт по
+    индексу, а не сканирует таблицу.
+
+    Вторая линия защиты — частичный уникальный индекс
+    ``ux_activity_log_email_message_id`` из той же миграции: если два синка
+    успеют пройти проверку одновременно, второй упрётся в IntegrityError
+    вместо второй карточки-дубля.
     """
-    pattern = (
-        "%"
-        + message_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        + "%"
-    )
-    horizon = datetime.now(timezone.utc) - timedelta(days=DEDUP_LOOKBACK_DAYS)
     return (
         db.query(models.ActivityLog)
         .filter(
             models.ActivityLog.tenant_id == tenant_id,
             models.ActivityLog.action == IMPORT_LOG_ACTION,
-            models.ActivityLog.created_at >= horizon,
-            models.ActivityLog.details.like(pattern, escape="\\"),
+            models.ActivityLog.email_message_id == message_id,
         )
         .order_by(models.ActivityLog.id.desc())
         .first()
@@ -727,7 +732,9 @@ def _import_email_message(
         if sender_email_addr and sender_email_addr != sender:
             sender_line += f" <{sender_email_addr}>"
         # Message-ID идёт ПЕРВОЙ строкой: детали обрезаются до 4000 символов,
-        # и при длинном письме хвост обрезался бы первым.
+        # и при длинном письме хвост обрезался бы первым. Это читаемая
+        # разметка для человека, а ключ дедупликации — в email_message_id
+        # ниже: строчный поиск по телу письма больше не делается (К-1).
         id_line = f"Message-ID: <{message_id}>\n" if message_id else ""
         log_entry = models.ActivityLog(
             user_id=None,
@@ -736,6 +743,7 @@ def _import_email_message(
             details=(
                 f"{id_line}От: {sender_line}\nТема: {subject or '—'}\n\n{body}"
             )[:4000],
+            email_message_id=message_id,
             tenant_id=tenant_id,
         )
         db.add(log_entry)

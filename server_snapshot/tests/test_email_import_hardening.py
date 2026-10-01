@@ -330,6 +330,9 @@ def test_message_id_of_another_tenant_does_not_block_import(db, mailbox):
     db.add(models.ActivityLog(
         user_id=None, card_id=foreign_card.id, action="Импорт почты",
         details="Message-ID: <shared@example.com>\nОт: klient@example.com",
+        # FIX 2026-09-30 (К-1): ключ держится в колонке, а не в тексте.
+        # Без неё тест проверял бы уже не то и проходил вхолостую.
+        email_message_id="shared@example.com",
         tenant_id=202,
     ))
     db.commit()
@@ -342,6 +345,100 @@ def test_message_id_of_another_tenant_does_not_block_import(db, mailbox):
     assert result["count"] == 1, result
     db.expire_all()
     assert db.query(models.Card).count() == 2
+
+
+def test_reply_quoting_original_message_id_is_still_imported(db, mailbox):
+    """Оригинал, чей Message-ID процитирован в ответе, НЕ теряется.
+
+    Регрессия на аудит 2026-09-30 (К-1) — самый дорогой дефект в отчёте.
+    Раньше ключ искался подстрокой в details, а туда пишется ТЕЛО письма.
+
+    Сценарий потери. Приходит ответ, в теле которого процитированы заголовки
+    оригинала вместе с его Message-ID (Outlook и Thunderbird цитируют их по
+    умолчанию). Ответ импортируется, и его запись ленты теперь СОДЕРИТ
+    Message-ID оригинала. Дальше доходит очередь самого оригинала — а он
+    ещё не импортирован. Старый LIKE искал его Message-ID в details и
+    находил его в записи ЧУЖОГО, уже импортированного ответа: оригинал
+    объявлялся «уже импортированным», карточка не создавалась, письмо
+    помечалось флагом \\Seen — и исходная заявка клиента пропадала навсегда.
+    Обратной дороги нет: непрочитанным письмо больше не станет.
+
+    Порядок в списке ИМЕННО ТАКОЙ — ответ раньше оригинала. Это не
+    искусственное условие: синк берёт непрочитанные письма, а \\Seen ставится
+    только после успешного commit, причём ошибка STORE проглатывается
+    (_mark_seen). Оригинал, оставшийся непрочитанным, попадает в выборку
+    позже ответа — например, если флаг не записался.
+    """
+    reply_body = (
+        "Спасибо!\n"
+        "От: klient@example.com\n"
+        "Тема: Люстра\n"
+        "Message-ID: <original-1@example.com>\n"
+        "Дата: 30 сентября 2026\n"
+    )
+    harness, settings = mailbox([
+        _mail(subject="Re: Люстра", message_id="<reply-2@example.com>",
+              body=reply_body),
+        _mail(subject="Люстра", message_id="<original-1@example.com>"),
+    ])
+
+    result = _sync(db, settings)
+
+    assert result["count"] == 2, (
+        f"ожидались обе заявки, импортировано {result['count']}: {result}"
+    )
+    db.expire_all()
+    cards = db.query(models.Card).all()
+    assert len(cards) == 2, "оригинал заявки обязан стать отдельной карточкой"
+    # Ключи импорта у карточек РАЗНЫЕ, а не совпали по цитате в теле.
+    keys = {row.email_message_id for row in db.query(models.ActivityLog).all()}
+    assert keys == {"original-1@example.com", "reply-2@example.com"}, keys
+
+
+def test_long_reply_still_keeps_its_own_card(db, mailbox):
+    """Ответ с процитированным заголовком импортируется сам по себе.
+
+    Обратная сторона того же дефекта: чистильщик режет цитату, если маркер
+    «От:» стоит дальше 40-го символа (email_cleaner.py:54), и тогда старый
+    LIKE срабатывал в другую сторону — терялся ответ. Здесь цитата длинная и
+    срезается, Message-ID оригинала в details не попадает, и оба письма
+    импортируются. Тест фиксирует, что переход на точное сравнение ничего не
+    сломал в обычном случае.
+    """
+    reply_body = (
+        "Спасибо, всё получили, отправляем оплату сегодня до конца дня.\n"
+        "От: klient@example.com\n"
+        "Тема: Люстра\n"
+        "Message-ID: <original-1@example.com>\n"
+    )
+    harness, settings = mailbox([
+        _mail(subject="Re: Люстра", message_id="<reply-2@example.com>",
+              body=reply_body),
+        _mail(subject="Люстра", message_id="<original-1@example.com>"),
+    ])
+
+    result = _sync(db, settings)
+
+    assert result["count"] == 2, result
+    db.expire_all()
+    assert db.query(models.Card).count() == 2
+
+
+def test_repeated_sync_does_not_duplicate_cards(db, mailbox):
+    """Повторный прогон по тем же письмам не плодит карточки.
+
+    Точное сравнение по колонке обязано вести себя как прежний LIKE во всём,
+    кроме ложных срабатываний, — иначе починить К-1 ценой дублей было бы
+    плохим разменом.
+    """
+    harness, settings = mailbox([_mail(message_id="<once@example.com>")])
+
+    _sync(db, settings)
+    _sync(db, settings)
+
+    db.expire_all()
+    assert db.query(models.Card).count() == 1
+    assert len(harness.stored_flags) >= 1
 
 
 def test_letters_without_message_id_are_not_merged(db, mailbox):

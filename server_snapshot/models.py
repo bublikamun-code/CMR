@@ -258,6 +258,12 @@ class ActivityLog(Base):
     card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"))
     action = Column(String, nullable=False)
     details = Column(Text, nullable=True)
+    # Ключ идемпотентности импорта почты, миграция 0019. До него Message-ID
+    # искался подстрокой в details, а туда пишется ТЕЛО письма — и любой ответ
+    # с процитированными заголовками оригинала считался дублем и помечался
+    # \Seen, то есть терялся навсегда (аудит 2026-09-30, К-1). Заполняется
+    # только записями «Импорт почты», у всего остального журнала NULL.
+    email_message_id = Column(String(255), nullable=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
