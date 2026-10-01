@@ -23,6 +23,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -206,6 +207,41 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+# FIX 2026-09-30 (аудит, С-12): TrustedHostMiddleware.
+#
+# Зачем. Приложение слушает 0.0.0.0, а nginx проксирует на него по HTTP. То
+# есть весь API доступен напрямую мимо nginx: по адресу сервера и порту 20008
+# без TLS, без заголовков nginx и без каких-либо его ограничений. CORS не
+# защищает от этого: он ограничивает чтение ОТВЕТА браузером, а не
+# выполнение запроса — curl или скрипт шлёт что угодно, Origin ему не мешает.
+# TrustedHost отсекает обращения с чужим Host-заголовком, то есть попытки
+# прийти на бэкенд напрямую, подставив домен в Host.
+#
+# Почему список берётся из CRM_CORS_ORIGINS, а не задаётся отдельно. Эти
+# хосты — ровно те, через которые система УЖЕ работает: если адрес не проходит
+# CORS-проверку, он и не должен приниматься. Отдельный список разошёлся бы с
+# ним при первом же переезде, и тогда одно из двух мест тихо перестало бы
+# работать. Локальные адреса добавлены обязательно: стенд, health-чеки и
+# прямые заходы с самого сервера идут именно так.
+#
+# ПОСЛЕДСТВИЕ ДЛЯ ВЛАДЕЛЬЦА: при смене домена нужно добавить его в
+# CRM_CORS_ORIGINS (и в CRM_ALLOWED_HOSTS, если он отличается). Забытый домен
+# даст 400 на ВСЕ запросы сразу — поэтому переменная вынесена отдельно и
+# переопределяет вывод, а не дополняет его молча.
+_ALLOWED_HOSTS = {
+    host.strip()
+    for host in os.environ.get("CRM_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+} or {
+    # Из CRM_CORS_ORIGINS выкидываем схему и возможный путь.
+    origin.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    for origin in ALLOWED_ORIGINS
+    if "//" in origin
+} | {"127.0.0.1", "localhost", "testserver", "[::1]"}
+
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(_ALLOWED_HOSTS))
+logger.info("TrustedHost: разрешены хосты %s", sorted(_ALLOWED_HOSTS))
+
 UPLOADS_DIR = uploads_dir()
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 os.makedirs("tenants", exist_ok=True)
@@ -361,7 +397,29 @@ def readinesscheck():
 
 @app.middleware("http")
 async def add_headers(request: Request, call_next):
-    response = await call_next(request)
+    # FIX 2026-09-30 (аудит, С-16): 500 больше не остаётся без заголовков
+    # безопасности.
+    #
+    # Раньше `response = await call_next(request)` стоял без защиты, и любое
+    # необработанное исключение проходило мимо этого кода: ответ собирал
+    # внешний ServerErrorMiddleware, ВЫШЕ add_headers по стеку, поэтому CSP,
+    # X-Frame-Options и nosniff на странице ошибки отсутствовали. То есть ровно
+    # на самой нештатной странице браузер не получал политики, которые обычно и
+    # защищают.
+    #
+    # Исключение не глотаем: оно уходит в журнал целиком, клиенту возвращается
+    # одинаковая 500 без внутренних деталей.
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "Необработанная ошибка при обработке запроса method=%s path=%s",
+            request.method, request.url.path,
+        )
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "Внутренняя ошибка сервера"},
+        )
     path = request.url.path
 
     if path.startswith(("/css/", "/js/")):
