@@ -254,8 +254,17 @@ def update_object(obj_id: int, upd: ObjectTypeUpdate, db: Session = Depends(get_
         # CustomFieldDef.relation_target хранит ИМЯ типа, а не id (models.py:264),
         # поэтому переименование переставляет и ссылки: иначе поле-связка
         # указывала бы в несуществующий тип объекта.
+        #
+        # FIX 2026-09-30 (аудит прав доступа): фильтр БЫЛ без tenant_id, а это
+        # UPDATE по всей таблице. Миграция 0018 заменила глобальную уникальность
+        # имени типа на UNIQUE (tenant_id, name), то есть одинаковое системное
+        # имя у разных компаний стало законным — и переименование типа у
+        # tenant A переписывало relation_target у полей ВСЕХ tenant'ов, где стояло
+        # прежнее имя. У чужой компании поля-связки молча начинали указывать на
+        # тип чужого типа: тихая порча данных, без лога и без отката.
         db.query(models.CustomFieldDef).filter(
-            models.CustomFieldDef.relation_target == old_name
+            models.CustomFieldDef.relation_target == old_name,
+            tenant_predicate(models.CustomFieldDef, current_user),
         ).update({"relation_target": obj.name}, synchronize_session=False)
 
     try:

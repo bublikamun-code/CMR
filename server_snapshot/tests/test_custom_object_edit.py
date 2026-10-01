@@ -146,6 +146,55 @@ def test_object_rename_moves_relation_targets(client, admin, obj_id, db):
     assert db.get(models.CustomFieldDef, field_id).relation_target == "equipment_v2"
 
 
+def test_object_rename_does_not_touch_other_tenant(client, db, two_tenant_users, admin):
+    """Переименование типа НЕ переписывает relation_target чужого tenant'а.
+
+    Регрессия на аудит 2026-09-30 (А-1). Фильтр стоял без tenant_id, то есть
+    UPDATE шёл по всей таблице. Миграция 0018 сделала имя типа уникальным
+    ВНУТРИ tenant'а, поэтому одно и то же системное имя у двух компаний стало
+    законным — и переименование у одной молча ломало поля-связки у другой.
+
+    Именно поэтому в тесте выше только один tenant: пропуск был незаметен на
+    однокомпанной боевой базе.
+    """
+    _, ah = admin
+    my_type = models.CustomObjectType(
+        name="gear", label="Снаряжение",
+        tenant_id=two_tenant_users["first_tenant_id"])
+    db.add(my_type)
+    db.commit()
+    my_type_id = my_type.id
+
+    my_field = models.CustomFieldDef(
+        object_type_id=my_type_id, name="link", label="Связь",
+        field_type="relation", relation_target="gear",
+        tenant_id=two_tenant_users["first_tenant_id"])
+    db.add(my_field)
+    # У второго tenant'a — свой тип с ТЕМ ЖЕ системным именем и своё поле,
+    # указывающее на него. Именно эта строка раньше и портилась.
+    other_type = models.CustomObjectType(
+        name="gear", label="Снаряжение (компания Б)",
+        tenant_id=two_tenant_users["second_tenant_id"])
+    db.add(other_type)
+    db.commit()
+    other_field = models.CustomFieldDef(
+        object_type_id=other_type.id, name="link", label="Связь",
+        field_type="relation", relation_target="gear",
+        tenant_id=two_tenant_users["second_tenant_id"])
+    db.add(other_field)
+    db.commit()
+    my_field_id, other_field_id = my_field.id, other_field.id
+
+    assert client.patch(f"/custom/objects/{my_type_id}", headers=ah,
+                        json={"name": "gear_v2"}).status_code == 200
+
+    db.expire_all()
+    assert db.get(models.CustomFieldDef, my_field_id).relation_target == "gear_v2", \
+        "своё поле должно переехать вместе с переименованием"
+    assert db.get(models.CustomFieldDef, other_field_id).relation_target == "gear", \
+        "поле чужого tenant'а не должно пострадать"
+
+
 def test_object_patch_empty_body_is_noop(client, admin, obj_id):
     """Тело {} — валидный no-op: ключей нет, значит ничего не трогается."""
     _, h = admin
