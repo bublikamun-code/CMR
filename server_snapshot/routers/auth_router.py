@@ -119,6 +119,44 @@ def get_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
 
 
+def _log_user_change(db, actor, target, data, old_role, old_active):
+    """Записать мутацию учётной записи в ленту активности.
+
+    FIX 2026-09-30 (аудит прав доступа). Мутации /auth/users шли в никуда:
+    change_own_password писал только строку в лог процесса, create/update/
+    delete — вообще ничего. По ленте активности нельзя было ответить на вопрос
+    «кто и когда снял пароль с админа», хотя сам пароль там и не хранится —
+    достаточно факта и автора.
+
+    Прежнее состояние передаётся отдельными аргументами НАМЕРЕННО: к моменту
+    вызова target.role и target.is_active уже новые, и «было/стало» иначе
+    совпало бы.
+
+    Сам пароль в ленту не пишется: там только видно, что менялось.
+    """
+    changed = []
+    if data.is_active is not None and data.is_active != old_active:
+        changed.append(f"включён {'да' if data.is_active else 'нет'} (было {'да' if old_active else 'нет'})")
+    if data.role and data.role != old_role:
+        changed.append(f"роль {old_role} → {data.role}")
+    if data.password:
+        changed.append("пароль сброшен")
+    if not changed:
+        return None
+    entry = models.ActivityLog(
+        user_id=actor.id,
+        action="Изменение пользователя",
+        details=(
+            f"{'; '.join(changed)} — пользователь {target.username}, "
+            f"выполнил {actor.username} ({actor.role})"
+        ),
+        tenant_id=actor.tenant_id,
+    )
+    db.add(entry)
+    logger.info("User change by %s: %s on %s", actor.username, changed, target.username)
+    return entry
+
+
 @router.post("/users", response_model=schemas.UserResponse)
 def create_user(data: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.require_admin())):
     # Фикс аудита 10.09: проверка ловила только role == "admin", и админ мог
@@ -141,6 +179,14 @@ def create_user(data: schemas.UserCreate, db: Session = Depends(get_db), current
         tenant_id=tenant_id
     )
     db.add(new_user)
+    db.flush()
+    # FIX 2026-09-30: создание учётной записи тоже должно быть видно в ленте.
+    db.add(models.ActivityLog(
+        user_id=current_user.id,
+        action="Создание пользователя",
+        details=f"{data.username} с ролью {data.role}, создал {current_user.username}",
+        tenant_id=tenant_id,
+    ))
     db.commit()
     db.refresh(new_user)
     return {"id": new_user.id, "username": new_user.username, "role": new_user.role}
@@ -168,6 +214,15 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
     db.query(models.Task).filter(models.Task.assignee_id == user_id).update({"assignee_id": None}, synchronize_session=False)
     db.query(models.Task).filter(models.Task.creator_id == user_id).update({"creator_id": None}, synchronize_session=False)
     db.query(models.Notification).filter(models.Notification.user_id == user_id).delete(synchronize_session=False)
+    # FIX 2026-09-30: удаление учётной записи — тоже след, который должен
+    # остаться в ленте. Имя и роль снимаем ДО db.delete, иначе после удаления
+    # объекта читать уже нечего.
+    db.add(models.ActivityLog(
+        user_id=current_user.id,
+        action="Удаление пользователя",
+        details=f"{target.username} (роль {target.role}), удалил {current_user.username}",
+        tenant_id=writable_tenant_id(current_user),
+    ))
     db.delete(target)
     db.commit()
     return {"detail": "Пользователь удалён"}
@@ -180,6 +235,9 @@ def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(ge
     )
     if target.role == "superadmin" and current_user.role != "superadmin":
         raise HTTPException(status_code=403, detail="Нельзя изменить суперадмина")
+    # Прежнее состояние снимаем ДО правок: ниже роль и активность уже новые,
+    # а лента должна показывать «было → стало».
+    old_role, old_active = target.role, bool(target.is_active)
     # UI FIX 2026-08-26: тенант-проверка убрана (компания одна)
     if data.role and current_user.role != "superadmin" and data.role in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Только суперадмин может назначать роли admin/superadmin")
@@ -193,6 +251,26 @@ def update_user(user_id: int, data: schemas.UserUpdate, db: Session = Depends(ge
     if data.role:
         target.role = data.role
     if data.password:
+        # FIX 2026-09-30 (аудит прав доступа). Раньше пароль менялся кому угодно
+        # без старого пароля цели и без единой записи в ленте: админ своего
+        # tenant'а отправлял PATCH с {"password": ...} на ДРУГОГО админа и входил
+        # под ним — эскалация admin→admin плюс полный захват аккаунта без следов.
+        #
+        # Теперь сменить пароль коллеге-админу может только владелец. Сброс
+        # пароля менеджеру или сотруднику документов у админа остаётся — это
+        # обычная поддержка, и ломать её было бы лишним.
+        # Проверяем по ПРЕЖНЕЙ роли (old_role), а не по только что присвоенной:
+        # иначе запрос вида {"role": "manager", "password": "..."} понизил бы
+        # админа и тут же сбросил ему пароль, обойдя гейт одной правкой.
+        if old_role in ("admin", "superadmin") and current_user.role != "superadmin":
+            raise HTTPException(
+                status_code=403,
+                detail="Пароль администратора может сменить только владелец",
+            )
         target.hashed_password = auth.get_password_hash(data.password)
+    # FIX 2026-09-30: любая мутация учётной записи пишется в ленту. Раньше
+    # change_own_password писал строку в лог, а update_user — ничего, поэтому по
+    # ленте нельзя было понять, кто и что менял.
+    _log_user_change(db, current_user, target, data, old_role, old_active)
     db.commit()
     return {"detail": "Пользователь обновлён", "is_active": bool(target.is_active)}

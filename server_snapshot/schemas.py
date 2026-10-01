@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import math
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
@@ -44,9 +44,23 @@ def validate_money(value, *, field_name: str = "Сумма", allow_zero: bool = 
 class UserBase(BaseModel):
     username: str
 
+# FIX 2026-09-30 (аудит прав доступа). Раньше роль была свободной строкой, и
+# при gate «data.role in ("admin", "superadmin")» в роутере можно было записать
+# значение, которое этот gate не пропускает: {"role": "SuperAdmin"},
+# {"role": "superadmin "} с хвостовым пробелом, любая опечатка. Такая роль
+# проходит в БД, но не проходит НИ require_admin, НИ require_role — то есть
+# заведомо залоченный пользователь, который к тому же выглядит в списке
+# совершенно обычно. Права доступа тоже сравнивают строки точно, поэтому
+# подмена в другую строку прав не даёт, но ломает учётную запись.
+#
+# Набор ролей не выдуман: он совпадает с теми, что предлагает админский
+# select во фронте (tools/mockups/shell-v2-management.js:152), плюс он же
+# используется create_users.py и тестами ролевых гейтов.
+UserRole = Literal["manager", "warehouse", "documents", "admin", "superadmin"]
+
 class UserCreate(UserBase):
     password: str
-    role: str = "manager"
+    role: UserRole = "manager"
 
     @field_validator("password")
     @classmethod
@@ -66,7 +80,9 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 class UserUpdate(BaseModel):
-    role: Optional[str] = None
+    # FIX 2026-09-30: см. UserRole выше. Раньше здесь стояла свободная строка,
+    # и update_user мог записать роль, которую сам же затем не признавал.
+    role: Optional[UserRole] = None
     password: Optional[str] = None
     # None — «не менять»; False/True — явное переключение активности.
     is_active: Optional[bool] = None

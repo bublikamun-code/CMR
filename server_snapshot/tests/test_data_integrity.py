@@ -218,10 +218,94 @@ def test_delete_user_unlinks_artifacts_and_removes_notifications(client, admin, 
     assert _count(db, models.Card, owner_id=victim_id) == 0
     assert _count(db, models.Card) == 1
     assert _count(db, models.ActivityLog, user_id=victim_id) == 0
-    assert _count(db, models.ActivityLog) == 1
+    # FIX 2026-09-30 (аудит прав доступа): удаление учётной записи теперь само
+    # себя пишет в ленту, поэтому записей две — исходная «Действие» жертвы и
+    # новая «Удаление пользователя». Раньше следов не оставалось вовсе.
+    assert _count(db, models.ActivityLog) == 2
+    db.expire_all()
+    audit_rows = [a for a in db.query(models.ActivityLog).all()
+                  if a.action == "Удаление пользователя"]
+    assert len(audit_rows) == 1
+    assert "victim" in audit_rows[0].details
     assert _count(db, models.Task, assignee_id=victim_id) == 0
     assert _count(db, models.Notification, user_id=victim_id) == 0
     assert _count(db, models.Notification) == 0
+
+
+def test_admin_cannot_reset_other_admin_password(client, make_user, db, admin):
+    """Админ не может сбросить пароль другому администратору.
+
+    Регрессия на аудит 2026-09-30 (А-3). Раньше UserUpdate.password принимался
+    без старого пароля цели и без следа в ленте, поэтому админ своего tenant'а
+    отправлял PATCH с новым паролем на другого админа и просто входил под ним:
+    эскалация admin→admin плюс полный захват аккаунта без единой записи.
+    """
+    attacker, ah = make_user("admin", username="attacker_admin")
+    victim, _ = make_user("admin", username="victim_admin")
+    victim_id = victim.id
+    victim_hash = victim.hashed_password
+
+    # обход через «сначала понизить, потом сбросить пароль» — тоже отказ
+    r = client.patch(f"/auth/users/{victim_id}", headers=ah,
+                     json={"role": "manager", "password": "NewPassw0rd!"})
+    assert r.status_code == 403, r.text
+
+    db.expire_all()
+    stored = db.query(models.User).filter(models.User.id == victim_id).one()
+    assert stored.hashed_password == victim_hash, "пароль жертвы не должен меняться"
+    assert stored.role == "admin", "роль жертвы не должна меняться"
+
+
+def test_admin_can_reset_manager_password(client, make_user, db, admin):
+    """Сброс пароля рядовому сотруднику у админа остаётся рабочим.
+
+    Гейт из соседнего теста не должен ломать обычную поддержку: админ вправе
+    выдать новый пароль менеджеру, у которого он его забыл.
+    """
+    _, ah = admin
+    worker, _ = make_user("manager", username="forgotten")
+    worker_id = worker.id
+    old_hash = worker.hashed_password
+
+    r = client.patch(f"/auth/users/{worker_id}", headers=ah,
+                     json={"password": "Support1!"})
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    stored = db.query(models.User).filter(models.User.id == worker_id).one()
+    assert stored.hashed_password != old_hash
+
+
+def test_superadmin_can_reset_admin_password(client, make_user, db, superadmin):
+    """Владелец пароль админа сменить может — и след остаётся в ленте."""
+    _, sh = superadmin
+    victim, _ = make_user("admin", username="boss_target")
+
+    r = client.patch(f"/auth/users/{victim.id}", headers=sh,
+                     json={"password": "OwnerReset1!"})
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    audits = [a.details for a in db.query(models.ActivityLog)
+              .filter(models.ActivityLog.action == "Изменение пользователя").all()]
+    assert any("boss_target" in d and "пароль" in d for d in audits), audits
+
+
+@pytest.mark.parametrize("bad_role", ["SuperAdmin", "superadmin ", "админ", "root", ""])
+def test_unknown_role_is_rejected(client, make_user, admin, bad_role):
+    """Роль вне списка не попадает в БД (А-3: свободная строка → мёртвая учётка).
+
+    Раньше {"role": "SuperAdmin"} проходил гейт «in ("admin","superadmin")» и
+    записывался как новая роль, которая не проходит ни require_admin, ни
+    require_role, — то есть заведомо залоченный пользователь.
+    """
+    _, ah = admin
+    r = client.post("/auth/users", headers=ah, json={
+        "username": f"weird_{abs(hash(bad_role)) % 9999}",
+        "password": "Passw0rd!23",
+        "role": bad_role,
+    })
+    assert r.status_code == 422, r.text
 
 
 def test_no_fk_violations_after_bulk_deletions(client, admin, db, make_user, make_card,
