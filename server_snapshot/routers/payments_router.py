@@ -22,6 +22,7 @@ from services.payments import add_invoice as add_invoice_svc
 from services.payments import delete_transaction as delete_transaction_svc
 from services.payments import issue_invoice as issue_invoice_svc
 from services.payments import tx_dict
+from services.sqlite_writer import reserve_model_rows
 from services.writeoffs import (
     ensure_registry_remainder,
     money_is_present,
@@ -490,6 +491,34 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db), curre
 def update_transaction_checkboxes(transaction_id: int, updates: schemas.TransactionUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     try:
         tx = get_tenant_object(db, models.Transaction, transaction_id, current_user, detail="Транзакция не найдена")
+        # FIX 2026-09-30 (аудит, Д-4): writer slot ДО любых мутаций.
+        #
+        # Раньше хендлер писал деньги без слота, и это был самый широкий путь
+        # гонки в файле: чекбокс «накладная выдана» каскадом правит ВСЕ записи
+        # сделки (print_status), а правка суммы пересчитывает запись-остаток и
+        # статус карточки. Два администратора, отмечающие накладные одной сделки,
+        # оба читали один и тот же остаток и оба его перезаписывали: чей-то чекбокс
+        # пропадал, а сумма уезжала от напечатанных документов.
+        #
+        # Слот берётся здесь, а не в ветке суммы: reserve_model_rows начинает с
+        # session.rollback(), и взятый позже, откатил бы уже применённые выше
+        # изменения. Держится слот до db.commit() в конце хендлера. Сам
+        # reserve_model_rows переводит ожидаемую конкуренцию в 503 с Retry-After
+        # (services.sqlite_writer._contention_response), поэтому sqlite_write_
+        # transaction здесь не нужен — он добавил бы только откат, который уже
+        # делает finally ниже.
+        reserve_model_rows(
+            db,
+            models.Transaction,
+            [transaction_id],
+            not_found_detail="Транзакция не найдена",
+            busy_detail="Запись реестра занята другой операцией. Повторите попытку.",
+        )
+        # reserve_model_rows завершил read-транзакцию откатом, поэтому tx
+        # expired — перечитываем по свежим данным, иначе каскад правил бы записи
+        # по устаревшим данным записи.
+        db.expire_all()
+        tx = get_tenant_object(db, models.Transaction, transaction_id, current_user, detail="Транзакция не найдена")
         update_data = updates.model_dump(exclude_unset=True) if hasattr(updates, 'model_dump') else updates.dict(exclude_unset=True)
         # V7 (пункт 17 плана v2): is_invoice_doc / is_bill_doc — флаги
         # «оригинал ТН у нас» и «оригинал счёта у нас». Каноническое место
@@ -545,6 +574,30 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
             merged = datetime.combine(new_day.date(), old_ts.time())
             update_data["date"] = (merged.replace(tzinfo=old_ts.tzinfo)
                                    if old_ts.tzinfo else merged)
+        # FIX 2026-09-30 (аудит, С-2): правка суммы САМОЙ записи-остатка
+        # больше не игнорируется молча.
+        #
+        # Что происходило. setattr ниже честно применял присланную сумму, а
+        # потом блок пересчёта (ниже) считал остаток заново как «сумма сделки
+        # минус выписанное» и присваивал remainder.amount = new_rest. То есть
+        # правка затиралась собственной производной величиной, а ответ был 200:
+        # пользователь видел «сохранено», реестр оплат показывал старое число.
+        #
+        # Почему отказ, а не «применять как есть». Запись-остаток ПРОИЗВОДНАЯ:
+        # её значение обязано равняться сумме сделки минус выписанное, иначе
+        # реестр расходится с карточкой. Разрешить задать её произвольно значит
+        # вернуть инвариант, который система чинит в шести местах. Правильный
+        # путь для пользователя — поменять сумму сделки, и остаток пересчитается
+        # сам. Поэтому говорим это прямо вместо тихой подмены значения.
+        if "amount" in update_data and not tx.is_document and tx.card_id is not None:
+            _is_remainder = not tx.is_warehouse_writeoff and not (tx.invoice_number or "").strip()
+            if _is_remainder and update_data.get("amount") is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=("Запись остатка производная: её сумма равна сумме сделки "
+                            "минус выписанные накладные. Поменяйте сумму сделки — "
+                            "остаток пересчитается сам."),
+                )
         for key, value in update_data.items():
             setattr(tx, key, value)
         # Дата/номер — часть пары «накладная + копия»: правим с любой
@@ -637,6 +690,22 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
         db.commit()
         db.refresh(tx)
         return tx_dict(tx)
+    except HTTPException:
+        # FIX 2026-09-30 (аудит, Д-4): явный откат перед выбросом.
+        #
+        # Раньше единственным способом отмены был finally: db.close() — он
+        # откатывает несохранённое, так что сами данные были в порядке. Но после
+        # захвата writer slot (см. выше) незакрытая транзакция держит слот до
+        # закрытия сессии, а HTTPException уходит наружу через обработчик
+        # FastAPI: при долгом соединении это сужало окно, в которое вторая
+        # операция получала 503 вместо нормальной работы. Откат на границе
+        # освобождает слот сразу, здесь же.
+        #
+        # Ловим только HTTPException: это ожидаемый отказ с осмысленным кодом
+        # (400/404/409). Неожиданные исключения не прячем — для них откат делает
+        # тот же db.close() в finally.
+        db.rollback()
+        raise
     finally:
         db.close()
 

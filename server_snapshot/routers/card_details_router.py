@@ -472,10 +472,49 @@ def delete_attachment(attachment_id: int, db: Session = Depends(get_db), current
 
 
 @router.patch("/cards/{card_id}", response_model=schemas.CardResponse)
-def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+@router.patch("/cards/{card_id}", response_model=schemas.CardResponse)
+def update_card(card_id: int, card_update: schemas.CardUpdate,
+               db: Session = Depends(get_db),
+               current_user: models.User = Depends(get_current_user)):
+    # FIX 2026-09-30 (аудит, Д-3): writer slot берётся ДО первого чтения.
+    #
+    # Раньше слот резервировался только на пути /payment (Д-4), а общий
+    # PATCH /cards/{id} писал total_amount без него. Это один и тот же класс
+    # гонки: total_amount входит в Σ сделок клиента, от которого считается
+    # доступный баланс, а списание с баланса пишет в ту же таблицу. Два
+    # одновременных PATCH читали одно и то же значение и оба проходили
+    # проверку «не превысит ли сумма сделок доступное» — после чего баланс
+    # уезжал в минус, и «мне не хватало денег» становилось неправдой.
+    #
+    # reserve_model_rows делает session.rollback() и короткий no-op UPDATE,
+    # который переводит сессию в write-транзакцию и держит writer slot до
+    # commit. Второй конкурентный запрос либо дождётся освобождения и прочтёт
+    # уже устоявшиеся числа, либо получит управляемый 503 с Retry-After.
     card = get_tenant_object(
         db, models.Card, card_id, current_user, detail="Карточка не найдена"
     )
+    with sqlite_write_transaction(db):
+        reserve_model_rows(
+            db, models.Card, [card_id],
+            not_found_detail="Карточка не найдена",
+            busy_detail="Сделка занята другой операцией. Повторите попытку.",
+        )
+        # Слот взят — сброшены все кэшированные объекты сессии, поэтому
+        # карточку нужно перечитать: старая копия осталась бы из снимка
+        # ДО резервирования и содержала бы устаревшую сумму.
+        db.expire_all()
+        card = get_tenant_object(
+            db, models.Card, card_id, current_user,
+            detail="Карточка не найдена",
+        )
+        return _update_card_locked(db, card, card_update, current_user)
+
+
+def _update_card_locked(db, card, card_update, current_user):
+    # Карточка уже выбрана и залочена вызывающим: writer slot взят до чтения,
+    # а строка перечитана после резервирования. Повторный get_tenant_object
+    # здесь был бы лишним обращением к базе и вернул бы ту же строку —
+    # раньше он был нужен только потому, что сам был первой строкой хендлера.
     if not card:
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     # Аудит 2026-09-26: общий PATCH карточки писал paid_amount и payment_status
@@ -536,6 +575,8 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         ).all()
         if len(tags) != len(set(card_update.tag_ids)):
             raise HTTPException(status_code=404, detail="Тег не найден")
+    else:
+        tags = None
     # FIX 2026-09-23 (пункт 5 плана v2): sender_email был в CardUpdate, но
     # роутер его не применял — PATCH отвечал 200, а адрес не менялся.
     # Формат здесь НЕ проверяется: фронт уже валидирует input[type=email], а
@@ -642,7 +683,7 @@ def update_card(card_id: int, card_update: schemas.CardUpdate, db: Session = Dep
         if new_note != old_note and new_note:
             db.add(models.ActivityLog(
                 user_id=current_user.id,
-                card_id=card_id,
+                card_id=card.id,
                 action="Комментарий",
                 details=new_note[:4000],
                 tenant_id=current_user.tenant_id
@@ -782,7 +823,15 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
                 # цикла нет; формула баланса одна — здесь её дублировать нельзя.
                 from routers.clients_router import _client_balance_payload
                 bal = _client_balance_payload(db, card.client_id, current_user)
-                available = round(bal["payments_total"] - bal["paid_on_cards"], 2)
+                # FIX 2026-09-30 (аудит, С-4): берём готовое поле available, а
+                # не складываем формулу заново. Раньше здесь стояло
+                # payments_total - paid_on_cards — математически то же, но
+                # вторая копия формулы и есть тот самый дефект: интерфейс в этот
+                # момент считал по balance (payments_total - deals_total) и прятал
+                # чекбокс «закрыть из баланса», то есть человек с реальным
+                # авансом не мог закрыть сделку. Теперь обе стороны читают одно
+                # и то же поле одного и того же расчёта.
+                available = bal["available"]
                 # FIX 2026-09-30 (аудит денег): обе величины округлены до копеек,
                 # поэтому допуск на границе небаланса не нужен. На проверке выше
                 # (draw > MONEY_EPSILON) он остаётся — там он отвечает на другой

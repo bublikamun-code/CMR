@@ -782,11 +782,60 @@ def _applied_evidence(fn, param):
     return applied, blanket
 
 
+def _reachable_functions(fn, module_fns, depth=3):
+    """Хендлер вместе с функциями-модуля, которые он вызывает.
+
+    FIX 2026-09-30 (регрессия после Д-3). Тело PATCH сделки вынесено из
+    update_card в _update_card_locked: слот SQLite должен удерживаться до
+    общего коммита, а with-блок не мог бы охватить тело, не превратив
+    хендлер в две функции. По этой причине разбор одного только тела
+    update_card перестал видеть применение полей, и тест объявил девять
+    действующих полей «не применяемыми» — то есть сломался ровно тот
+    инструмент, который ловит дефект sender_email.
+
+    Смысл теста — «эндпоинт действительно применяет поле», а не «поле
+    применяется в первой строке тела хендлера». Поэтому обход следует за
+    вызовами функций того же модуля. Глубина ограничена тремя: полное
+    замыкание по графу вызовов дало бы ложные срабатывания через
+    служебные обёртки.
+    """
+    seen, out, frontier = {fn.name}, [fn], [(fn, 0)]
+    while frontier:
+        node, level = frontier.pop()
+        if level >= depth:
+            continue
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+                continue
+            name = call.func.id
+            if name in seen or name not in module_fns:
+                continue
+            seen.add(name)
+            target = module_fns[name]
+            out.append(target)
+            frontier.append((target, level + 1))
+    return out
+
+
+def _applied_evidence_over(fn, param, module_fns):
+    """Доказательства по хендлеру и по функциям, которые он вызывает."""
+    applied, blanket = set(), None
+    for node in _reachable_functions(fn, module_fns):
+        part_applied, part_blanket = _applied_evidence(node, param)
+        applied |= part_applied
+        blanket = blanket or part_blanket
+    return applied, blanket
+
+
 def _patch_handlers():
     handlers = []
     for path in sorted((ROOT / "routers").glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         local_models = _module_basemodel_fields(tree)
+        module_fns = {
+            n.name: n for n in tree.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
         for node in tree.body:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -795,7 +844,7 @@ def _patch_handlers():
             param, schema_name, fields = _body_param(node, local_models)
             if not param:
                 continue
-            applied, blanket = _applied_evidence(node, param)
+            applied, blanket = _applied_evidence_over(node, param, module_fns)
             handlers.append({
                 "file": path.name, "fn": node.name, "param": param,
                 "schema": schema_name, "fields": fields,

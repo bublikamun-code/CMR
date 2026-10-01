@@ -276,7 +276,8 @@ class ClientPaymentResponse(BaseModel):
 
 class ClientBalanceResponse(BaseModel):
     client_id: int
-    balance: float                 # приходы − суммы сделок; плюс — аванс, минус — долг
+    balance: float                 # позиция клиента: приходы − суммы сделок; плюс — аванс, минус — долг
+    available: float               # чем можно закрыть сделку из баланса: приходы − уже списано
     payments_total: float          # Σ приходов (реальные деньги от клиента)
     deals_total: float             # Σ total_amount неудалённых карточек
     paid_on_cards: float           # Σ paid_amount (сколько счетов закрыто)

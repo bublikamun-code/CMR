@@ -2893,7 +2893,14 @@
         window.KBSelect.close();
         var total = c.amount, paid = c.paidAmount;
         var hasClient = Boolean(c.clientId);
-        var clientBalance = null; // придёт с сервера
+        // С-4 (аудит 2026-09-30): две величины, не одна. clientAvailable —
+        // сколько можно списать из баланса (приходы − уже списано) и по ней
+        // живут гейт и все проверки формы. clientBalance — позиция клиента
+        // (приходы − суммы сделок) и она только показывается. Раньше обе
+        // задачи решала clientBalance, и человек с реальным авансом не мог
+        // закрыть сделку: показывался долг, а чекбокс скрывался.
+        var clientAvailable = null; // придёт с сервера
+        var clientBalance = null;
         dialog.innerHTML = '<h2 id="kb-dialog-title">Внести оплату · ' + esc(c.id) + '</h2>' +
             '<p class="kb-detail-hint">Сумма сделки: ' + money(total) + ' BYN · Оплачено: ' + money(paid) + ' BYN · Долг: ' + money(total - paid) + ' BYN</p>' +
             '<p class="kb-detail-hint" id="kb-pay-client" hidden></p>' +
@@ -2925,12 +2932,25 @@
 
         if (hasClient) {
             window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/balance').then(function (bal) {
-                clientBalance = Math.round(bal.balance * 100);
+                // С-4 (аудит 2026-09-30): гейт и подпись «доступно» считаются по
+                // bal.available, а bal.balance показывается отдельно и под своим
+                // именем. Раньше обе задачи решала одна величина balance
+                // (приходы − суммы сделок), из-за чего клиент с реальным
+                // авансом видел «долг клиента» и чекбокс закрытия из баланса
+                // просто исчезал, хотя сервер оплату разрешал.
+                clientAvailable = bal.available != null ? Math.round(bal.available * 100) : null;
+                clientBalance = bal.balance != null ? Math.round(bal.balance * 100) : null;
                 var line = document.getElementById('kb-pay-client');
                 if (line) {
+                    var parts = [];
+                    if (clientAvailable !== null && clientAvailable > 0) {
+                        parts.push('можно закрыть из баланса: <b>' + money(clientAvailable) + ' BYN</b>');
+                    }
+                    if (clientBalance !== null && clientBalance < 0) {
+                        parts.push('долг клиента: <b>' + money(Math.abs(clientBalance)) + ' BYN</b>');
+                    }
                     line.hidden = false;
-                    line.innerHTML = 'Клиент «' + esc(c.client) + '» · баланс: <b>' + money(clientBalance) + ' BYN</b>' +
-                        (clientBalance > 0 ? ' — аванс, можно закрыть из баланса' : clientBalance < 0 ? ' — долг клиента' : '');
+                    line.innerHTML = 'Клиент «' + esc(c.client) + '»' + (parts.length ? ' · ' + parts.join(' · ') : '');
                 }
             }).catch(function () { /* баланс недоступен — работаем без него */ });
         }
@@ -2941,10 +2961,11 @@
         function updateFromBalanceVisibility() {
             var wrap = document.getElementById('kb-pay-from-balance-wrap');
             if (!wrap) return;
-            var applicable = hasClient && (mode === 'Оплачен' || mode === 'Частично') && clientBalance !== null && clientBalance > 0;
+            var applicable = hasClient && (mode === 'Оплачен' || mode === 'Частично')
+                && clientAvailable !== null && clientAvailable > 0;
             wrap.hidden = !applicable;
             if (applicable) {
-                wrap.querySelector('span').textContent = 'Из баланса клиента (доступно ' + money(clientBalance) + ' BYN)';
+                wrap.querySelector('span').textContent = 'Из баланса клиента (доступно ' + money(clientAvailable) + ' BYN)';
             }
         }
 
@@ -2959,8 +2980,8 @@
                 fromBalanceWrap.hidden = !(hasClient && (mode === 'Оплачен' || mode === 'Частично'));
                 document.getElementById('kb-pay-hint').textContent =
                     mode === 'Оплачен'
-                        ? (hasClient && clientBalance > 0
-                            ? 'Счёт закрывается полностью. Можно закрыть деньгами или из баланса клиента (доступно ' + money(Math.min(clientBalance, total - paid)) + ' BYN) — отметьте ниже.'
+                        ? (hasClient && clientAvailable !== null && clientAvailable > 0
+                            ? 'Счёт закрывается полностью. Можно закрыть деньгами или из баланса клиента (доступно ' + money(Math.min(clientAvailable, total - paid)) + ' BYN) — отметьте ниже.'
                             : 'Счёт закрывается полностью — новая оплата ' + money(total - paid) + ' BYN.')
                     : mode === 'Частично' ? 'Абсолютная оплаченная сумма; закрывающая счёт — сама отмечается «Оплачен».' :
                     mode === 'Отсрочка' ? 'Оплаченная сейчас часть (можно 0) и дата, до которой ждём остаток.' :
@@ -3027,7 +3048,7 @@
             if (mode === 'Оплачен') {
                 if (total <= 0) { err.textContent = 'Укажите сумму сделки.'; return; }
                 var fromB = useFromBalance();
-                if (fromB && clientBalance < total - paid) { err.textContent = 'Баланса клиента не хватает (нужно ' + money(total - paid) + ' BYN).'; return; }
+                if (fromB && clientAvailable < total - paid) { err.textContent = 'Баланса клиента не хватает (нужно ' + money(total - paid) + ' BYN).'; return; }
                 var cashNow = fromB ? 0 : (total - paid);
                 finish({ paid_amount: total / 100, payment_status: 'Оплачен', from_balance: fromB || undefined },
                     fromB ? 'закрыто из баланса, оплачено 100%.' : 'оплачено 100% — ' + money(total) + ' BYN.',
@@ -3039,7 +3060,7 @@
                 if (!Number.isSafeInteger(amount) || amount <= 0) { err.textContent = 'Укажите сумму оплаты.'; return; }
                 var newStatus = amount >= total - 1 ? 'Оплачен' : 'Частично';
                 var fromB2 = useFromBalance();
-                if (fromB2 && clientBalance < amount - paid) { err.textContent = 'Баланса клиента не хватает.'; return; }
+                if (fromB2 && clientAvailable < amount - paid) { err.textContent = 'Баланса клиента не хватает.'; return; }
                 var cashNow2 = fromB2 ? 0 : Math.max(0, amount - paid);
                 finish({ paid_amount: amount / 100, payment_status: newStatus, from_balance: fromB2 || undefined },
                     'оплачено ' + money(amount) + ' BYN' + (fromB2 ? ' из баланса' : '') + ', статус «' + newStatus + '».',
