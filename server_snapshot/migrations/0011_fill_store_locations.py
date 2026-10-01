@@ -9,13 +9,31 @@ cards.store_location, чтобы магазины стали полноценн�
 Сама привязка карточек к новым id не меняется намеренно: сервер хранит
 store_location строкой и синхронизирует её по имени, поэтому поведение
 не меняется, а справочник перестаёт быть пустым. Идемпотентна.
+
+Правка 2026-09-30 (аудит): в INSERT добавлен tenant_id.
+
+Миграция написана до того, как store_locations.tenant_id стал NOT NULL, и
+вставляла только (name, is_active). На боевой базе она применялась, когда
+колонка ещё была про nullable, поэтому прошла — и была записана в
+schema_migrations, то есть повторно не выполняется. Но на СВЕЖЕЙ копии боевой
+базы (развёртывание с нуля, восстановление из бекапа, стенд) её накатывают
+впервые, и там падение:
+
+    sqlite3.IntegrityError: NOT NULL constraint failed: store_locations.tenant_id
+
+То есть миграция, объявленная идемпотентной, не переносится на любую базу,
+созданную после неё. Право вставлять задаётся сделкой, из которой берётся
+название: магазин принадлежит той же компании, что и карточка. DISTINCT идёт
+по паре (имя, tenant) — при нескольких компаниях одинаковое название должно
+дать по магазину каждой, а не схлопнуться в один.
 """
 
 
 def up(cur):
     cur.execute(
-        "INSERT INTO store_locations (name, is_active) "
-        "SELECT DISTINCT trim(store_location), 1 FROM cards "
+        "INSERT INTO store_locations (name, is_active, tenant_id) "
+        "SELECT DISTINCT trim(store_location), 1, tenant_id FROM cards "
         "WHERE store_location IS NOT NULL AND trim(store_location) <> '' "
+        "AND tenant_id IS NOT NULL "
         "AND trim(store_location) NOT IN (SELECT name FROM store_locations)"
     )
