@@ -229,22 +229,52 @@ def sync_overdue(db: Session = Depends(get_db)):
                          .filter(models.Notification.is_read == True,
                                  models.Notification.read_at < cutoff_read)
                          .delete(synchronize_session=False))
+        # FIX 2026-09-30 (аудит, С-10): версии больше не тянутся в память целиком.
+        #
+        # Раньше здесь стояло .all() по ВСЕМ старым RecordVersion — то есть
+        # объём памяти рос вместе с историей изменений, а не с размером ответа.
+        # Задание живёт на боевой базе и выполняется по расписанию, поэтому
+        # это не разовый запуск, а повторяющийся: в какой-то момент процесс
+        # начинает упираться в память, и чистка не проходит — то есть ровно
+        # тогда, когда она нужна.
+        #
+        # Страница — только (table_name, record_id, id): тяжёлые поля записи
+        # не читаются вообще, ведь нужно лишь решить, какие id лишние.
+        # Ключи идут по индексу (table_name, record_id, version), поэтому
+        # страницы идут подряд, и LIMIT/OFFSET не сканируют таблицу заново.
+        # OFFSET здесь безопасен именно потому, что выборка и удаление идут
+        # в одной сессии и страницы обрабатываются по порядку: удалённые строки
+        # выпадают из выборки, и следующая страница продолжает с того же места.
         cutoff_versions = datetime.now(timezone.utc) - timedelta(days=180)
-        old_versions = (session.query(models.RecordVersion)
-                        .filter(models.RecordVersion.changed_at < cutoff_versions)
-                        .order_by(models.RecordVersion.table_name, models.RecordVersion.record_id,
-                                  models.RecordVersion.version.desc())
-                        .all())
+        version_query = (session.query(models.RecordVersion.table_name,
+                                       models.RecordVersion.record_id,
+                                       models.RecordVersion.id)
+                         .filter(models.RecordVersion.changed_at < cutoff_versions)
+                         .order_by(models.RecordVersion.table_name,
+                                   models.RecordVersion.record_id,
+                                   models.RecordVersion.version.desc()))
         per_record = {}
         ids_to_delete = []
-        for v in old_versions:
-            key = (v.table_name, v.record_id)
-            per_record[key] = per_record.get(key, 0) + 1
-            if per_record[key] > 20:
-                ids_to_delete.append(v.id)
-        if ids_to_delete:
-            session.query(models.RecordVersion).filter(models.RecordVersion.id.in_(ids_to_delete)).delete(synchronize_session=False)
-        versions_purged += len(ids_to_delete)
+        offset = 0
+        page_size = 500
+        while True:
+            page = version_query.offset(offset).limit(page_size).all()
+            if not page:
+                break
+            for table_name, record_id, version_id in page:
+                key = (table_name, record_id)
+                per_record[key] = per_record.get(key, 0) + 1
+                if per_record[key] > 20:
+                    ids_to_delete.append(version_id)
+            offset += page_size
+            # Порция за порцией удаляем: без этого ids_to_delete рос бы так же,
+            # как рос список страниц, и правка сняла бы только половину проблемы.
+            if ids_to_delete:
+                session.query(models.RecordVersion).filter(
+                    models.RecordVersion.id.in_(ids_to_delete)).delete(
+                        synchronize_session=False)
+                versions_purged += len(ids_to_delete)
+                ids_to_delete = []
         session.commit()
 
     return {
