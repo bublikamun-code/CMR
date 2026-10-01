@@ -10,7 +10,7 @@ import models
 import schemas
 from database import get_db
 from limiter_config import limiter
-from tenant_policy import get_tenant_object, tenant_query
+from tenant_policy import get_tenant_object, tenant_query, writable_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,11 @@ def create_user(data: schemas.UserCreate, db: Session = Depends(get_db), current
     if existing:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
 
-    tenant_id = current_user.tenant_id
+    # FIX 2026-09-30 (аудит прав доступа): было current_user.tenant_id. У
+    # суперадмина это NULL, а users.tenant_id объявлен nullable=False и защищён
+    # триггером миграции 0018 — суперадмин получал 500 вместо внятного отказа.
+    # writable_tenant_id отдаёт 403 «Tenant пользователя не настроен».
+    tenant_id = writable_tenant_id(current_user)
     new_user = models.User(
         username=data.username,
         hashed_password=auth.get_password_hash(data.password),

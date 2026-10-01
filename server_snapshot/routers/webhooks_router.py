@@ -31,6 +31,7 @@ from webhook_security import (
 logger = logging.getLogger(__name__)
 
 from auth import get_current_user, require_admin
+from tenant_policy import writable_tenant_id
 
 
 def _validate_webhook_url(url: str) -> str:
@@ -127,7 +128,13 @@ def create_webhook(
         url=url,
         secret=encrypted_secret,
         events=json.dumps(wh.events),
-        tenant_id=current_user.tenant_id,
+        # FIX 2026-09-30 (аудит прав доступа): было current_user.tenant_id.
+        # У суперадмина это NULL, колонка webhooks.tenant_id объявлена
+        # nullable=False, а триггер миграции 0018 делает RAISE(ABORT) — то есть
+        # суперадмин получал 500 с текстом «Внутренняя ошибка сервера» вместо
+        # внятного отказа. writable_tenant_id отдаёт 403 с текстом «Tenant
+        # пользователя не настроен» и уже применяется в nakladnye/custom_objects.
+        tenant_id=writable_tenant_id(current_user),
     )
     db.add(new_webhook)
     db.commit()
@@ -238,7 +245,10 @@ def test_webhook(
         db,
         webhook_id=webhook.id,
         event="test",
-        tenant_id=current_user.tenant_id,
+        # FIX 2026-09-30 (аудит прав доступа): тот же 500 вместо 403, что был
+        # на создании вебхука — у суперадмина tenant_id NULL, а у
+        # webhook_deliveries та же NOT NULL и тот же триггер.
+        tenant_id=writable_tenant_id(current_user),
     )
     outcome = deliver_delivery(delivery.id, payload)
     return _delivery_response(outcome)
