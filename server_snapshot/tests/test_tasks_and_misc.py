@@ -251,8 +251,10 @@ def test_sync_all_reports_shape_and_total_on_success(client, cron_headers, monke
     assert r.status_code == 200, r.text
 
     body = r.json()
+    # Ключ errors (число неписьменных отказов в прогоне) добавила волна
+    # аудита 01.10 (Ф-1): прогон с отказами обязан быть виден в ответе.
     assert set(body) == {
-        "success", "total_count", "tenants_processed", "tenants_failed", "results",
+        "success", "total_count", "tenants_processed", "tenants_failed", "errors", "results",
     }, body
     assert body["success"] is True
     assert body["total_count"] == 3, body

@@ -20,6 +20,13 @@ def _load(path):
     return mod
 
 
+# Путь к миграциям — от этого файла, не абсолютный: захардкоженный путь
+# чужой рабочей машины (/data/Project/CMR) ломал тест на любом другом месте.
+import pathlib
+
+MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parents[1] / "migrations"
+
+
 @pytest.fixture
 def broken_db(tmp_path, monkeypatch):
     """База ровно в том состоянии, в котором её оставляет убитый процесс."""
@@ -67,7 +74,7 @@ def broken_db(tmp_path, monkeypatch):
 
 
 def _run0020(conn):
-    mod = _load("/data/Project/CMR/server_snapshot/migrations/0020_recover_webhook_legacy.py")
+    mod = _load(str(MIGRATIONS_DIR / "0020_recover_webhook_legacy.py"))
     mod.up(conn.cursor())
     conn.commit()
 
@@ -189,7 +196,7 @@ def test_rerun_of_0017_does_not_restore_why_0020_is_needed(broken_db):
     ).fetchone()[0].upper() == "TEXT", \
         "новая таблица создана с secret TEXT — именно поэтому 0017 пропустит перенос"
 
-    mod = _load("/data/Project/CMR/server_snapshot/migrations/0017_secure_webhook_secrets.py")
+    mod = _load(str(MIGRATIONS_DIR / "0017_secure_webhook_secrets.py"))
     mod.up(broken_db.cursor())
     broken_db.commit()
 

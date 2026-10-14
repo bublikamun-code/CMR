@@ -797,6 +797,21 @@ def _import_email_message(
     }
 
 
+def _public_letter_failure(e_id, exc: Exception) -> str:
+    """Формулировка отказа одного письма для ответа API (Ф-1, 01.10).
+
+    Оператор обязан видеть, какое письмо и почему сделало прогон неполным.
+    Но тексты ТРАНСПОРТНЫХ исключений IMAP наружу не идут (С7, 06.09): их
+    формулирует почтовый сервер, и там бывают хост, логин, пароль и идентификатор
+    сессии. Ошибки нашего разбора (ValueError и прочие из _import_email_message)
+    своих секретов не содержат — их причина названа целиком. Полный traceback
+    любого исключения в журнале: logger.warning с exc_info в цикле ниже.
+    """
+    if isinstance(exc, imaplib.IMAP4.error):
+        return f"письмо {e_id}: ошибка почтового сервера (детали — в журнале сервера)"
+    return f"письмо {e_id}: {type(exc).__name__}: {exc}"
+
+
 def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
     resolved_tenant_id = _resolve_sync_tenant_id(db, settings, tenant_id)
     if resolved_tenant_id is None:
@@ -896,7 +911,7 @@ def _sync_tenant_emails(tenant_id: int | None, settings: dict, db: Session):
                 # прогоне, но оператор обязан видеть, что прогон был неполным.
                 failed_ids.append(str(e_id))
                 if first_failure is None:
-                    first_failure = f"письмо {e_id}: {type(e).__name__}: {e}"
+                    first_failure = _public_letter_failure(e_id, e)
                 logger.warning(
                     "Не удалось обработать письмо %s (tenant %s): %s: %s",
                     e_id, resolved_tenant_id, type(e).__name__, e,
