@@ -1541,6 +1541,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     };
     const cardOpen = (cardId, text, label) => cardId
         ? `<button type="button" class="fin-row-open" data-card-open="${esc(cardId)}" aria-label="Открыть карточку ${esc(label)}">${esc(text)}</button>` : '';
+    // Сумма в строке «Документов»/«Журнала»: у строк реестра это сумма ТН
+    // (tnAmount кладёт boot), у строк с доски и групповых — amount, там он уже
+    // равен сумме документа. Фолбэк покрывает и демо-данные прототипа.
+    const docAmountOf = (r) => (r.tnAmount != null ? r.tnAmount : r.amount);
 
     // DOM строк создаётся один раз: checkbox/details и фокус не теряются.
     // data-card на строке: клик по любому месту строки открывает карточку
@@ -1575,12 +1579,12 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     // после того, как к строкам реестра добавятся ТН с доски и групповые.
     $('#fin-document-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
         <td>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
-        <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
+        <td class="num">${money(docAmountOf(r))}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td>
     </tr>`).join('');
     $('#fin-journal-rows').innerHTML = issued.map((r) => `<tr data-record="${r.id}">
         <td>${esc(r.tn.number)}</td><td class="num">${r.tn.date}</td>
-        <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление № и даты — в карточке сделки, журнал здесь только для просмотра.</p></details></td>
-        <td class="num">${money(r.amount)}</td>
+        <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, сумма накладной ${money(docAmountOf(r))} BYN.</p><p>Оформление № и даты — в карточке сделки, журнал здесь только для просмотра.</p></details></td>
+        <td class="num">${money(docAmountOf(r))}</td>
     </tr>`).join('');
     // Фидбек 20.09: статусы входящих — живые галочки, а не текст «Да/Нет»; правка уходит в PATCH /nakladnye.
     // Без видимого текста в label: заголовок колонки уже называет статус.
@@ -2099,10 +2103,10 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     function documentRowHtml(r, kanban) {
         if (kanban) return `<tr data-kanban data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
             <td>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td><td>${esc(r.tn.number)}<small>${esc(r.tn.date)}</small></td>
-            <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td></tr>`;
+            <td class="num">${money(docAmountOf(r))}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>Не оформлен</td><td></td></tr>`;
         return `<tr data-record="${r.id}"${r.cardId ? ` data-card="${r.cardId}"` : ''}>
             <td>${cardOpen(r.cardId, r.client, r.card)}<small>${esc(r.card)}</small></td><td>${tnText(r)}<small>Счёт ${esc(r.tn.bill)}</small></td>
-            <td class="num">${money(r.amount)}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td></tr>`;
+            <td class="num">${money(docAmountOf(r))}</td><td>${checkbox(r, 'tnHere', 'ТН у нас')}</td><td>${checkbox(r, 'billHere', 'Счет у нас')}</td><td>${printCell(r)}</td></tr>`;
     }
     function patchDocumentRow(row, r, kanban) {
         if (r.cardId) row.dataset.card = r.cardId;
@@ -2119,7 +2123,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             bill.textContent = 'Счёт ' + r.tn.bill;
             row.cells[1].appendChild(bill);
         }
-        row.cells[2].textContent = money(r.amount);
+        row.cells[2].textContent = money(docAmountOf(r));
         patchCheckbox(row, 'input[data-field="tnHere"]', r, 'tnHere', 'ТН у нас');
         if (!kanban) {
             patchCheckbox(row, 'input[data-field="billHere"]', r, 'billHere', 'Счет у нас');
@@ -2129,8 +2133,8 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     }
     function journalRowHtml(r) {
         return `<tr data-record="${r.id}"><td>${esc(r.tn.number)}</td><td class="num">${r.tn.date}</td>
-            <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, вся сумма карточки ${money(r.amount)} BYN.</p><p>Оформление № и даты — в карточке сделки, журнал здесь только для просмотра.</p></details></td>
-            <td class="num">${money(r.amount)}</td></tr>`;
+            <td><details><summary>${esc(r.card)}</summary><p>${esc(r.client)} · ${esc(r.store)} · ${esc(r.estimate)}</p><p>Существующая привязка: ${esc(r.tn.number)} от ${r.tn.date}, сумма накладной ${money(docAmountOf(r))} BYN.</p><p>Оформление № и даты — в карточке сделки, журнал здесь только для просмотра.</p></details></td>
+            <td class="num">${money(docAmountOf(r))}</td></tr>`;
     }
     function patchJournalRow(row, r) {
         row.cells[0].textContent = r.tn.number;
@@ -2141,9 +2145,9 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
             if (summary) summary.textContent = r.card;
             const paragraphs = details.querySelectorAll('p');
             if (paragraphs[0]) paragraphs[0].textContent = r.client + ' · ' + r.store + ' · ' + r.estimate;
-            if (paragraphs[1]) paragraphs[1].textContent = 'Существующая привязка: ' + r.tn.number + ' от ' + r.tn.date + ', вся сумма карточки ' + money(r.amount) + ' BYN.';
+            if (paragraphs[1]) paragraphs[1].textContent = 'Существующая привязка: ' + r.tn.number + ' от ' + r.tn.date + ', сумма накладной ' + money(docAmountOf(r)) + ' BYN.';
         }
-        row.cells[3].textContent = money(r.amount);
+        row.cells[3].textContent = money(docAmountOf(r));
     }
     function patchIncomingFiles(details, r) {
         const photos = Array.isArray(r.photoPaths) ? r.photoPaths : [];
@@ -2561,7 +2565,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
         const headers = ['Клиент', 'Карточка', 'Магазин', 'Сумма (BYN)', '№ ТН', 'Дата ТН', '№ счёта', 'ТН у нас', 'Счёт у нас', 'Печать/доверенность'];
         const escCsv = (v) => { const s = (v === null || v === undefined) ? '' : String(v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
         const lines = [headers.join(';')].concat(rows.map((r) => [
-            r.client, r.card, r.store, money(r.amount),
+            r.client, r.card, r.store, money(docAmountOf(r)),
             // Номер на доске склеен как series + ' ' + number, а серия не
             // хранится (boot кладёт '') — на выходе висел бы ведущий пробел.
             r.tn ? String(r.tn.number).trim() : '', r.tn ? r.tn.date : '', r.tn ? String(r.tn.bill).trim() : '',

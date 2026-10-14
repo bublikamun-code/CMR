@@ -1084,6 +1084,10 @@
                 posted: Boolean(t.is_written_off),
                 partIds: (Array.isArray(t.part_ids) && t.part_ids.length) ? t.part_ids : [t.id],
                 docTxId: latest ? latest.id : null,
+                // Фидбек 14.10: в «Документы»/«Журнал» идёт сумма последней ТН, а не всей
+                // сделки — при частичной выписке строка документов показывала сумму
+                // карточки. В «Платежах» остаётся amount (сумма сделки), его не трогать.
+                tnAmount: latest ? kopecks(latest.amount) : null,
                 tnHere: Boolean(latest && latest.is_invoice_doc),
                 billHere: Boolean(latest && latest.is_bill_doc),
                 print: (latest && latest.print_status) || '',
