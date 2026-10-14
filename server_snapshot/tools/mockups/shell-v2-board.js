@@ -3095,6 +3095,44 @@
 
     function openIssue(c) {
         window.KBSelect.close();
+        // Фидбек 14.10: без магазина бэк отклоняет выписку (400 «Не выбран
+        // магазин для списания») уже после заполнения формы — выглядит как
+        // «сохранилось, а после обновления пропало». Ловим попытку раньше.
+        // Не notify(): тост живёт в body и скрыт под showModal-модалкой
+        // карточки, а KBConfirm — отдельный dialog в top layer, виден поверх.
+        if (!c.storeRaw) {
+            KBConfirm.ask({
+                title: 'Не указан магазин',
+                message: 'Накладную нельзя выписать, пока у сделки не указан магазин. Выберите магазин в обзоре карточки и повторите выписку.',
+                confirmText: 'Выбрать магазин',
+                cancelText: 'Закрыть',
+                danger: false
+            }).then(function (ok) {
+                if (!ok) return;
+                var tab = dialog.querySelector('[data-card-tab="overview"]');
+                if (tab) tab.click();
+                var storeSel = document.getElementById('kb-deal-store');
+                if (!storeSel) return;
+                // Нативный select скрыт (KBSelect.enhance прячет его и рисует
+                // триггер рядом), поэтому видимую красную рамку даёт
+                // aria-invalid на триггере (.kb-select-surface:has(...));
+                // дублируем и на select — его правило в card.css.
+                storeSel.setAttribute('aria-invalid', 'true');
+                var storeTrigger = document.getElementById('kb-deal-store-trigger');
+                if (storeTrigger) storeTrigger.setAttribute('aria-invalid', 'true');
+                var clearInvalid = function () {
+                    storeSel.removeAttribute('aria-invalid');
+                    if (storeTrigger) storeTrigger.removeAttribute('aria-invalid');
+                };
+                storeSel.addEventListener('change', clearInvalid, { once: true });
+                // Фокус после close-квара KBConfirm: тот возвращает фокус
+                // кнопке «Выписать накладную» и перебил бы наш.
+                setTimeout(function () {
+                    if (window.KBSelect && window.KBSelect.focus) window.KBSelect.focus(storeSel);
+                }, 0);
+            });
+            return;
+        }
         var rem = cardRemaining(c);
         var remDisplay = moneyOrDash(rem);
         dialog.innerHTML = '<h2 id="kb-dialog-title">Выписать накладную · ' + esc(c.id) + '</h2><p>Остаток: ' + remDisplay + ' BYN</p><form id="kb-issue-form" class="kb-form"><div class="kb-field"><label for="kb-date">Дата выписки</label><input id="kb-date" type="date" required></div><div class="kb-field"><label for="kb-series">Серия</label><input id="kb-series" maxlength="30" required></div><div class="kb-field"><label for="kb-number">Номер</label><input id="kb-number" maxlength="50" required></div><div class="kb-field"><label for="kb-amount">Сумма, BYN</label><input id="kb-amount" inputmode="decimal" value="' + remDisplay + '" required></div><p class="kb-form-error" id="kb-error" role="alert"></p><p class="kb-form-hint">Частичная выписка оставляет остаток в очереди. Полная — переносит в «Списано». ТН появится в финансовых документах.</p><button class="btn btn-primary" type="submit">Подтвердить выписку</button><button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
@@ -3549,6 +3587,10 @@
                 // Item #6: отправляем store_location только если пользователь
                 // действительно выбрал значение; пустое = 'не указан'.
                 var storeName = value ? KBData.storeName(value) : '';
+                // storeRaw перечитывается из сервера только при загрузке,
+                // а guard выписки в openIssue смотрит на него: без этого
+                // выбранный в обзоре магазин снимал бы блок только после F5.
+                activeCard.storeRaw = storeName;
                 apiMutate('card', { id: Number(activeCard.id), fields: { store_location: storeName || null } });
             }
             else if (key === 'manager') {
