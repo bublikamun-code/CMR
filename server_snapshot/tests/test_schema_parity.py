@@ -74,6 +74,10 @@ SERVER_MANAGED = {
     ("Card", "CardUpdate"): {
         "is_deleted", "position", "writeoff_group_id",
         "status",                # есть отдельный PATCH /kanban/cards/{id}/status
+        # Решение владельца 24.10: статус оплаты вычисляемый — формула в
+        # services.card_money.derive_payment_status, ручной выбор убран
+        # (выбор статуса без денег был пустой операцией).
+        "payment_status",
     },
     ("Task", "TaskCreate"): {
         "creator_id",            # берётся из current_user
@@ -631,9 +635,8 @@ UPDATE_NOT_PERSISTED = {
         "writer slot, а баланс выводится из Σ paid_amount, то есть списание "
         "можно было обойти. Оба фронта шлют оплату только в /payment "
         "(аудит 2026-09-26)",
-    ("CardUpdate", "payment_status"):
-        "по той же причине, что и paid_amount: факт оплаты меняется только "
-        "через PATCH /cards/{id}/payment (аудит 2026-09-26)",
+    # ("CardUpdate", "payment_status") убран 24.10: поле исчезло из схемы —
+    # статус оплаты стал вычисляемым (решение владельца), см. SERVER_MANAGED.
     ("CardUpdate", "clear_client"):
         "не колонка, а управляющий флаг PATCH /cards/{id}: client_id=null "
         "обнуляет клиента только вместе с clear_client=true (защита A7)",
@@ -1043,7 +1046,9 @@ def test_every_card_update_field_reaches_the_column(client, manager, db, make_ca
 def test_card_update_columns_cover_the_whole_schema():
     """Таблица кейсов не должна отставать от схемы: новое поле обязано быть проверено."""
     fields = set(schemas.CardUpdate.model_fields)
-    checked = {"title", "description", "total_amount", "paid_amount", "payment_status",
+    # payment_status убран 24.10: статус вычисляемый (решение владельца),
+    # поле исчезло из CardUpdate.
+    checked = {"title", "description", "total_amount", "paid_amount",
                "payment_due_date", "payment_terms", "store_location", "client_id",
                "due_date", "priority", "sender_email", "tag_ids", "owner_id"}
     missing = sorted(fields - checked - set(CARD_UPDATE_NOT_PERSISTED))

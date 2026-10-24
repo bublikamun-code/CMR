@@ -117,15 +117,19 @@ def test_patch_rejects_paid_amount(client, db, manager, make_card):
 
 @pytest.mark.money
 def test_patch_rejects_payment_status(client, db, manager, make_card):
-    """payment_status в общем PATCH → 400 даже единственным полем."""
+    """payment_status в общем PATCH — пустая операция: поле игнорируется.
+
+    Решение владельца 24.10: статус вычисляемый, поле исчезло из CardUpdate
+    (до этого общий PATCH отвергал его с 400). Старый клиент получает 200
+    без эффекта — статус не меняется руками нигде.
+    """
     _, h = manager
     card = make_card(title="Сделка", payment_status="Не оплачен")
 
     r = client.patch(f"/cards/{card.id}", headers=h,
                      json={"payment_status": "Оплачен"})
 
-    assert r.status_code == 400, r.text
-    assert "Оплату меняйте" in r.json()["detail"]
+    assert r.status_code == 200, r.text
     _reload(db, card)
     assert card.payment_status == "Не оплачен"
 
@@ -845,7 +849,11 @@ def test_payment_status_auto(client, db, manager, make_card, total, paid, expect
 
 @pytest.mark.money
 def test_explicit_payment_status_wins(client, db, manager, make_card):
-    """Явный payment_status в запросе важнее автоопределения по сумме."""
+    """Статус вычисляемый (решение владельца 24.10): присланное значение игнорируется.
+
+    Деньги главнее: полное покрытие даёт «Оплачен» независимо от того,
+    что пытался прислать клиент.
+    """
     _, h = manager
     card = make_card(title="Сделка", total_amount=1000.0)
 
@@ -854,7 +862,7 @@ def test_explicit_payment_status_wins(client, db, manager, make_card):
 
     assert r.status_code == 200, r.text
     _reload(db, card)
-    assert card.payment_status == "Частично"
+    assert card.payment_status == "Оплачен"
 
 
 # ---------------------------------------------------------------------------

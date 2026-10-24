@@ -3013,7 +3013,13 @@
                 }
                 if (fields.paid_amount !== undefined) c.paidAmount = Math.round(fields.paid_amount * 100);
                 if (fields.payment_due_date !== undefined) c.paymentDueDate = fields.payment_due_date || '';
-                if (fields.payment_status !== undefined) c.payment_status = fields.payment_status;
+                // Статус оплаты вычисляемый (решение владельца 24.10): сервер
+                // поле больше не принимает. Выводим локально той же формулой
+                // (суммы здесь в копейках), refresh() подтвердит с сервера.
+                c.payment_status = c.amount <= 0 ? 'Не оплачен'
+                    : c.paidAmount >= c.amount - 1 ? 'Оплачен'
+                    : c.paymentDueDate ? 'Отсрочка'
+                    : c.paidAmount > 0 ? 'Частично' : 'Не оплачен';
                 closeDialog(); refresh();
                 notify(c.id + ' — ' + message);
                 // Двухшаговая: оплата + касса. Касса — отдельный запрос.
@@ -3054,7 +3060,7 @@
                 var fromB = useFromBalance();
                 if (fromB && clientAvailable < total - paid) { err.textContent = 'Баланса клиента не хватает (нужно ' + money(total - paid) + ' BYN).'; return; }
                 var cashNow = fromB ? 0 : (total - paid);
-                finish({ paid_amount: total / 100, payment_status: 'Оплачен', from_balance: fromB || undefined },
+                finish({ paid_amount: total / 100, from_balance: fromB || undefined },
                     fromB ? 'закрыто из баланса, оплачено 100%.' : 'оплачено 100% — ' + money(total) + ' BYN.',
                     cashNow);
                 return;
@@ -3066,7 +3072,7 @@
                 var fromB2 = useFromBalance();
                 if (fromB2 && clientAvailable < amount - paid) { err.textContent = 'Баланса клиента не хватает.'; return; }
                 var cashNow2 = fromB2 ? 0 : Math.max(0, amount - paid);
-                finish({ paid_amount: amount / 100, payment_status: newStatus, from_balance: fromB2 || undefined },
+                finish({ paid_amount: amount / 100, from_balance: fromB2 || undefined },
                     'оплачено ' + money(amount) + ' BYN' + (fromB2 ? ' из баланса' : '') + ', статус «' + newStatus + '».',
                     cashNow2);
                 return;
@@ -3074,7 +3080,7 @@
             if (mode === 'Отсрочка') {
                 if (!Number.isSafeInteger(amount) || amount < 0) { err.textContent = 'Укажите оплаченную сумму (0 и более).'; return; }
                 if (!dueInput.value) { err.textContent = 'Укажите дату отсрочки.'; return; }
-                finish({ paid_amount: amount / 100, payment_status: 'Отсрочка', payment_due_date: dueInput.value }, 'отсрочка до ' + dueInput.value + ', оплачено ' + money(amount) + ' BYN.', 0);
+                finish({ paid_amount: amount / 100, payment_due_date: dueInput.value }, 'отсрочка до ' + dueInput.value + ', оплачено ' + money(amount) + ' BYN.', 0);
                 return;
             }
             if (mode === 'Не оплачен') {
@@ -3084,10 +3090,10 @@
                         message: 'Оплачено ' + money(paid) + ' BYN. Касса клиента не меняется.',
                         confirmText: 'Обнулить'
                     }).then(function (ok) {
-                        if (ok) finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
+                        if (ok) finish({ paid_amount: 0, payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
                     });
                 } else {
-                    finish({ paid_amount: 0, payment_status: 'Не оплачен', payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
+                    finish({ paid_amount: 0, payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
                 }
             }
         };

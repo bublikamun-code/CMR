@@ -548,7 +548,9 @@ class CardUpdate(BaseModel):
     description: Optional[str] = None
     total_amount: Optional[float] = None
     paid_amount: Optional[float] = None
-    payment_status: Optional[str] = None
+    # Решение владельца 24.10: payment_status — вычисляемое поле (формула в
+    # services.card_money.derive_payment_status), ручной выбор убран из
+    # контракта. Присланное старым клиентом значение игнорируется молча.
     payment_due_date: Optional[date] = None
     payment_terms: Optional[str] = None
     store_location: Optional[str] = None
@@ -570,16 +572,6 @@ class CardUpdate(BaseModel):
     # при явном флаге clear_client=true клиент обнуляется и в полном сохранении.
     clear_client: Optional[bool] = None
 
-    @field_validator("payment_status")
-    @classmethod
-    def validate_payment_status(cls, v):
-        if v is None:
-            return v
-        VALID = {"Не оплачен", "Частично", "Оплачен", "Отсрочка"}
-        if v not in VALID:
-            raise ValueError(f"Недопустимый статус оплаты: {v}")
-        return v
-
     @field_validator("total_amount", mode="before")
     @classmethod
     def validate_total_amount(cls, v):
@@ -594,21 +586,13 @@ class CardUpdate(BaseModel):
 
 class CardPaymentUpdate(BaseModel):
     paid_amount: Optional[float] = None
-    payment_status: Optional[str] = None
+    # payment_status убран (решение владельца 24.10): статус вычисляется
+    # сервером из пары (сумма, покрытие) и даты отсрочки. Старые клиенты,
+    # продолжающие слать поле, игнорируются молча — контракт не ломается.
     payment_due_date: Optional[date] = None
     # Фидбек 18.09: True — закрытие ИЗ БАЛАНСА клиента (деньги уже были):
     # приход не создаётся, баланс уменьшается на поднятый paid_amount сам.
     from_balance: Optional[bool] = None
-
-    @field_validator("payment_status")
-    @classmethod
-    def validate_payment_status(cls, v):
-        if v is None:
-            return v
-        VALID = {"Не оплачен", "Частично", "Оплачен", "Отсрочка"}
-        if v not in VALID:
-            raise ValueError(f"Недопустимый статус оплаты: {v}")
-        return v
 
     @field_validator("paid_amount", mode="before")
     @classmethod

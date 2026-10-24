@@ -120,3 +120,93 @@ def test_hot_filter_indexes_exist(db):
         assert column in _indexed_columns(db, table), (
             f"у {table}.{column} нет индекса: скан просрочек/ленты деградирует "
             f"линейно с ростом таблицы (А-3 аудита 2026-10-05)")
+
+
+# ---------------------------------------------------------------------------
+# Решение владельца 24.10: статус оплаты вычисляемый, а не выбор
+# ---------------------------------------------------------------------------
+
+from services.card_money import derive_payment_status
+
+
+def test_derive_payment_status_formula():
+    """Формула одна: деньги главнее, дата — только пока счёт открыт."""
+    import datetime
+    d = datetime.date(2026, 11, 1)
+    assert derive_payment_status(0, 0, None) == "Не оплачен"          # нет счёта
+    assert derive_payment_status(1000, 1000, None) == "Оплачен"
+    assert derive_payment_status(1000, 1000, d) == "Оплачен"          # оплата главнее даты
+    # Конвенция money_is_zero (аудит денег 2026-09-26): копейка — деньги,
+    # долг в 0.01 счёт не закрывает; двоичный хвост float (0.001) — закрывает.
+    assert derive_payment_status(1000, 999.99, None) == "Частично"
+    assert derive_payment_status(1000, 999.999, None) == "Оплачен"
+    assert derive_payment_status(1000, 300, d) == "Отсрочка"          # частично + ждём
+    assert derive_payment_status(1000, 0, d) == "Отсрочка"            # ноль + ждём
+    assert derive_payment_status(1000, 300, None) == "Частично"
+    assert derive_payment_status(1000, 0, None) == "Не оплачен"
+
+
+def test_manual_payment_status_is_ignored(client, db, admin, make_card):
+    """Ручной выбор статуса — пустая операция: поле выпало из контракта."""
+    _, h = admin
+    card = make_card(title="Сделка", total_amount=1000.0, paid_amount=0.0)
+
+    r = client.patch(f"/cards/{card.id}/payment", headers=h,
+                     json={"payment_status": "Оплачен"})
+
+    # Старые клиенты получают 200 без эффекта, а не 422 — контракт не ломается.
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(models.Card, card.id).payment_status == "Не оплачен", (
+        "статус без денег меняться не должен")
+
+
+def test_status_follows_money_through_payment_patch(client, db, admin, make_card):
+    """Статус едет за покрытием: частично → оплачен → переоткрыт → отсрочка."""
+    _, h = admin
+    card = make_card(title="Сделка", total_amount=1000.0, paid_amount=0.0)
+
+    for paid, due, expected in (
+        (300.0, None, "Частично"),
+        (1000.0, None, "Оплачен"),
+        (300.0, None, "Частично"),                       # переоткрытие сделки
+        (300.0, "2026-11-01", "Отсрочка"),               # ждём остаток до даты
+    ):
+        payload = {"paid_amount": paid}
+        if due is not None:
+            payload["payment_due_date"] = due
+        r = client.patch(f"/cards/{card.id}/payment", headers=h, json=payload)
+        assert r.status_code == 200, r.text
+        db.expire_all()
+        stored = db.get(models.Card, card.id)
+        assert stored.payment_status == expected, (
+            f"paid={paid}, due={due}: {stored.payment_status} ≠ {expected}")
+
+
+def test_status_rederives_on_total_edit(client, db, admin, make_card):
+    """Правка суммы сделки перещёлкивает вычисленный статус."""
+    _, h = admin
+    card = make_card(title="Сделка", total_amount=1000.0, paid_amount=300.0,
+                     payment_status="Частично")
+
+    r = client.patch(f"/cards/{card.id}", headers=h, json={"total_amount": 300.0})
+
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(models.Card, card.id).payment_status == "Оплачен", (
+        "покрытие 300 при счёте 300 — «Оплачен», даже если раньше был «Частично»")
+
+
+def test_create_derives_status_despite_client_value(client, db, admin):
+    """Создание «сразу оплаченной» без денег статуса не даёт."""
+    _, h = admin
+    r = client.post("/kanban/cards", headers=h, json={
+        "title": "Сразу оплаченная", "total_amount": 100.0,
+        "paid_amount": 0.0, "payment_status": "Оплачен"})
+
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    card = (db.query(models.Card)
+              .filter(models.Card.title == "Сразу оплаченная").first())
+    assert card is not None
+    assert card.payment_status == "Не оплачен"

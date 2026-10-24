@@ -19,7 +19,7 @@ import schemas
 from auth import get_current_user, require_role
 from database import get_db
 from db_utils import PAGE_MAX_SIZE, cap_list, resolve_page, set_page_headers
-from services.card_money import compute_card_money
+from services.card_money import compute_card_money, derive_payment_status
 from tenant_policy import (
     assign_tenant,
     get_tenant_object,
@@ -178,6 +178,12 @@ def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current
         if len(tags) != len(set(card.tag_ids)):
             raise HTTPException(status_code=404, detail="Тег не найден")
     new_card = assign_tenant(models.Card(**data, owner_id=owner_id), current_user)
+    # Статус оплаты вычисляемый (решение владельца 24.10): присланный при
+    # создании payment_status («создам сразу оплаченной» без денег) — пустая
+    # операция, выводим из пары (сумма, покрытие) и даты отсрочки.
+    new_card.payment_status = derive_payment_status(
+        new_card.total_amount, new_card.paid_amount, new_card.payment_due_date
+    )
     if tags:
         new_card.tags = tags
     db.add(new_card)

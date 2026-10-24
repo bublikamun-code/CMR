@@ -16,6 +16,7 @@ import schemas
 from auth import get_current_user
 from constants import MONEY_EPSILON
 from services.writeoffs import money_is_present, money_is_zero
+from services.card_money import derive_payment_status
 from database import get_db
 from limiter_config import limiter
 from services.sqlite_writer import reserve_model_rows, sqlite_write_transaction
@@ -131,6 +132,10 @@ def _card_field_changes(session, card, old: dict, current_user) -> list:
         changes.append(f'Название: «{_short_log(old.get("title"))}» → «{_short_log(card.title)}»')
     if float(card.total_amount or 0) != float(old.get("total_amount") or 0):
         changes.append(f'Сумма: {_fmt_money_log(old.get("total_amount"))} → {_fmt_money_log(card.total_amount)} BYN')
+    if (card.payment_status or "") != (old.get("payment_status") or ""):
+        changes.append(f'Оплата: {old.get("payment_status") or "—"} → {card.payment_status}')
+    if (card.payment_due_date or None) != (old.get("payment_due_date") or None):
+        changes.append(f'Отсрочка до: {_fmt_date_log(old.get("payment_due_date"))} → {_fmt_date_log(card.payment_due_date)}')
     if (card.due_date or None) != (old.get("due_date") or None):
         changes.append(f'Дата окончания: {_fmt_date_log(old.get("due_date"))} → {_fmt_date_log(card.due_date)}')
     if (card.store_location or "") != (old.get("store_location") or ""):
@@ -600,6 +605,11 @@ def _update_card_locked(db, card, card_update, current_user):
         "client_id": card.client_id,
         "owner_id": card.owner_id,
         "sender_email": card.sender_email,
+        # Статус оплаты вычисляемый (решение владельца 24.10): смена суммы
+        # сделки или даты отсрочки может его перещёлкнуть — фиксируем в
+        # снимке, чтобы лента показала «Оплата: Частично → Оплачен».
+        "payment_status": card.payment_status,
+        "payment_due_date": card.payment_due_date,
     }
     if card_update.title is not None:
         card.title = card_update.title
@@ -726,6 +736,13 @@ def _update_card_locked(db, card, card_update, current_user):
         card.sender_email = (card_update.sender_email or '').strip() or None
     if 'tag_ids' in card_update.model_fields_set:
         card.tags = tags
+    # Статус оплаты вычисляемый (решение владельца 24.10): правка суммы
+    # сделки или даты отсрочки перещёлкивает его вместе с деньгами.
+    if 'total_amount' in card_update.model_fields_set or \
+            'payment_due_date' in card_update.model_fields_set:
+        card.payment_status = derive_payment_status(
+            card.total_amount, card.paid_amount, card.payment_due_date
+        )
     _log_card_changes(
         db, card, current_user, _card_field_changes(db, card, _old, current_user)
     )
@@ -851,20 +868,15 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         # у client_id в PATCH /cards/{id}).
         if 'payment_due_date' in payload.model_fields_set:
             card.payment_due_date = payload.payment_due_date
-        if payload.payment_status is not None:
-            card.payment_status = payload.payment_status
-        else:
-            # автоопределение статуса по сумме
-            total = float(card.total_amount or 0)
-            paid = float(card.paid_amount or 0)
-            if total <= 0:
-                card.payment_status = "Не оплачен"
-            elif paid >= total - MONEY_EPSILON:
-                card.payment_status = "Оплачен"
-            elif paid >= MONEY_EPSILON:
-                card.payment_status = "Частично"
-            else:
-                card.payment_status = "Не оплачен"
+        # Решение владельца 24.10: статус оплаты — ВЫЧИСЛЯЕМОЕ поле, ручной
+        # выбор «Оплачен/Частично/Не оплачен» без денег — пустая операция и
+        # убран из контракта (поле исчезло из CardPaymentUpdate; присланное
+        # старым клиентом значение молча игнорируется). Формула одна —
+        # services.card_money.derive_payment_status, включая «Отсрочку»:
+        # счёт открыт и указана дата, до которой ждём остаток.
+        card.payment_status = derive_payment_status(
+            card.total_amount, card.paid_amount, card.payment_due_date
+        )
 
         _pay_changes = []
         if (card.payment_status or "") != (_old_pay.get("payment_status") or ""):

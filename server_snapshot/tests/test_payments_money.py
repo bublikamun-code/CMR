@@ -572,7 +572,7 @@ def test_patch_card_total_does_not_overwrite_issued_invoices(client, manager, db
 
 @pytest.mark.parametrize("total,paid,expected", [
     (1000.0, 1000.0, "Оплачен"),
-    (1000.0, 999.99, "Оплачен"),       # допуск 0.01 при точности до копеек
+    (1000.0, 999.99, "Частично"),      # копейка — деньги (money_is_zero): долг 0.01 счёт не закрывает
     (1000.0, 500.0, "Частично"),
     (1000.0, 0.01, "Частично"),
     (1000.0, 0.0, "Не оплачен"),
@@ -592,7 +592,11 @@ def test_payment_status_autodetect(client, manager, db, make_card, total, paid, 
 
 
 def test_explicit_payment_status_wins(client, manager, db, make_card):
-    """Явно присланный статус не пересчитывается."""
+    """Статус вычисляемый (решение владельца 24.10): присланный статус игнорируется.
+
+    Деньги главнее: полное покрытие при любом присланном значении даёт
+    «Оплачен» — выбор статуса руками был пустой операцией и убран из контракта.
+    """
     _, h = manager
     card = make_card(total_amount=1000.0)
     r = client.patch(f"/cards/{card.id}/payment", headers=h,
@@ -600,7 +604,7 @@ def test_explicit_payment_status_wins(client, manager, db, make_card):
     assert r.status_code == 200, r.text
     _reload(db)
     db.refresh(card)
-    assert card.payment_status == "Отсрочка"
+    assert card.payment_status == "Оплачен"
 
 
 def test_negative_paid_amount_rejected(client, manager, db, make_card):
@@ -613,13 +617,21 @@ def test_negative_paid_amount_rejected(client, manager, db, make_card):
     assert float(card.paid_amount) == 0.0
 
 
-def test_invalid_payment_status_rejected(client, manager, make_card):
-    """CardPaymentUpdate валидирует множество статусов."""
+def test_invalid_payment_status_rejected(client, manager, db, make_card):
+    """Поля payment_status в схеме нет: недопустимое значение молча отбрасывается.
+
+    Решение владельца 24.10: статус вычисляемый, поле убрано из
+    CardPaymentUpdate. Старые клиенты (включая мусорные значения) получают
+    200 без эффекта — контракт не ломается, статус не меняется.
+    """
     _, h = manager
     card = make_card(total_amount=100.0)
     r = client.patch(f"/cards/{card.id}/payment", headers=h,
                      json={"payment_status": "Какой-то мусор"})
-    assert r.status_code == 422
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    db.refresh(card)
+    assert card.payment_status == "Не оплачен"
 
 
 # ---------------------------------------------------------------------------
