@@ -139,7 +139,9 @@ class Card(Base):
     total_amount = Column(Numeric(12, 2), default=0.0)
     paid_amount = Column(Numeric(12, 2), default=0.0)
     payment_status = Column(String, default="Не оплачен")
-    payment_due_date = Column(Date, nullable=True)
+    # Индексы на дату оплаты/срока — А-3 (аудит 2026-10-05): это фильтры
+    # sync_overdue и списков; без индекса скан деградирует линейно с ростом.
+    payment_due_date = Column(Date, nullable=True, index=True)
     # Условие оплаты (не факт оплаты): deferred/full/partial_deferred. NULL — не выбраны.
     payment_terms = Column(String(30), nullable=True)
     store_location = Column(String, nullable=True)
@@ -149,7 +151,7 @@ class Card(Base):
     client_id = Column(Integer, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True)
     sender_email = Column(String(255), nullable=True)
     is_deleted = Column(Boolean, default=False, index=True)
-    due_date = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True, index=True)
     priority = Column(Integer, default=0)
     position = Column(Integer, default=0, index=True)
     writeoff_group_id = Column(Integer, ForeignKey("writeoff_groups.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -255,7 +257,9 @@ class ActivityLog(Base):
     __tablename__ = "activity_log"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-    card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"))
+    # А-3 (аудит 2026-10-05): самая растущая таблица проекта, лента карточки
+    # фильтрует по card_id — без индекса каждый Open карточки сканирует всё.
+    card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), index=True)
     action = Column(String, nullable=False)
     details = Column(Text, nullable=True)
     # Ключ идемпотентности импорта почты, миграция 0019. До него Message-ID
@@ -679,6 +683,8 @@ class Notification(Base):
     entity_type = Column(String(20), nullable=True)   # task | card | client
     entity_id = Column(Integer, nullable=True)
     is_read = Column(Boolean, default=False, index=True)
-    read_at = Column(DateTime, nullable=True)
+    # А-3 (аудит 2026-10-05): Retention фильтрует устаревшие уведомления
+    # по read_at — без индекса очистка сканирует всю таблицу.
+    read_at = Column(DateTime, nullable=True, index=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)

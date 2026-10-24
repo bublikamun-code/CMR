@@ -621,7 +621,11 @@ def _update_card_locked(db, card, card_update, current_user):
         ]
         issued_total = round(sum(float(t.amount or 0) for t in ledger
                                  if t.is_warehouse_writeoff or (t.invoice_number or "").strip()), 2)
-        new_rest = round(float(card_update.total_amount) - issued_total, 2)
+        # Д-4 (аудит 2026-10-05): clamp обязательный. Уменьшение суммы сделки
+        # ниже уже выписанного (накладные + складские списания) давало
+        # отрицательный остаток: money_is_zero(-500) = False, минус попадал
+        # в remainder.amount, сделка уезжала в «На списание» и не возвращалась.
+        new_rest = max(0.0, round(float(card_update.total_amount) - issued_total, 2))
         remainder = next((t for t in ledger
                           if not t.is_warehouse_writeoff and not (t.invoice_number or "").strip()), None)
         if remainder is not None:

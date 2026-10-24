@@ -879,6 +879,13 @@
     });
 
     document.addEventListener('kb:documents', function () { refreshSection('day'); });
+    // А-1 (аудит 2026-10-05): доска грузится страницами по 80 и после каждой
+    // шлёт kb:cards-appended. Без подписки «Пульт дня» навсегда оставался на
+    // первых 80 сделках — на 367 активных это пятая часть реальной картины.
+    // Здесь только 'day': клиенты и задачи от страниц доски не зависят, а
+    // kb:reloaded/kb:documents их уже закрывают (двойной перерисовки того же
+    // узла на одно событие избегаем).
+    document.addEventListener('kb:cards-appended', function () { refreshSection('day'); });
     document.addEventListener('kb:payment-saved', function () { renderCalendar(); });
     document.addEventListener('kb:dictionaries-changed', function () { renderDay(); renderClients(); renderTasks(); renderCalendar(); });
     renderDay();

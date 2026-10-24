@@ -463,7 +463,13 @@ class TransactionUpdate(BaseModel):
     note: Optional[str] = None
     invoice_number: Optional[str] = None
     invoice_date: Optional[str] = None
-    is_document: Optional[bool] = None
+    # FIX 2026-10-24 (аудит 2026-10-05, Д-3): is_document убран из схемы.
+    # PATCH применял его размытым циклом setattr: строка реестра молча
+    # исчезала из реестра и с доски списания (частичный уникальный индекс
+    # остатка тоже исключает is_document=False), а trigger_from_card создавал
+    # вторую запись на полную сумму — задвоение. Флаг управляется только
+    # серверными путями (выписка/возврат ТН); старые клиенты, продолжающие
+    # слать поле, игнорируются pydantic молча.
     is_invoice_doc: Optional[bool] = None
     is_bill_doc: Optional[bool] = None
     is_warehouse_writeoff: Optional[bool] = None
