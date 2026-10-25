@@ -325,7 +325,13 @@ with sync_playwright() as p:
     check("6c-2. Документы: «Печать» сохраняется", doc_api and doc_api["print_status"] == "Печать",
           f"print={doc_api and doc_api['print_status']}")
 
-    # 6d. Оплата: Оплачен(100%), Частично, Отсрочка, Аванс, Из баланса — на тестовых данных
+    # 6d. Оплата — волна C (24.10): ручной выбор статуса убран, статус
+    # вычисляется. Диалог: «Внести оплату» (POST /cards/{id}/pay — приход в
+    # кассу клиента И привязка к карточке одним запросом), «Отсрочка» (PATCH
+    # paid_amount + дата), «Аванс в кассу» (приход без привязки), «Сбросить»
+    # (обнулить покрытие через KBConfirm, кассу не трогает). Поле
+    # payment_status в подготовке шлётся намеренно: старые клиенты его
+    # передают, сервер молча игнорирует — контракт не ломается.
     page.locator("[data-fin-tab]", has_text="Реестр").first.click(timeout=4000)
     page.wait_for_timeout(500)
     cl = page.evaluate("""async () => {
@@ -346,48 +352,80 @@ with sync_playwright() as p:
         return bal.payments_total;
     }""")
 
-    def pay_flow(mode, amount=None, due=None, from_balance=False, note=None):
+    def pay_flow(mode, amount=None, due=None, from_balance=False):
         open_card(t["card"])
         page.locator("#kb-pay").click(timeout=4000)
         page.wait_for_timeout(300)
-        page.locator(".kb-pay-mode[data-mode='%s']" % mode).click()
-        page.wait_for_timeout(200)
+        # Клики внутри диалога оплаты — только через evaluate: диалоги
+        # открываются/закрываются в момент клика, проверка попадания
+        # Playwright не успевает и ретраит клик по уже перестроенному DOM —
+        # клик либо падает по таймауту, либо молча не доходит (25.10,
+        # два прогона с разными симптомами). evaluate-клик синхронный.
+        page.evaluate("(m) => document.querySelector('.kb-pay-mode[data-mode=\"' + m + '\"]').click()", mode)
+        page.wait_for_selector("#kb-pay-form:not([hidden])", timeout=4000)
         if amount is not None: page.fill("#kb-pay-amount", str(amount))
         if due: page.fill("#kb-pay-due", due)
-        if from_balance: page.locator("#kb-pay-from-balance").check()
-        page.locator("#kb-pay-form button[type=submit]").click()
+        if from_balance:
+            page.evaluate("() => { document.getElementById('kb-pay-from-balance').checked = true; }")
+        page.evaluate("() => document.querySelector('#kb-pay-form button[type=submit]').click()")
+        if mode == "reset":
+            # «Сбросить» подтверждается KBConfirm — отдельный <dialog> поверх
+            # формы. Ждать его открытым нельзя: автопилот из add_init_script
+            # жмёт ОК в том же кадре, что и открытие, — wait_for_selector
+            # стабильно проигрывает гонку и таймаутится (третий прогон 25.10).
+            # Диалог открывается синхронно внутри клика по «Провести», так что
+            # сюда он попадает уже подтверждённым; страховка — если вдруг ещё
+            # открыт, кликнуть самим.
+            if page.evaluate("() => { const d = document.getElementById('kb-confirm'); return !!(d && d.open); }"):
+                page.evaluate("() => document.querySelector('#kb-confirm [data-confirm-ok]').click()")
+                page.wait_for_timeout(300)
         page.wait_for_timeout(1000)
 
-    pay_flow("Оплачен")
-    st = page.evaluate("""async () => { const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s'); return {paid: c.paid_amount, status: c.payment_status}; }""" % t["card"])
-    check("6d. Оплата «Оплачен (100%)»", st["paid"] == 1000 and st["status"] == "Оплачен", str(st))
+    # «Внести оплату» без суммы = полный остаток (10 BYN): деньги падают в
+    # кассу клиента и привязываются к счёту одним POST /pay.
+    pay_flow("pay")
+    st = page.evaluate("""async () => {
+        const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s');
+        const bal = await window.V2Api.api('/clients/%d/balance');
+        return {paid: c.paid_amount, status: c.payment_status, cash: bal.payments_total};
+    }""" % (t["card"], cl))
+    check("6d. «Внести оплату» 10 BYN: счёт закрыт, касса +10",
+          st["paid"] == 1000 and st["status"] == "Оплачен" and st["cash"] == cash0 + 1000.0, str(st))
 
-    pay_flow("Не оплачен")
-    st = page.evaluate("""async () => { const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s'); return {paid: c.paid_amount, status: c.payment_status}; }""" % t["card"])
-    check("6e. «Не оплачен» обнуляет покрытие", st["paid"] == 0 and st["status"] == "Не оплачен", str(st))
+    # «Сбросить оплату»: покрытие обнуляется, касса не двигается.
+    pay_flow("reset")
+    st = page.evaluate("""async () => {
+        const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s');
+        const bal = await window.V2Api.api('/clients/%d/balance');
+        return {paid: c.paid_amount, status: c.payment_status, cash: bal.payments_total};
+    }""" % (t["card"], cl))
+    check("6e. «Сбросить» обнуляет покрытие, касса на месте",
+          st["paid"] == 0 and st["status"] == "Не оплачен" and st["cash"] == cash0 + 1000.0, str(st))
 
-    pay_flow("Частично", amount=600)
-    st = page.evaluate("""async () => { const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s'); return {paid: c.paid_amount, status: c.payment_status}; }""" % t["card"])
-    check("6f. «Частично 600»", st["paid"] == 600 and st["status"] == "Частично", str(st))
+    pay_flow("pay", amount=600)
+    st = page.evaluate("""async () => {
+        const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s');
+        const bal = await window.V2Api.api('/clients/%d/balance');
+        return {paid: c.paid_amount, status: c.payment_status, cash: bal.payments_total};
+    }""" % (t["card"], cl))
+    check("6f. Частичная оплата 600: покрытие и касса",
+          st["paid"] == 600 and st["status"] == "Частично" and st["cash"] == cash0 + 1600.0, str(st))
 
-    pay_flow("Отсрочка", amount=0, due="2026-12-31")
+    # «Отсрочка»: оплаченная часть (0) и дата остатка; прежнее покрытие 600
+    # снижается — привязка аннулируется с историей, касса не двигается.
+    pay_flow("due", amount=0, due="2026-12-31")
     st = page.evaluate("""async () => { const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s'); return {due: c.payment_due_date, status: c.payment_status}; }""" % t["card"])
     check("6g. «Отсрочка» с датой", (st["due"] or "").startswith("2026-12-31") and st["status"] == "Отсрочка", str(st))
 
-    # 6h. Аванс через UI: деньги в кассу клиента сверх счёта → кредит +200
-    pay_flow("Аванс", amount=2000)
+    # 6h. Аванс через UI: деньги в кассу клиента сверх счёта, без привязки
+    pay_flow("advance", amount=2000)
     cash = page.evaluate("""async () => (await window.V2Api.api('/clients/%d/balance')).payments_total""" % cl)
-    bal0 = page.evaluate("""async () => (await window.V2Api.api('/clients/%d/balance')).balance""" % cl)
     check("6h. Аванс 2000 в кассу", cash == cash0 + 3600.0, f"касса {cash} (было {cash0} + 2000 + оплаты 1600)")
 
-    # 6i. «Из баланса»: частичное закрытие без новых денег
-    open_card(t["card"])
-    page.locator("#kb-pay").click(timeout=4000)
-    page.locator(".kb-pay-mode[data-mode='Частично']").click()
-    page.fill("#kb-pay-amount", "1000")
-    page.locator("#kb-pay-from-balance").check()
-    page.locator("#kb-pay-form button[type=submit]").click()
-    page.wait_for_timeout(1200)
+    # 6i. Закрытие из свободного остатка: pay + source=balance — новых денег
+    # нет, касса не двигается; дата отсрочки ещё стоит, но полная оплата
+    # главнее даты → статус «Оплачен».
+    pay_flow("pay", amount=1000, from_balance=True)
     st = page.evaluate("""async () => {
         const cards = await window.V2Api.api('/kanban/cards'); const c = cards.find(x => x.id == '%s');
         const bal = await window.V2Api.api('/clients/%d/balance');

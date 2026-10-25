@@ -172,8 +172,11 @@ node payment-menu-verify.mjs
   карточке и чекбокс в финансах синхронизированы в обе стороны (`fin:originals`).
   Справочники подключены к API (`store-save`, `status-save`, `supplier-save`,
   `user-save`), позиции чек-листа берут поставщика из базы `KBData.suppliers` и
-  сохраняются с `supplier_id`. Оплата — `register-payment` (PATCH
-  `/cards/{id}/payment`) и приём в кассу клиента (POST `/clients/{id}/payments`).
+  сохраняются с `supplier_id`. Оплата (волна C) — атомарный POST
+  `/cards/{id}/pay`: приход в кассу клиента и привязка к карточке одним
+  запросом; «Отсрочка» и «Сбросить» — `register-payment` (PATCH
+  `/cards/{id}/payment`); аванс — приём в кассу клиента (POST
+  `/clients/{id}/payments`).
 - **Чего в v2 по-прежнему нет:** печати форм документов (она осталась только в
   legacy, `site/js/features.js:printInvoice`), серверного покрытия по карточкам
   в группе — известна только сумма группы (`groups.covers` в boot), и

@@ -1235,9 +1235,11 @@
                     // а в CardPaymentUpdate его нет.
                     return await window.V2Api.api('/cards/' + payload.id, { method: 'PATCH', body: { payment_terms: payload.terms || null, payment_due_date: payload.due || null } });
                 } else if (kind === 'register-payment') {
-                    // Как в рабочей версии: PATCH /cards/{id}/payment полями
-                    // статуса (Оплачен/Частично/Отсрочка/Не оплачен) —
-                    // выбор статуса определяет деньги, а не наоборот.
+                    // Волна C (24.10): статус вычисляется сервером, ручного
+                    // выбора нет. Сюда попадают «Отсрочка» и «Сбросить» из
+                    // диалога оплаты: paid_amount + payment_due_date полями
+                    // PATCH /cards/{id}/payment. «Внести оплату» идёт мимо —
+                    // атомарным POST /cards/{id}/pay.
                     return await window.V2Api.api('/cards/' + payload.id + '/payment', { method: 'PATCH', body: payload.fields });
                 } else if (kind === 'issue-invoice') {
                     // B5: защита от двойного сабмита выписки
