@@ -832,7 +832,10 @@ def test_from_balance_closes_card(client, db, manager, make_card):
     (1000.0, 0.0, "Не оплачен"),
     (1000.0, 400.0, "Частично"),
     (1000.0, 1000.0, "Оплачен"),
-    (1000.0, 1200.0, "Оплачен"),      # переплата — тоже оплачено
+    # (1000.0, 1200.0) убрано 24.10: гейт Д-1 (аудита 2026-10-05) запрещает
+    # покрытие сверх счёта — переплата живёт свободным остатком клиента,
+    # а не статусом «Оплачен» (см. test_patch_paid_over_total_is_rejected
+    # в test_client_money_wave_c.py).
     (0.0, 0.0, "Не оплачен"),          # нулевая сумма сделки — эталона нет
 ])
 def test_payment_status_auto(client, db, manager, make_card, total, paid, expected):
@@ -888,7 +891,8 @@ def test_payment_due_date_null_clears_deferral(client, db, manager, make_card):
 def test_payment_due_date_absent_is_untouched(client, db, manager, make_card):
     """Поле не пришло в запросе — отсрочка не трогается."""
     _, h = manager
-    card = make_card(title="Сделка",
+    # total обязателен: гейт Д-1 (24.10) режет покрытие без суммы сделки
+    card = make_card(title="Сделка", total_amount=500.0,
                      payment_due_date=datetime.date(2026, 10, 1))
 
     r = client.patch(f"/cards/{card.id}/payment", headers=h,

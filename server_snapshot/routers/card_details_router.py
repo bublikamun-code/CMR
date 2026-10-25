@@ -24,6 +24,7 @@ from tenant_policy import (
     assign_tenant,
     get_tenant_child,
     get_tenant_object,
+    tenant_predicate,
     tenant_query,
     writable_tenant_id,
 )
@@ -788,6 +789,60 @@ def _reserve_balance_write(session, card_id: int, client_id: int) -> None:
     )
 
 
+def _sync_card_allocations(db, card, old_paid: float, new_paid: float, source: str,
+                           current_user, payment_id=None) -> None:
+    """Волна C (24.10): держит инвариант card.paid_amount == Σ активных привязок.
+
+    Рост покрытия → новая привязка на разницу; снижение → аннулирование с
+    конца (последние созданные первые, последняя — частично), кассу не
+    двигает. Аннулированная часть сохраняется отдельной строкой со статусом
+    annulled — история «откуда взялось и что отменили» не теряется.
+    """
+    diff = round(float(new_paid) - float(old_paid), 2)
+    if abs(diff) <= 0.005:
+        return
+    if diff > 0:
+        db.add(models.ClientPaymentAllocation(
+            client_id=card.client_id,
+            card_id=card.id,
+            payment_id=payment_id,
+            amount=diff,
+            source=source,
+            status="active",
+            created_by=current_user.id,
+            tenant_id=current_user.tenant_id,
+        ))
+        return
+    remaining = -diff
+    allocs = (
+        db.query(models.ClientPaymentAllocation)
+        .filter(
+            models.ClientPaymentAllocation.card_id == card.id,
+            models.ClientPaymentAllocation.status == "active",
+            tenant_predicate(models.ClientPaymentAllocation, current_user),
+        )
+        .order_by(models.ClientPaymentAllocation.id.desc())
+        .all()
+    )
+    for a in allocs:
+        if remaining <= 0.005:
+            break
+        part = min(float(a.amount or 0), remaining)
+        a.amount = round(float(a.amount or 0) - part, 2)
+        db.add(models.ClientPaymentAllocation(
+            client_id=a.client_id,
+            card_id=card.id,
+            payment_id=a.payment_id,
+            amount=part,
+            source=a.source,
+            status="annulled",
+            note="отмена покрытия счёта",
+            created_by=current_user.id,
+            tenant_id=current_user.tenant_id,
+        ))
+        remaining = round(remaining - part, 2)
+
+
 @router.patch("/cards/{card_id}/payment", response_model=schemas.CardResponse)
 def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     card = get_tenant_object(
@@ -860,6 +915,22 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
                 if draw > available:
                     raise HTTPException(status_code=400,
                         detail=f"Баланса клиента не хватает: доступно {available} BYN, требуется {draw} BYN")
+        # Д-1 (аудит 2026-10-05, решение владельца 24.10): покрытие счёта не
+        # может превышать сам счёт — переплата живёт свободным остатком
+        # клиента, а не статусом «Оплачен» сверх суммы. Раньше paid_amount
+        # писался как есть, и сделку можно было «оплатить» без копейки в кассе.
+        effective_paid = float(card.paid_amount or 0) if payload.paid_amount is None \
+            else max(0.0, payload.paid_amount)
+        _total = float(card.total_amount or 0)
+        if _total <= 0.005 and effective_paid > 0.005:
+            raise HTTPException(status_code=400,
+                detail="У сделки не задана сумма — укажите сумму сделки, прежде чем вносить оплату")
+        if effective_paid > _total + 0.005:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Оплата {_fmt_money_log(effective_paid)} BYN превышает счёт "
+                        f"{_fmt_money_log(_total)} BYN. Лишнее внесите авансом на баланс "
+                        f"клиента — оно зачтётся при доборе"))
         if payload.paid_amount is not None:
             card.paid_amount = max(0, payload.paid_amount)
         # V2 (аудит прода 19.09): явный null стирает дату отсрочки — оба фронта
@@ -877,6 +948,15 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         card.payment_status = derive_payment_status(
             card.total_amount, card.paid_amount, card.payment_due_date
         )
+        # Волна C (24.10): покрытие материализовано привязками — инвариант
+        # card.paid_amount == Σ активных привязок карточки.
+        _sync_card_allocations(
+            db, card,
+            old_paid=float(_old_pay.get("paid_amount") or 0),
+            new_paid=float(card.paid_amount or 0),
+            source="balance" if payload.from_balance else "payment",
+            current_user=current_user,
+        )
 
         _pay_changes = []
         if (card.payment_status or "") != (_old_pay.get("payment_status") or ""):
@@ -890,6 +970,122 @@ def update_card_payment(card_id: int, payload: schemas.CardPaymentUpdate, db: Se
         if draw > MONEY_EPSILON:
             _pay_changes.append(f'Закрыто из баланса клиента на {_fmt_money_log(draw)} BYN')
         _log_card_changes(db, card, current_user, _pay_changes)
+
+        db.commit()
+        db.refresh(card)
+        return card
+
+
+@router.post("/cards/{card_id}/pay", response_model=schemas.CardResponse)
+def pay_card(card_id: int, payload: schemas.CardPayRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Волна C (24.10): атомарная оплата карточки — один запрос вместо двух.
+
+    source='cash': приход в кассу клиента + привязка к этой карточке +
+    рост покрытия — одной транзакцией (раньше фронт делал PATCH оплаты и
+    POST кассы отдельно, второй мог потеряться, и деньги расходились с
+    системой). Оплата из карточки без клиента невозможна: некому записать
+    приход — привяжите клиента.
+
+    source='balance': закрытие счёта свободным остатком клиента — кассу
+    не двигает, создаёт привязку source='balance' (то, что раньше делал
+    чекбокс from_balance в PATCH).
+
+    Гейты: сумма ≤ остаток счёта (переплата на карточку запрещена — лишнее
+    вносится авансом, решение владельца); balance-ветка — сумма ≤ available.
+    """
+    import datetime as _dt
+
+    card = get_tenant_object(
+        db, models.Card, card_id, current_user, detail="Карточка не найдена"
+    )
+    if not card:
+        raise HTTPException(status_code=404, detail="Карточка не найдена")
+    if card.client_id is None:
+        raise HTTPException(status_code=400,
+            detail="Оплата доступна для сделок с клиентом: некому записать деньги")
+    with sqlite_write_transaction(db):
+        _reserve_balance_write(db, card_id, card.client_id)
+        db.expire_all()
+        card = get_tenant_object(
+            db, models.Card, card_id, current_user, detail="Карточка не найдена"
+        )
+        if card.client_id is None:
+            raise HTTPException(status_code=400,
+                detail="Оплата доступна для сделок с клиентом")
+
+        old_paid = float(card.paid_amount or 0)
+        total = float(card.total_amount or 0)
+        if total <= 0.005:
+            raise HTTPException(status_code=400,
+                detail="У сделки не задана сумма — укажите сумму сделки")
+        amount = round(float(payload.amount), 2)
+        rest = round(total - old_paid, 2)
+        if amount > rest + 0.005:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Оплата {_fmt_money_log(amount)} BYN превышает остаток счёта "
+                        f"{_fmt_money_log(rest)} BYN. Лишнее внесите авансом на баланс "
+                        f"клиента — оно зачтётся при доборе"))
+
+        payment = None
+        if payload.source == "cash":
+            paid_at = (
+                _dt.datetime.combine(payload.paid_at, _dt.time.min)
+                if payload.paid_at is not None else None
+            )
+            payment = models.ClientPayment(
+                client_id=card.client_id,
+                card_id=card.id,
+                amount=amount,
+                kind="deposit",
+                method=payload.method,
+                paid_at=paid_at,
+                note=(payload.note or "").strip() or None,
+                created_by=current_user.id,
+                tenant_id=current_user.tenant_id,
+            )
+            db.add(payment)
+            db.flush()
+        else:
+            from routers.clients_router import _client_balance_payload
+            bal = _client_balance_payload(db, card.client_id, current_user)
+            if amount > bal["available"] + 0.005:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"Баланса клиента не хватает: доступно {bal['available']} BYN, "
+                            f"требуется {_fmt_money_log(amount)} BYN"))
+
+        db.add(models.ClientPaymentAllocation(
+            client_id=card.client_id,
+            card_id=card.id,
+            payment_id=payment.id if payment is not None else None,
+            amount=amount,
+            source=payload.source,
+            status="active",
+            note=(payload.note or "").strip() or None,
+            created_by=current_user.id,
+            tenant_id=current_user.tenant_id,
+        ))
+        if payment is not None:
+            db.add(models.ActivityLog(
+                user_id=current_user.id,
+                action="Приход денег",
+                details=(f"Клиент #{card.client_id}: +{amount} BYN по сделке #{card.id}"
+                         + (f" ({payload.method})" if payload.method else "")),
+                tenant_id=current_user.tenant_id,
+            ))
+
+        old_status = card.payment_status
+        card.paid_amount = round(old_paid + amount, 2)
+        card.payment_status = derive_payment_status(
+            card.total_amount, card.paid_amount, card.payment_due_date
+        )
+        _log_card_changes(db, card, current_user, [
+            f'Оплачено: {_fmt_money_log(old_paid)} → {_fmt_money_log(card.paid_amount)} BYN',
+            ('Закрыто из баланса клиента на ' if payload.source == "balance"
+             else 'Оплата деньгами на ') + f'{_fmt_money_log(amount)} BYN',
+        ] + ([f'Оплата: {old_status or "—"} → {card.payment_status}']
+             if (old_status or "") != card.payment_status else []))
 
         db.commit()
         db.refresh(card)

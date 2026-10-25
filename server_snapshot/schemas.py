@@ -256,11 +256,23 @@ class ClientPaymentCreate(BaseModel):
     amount: float
     note: Optional[str] = None
     card_id: Optional[int] = None
+    # Волна C (24.10): касса — журнал. Дата платежа — когда деньги, а не
+    # когда строка (задним числом можно, решение владельца); способ — справочно.
+    paid_at: Optional[date] = None
+    method: Optional[str] = None
 
     @field_validator("amount", mode="before")
     @classmethod
     def amount_positive(cls, v):
         return validate_money(v, field_name="Сумма прихода", allow_zero=False)
+
+    @field_validator("method")
+    @classmethod
+    def method_normalized(cls, v):
+        if v is None:
+            return v
+        v = v.strip().lower()
+        return v if v in ("наличные", "карта", "рс") else None
 
 
 class ClientPaymentResponse(BaseModel):
@@ -268,6 +280,37 @@ class ClientPaymentResponse(BaseModel):
     client_id: int
     card_id: Optional[int] = None
     amount: float
+    kind: str = "deposit"
+    method: Optional[str] = None
+    paid_at: Optional[datetime] = None
+    note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ClientPaymentRefundRequest(BaseModel):
+    # Сторно-возврат (волна C): возвращаем живые деньги — не больше свободного
+    # остатка клиента. amount=None — возврат всей строки прихода.
+    amount: Optional[float] = None
+    note: Optional[str] = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def amount_positive(cls, v):
+        if v is None:
+            return v
+        return validate_money(v, field_name="Сумма возврата", allow_zero=False)
+
+
+class ClientPaymentAllocationResponse(BaseModel):
+    id: int
+    client_id: Optional[int] = None
+    card_id: int
+    payment_id: Optional[int] = None
+    amount: float
+    source: str
+    status: str
     note: Optional[str] = None
     created_by: Optional[int] = None
     created_at: Optional[datetime] = None
@@ -276,13 +319,47 @@ class ClientPaymentResponse(BaseModel):
 
 class ClientBalanceResponse(BaseModel):
     client_id: int
-    balance: float                 # позиция клиента: приходы − суммы сделок; плюс — аванс, минус — долг
-    available: float               # чем можно закрыть сделку из баланса: приходы − уже списано
-    payments_total: float          # Σ приходов (реальные деньги от клиента)
+    balance: float                 # позиция клиента: касса − суммы сделок; плюс — аванс, минус — долг
+    available: float               # чем можно закрыть сделку из баланса: касса − уже привязано
+    payments_total: float          # касса: Σ взносов − Σ возвратов (реальные деньги клиента)
+    refunds_total: float = 0.0     # Σ сторно-возвратов
     deals_total: float             # Σ total_amount неудалённых карточек
-    paid_on_cards: float           # Σ paid_amount (сколько счетов закрыто)
+    paid_on_cards: float           # Σ paid_amount (сколько счетов закрыто) == Σ активных привязок
     payments: List[ClientPaymentResponse] = []
+    allocations: List[ClientPaymentAllocationResponse] = []
     model_config = ConfigDict(from_attributes=True)
+
+
+# Волна C (24.10): атомарная оплата карточки — «деньги в кассу + привязка к
+# этой карточке» одним запросом (раньше фронт делал два, и второй мог
+# потеряться). source: cash — новые деньги; balance — закрытие из свободного
+# остатка клиента без движения кассы.
+class CardPayRequest(BaseModel):
+    amount: float
+    source: str = "cash"
+    method: Optional[str] = None
+    paid_at: Optional[date] = None
+    note: Optional[str] = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def amount_positive(cls, v):
+        return validate_money(v, field_name="Сумма оплаты", allow_zero=False)
+
+    @field_validator("source")
+    @classmethod
+    def source_valid(cls, v):
+        if v not in ("cash", "balance"):
+            raise ValueError("Источник оплаты: cash (деньги) или balance (из баланса клиента)")
+        return v
+
+    @field_validator("method")
+    @classmethod
+    def method_normalized(cls, v):
+        if v is None:
+            return v
+        v = v.strip().lower()
+        return v if v in ("наличные", "карта", "рс") else None
 
 
 class ClientResponse(ClientBase):

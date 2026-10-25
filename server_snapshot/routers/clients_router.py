@@ -1,4 +1,5 @@
 import contextlib
+import datetime as _dt
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -11,6 +12,7 @@ from auth import get_current_user, require_role
 from constants import business_today
 from database import get_db
 from db_utils import cap_list
+from services.sqlite_writer import reserve_model_rows, sqlite_write_transaction
 from tenant_policy import (
     assign_tenant,
     get_tenant_object,
@@ -41,10 +43,17 @@ def _attach_client_aggregates(clients: list, db: Session, current_user):
     # собственным предикатом: это не позволяет ID-утечке изменить суммы.
 
     # Баланс кассы: Σ приходов за вычетом Σ total_amount карточек.
+    # Волна C (24.10): сторно-возвраты (kind='refund') идут со знаком минус —
+    # касса это живые деньги, а не счётчик строк.
     payments_agg = dict(
         db.query(
             models.ClientPayment.client_id,
-            func.coalesce(func.sum(models.ClientPayment.amount), 0),
+            func.coalesce(func.sum(
+                case(
+                    (models.ClientPayment.kind == "refund", -models.ClientPayment.amount),
+                    else_=models.ClientPayment.amount,
+                )
+            ), 0),
         )
         .filter(
             models.ClientPayment.client_id.in_(cids),
@@ -234,37 +243,38 @@ def _client_balance_payload(db: Session, client_id: int, current_user) -> dict:
     payments = tenant_query(db, models.ClientPayment, current_user).filter(
         models.ClientPayment.client_id == client_id
     ).order_by(models.ClientPayment.created_at.desc(), models.ClientPayment.id.desc()).all()
-    payments_total = round(sum(float(p.amount or 0) for p in payments), 2)
+    # Касса — живые деньги: взносы минус сторно-возвраты (волна C, 24.10).
+    deposits = round(sum(float(p.amount or 0) for p in payments if p.kind != "refund"), 2)
+    refunds = round(sum(float(p.amount or 0) for p in payments if p.kind == "refund"), 2)
+    payments_total = round(deposits - refunds, 2)
     cards = tenant_query(db, models.Card, current_user).filter(
         models.Card.client_id == client_id,
         models.Card.is_deleted == False,  # noqa: E712
     ).all()
     deals_total = round(sum(float(c.total_amount or 0) for c in cards), 2)
     paid_on_cards = round(sum(float(c.paid_amount or 0) for c in cards), 2)
+    allocations = tenant_query(db, models.ClientPaymentAllocation, current_user).filter(
+        models.ClientPaymentAllocation.client_id == client_id
+    ).order_by(models.ClientPaymentAllocation.id.desc()).limit(50).all()
     return {
         "client_id": client_id,
         # FIX 2026-09-30 (аудит, С-4): «баланс» и «доступно» — разные вещи,
         # и раньше они считались в двух местах по-разному.
         #
-        # balance (позиция клиента) = заплачено − сумма всех его сделок.
+        # balance (позиция клиента) = касса − сумма всех его сделок.
         #   Отрицательное число означает долг: клиент должен за поставки.
         #
-        # available (чем можно закрыть сделку из баланса) = заплачено − уже
-        #   списано с его сделок. deals_total здесь не участвует намеренно:
+        # available (чем можно закрыть сделку из баланса) = касса − уже
+        #   привязано к его сделкам. deals_total здесь не участвует намеренно:
         #   неоплаченные сделки аванс не съедают, они его не забирали.
-        #
-        # Путаница была дорогой в обе стороны. Интерфейс показывал
-        # «баланс: −4000 — долг клиента» и по нему же прятал чекбокс «закрыть
-        # из баланса», тогда как бэкенд считал доступным 1000 и оплату
-        # разрешал: деньги в кассе были, а сделку было нечем закрыть, и человек
-        # не понимал почему. Теперь обе величины считаются здесь, разведены по
-        # именам, и бэкенд берёт ровно ту, которой пользуется интерфейс.
         "balance": round(payments_total - deals_total, 2),
         "available": round(payments_total - paid_on_cards, 2),
         "payments_total": payments_total,
+        "refunds_total": refunds,
         "deals_total": deals_total,
         "paid_on_cards": paid_on_cards,
         "payments": payments[:50],
+        "allocations": allocations,
     }
 
 
@@ -296,18 +306,104 @@ def add_client_payment(client_id: int, payload: schemas.ClientPaymentCreate, db:
         )
         if not card:
             raise HTTPException(status_code=400, detail="Сделка не принадлежит этому клиенту")
-    payment = models.ClientPayment(
-        client_id=client_id,
-        card_id=payload.card_id,
-        amount=round(payload.amount, 2),
-        note=(payload.note or "").strip() or None,
-        created_by=current_user.id,
-        tenant_id=current_user.tenant_id,
-    )
-    db.add(payment)
-    db.commit()
-    db.refresh(payment)
+    # FIX 2026-10-24 (аудит 2026-10-05, Д-2): writer slot ДО записи и журнал.
+    # Раньше это был голый add+commit: повторный тап с мобильного давал
+    # двойной кредит, и следа «кто внёс» не оставалось.
+    with sqlite_write_transaction(db):
+        reserve_model_rows(
+            db, models.Client, [client_id],
+            not_found_detail="Клиент не найден",
+            busy_detail="Касса клиента занята другой операцией. Повторите попытку.",
+        )
+        paid_at = (
+            _dt.datetime.combine(payload.paid_at, _dt.time.min)
+            if payload.paid_at is not None else None
+        )
+        payment = models.ClientPayment(
+            client_id=client_id,
+            card_id=payload.card_id,
+            amount=round(payload.amount, 2),
+            kind="deposit",
+            method=payload.method,
+            paid_at=paid_at,
+            note=(payload.note or "").strip() or None,
+            created_by=current_user.id,
+            tenant_id=current_user.tenant_id,
+        )
+        db.add(payment)
+        db.add(models.ActivityLog(
+            user_id=current_user.id,
+            action="Приход денег",
+            details=(f"Клиент #{client_id}: +{round(payload.amount, 2)} BYN"
+                     + (f" ({payload.method})" if payload.method else "")
+                     + (f", сделка #{payload.card_id}" if payload.card_id else "")
+                     + (f" — {payment.note}" if payment.note else "")),
+            tenant_id=current_user.tenant_id,
+        ))
+        db.commit()
+        db.refresh(payment)
     return payment
+
+
+@router.post("/{client_id}/payments/{payment_id}/refund",
+             response_model=schemas.ClientPaymentResponse)
+def refund_client_payment(client_id: int, payment_id: int, payload: schemas.ClientPaymentRefundRequest,
+                          db: Session = Depends(get_db),
+                          current_user: models.User = Depends(require_role("admin", "superadmin"))):
+    """Сторно-возврат денег клиенту (волна C, 24.10; решение владельца — админы).
+
+    Приход не удаляется: возврат — отдельная строка kind='refund' со ссылкой
+    на исходный приход в комментарии. Гейт: вернуть можно только живые деньги,
+    то есть не больше свободного остатка клиента (касса − привязанное).
+    """
+    source = get_tenant_object(
+        db, models.ClientPayment, payment_id, current_user, detail="Приход не найден"
+    )
+    if not source:
+        raise HTTPException(status_code=404, detail="Приход не найден")
+    if source.client_id != client_id:
+        raise HTTPException(status_code=400, detail="Приход не принадлежит этому клиенту")
+    if source.kind == "refund":
+        raise HTTPException(status_code=400, detail="Вернуть можно только взнос, не сторно")
+
+    amount = round(payload.amount if payload.amount is not None else float(source.amount), 2)
+    if amount > float(source.amount) + 0.005:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Возврат {amount} BYN больше взноса {round(float(source.amount), 2)} BYN")
+
+    with sqlite_write_transaction(db):
+        reserve_model_rows(
+            db, models.Client, [client_id],
+            not_found_detail="Клиент не найден",
+            busy_detail="Касса клиента занята другой операцией. Повторите попытку.",
+        )
+        bal = _client_balance_payload(db, client_id, current_user)
+        if amount > bal["available"] + 0.005:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Возврат {amount} BYN больше свободного остатка клиента: "
+                        f"доступно {bal['available']} BYN (остальное уже привязано к сделкам)"))
+        refund = models.ClientPayment(
+            client_id=client_id,
+            card_id=source.card_id,
+            amount=amount,
+            kind="refund",
+            method=source.method,
+            note=(f"Возврат прихода #{payment_id}" + (f" — {payload.note}" if payload.note else "")),
+            created_by=current_user.id,
+            tenant_id=current_user.tenant_id,
+        )
+        db.add(refund)
+        db.add(models.ActivityLog(
+            user_id=current_user.id,
+            action="Возврат денег",
+            details=f"Клиент #{client_id}: −{amount} BYN (сторно прихода #{payment_id})",
+            tenant_id=current_user.tenant_id,
+        ))
+        db.commit()
+        db.refresh(refund)
+    return refund
 
 
 @router.delete("/payments/{payment_id}")

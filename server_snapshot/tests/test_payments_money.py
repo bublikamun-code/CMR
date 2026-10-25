@@ -577,7 +577,10 @@ def test_patch_card_total_does_not_overwrite_issued_invoices(client, manager, db
     (1000.0, 0.01, "Частично"),
     (1000.0, 0.0, "Не оплачен"),
     (0.0, 0.0, "Не оплачен"),
-    (0.0, 100.0, "Не оплачен"),         # total <= 0 — всегда «Не оплачен»
+    # (0.0, 100.0) больше не достижимо через API: гейт Д-1 (аудит
+    # 2026-10-05) запрещает покрытие без суммы сделки — см.
+    # test_pay_without_total_is_rejected. Ветка формулы total<=0 покрыта
+    # юнит-тестом derive_payment_status.
 ])
 def test_payment_status_autodetect(client, manager, db, make_card, total, paid, expected):
     _, h = manager
@@ -615,6 +618,20 @@ def test_negative_paid_amount_rejected(client, manager, db, make_card):
     _reload(db)
     db.refresh(card)
     assert float(card.paid_amount) == 0.0
+
+
+def test_pay_without_total_is_rejected(client, manager, make_card):
+    """Д-1 (аудит 2026-10-05): покрытие без суммы сделки невозможно.
+
+    Раньше paid_amount писался как есть — сделку можно было «оплатить» без
+    счёта и без копейки в кассе. Теперь 400 с внятной причиной.
+    """
+    _, h = manager
+    card = make_card(total_amount=0.0)
+    r = client.patch(f"/cards/{card.id}/payment", headers=h,
+                     json={"paid_amount": 100.0})
+    assert r.status_code == 400, r.text
+    assert "не задана сумма" in r.json()["detail"]
 
 
 def test_invalid_payment_status_rejected(client, manager, db, make_card):

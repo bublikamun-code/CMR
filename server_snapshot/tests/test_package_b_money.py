@@ -116,18 +116,24 @@ def test_card_money_group_writeoff(client, manager, db, make_card):
 # =========================================================================
 
 def test_overpayment_does_not_change_total_amount(client, manager, db, make_card):
-    """Оплата больше суммы сделки: total_amount остаётся неизменной."""
+    """Оплата больше суммы сделки: 400, ни одна сумма не меняется (Д-1, 24.10).
+
+    Прежний контракт позволял paid_amount > total_amount («оплачено» сверх
+    счёта). Решение владельца 24.10: переплата на карточку запрещена — лишнее
+    вносится авансом на баланс клиента; total и paid не двигаются вовсе.
+    """
     _, h = manager
     card = make_card(total_amount=500.0)
     r = client.patch(f"/cards/{card.id}/payment", headers=h,
                      json={"paid_amount": 700.0})
-    assert r.status_code == 200
+    assert r.status_code == 400
+    assert "превышает счёт" in r.json()["detail"]
 
     _reload(db)
     db.refresh(card)
     assert float(card.total_amount) == 500.0, "total_amount не должна меняться при переплате"
-    assert float(card.paid_amount) == 700.0
-    assert card.payment_status == "Оплачен"
+    assert float(card.paid_amount) == 0.0
+    assert card.payment_status == "Не оплачен"
 
 
 def test_exact_payment_preserves_total(client, manager, db, make_card):

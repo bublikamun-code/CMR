@@ -308,14 +308,29 @@ def _dead_schemas():
             if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
                     and node.value.id == "schemas"):
                 used.add(node.attr)
-    # базовые классы используемых схем считаются живыми
+    # базовые классы используемых схем считаются живыми; волна C (24.10) —
+    # и схемы, на которые живая ссылается ПОЛЕМ (например,
+    # List[ClientPaymentAllocationResponse] внутри ClientBalanceResponse):
+    # раньше такая схема объявлялась мёртвой, хотя реально раздаётся API
+    # вместе с обёрткой.
+    refs = {}
+    for n in tree.body:
+        if not isinstance(n, ast.ClassDef):
+            continue
+        inner = set()
+        for stmt in n.body:
+            if isinstance(stmt, ast.AnnAssign) and stmt.annotation is not None:
+                for node in ast.walk(stmt.annotation):
+                    if isinstance(node, ast.Name) and node.id in classes:
+                        inner.add(node.id)
+        refs[n.name] = inner
     alive = set(used)
     changed = True
     while changed:
         changed = False
         for name, bases in classes.items():
             if name in alive:
-                for b in bases:
+                for b in bases + sorted(refs.get(name, ())):
                     if b not in alive:
                         alive.add(b)
                         changed = True
@@ -326,11 +341,13 @@ KNOWN_DEAD_SCHEMAS = {
     "AttachmentCreate",     # вложения создаются загрузкой файла, не JSON-ом
     "CardStatusUpdate",     # вместо неё используется CardUpdateStatus
     "NakladnayaResponse",   # nakladnye_router отдаёт dict через _nak_dict
-    "NotificationResponse",
+    # FIX 24.10: NotificationResponse и WriteoffGroupCard убраны из списка —
+    # детектор научился видеть вложенность (поле List[...] живой схемы), и
+    # обе оказались РЕАЛЬНО раздаваемыми API: NotificationsListResponse
+    # (notifications_router) и WriteoffGroupResponse (writeoff_groups_router).
     "SupplierBrief",
     "TransactionCreate",    # транзакция создаётся через trigger/issue-invoice
-    "WriteoffGroupCard",    # writeoff_groups_router объявил свои локальные схемы
-    "WriteoffGroupCreate",
+    "WriteoffGroupCreate",  # writeoff_groups_router объявил свои локальные схемы
 }
 
 

@@ -74,11 +74,45 @@ class ClientPayment(Base):
     # Фидбек 18.09: приход денег от клиента (баланс клиента). Аванс без
     # сделки — card_id NULL; оплата по сделке — card_id заполнен.
     # Баланс клиента = Σ amount приходов − Σ total_amount его карточек.
+    # Волна C (24.10): касса клиента — журнал, а не строки для правки:
+    #   kind   — deposit (взнос) | refund (сторно-возврат); сумма всегда
+    #            положительная, знак определяется kind;
+    #   paid_at — дата платежа (можно задним числом: когда ДЕНЬГИ, а не когда
+    #            строка; касса дня считается по ней);
+    #   method — способ: наличные | карта | рс (справочно).
     __tablename__ = "client_payments"
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
     card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), nullable=True, index=True)
     amount = Column(Numeric(12, 2), nullable=False)
+    kind = Column(String(10), default="deposit", nullable=False, index=True)
+    method = Column(String(20), nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    note = Column(String(500), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+
+
+class ClientPaymentAllocation(Base):
+    # Привязка средств клиента к карточке (волна C, 24.10). Деньги живут в
+    # кассе клиента (client_payments), покрытие счёта — в card.paid_amount;
+    # привязка — явная операция между ними.
+    # Инварианты (поддерживаются роутерами, см. card_details_router):
+    #   card.paid_amount == Σ активных привязок этой карточки;
+    #   Σ активных привязок клиента ≤ касса (Σ deposit − Σ refund).
+    # source: payment — оплата деньгами по этой карточке;
+    #         balance — закрытие счёта из свободного остатка клиента;
+    #         migration — перенос paid_amount, существовавшего до механики.
+    # status: active | annulled (отмена покрытия; кассу не двигает).
+    __tablename__ = "client_payment_allocations"
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=True, index=True)
+    card_id = Column(Integer, ForeignKey("cards.id", ondelete="SET NULL"), nullable=False, index=True)
+    payment_id = Column(Integer, ForeignKey("client_payments.id", ondelete="SET NULL"), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    source = Column(String(12), default="payment", nullable=False)
+    status = Column(String(10), default="active", nullable=False, index=True)
     note = Column(String(500), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
