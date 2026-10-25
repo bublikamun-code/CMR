@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 import os
@@ -353,6 +354,13 @@ def create_nakladnaya(
         # rollback объект разобран и его атрибуты недоступны.
         commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number, nak.tenant_id)
         db.refresh(nak)
+        # Волна D: document.created — накладная это документ; событие было
+        # заявлено в AVAILABLE_EVENTS, но не стреляло. Вызов до db.close()
+        # из finally: payload читает атрибуты живой сессии.
+        with contextlib.suppress(Exception):
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id, "document.created",
+                {"id": nak.id, "doc_series": nak.doc_series, "doc_number": nak.doc_number})
         return nak_dict(nak)
     finally:
         db.close()
@@ -397,6 +405,11 @@ def update_nakladnaya(
         # индекс это поймает, а guard переведёт в 400 вместо 500
         commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number, nak.tenant_id)
         db.refresh(nak)
+        # Волна D: document.updated — заявлен, не стрелял (см. create выше).
+        with contextlib.suppress(Exception):
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id, "document.updated",
+                {"id": nak.id, "doc_series": nak.doc_series, "doc_number": nak.doc_number})
         return nak_dict(nak)
     finally:
         db.close()
@@ -728,13 +741,21 @@ def bot_create_nakladnaya(payload: schemas.NakladnayaCreate, db: Session = Depen
     # производные колонки у старых строк.
     commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number, nak.tenant_id)
     db.refresh(nak)
+    # Волна D: document.created и для бота — подписчику всё равно, кто внёс
+    # накладную; tenant берём у actor'а, current_user у бота нет.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(actor.tenant_id, "document.created",
+            {"id": nak.id, "doc_series": nak.doc_series, "doc_number": nak.doc_number,
+             "created_by_bot": True})
     return nak_dict(nak)
 
 
 @router.patch("/bot/{nak_id}", dependencies=[Depends(_bot_auth)])
 def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Session = Depends(get_db)):
+    actor = _bot_actor(db)
     nak = get_tenant_object(
-        db, models.Nakladnaya, nak_id, _bot_actor(db),
+        db, models.Nakladnaya, nak_id, actor,
         detail="Накладная не найдена",
     )
 
@@ -753,6 +774,11 @@ def bot_update_nakladnaya(nak_id: int, updates: schemas.NakladnayaUpdate, db: Se
     # уводить запись на уже занятый ключ
     commit_with_doc_key_guard(db, nak.doc_series, nak.doc_number, nak.tenant_id)
     db.refresh(nak)
+    # Волна D: document.updated от бота (см. bot/create выше).
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(actor.tenant_id, "document.updated",
+            {"id": nak.id, "doc_series": nak.doc_series, "doc_number": nak.doc_number})
     return nak_dict(nak)
 
 

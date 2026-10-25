@@ -193,6 +193,11 @@ def update_client(client_id: int, update: schemas.ClientUpdate, db: Session = De
         user_id=current_user.id, change_type="update", tenant_id=current_user.tenant_id)
     # см. комментарий в create_client: refresh обязателен после save_version
     db.refresh(client)
+    # Волна D: client.updated не стрелял, хотя заявлен в AVAILABLE_EVENTS.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "client.updated",
+            {"id": client.id, "name": client.name})
     return client
 
 
@@ -218,6 +223,11 @@ def delete_client(client_id: int, db: Session = Depends(get_db), current_user: m
     ).update({"client_id": None}, synchronize_session=False)
     db.delete(client)
     db.commit()
+    # Волна D: client.deleted — объект уже удалён из сессии, payload только id.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "client.deleted",
+            {"id": client_id})
     return {"detail": "Клиент удалён"}
 
 

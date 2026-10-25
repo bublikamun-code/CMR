@@ -1,3 +1,4 @@
+import contextlib
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -51,6 +52,11 @@ def create_supplier(supplier: schemas.SupplierCreate, db: Session = Depends(get_
     db.add(new_s)
     db.commit()
     db.refresh(new_s)
+    # Волна D: события supplier.* не стреляли, хотя заявлены в AVAILABLE_EVENTS.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "supplier.created",
+            {"id": new_s.id, "name": new_s.name})
     return new_s
 
 
@@ -102,6 +108,10 @@ def update_supplier(supplier_id: int, update: schemas.SupplierUpdate, db: Sessio
 
     db.commit()
     db.refresh(s)
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "supplier.updated",
+            {"id": s.id, "name": s.name})
     return s
 
 
@@ -124,6 +134,11 @@ def delete_supplier(supplier_id: int, db: Session = Depends(get_db), current_use
     ).update({"supplier_id": None}, synchronize_session=False)
     db.delete(s)
     db.commit()
+    # Волна D: объект удалён из сессии — payload только id.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "supplier.deleted",
+            {"id": supplier_id})
     return {"detail": "Поставщик удалён"}
 
 

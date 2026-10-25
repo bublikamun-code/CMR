@@ -689,6 +689,12 @@ def update_transaction_checkboxes(transaction_id: int, updates: schemas.Transact
                     card.status = writeoff_status_for(card, ledger)
         db.commit()
         db.refresh(tx)
+        # Волна D: payment.updated — правка реестра (галочки, дата, статус
+        # печати) заявлена в AVAILABLE_EVENTS, но не стреляла.
+        with contextlib.suppress(Exception):
+            from routers.webhooks_router import notify_webhooks_async
+            notify_webhooks_async(current_user.tenant_id, "payment.updated",
+                {"id": tx.id, "card_id": tx.card_id, "amount": float(tx.amount or 0)})
         return tx_dict(tx)
     except HTTPException:
         # FIX 2026-09-30 (аудит, Д-4): явный откат перед выбросом.

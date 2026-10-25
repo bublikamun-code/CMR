@@ -208,6 +208,12 @@ def create_card(card: schemas.CardCreate, db: Session = Depends(get_db), current
                type="card_created", title=f"Создана сделка: {new_card.title}",
                details=f"Автор: {current_user.username}",
                entity_type="card", entity_id=new_card.id)
+    # Волна D: card.created заявлен в AVAILABLE_EVENTS вебхуков с самого
+    # начала, но не стрелял ни разу — подписчик получал тишину вместо сделки.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "card.created",
+            {"id": new_card.id, "title": new_card.title})
     return new_card
 
 
@@ -290,6 +296,12 @@ def delete_card(card_id: int, db: Session = Depends(get_db), current_user: model
         raise HTTPException(status_code=404, detail="Карточка не найдена")
     card.is_deleted = True
     db.commit()
+    # Волна D: card.deleted для архива (постоянное удаление шлёт своё событие
+    # с permanent=true — подписчику важно отличать «в корзине» от «сгорело»).
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "card.deleted",
+            {"id": card_id, "permanent": False})
     return {"detail": "Карточка перемещена в архив"}
 
 
@@ -482,6 +494,14 @@ def permanent_delete_card(card_id: int, force: bool = False, db: Session = Depen
         ),
     ))
     db.commit()
+
+    # Волна D: удаление навсегда — тоже card.deleted, но с permanent=true и
+    # именем в payload: самой сделки уже нет, подписчику больше неоткуда
+    # узнать, что именно сгорело.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+        notify_webhooks_async(current_user.tenant_id, "card.deleted",
+            {"id": card_id, "title": card_title, "permanent": True})
 
     # Финально и только теперь снимаем файлы: база уже приведена в порядок,
     # и ошибка удаления файла не оставит ссылки в никуда.
