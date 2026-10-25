@@ -560,3 +560,94 @@ def export_cards_csv(db: Session = Depends(get_db), current_user: models.User = 
         ])
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=cards_export.csv"})
+
+
+# ============================================================
+# Сохранённые виды доски (волна D): сервер — источник правды
+# ============================================================
+# До этой волны таблица saved_views существовала, но роутов не имела, а фронт
+# держал виды в localStorage — привязка к браузеру теряла их при переезде на
+# другую машину. Контракт зеркалит фронтовый слепок applySavedView: имя вида
+# уникально в пределах пользователя (upsert перезаписывает), чужие виды не
+# видны и не удаляемы.
+
+def _sv_response(row: models.SavedView) -> dict:
+    try:
+        filters = json.loads(row.filters) if row.filters else {}
+    except (TypeError, ValueError):
+        filters = {}
+    return {
+        "id": row.id,
+        "name": row.name,
+        "q": filters.get("q", ""),
+        "store": filters.get("store"),
+        "statuses": filters.get("statuses", []),
+        "assignee": filters.get("assignee"),
+        "mode": filters.get("mode", "board"),
+        "priority": filters.get("priority"),
+        "pay": filters.get("pay"),
+    }
+
+
+@router.get("/saved-views")
+def list_saved_views(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    rows = (
+        tenant_query(db, models.SavedView, current_user)
+        .filter(models.SavedView.created_by == current_user.id)
+        .order_by(models.SavedView.id)
+        .all()
+    )
+    return [_sv_response(r) for r in rows]
+
+
+@router.post("/saved-views")
+def upsert_saved_view(view: schemas.SavedViewCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    name = view.name.strip()[:40]
+    if not name:
+        raise HTTPException(status_code=400, detail="Название вида не может быть пустым")
+    row = (
+        tenant_query(db, models.SavedView, current_user)
+        .filter(models.SavedView.created_by == current_user.id,
+                models.SavedView.name == name)
+        .first()
+    )
+    filters = json.dumps({
+        "q": view.q or "",
+        "store": view.store,
+        "statuses": view.statuses or [],
+        "assignee": view.assignee,
+        "mode": view.mode or "board",
+        "priority": view.priority,
+        "pay": view.pay,
+    }, ensure_ascii=False)
+    if row is None:
+        row = assign_tenant(models.SavedView(
+            name=name,
+            view_type="kanban",
+            target_page="kanban",
+            filters=filters,
+            created_by=current_user.id,
+        ), current_user)
+        db.add(row)
+    else:
+        row.filters = filters
+        row.view_type = "kanban"
+        row.target_page = "kanban"
+    db.commit()
+    db.refresh(row)
+    return _sv_response(row)
+
+
+@router.delete("/saved-views/{view_id}")
+def delete_saved_view(view_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    row = (
+        tenant_query(db, models.SavedView, current_user)
+        .filter(models.SavedView.id == view_id,
+                models.SavedView.created_by == current_user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Вид не найден")
+    db.delete(row)
+    db.commit()
+    return {"detail": "Вид удалён"}

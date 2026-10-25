@@ -766,23 +766,94 @@
     });
 
     // ---------- Сохранённые виды доски (состав — пункт 15, расширение пункта 13) ----------
-    // Хранятся в localStorage с ключом на пользователя; на file:// без хранилища
-    // — тихая деградация: чтение даёт [], запись false, ничего не падает.
+    // Волна D: виды переехали с localStorage на сервер (/kanban/saved-views) —
+    // переживают смену браузера и машины. Синхронизация кэша: svRead пишет
+    // ответ в svCache, svWrite — POST (upsert по имени) или DELETE; до первого
+    // ответа список пуст, селектор молча покажет «Вид: —». Импорт локальных
+    // видов — однократно, при первом логине (svImportLocal).
     var VIEW_NONE = '__none';
     var VIEW_MODES = ['board', 'list', 'archive'];
     var viewSelectEl = document.getElementById('kb-view-select');
     var viewSaveBtn = document.getElementById('kb-view-save');
-    function svKey() {
-        return 'v2.savedViews.board.' + ((window.V2Api && window.V2Api.userId && window.V2Api.userId()) || 'anon');
-    }
+    var svCache = [];
+    var svImported = false;
+    var svLoadRan = false;
     function svRead() {
-        try {
-            var list = JSON.parse(localStorage.getItem(svKey()) || '[]');
-            return Array.isArray(list) ? list : [];
-        } catch (e) { return []; }
+        // Синхронный кэш последнего известного списка с сервера. Виды приходят
+        // асинхронно; перезагрузка селектора происходит в populateViewSelect,
+        // которую перевызывает загрузчик после ответа.
+        return svCache;
     }
-    function svWrite(list) {
-        try { localStorage.setItem(svKey(), JSON.stringify(list)); return true; } catch (e) { return false; }
+    function svLoad() {
+        // Флаг ставится ТОЛЬКО на успехе: стартовый вызов до логина получает
+        // 401, и первый kb:reloaded после входа должен успеть загрузить виды.
+        if (svLoadRan) return Promise.resolve();
+        return window.V2Api.api('/kanban/saved-views').then(function (rows) {
+            svLoadRan = true;
+            svCache = Array.isArray(rows) ? rows : [];
+            svImportLocal();
+            populateViewSelect();
+        }).catch(function () { /* сервер недоступен — работаем с пустым списком */ });
+    }
+    // Одноразовый перенос видов из старого localStorage-хранилища. Ключи
+    // старого кода включали userId, который в другом окружении (стенд, перенос
+    // между машинами) другому аккаунту не совпадёт — поэтому читаем ВСЕ ключи
+    // v2.savedViews.board.* этого браузера: это просто закладки фильтров, не
+    // секрет, а вечные мусорные ключи хуже. Имена, совпавшие с серверными, не
+    // трогаем (сервер — источник правды), пустой набор игнорируется.
+    function svImportLocal() {
+        if (svImported) return;
+        svImported = true;
+        try {
+            var names = {};
+            svCache.forEach(function (v) { names[v.name] = true; });
+            var queue = [];
+            var legacyKeys = Object.keys(localStorage).filter(function (k) { return k.indexOf('v2.savedViews.board.') === 0; });
+            legacyKeys.forEach(function (k) {
+                var local;
+                try { local = JSON.parse(localStorage.getItem(k) || '[]'); } catch (e) { local = null; }
+                if (Array.isArray(local)) {
+                    local.forEach(function (v) {
+                        if (v && v.name && !names[v.name]) { names[v.name] = true; queue.push(v); }
+                    });
+                }
+            });
+            if (!queue.length) return;
+            return queue.reduce(function (chain, v) {
+                return chain.then(function () {
+                    return window.V2Api.api('/kanban/saved-views', {
+                        method: 'POST',
+                        body: { name: v.name, q: v.q, store: v.store, statuses: v.statuses,
+                                assignee: v.assignee, mode: v.mode, priority: v.priority, pay: v.pay }
+                    });
+                });
+            }, Promise.resolve()).then(function () {
+                legacyKeys.forEach(function (k) { localStorage.removeItem(k); });
+                return window.V2Api.api('/kanban/saved-views').then(function (rows) {
+                    svCache = Array.isArray(rows) ? rows : [];
+                    populateViewSelect();
+                });
+            }).catch(function () { /* перенос не удался — локальная копия осталась */ });
+        } catch (e) { /* хранилище недоступно — импорта нет */ }
+    }
+    function svWrite(view) {
+        // view — готовый слепок из savedViewFromState; upsert по имени.
+        return window.V2Api.api('/kanban/saved-views', {
+            method: 'POST',
+            body: { name: view.name, q: view.q, store: view.store, statuses: view.statuses,
+                    assignee: view.assignee, mode: view.mode, priority: view.priority, pay: view.pay }
+        }).then(function (saved) {
+            if (!saved || !saved.id) return false;
+            var replaced = false;
+            svCache = svCache.map(function (v) { if (v.id === saved.id) { replaced = true; return saved; } return v; });
+            if (!replaced) svCache = svCache.concat([saved]);
+            return true;
+        }).catch(function () { return false; });
+    }
+    function svDelete(id) {
+        return window.V2Api.api('/kanban/saved-views/' + encodeURIComponent(id), { method: 'DELETE' })
+            .then(function () { svCache = svCache.filter(function (v) { return String(v.id) !== String(id); }); return true; })
+            .catch(function () { return false; });
     }
     // Любой ручной фильтр-доступ (поиск, магазин, приоритет, оплата, сброс,
     // смена режима) делает применённый вид неактивным.
@@ -797,16 +868,16 @@
         if (!viewSelectEl) return;
         var views = svRead();
         // Выбранный вид мог быть удалён — тихо считаем вид неактивным.
-        if (state.viewId && !views.some(function (v) { return v.id === state.viewId; })) state.viewId = '';
-        viewSelectEl.innerHTML = optionsHTML([[VIEW_NONE, 'Вид: —']].concat(views.map(function (v) { return [v.id, v.name]; })), state.viewId || VIEW_NONE);
+        // Сравнение строкой: id теперь серверный (число), в select/DOM он всегда строка.
+        if (state.viewId && !views.some(function (v) { return String(v.id) === String(state.viewId); })) state.viewId = '';
+        viewSelectEl.innerHTML = optionsHTML([[VIEW_NONE, 'Вид: —']].concat(views.map(function (v) { return [String(v.id), v.name]; })), state.viewId ? String(state.viewId) : VIEW_NONE);
         enhanceSelect(viewSelectEl);
     }
     // Сохранение при существующем имени перезаписывает тот вид (upsert).
+    // Волна D: слепок строится синхронно, запись делает svWrite — она теперь
+    // асинхронная (сервер), вызывающий обязан ждать её Promise.
     function savedViewFromState(name) {
-        var list = svRead();
-        var existing = list.filter(function (v) { return v.name === name; })[0] || null;
-        var view = {
-            id: existing ? existing.id : 'sv-' + Date.now().toString(36),
+        return {
             name: name,
             q: state.search,
             store: state.store,
@@ -816,8 +887,6 @@
             priority: state.priority,
             pay: state.pay
         };
-        var next = existing ? list.map(function (v) { return v.id === existing.id ? view : v; }) : list.concat([view]);
-        return svWrite(next) ? view : null;
     }
     function viewSummary(v) {
         var parts = [];
@@ -871,10 +940,11 @@
         viewsDialog.addEventListener('click', function (e) {
             var del = e.target.closest('[data-view-del]');
             if (!del) return;
-            svWrite(svRead().filter(function (v) { return v.id !== del.dataset.viewDel; }));
-            if (state.viewId === del.dataset.viewDel) markViewDirty();
-            populateViewSelect();
-            openViewsDialog(viewsOpener);
+            svDelete(del.dataset.viewDel).then(function (ok) {
+                if (state.viewId === del.dataset.viewDel) markViewDirty();
+                populateViewSelect();
+                openViewsDialog(viewsOpener);
+            });
         });
         document.body.appendChild(viewsDialog);
         return viewsDialog;
@@ -915,23 +985,28 @@
                 return;
             }
             var view = savedViewFromState(name);
-            if (!view) {
-                // Хранилище недоступно (file://) — остаёмся в диалоге с причиной.
-                var failEl = dlg.querySelector('#kb-views-error');
-                failEl.textContent = 'Хранилище браузера недоступно — вид не сохранён.';
-                failEl.hidden = false;
-                return;
-            }
-            state.viewId = view.id;
-            populateViewSelect();
-            dlg.close();
+            var failEl = dlg.querySelector('#kb-views-error');
+            svWrite(view).then(function (ok) {
+                if (!ok) {
+                    // Сервер не принял вид (недоступен, ошибка) — остаёмся в диалоге с причиной.
+                    failEl.textContent = 'Сервер не подтвердил сохранение — вид не сохранён.';
+                    failEl.hidden = false;
+                    return;
+                }
+                // Серверный id берём из кэша, который svWrite уже обновил.
+                var saved = svRead().filter(function (v) { return v.name === name; })[0];
+                state.viewId = saved ? saved.id : '';
+                populateViewSelect();
+                dlg.close();
+            });
         });
         if (!dlg.open) dlg.showModal();
         dlg.querySelector('#kb-view-name').focus();
     }
     if (viewSelectEl) viewSelectEl.addEventListener('change', function () {
         if (viewSelectEl.value === VIEW_NONE) { markViewDirty(); return; }
-        var view = svRead().filter(function (v) { return v.id === viewSelectEl.value; })[0];
+        // Сравнение строкой: значение select — всегда строка, id — серверное число.
+        var view = svRead().filter(function (v) { return String(v.id) === viewSelectEl.value; })[0];
         if (view) applySavedView(view); else markViewDirty();
     });
     if (viewSaveBtn) viewSaveBtn.addEventListener('click', function () { openViewsDialog(viewSaveBtn); });
@@ -1200,6 +1275,10 @@
             if (fresh) openCard(fresh); else closeDialog();
         }
         populateStores();
+        // Волна D: виды живут на сервере и доступны только после логина —
+        // первый успешный kb:reloaded (данные уже пришли) безопасный момент
+        // их загрузить; стартовый svLoad до логина получает 401 и молчит.
+        svLoad();
         refresh();
     });
     document.addEventListener('fin:originals', function(e) {
@@ -4236,6 +4315,9 @@
     if (/^(bn|cash)$/.test(bp.pay || '')) state.pay = bp.pay;
     // Селекты проставляются после восстановления state — populate* читают его.
     populateStores(); populateFilterSelects(); populateViewSelect();
+    // Волна D: виды теперь живут на сервере — грузим их и (однократно)
+    // переносим локальные из старого localStorage-ключа.
+    svLoad();
     setDensity(true); refresh();
     // trash из адреса не восстанавливается: корзина — служебный режим сессии.
     queueMode(['pending', 'history', 'list', 'archive'].indexOf(bp.mode) >= 0 ? bp.mode : 'board');

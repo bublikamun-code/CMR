@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 import math
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 MONEY_MAX = Decimal("9999999999.99")
@@ -1039,3 +1039,19 @@ class DealStatusResponse(DealStatusBase):
     id: int
     is_active: bool
     model_config = ConfigDict(from_attributes=True)
+
+
+class SavedViewCreate(BaseModel):
+    """Слепок вида доски v2 (shell-v2-board.js): ровно те поля, что применяет
+    applySavedView. Волна D: виды переехали с localStorage на сервер — они
+    переживают смену браузера/машины, а таблица saved_views перестала быть
+    мёртвой."""
+
+    name: str = Field(..., min_length=1, max_length=40)
+    q: Optional[str] = ""
+    store: Optional[str] = None
+    statuses: Optional[List[str]] = Field(default_factory=list)
+    assignee: Optional[int] = None
+    mode: Optional[str] = "board"
+    priority: Optional[str] = None
+    pay: Optional[str] = None
