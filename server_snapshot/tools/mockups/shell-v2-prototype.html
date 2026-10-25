@@ -1385,7 +1385,15 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
           </div>
         </div>
 
-        <div class="card" id="mgmt-wf-card">
+        <!-- Волна D (26.10): карточка скрыта целиком (hidden). Исполнителя
+             автоматизаций в бэке нет — WorkflowRun не пишет ни один код, и
+             созданный сценарий никогда не запустится; карточка обещала то,
+             чего нет. Роутер /workflows остаётся (данные не теряются), код
+             загрузчика в shell-v2-management.js сохранён (регистрация
+             MGMT_LAZY.onOpen закомментирована). Вернуть карточку = снять
+             hidden здесь и раскомментировать регистрацию, когда появится
+             исполнятор. -->
+        <div class="card" id="mgmt-wf-card" hidden>
           <div class="card-head"><span class="card-title">Автоматизации (Workflows)</span>
             <div class="right"><button class="btn btn-primary btn-sm" id="mgmt-wf-new" type="button">+ Новый воркфлоу</button></div>
           </div>

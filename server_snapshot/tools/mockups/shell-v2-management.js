@@ -2445,7 +2445,11 @@ const MGMT_ADMIN = (function () {
 
     MGMT_LAZY.onOpen(loadWebhooks);
     MGMT_LAZY.onOpen(loadCustomTypes);
-    MGMT_LAZY.onOpen(loadWorkflows);
+    // Волна D (26.10): автоматизации скрыты из UI — исполнителя в бэке нет,
+    // WorkflowRun не пишет ни один код, сценарий никогда не запустится
+    // (карточка #mgmt-wf-card скрыта в прототипе). Код загрузчика сохранён:
+    // вернуть = снять hidden у карточки и раскомментировать строку ниже.
+    // MGMT_LAZY.onOpen(loadWorkflows);
     bind();
 
     return {
