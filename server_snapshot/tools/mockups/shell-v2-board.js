@@ -2887,37 +2887,43 @@
         restoreDrawerFocus(focusAddr);
     }
 
-    // Оплата — логика рабочей версии (выбирается СТАТУС, деньги следуют
-    // за ним) плюс касса клиента (фидбек 18.09): баланс = приходы − счета.
-    // «Оплачен (100%)» одним кликом; «Частично» — сумма; «Отсрочка» —
-    // сумма и дата; «Не оплачен» — обнуление с подтверждением; «Аванс» —
-    // деньги в кассу клиента без сделки. Источник «Из баланса» закрывает
-    // счёт уже внесёнными деньгами: касса не растёт, кредит списывается.
+    // Оплата — только операции с деньгами; статус вычисляется сам (решение
+    // владельца 24.10: выбор «Оплачен/Частично/Не оплачен» руками — пустая
+    // операция — убран). Волна C: «Внести оплату» атомарна — приход в кассу
+    // клиента и привязка к этой карточке уходят ОДНИМ запросом /pay (раньше
+    // фронт делал два, и второй мог потеряться); «Отсрочка» — оплаченная
+    // часть и дата остатка; «Аванс» — деньги в кассу клиента без привязки
+    // к сделке; «Сбросить» — обнулить покрытие счёта, кассу не трогает.
     function openPay(c) {
         window.KBSelect.close();
         var total = c.amount, paid = c.paidAmount;
         var hasClient = Boolean(c.clientId);
-        // С-4 (аудит 2026-09-30): две величины, не одна. clientAvailable —
-        // сколько можно списать из баланса (приходы − уже списано) и по ней
-        // живут гейт и все проверки формы. clientBalance — позиция клиента
-        // (приходы − суммы сделок) и она только показывается. Раньше обе
-        // задачи решала clientBalance, и человек с реальным авансом не мог
-        // закрыть сделку: показывался долг, а чекбокс скрывался.
-        var clientAvailable = null; // придёт с сервера
+        var rest = Math.max(0, total - paid);
+        // С-4 (аудит 2026-09-30): clientAvailable — чем можно закрыть счёт
+        // (приходы − привязанное), по нему гейт и подпись; clientBalance —
+        // позиция клиента (приходы − суммы сделок), только показывается.
+        var clientAvailable = null;
         var clientBalance = null;
-        dialog.innerHTML = '<h2 id="kb-dialog-title">Внести оплату · ' + esc(c.id) + '</h2>' +
-            '<p class="kb-detail-hint">Сумма сделки: ' + money(total) + ' BYN · Оплачено: ' + money(paid) + ' BYN · Долг: ' + money(total - paid) + ' BYN</p>' +
+        var mode = '';
+        var st = c.payment_status || (total > 0 && paid >= total - 1 ? 'Оплачен' : paid > 0 ? 'Частично' : 'Не оплачен');
+        dialog.innerHTML = '<h2 id="kb-dialog-title">Оплата · ' + esc(c.id) + '</h2>' +
+            '<p class="kb-detail-hint">Сумма сделки: ' + money(total) + ' BYN · Покрыто: ' + money(paid) + ' BYN · Остаток: ' + money(rest) + ' BYN</p>' +
+            '<p class="kb-detail-hint">Статус (вычисляется): <b>' + esc(st) + '</b></p>' +
             '<p class="kb-detail-hint" id="kb-pay-client" hidden></p>' +
             '<div class="kb-pay-modes">' +
-            [['Оплачен', 'Оплачен (100%)'], ['Частично', 'Частично'], ['Отсрочка', 'Отсрочка'], ['Аванс', 'Аванс в кассу клиента'], ['Не оплачен', 'Не оплачен']].map(function (pair) {
+            [['pay', 'Внести оплату'], ['due', 'Отсрочка'], ['advance', 'Аванс в кассу'], ['reset', 'Сбросить оплату']].map(function (pair) {
                 return '<button type="button" class="btn btn-ghost kb-pay-mode" data-mode="' + pair[0] + '">' + pair[1] + '</button>';
             }).join('') + '</div>' +
             '<form id="kb-pay-form" class="kb-form" hidden>' +
             '<div class="kb-field" id="kb-pay-amount-wrap"><label for="kb-pay-amount">Сумма, BYN</label>' +
             '<input id="kb-pay-amount" inputmode="decimal" placeholder="0,00"></div>' +
+            '<div class="kb-field" id="kb-pay-method-wrap"><label for="kb-pay-method">Способ</label>' +
+            '<select id="kb-pay-method"><option value="наличные">Наличные</option><option value="карта">Карта</option><option value="рс">Расчётный счёт</option></select></div>' +
+            '<div class="kb-field" id="kb-pay-date-wrap"><label for="kb-pay-date">Дата платежа</label>' +
+            '<input id="kb-pay-date" type="date"></div>' +
             '<div class="kb-field" id="kb-pay-due-wrap" hidden><label for="kb-pay-due">Оплатить до</label>' +
             '<input id="kb-pay-due" type="date"></div>' +
-            '<div class="kb-field" id="kb-pay-note-wrap" hidden><label for="kb-pay-note">Комментарий</label>' +
+            '<div class="kb-field" id="kb-pay-note-wrap"><label for="kb-pay-note">Комментарий</label>' +
             '<input id="kb-pay-note" maxlength="200" placeholder="например: предоплата по счёту"></div>' +
             '<label class="login-remember" id="kb-pay-from-balance-wrap" hidden><input type="checkbox" id="kb-pay-from-balance"> <span>Из баланса клиента (без новых денег)</span></label>' +
             '<p class="kb-form-error" id="kb-pay-error" role="alert"></p>' +
@@ -2926,29 +2932,27 @@
             '<button class="btn btn-ghost" type="button" data-close>Отмена</button></form>';
         var form = document.getElementById('kb-pay-form');
         var amountWrap = document.getElementById('kb-pay-amount-wrap');
+        var methodWrap = document.getElementById('kb-pay-method-wrap');
+        var dateWrap = document.getElementById('kb-pay-date-wrap');
         var dueWrap = document.getElementById('kb-pay-due-wrap');
         var noteWrap = document.getElementById('kb-pay-note-wrap');
         var fromBalanceWrap = document.getElementById('kb-pay-from-balance-wrap');
         var amountInput = document.getElementById('kb-pay-amount');
+        var dateInput = document.getElementById('kb-pay-date');
         var dueInput = document.getElementById('kb-pay-due');
         var noteInput = document.getElementById('kb-pay-note');
-        var mode = '';
+        dateInput.value = new Date().toISOString().slice(0, 10);
+        amountInput.value = money(rest);
 
         if (hasClient) {
             window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/balance').then(function (bal) {
-                // С-4 (аудит 2026-09-30): гейт и подпись «доступно» считаются по
-                // bal.available, а bal.balance показывается отдельно и под своим
-                // именем. Раньше обе задачи решала одна величина balance
-                // (приходы − суммы сделок), из-за чего клиент с реальным
-                // авансом видел «долг клиента» и чекбокс закрытия из баланса
-                // просто исчезал, хотя сервер оплату разрешал.
                 clientAvailable = bal.available != null ? Math.round(bal.available * 100) : null;
                 clientBalance = bal.balance != null ? Math.round(bal.balance * 100) : null;
                 var line = document.getElementById('kb-pay-client');
                 if (line) {
                     var parts = [];
                     if (clientAvailable !== null && clientAvailable > 0) {
-                        parts.push('можно закрыть из баланса: <b>' + money(clientAvailable) + ' BYN</b>');
+                        parts.push('свободно на балансе: <b>' + money(clientAvailable) + ' BYN</b>');
                     }
                     if (clientBalance !== null && clientBalance < 0) {
                         parts.push('долг клиента: <b>' + money(Math.abs(clientBalance)) + ' BYN</b>');
@@ -2956,20 +2960,38 @@
                     line.hidden = false;
                     line.innerHTML = 'Клиент «' + esc(c.client) + '»' + (parts.length ? ' · ' + parts.join(' · ') : '');
                 }
+                updateFromBalanceVisibility();
+                updateHint();
             }).catch(function () { /* баланс недоступен — работаем без него */ });
         }
 
         function useFromBalance() {
-            return hasClient && document.getElementById('kb-pay-from-balance').checked;
+            return hasClient && mode === 'pay'
+                && document.getElementById('kb-pay-from-balance').checked;
         }
         function updateFromBalanceVisibility() {
-            var wrap = document.getElementById('kb-pay-from-balance-wrap');
-            if (!wrap) return;
-            var applicable = hasClient && (mode === 'Оплачен' || mode === 'Частично')
+            if (!fromBalanceWrap) return;
+            var applicable = hasClient && mode === 'pay'
                 && clientAvailable !== null && clientAvailable > 0;
-            wrap.hidden = !applicable;
+            fromBalanceWrap.hidden = !applicable;
             if (applicable) {
-                wrap.querySelector('span').textContent = 'Из баланса клиента (доступно ' + money(clientAvailable) + ' BYN)';
+                fromBalanceWrap.querySelector('span').textContent =
+                    'Из баланса клиента (без новых денег, доступно ' + money(clientAvailable) + ' BYN)';
+            }
+        }
+        function updateHint() {
+            var h = document.getElementById('kb-pay-hint');
+            if (!h) return;
+            if (mode === 'pay') {
+                h.textContent = clientAvailable !== null && clientAvailable > 0
+                    ? 'Оплата деньгами — сразу в кассу клиента и на счёт сделки. Можно закрыть из уже внесённого баланса (' + money(Math.min(clientAvailable, rest)) + ' BYN) — отметьте ниже.'
+                    : 'Оплата деньгами — сразу в кассу клиента и на счёт сделки.';
+            } else if (mode === 'due') {
+                h.textContent = 'Оплаченная сейчас часть (можно 0) и дата, до которой ждём остаток.';
+            } else if (mode === 'advance') {
+                h.textContent = 'Деньги в кассу клиента без привязки к сделке — зачтутся при доборе.';
+            } else {
+                h.textContent = 'Покрытие счёта обнуляется; касса клиента не меняется.';
             }
         }
 
@@ -2977,124 +2999,126 @@
             b.onclick = function () {
                 mode = b.dataset.mode;
                 dialog.querySelectorAll('.kb-pay-mode').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
-                form.hidden = false;
-                amountWrap.hidden = mode === 'Оплачен';
-                dueWrap.hidden = mode !== 'Отсрочка';
-                noteWrap.hidden = mode !== 'Аванс';
-                fromBalanceWrap.hidden = !(hasClient && (mode === 'Оплачен' || mode === 'Частично'));
-                document.getElementById('kb-pay-hint').textContent =
-                    mode === 'Оплачен'
-                        ? (hasClient && clientAvailable !== null && clientAvailable > 0
-                            ? 'Счёт закрывается полностью. Можно закрыть деньгами или из баланса клиента (доступно ' + money(Math.min(clientAvailable, total - paid)) + ' BYN) — отметьте ниже.'
-                            : 'Счёт закрывается полностью — новая оплата ' + money(total - paid) + ' BYN.')
-                    : mode === 'Частично' ? 'Абсолютная оплаченная сумма; закрывающая счёт — сама отмечается «Оплачен».' :
-                    mode === 'Отсрочка' ? 'Оплаченная сейчас часть (можно 0) и дата, до которой ждём остаток.' :
-                    mode === 'Аванс' ? 'Деньги в кассу клиента без привязки к сделке — зачтутся при доборе.' :
-                    'Будет обнулено покрытие счёта; касса клиента не меняется.';
-                if (mode !== 'Оплачен') {
-                    amountInput.value = (mode === 'Отсрочка' && paid > 0) || (paid > 0 && paid < total) ? money(paid) : '';
-                    amountInput.focus();
+                if (mode === 'advance' && !hasClient) {
+                    var e1 = document.getElementById('kb-pay-error');
+                    e1.textContent = 'Аванс возможен только у сделки с клиентом.';
+                    return;
                 }
+                form.hidden = false;
+                amountWrap.hidden = mode === 'reset';
+                methodWrap.hidden = !(mode === 'pay' || mode === 'advance');
+                dateWrap.hidden = !(mode === 'pay' || mode === 'advance');
+                dueWrap.hidden = mode !== 'due';
+                noteWrap.hidden = !(mode === 'pay' || mode === 'advance');
+                amountInput.value = mode === 'pay' ? money(rest)
+                    : mode === 'due' ? money(paid) : '';
                 updateFromBalanceVisibility();
+                updateHint();
+                if (mode !== 'reset') amountInput.focus();
             };
         });
 
-        // Item #9: finish теперь async — локальное состояние меняется ТОЛЬКО
-        // после успешного ответа сервера. Второй шаг (касса) — отдельно;
-        // при его провале явно сообщаем, что именно не удалось.
-        function finish(fields, message, cashAmountKop) {
-            var submitBtn = form.querySelector('button[type="submit"]');
-            if (submitBtn) submitBtn.disabled = true;
-            apiMutate('register-payment', { id: Number(c.id), fields: fields }).then(function (ok) {
-                if (ok === false) {
-                    if (submitBtn) submitBtn.disabled = false;
-                    notify('Оплата не сохранена на сервере.');
-                    return;
-                }
-                if (fields.paid_amount !== undefined) c.paidAmount = Math.round(fields.paid_amount * 100);
-                if (fields.payment_due_date !== undefined) c.paymentDueDate = fields.payment_due_date || '';
-                // Статус оплаты вычисляемый (решение владельца 24.10): сервер
-                // поле больше не принимает. Выводим локально той же формулой
-                // (суммы здесь в копейках), refresh() подтвердит с сервера.
-                c.payment_status = c.amount <= 0 ? 'Не оплачен'
-                    : c.paidAmount >= c.amount - 1 ? 'Оплачен'
-                    : c.paymentDueDate ? 'Отсрочка'
-                    : c.paidAmount > 0 ? 'Частично' : 'Не оплачен';
-                closeDialog(); refresh();
-                notify(c.id + ' — ' + message);
-                // Двухшаговая: оплата + касса. Касса — отдельный запрос.
-                if (cashAmountKop > 0 && hasClient) {
-                    window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/payments', {
-                        method: 'POST',
-                        body: { amount: cashAmountKop / 100, card_id: Number(c.id), note: 'Оплата по сделке' }
-                    }).catch(function (e2) {
-                        notify('Оплата проведена, но касса клиента не обновилась: ' + (e2.detail || e2.message || 'ошибка'));
-                    });
-                }
-            }).catch(function (err) {
-                if (submitBtn) submitBtn.disabled = false;
-                notify('Оплата не проведена: ' + (err.detail || err.message || 'ошибка'));
-            });
+        function applyLocal(paidKop, dueDate) {
+            c.paidAmount = paidKop;
+            if (dueDate !== undefined) c.paymentDueDate = dueDate || '';
+            c.payment_status = c.amount <= 0 ? 'Не оплачен'
+                : c.paidAmount >= c.amount - 1 ? 'Оплачен'
+                : c.paymentDueDate ? 'Отсрочка'
+                : c.paidAmount > 0 ? 'Частично' : 'Не оплачен';
         }
+        function busy(on) {
+            var submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.disabled = on;
+        }
+
         form.onsubmit = function (e) {
             e.preventDefault();
             var err = document.getElementById('kb-pay-error');
             err.textContent = '';
             if (!mode) return;
-            if (mode === 'Аванс') {
+
+            if (mode === 'pay') {
+                var amount = parseMoney(amountInput.value);
+                if (!Number.isSafeInteger(amount) || amount <= 0) { err.textContent = 'Укажите сумму оплаты.'; return; }
+                if (amount > rest) { err.textContent = 'Сумма больше остатка счёта (' + money(rest) + ' BYN). Лишнее внесите авансом — оно зачтётся при доборе.'; return; }
+                var fromB = useFromBalance();
+                if (fromB && clientAvailable !== null && amount > clientAvailable) { err.textContent = 'Баланса клиента не хватает (доступно ' + money(clientAvailable) + ' BYN).'; return; }
+                busy(true);
+                window.V2Api.api('/cards/' + Number(c.id) + '/pay', {
+                    method: 'POST',
+                    body: {
+                        amount: amount / 100,
+                        source: fromB ? 'balance' : 'cash',
+                        method: document.getElementById('kb-pay-method').value,
+                        paid_at: dateInput.value || undefined,
+                        note: noteInput.value || undefined
+                    }
+                }).then(function () {
+                    applyLocal(c.paidAmount + amount);
+                    closeDialog(); refresh();
+                    notify(c.id + ' — оплачено ' + money(amount) + ' BYN' + (fromB ? ' из баланса' : '') + ', статус «' + c.payment_status + '».');
+                }).catch(function (e2) {
+                    busy(false);
+                    err.textContent = 'Не проведено: ' + (e2.detail || e2.message || 'ошибка');
+                });
+                return;
+            }
+
+            if (mode === 'due') {
+                var amount2 = parseMoney(amountInput.value);
+                if (!Number.isSafeInteger(amount2) || amount2 < 0) { err.textContent = 'Укажите оплаченную сумму (0 и более).'; return; }
+                if (amount2 > total) { err.textContent = 'Оплаченная часть не может превышать счёт.'; return; }
+                if (!dueInput.value) { err.textContent = 'Укажите дату отсрочки.'; return; }
+                busy(true);
+                apiMutate('register-payment', { id: Number(c.id), fields: { paid_amount: amount2 / 100, payment_due_date: dueInput.value } }).then(function (ok) {
+                    busy(false);
+                    if (ok === false) { notify('Отсрочка не сохранена на сервере.'); return; }
+                    applyLocal(amount2, dueInput.value);
+                    closeDialog(); refresh();
+                    notify(c.id + ' — отсрочка до ' + dueInput.value + ', покрыто ' + money(amount2) + ' BYN.');
+                });
+                return;
+            }
+
+            if (mode === 'advance') {
                 var adv = parseMoney(amountInput.value);
                 if (!Number.isSafeInteger(adv) || adv <= 0) { err.textContent = 'Укажите сумму аванса.'; return; }
+                busy(true);
                 window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/payments', {
                     method: 'POST',
-                    body: { amount: adv / 100, card_id: Number(c.id), note: noteInput.value || 'Аванс клиента' }
+                    body: {
+                        amount: adv / 100,
+                        method: document.getElementById('kb-pay-method').value,
+                        paid_at: dateInput.value || undefined,
+                        note: noteInput.value || 'Аванс клиента'
+                    }
                 }).then(function () {
                     closeDialog(); refresh();
                     notify(c.id + ' — аванс ' + money(adv) + ' BYN в кассу клиента.');
                 }).catch(function (e2) {
+                    busy(false);
                     err.textContent = 'Не сохранено: ' + (e2.detail || e2.message || 'ошибка');
                 });
                 return;
             }
-            if (mode === 'Оплачен') {
-                if (total <= 0) { err.textContent = 'Укажите сумму сделки.'; return; }
-                var fromB = useFromBalance();
-                if (fromB && clientAvailable < total - paid) { err.textContent = 'Баланса клиента не хватает (нужно ' + money(total - paid) + ' BYN).'; return; }
-                var cashNow = fromB ? 0 : (total - paid);
-                finish({ paid_amount: total / 100, from_balance: fromB || undefined },
-                    fromB ? 'закрыто из баланса, оплачено 100%.' : 'оплачено 100% — ' + money(total) + ' BYN.',
-                    cashNow);
-                return;
-            }
-            var amount = parseMoney(amountInput.value);
-            if (mode === 'Частично') {
-                if (!Number.isSafeInteger(amount) || amount <= 0) { err.textContent = 'Укажите сумму оплаты.'; return; }
-                var newStatus = amount >= total - 1 ? 'Оплачен' : 'Частично';
-                var fromB2 = useFromBalance();
-                if (fromB2 && clientAvailable < amount - paid) { err.textContent = 'Баланса клиента не хватает.'; return; }
-                var cashNow2 = fromB2 ? 0 : Math.max(0, amount - paid);
-                finish({ paid_amount: amount / 100, from_balance: fromB2 || undefined },
-                    'оплачено ' + money(amount) + ' BYN' + (fromB2 ? ' из баланса' : '') + ', статус «' + newStatus + '».',
-                    cashNow2);
-                return;
-            }
-            if (mode === 'Отсрочка') {
-                if (!Number.isSafeInteger(amount) || amount < 0) { err.textContent = 'Укажите оплаченную сумму (0 и более).'; return; }
-                if (!dueInput.value) { err.textContent = 'Укажите дату отсрочки.'; return; }
-                finish({ paid_amount: amount / 100, payment_due_date: dueInput.value }, 'отсрочка до ' + dueInput.value + ', оплачено ' + money(amount) + ' BYN.', 0);
-                return;
-            }
-            if (mode === 'Не оплачен') {
-                if (paid > 0) {
-                    KBConfirm.ask({
-                        title: 'Обнулить покрытие счёта?',
-                        message: 'Оплачено ' + money(paid) + ' BYN. Касса клиента не меняется.',
-                        confirmText: 'Обнулить'
-                    }).then(function (ok) {
-                        if (ok) finish({ paid_amount: 0, payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
+
+            if (mode === 'reset') {
+                if (paid <= 0) { err.textContent = 'Покрытие счёта и так нулевое.'; return; }
+                KBConfirm.ask({
+                    title: 'Обнулить покрытие счёта?',
+                    message: 'Покрыто ' + money(paid) + ' BYN. Касса клиента не меняется: привязки аннулируются, деньги остаются в кассе.',
+                    confirmText: 'Обнулить'
+                }).then(function (ok) {
+                    if (!ok) return;
+                    busy(true);
+                    apiMutate('register-payment', { id: Number(c.id), fields: { paid_amount: 0, payment_due_date: null } }).then(function (ok2) {
+                        busy(false);
+                        if (ok2 === false) { notify('Сброс не сохранён на сервере.'); return; }
+                        applyLocal(0, '');
+                        closeDialog(); refresh();
+                        notify(c.id + ' — покрытие счёта обнулено (касса без изменений).');
                     });
-                } else {
-                    finish({ paid_amount: 0, payment_due_date: null }, 'покрытие счёта обнулено (касса без изменений).', 0);
-                }
+                });
             }
         };
     }

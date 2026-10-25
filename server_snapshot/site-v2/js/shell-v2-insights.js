@@ -427,7 +427,12 @@
                 '<span class="row cl-cash-controls"><input id="cl-cash-amount" class="cl-cash-amount" inputmode="decimal" placeholder="Оплата, BYN">' +
                 '<button type="button" class="btn btn-primary btn-sm" id="cl-cash-add">Принять</button></span></div>';
         }
-        var paymentsHtml = (cashHtml || '') + debtCards(deals).concat(deals.filter(function (c) { return c.paidAmount >= c.amount; })).slice(0, 6).map(function (c) {
+        // Волна C (24.10): журнал денег клиента (касса/возвраты/привязки)
+        // заполняется асинхронно из /balance в onDrawerChange — сюда только
+        // каркас, чтобы вкладка не прыгала при загрузке.
+        var ledgerHtml = window.V2Api && window.V2Api.token()
+            ? '<div id="cl-ledger" class="fin-note">Деньги клиента: загружается…</div>' : '';
+        var paymentsHtml = (cashHtml || '') + ledgerHtml + debtCards(deals).concat(deals.filter(function (c) { return c.paidAmount >= c.amount; })).slice(0, 6).map(function (c) {
             var rest = c.amount - c.paidAmount;
             var pill = rest <= 0 ? '<span class="pill ok">Оплачено</span>' :
                 c.paidAmount > 0 ? '<span class="pill accent">Частично</span>' : '<span class="pill danger">Долг</span>';
@@ -1104,6 +1109,49 @@
         }
     });
 
+    // Волна C (24.10): журнал денег клиента — приходы, возвраты и привязки
+    // к сделкам одной лентой. «Сколько внесено по карточке» — здесь же, у
+    // строки привязки указана сделка.
+    function renderClientLedger(drawer, bal) {
+        var host = drawer.querySelector('#cl-ledger');
+        if (!host) return;
+        var rows = [];
+        (bal.payments || []).forEach(function (p) {
+            var d = (p.paid_at || p.created_at || '').slice(0, 10);
+            if (p.kind === 'refund') {
+                rows.push({ d: d, t: 'Возврат ' + p.amount + ' BYN' + (p.method ? ' (' + p.method + ')' : ''), sub: (p.note || ''), sign: -1, ts: p.created_at || '' });
+            } else {
+                rows.push({ d: d, t: 'Взнос +' + p.amount + ' BYN' + (p.method ? ' (' + p.method + ')' : '') + (p.card_id ? ' · по сделке #' + p.card_id : ''), sub: (p.note || ''), sign: 1, ts: p.created_at || '' });
+            }
+        });
+        (bal.allocations || []).forEach(function (a) {
+            var d = (a.created_at || '').slice(0, 10);
+            var src = a.source === 'balance' ? 'из свободного баланса' : a.source === 'migration' ? 'перенос истории' : 'оплатой деньгами';
+            rows.push({
+                d: d,
+                t: (a.status === 'annulled' ? 'Отмена привязки ' : 'Привязка к сделке #' + a.card_id + ': ') +
+                    (a.status === 'annulled' ? a.amount + ' BYN со сделки #' + a.card_id : a.amount + ' BYN (' + src + ')'),
+                sub: (a.note || ''),
+                sign: 0,
+                dim: a.status === 'annulled',
+                ts: a.created_at || ''
+            });
+        });
+        rows.sort(function (x, y) { return (x.ts < y.ts ? 1 : x.ts > y.ts ? -1 : 0); });
+        if (!rows.length) {
+            host.innerHTML = '<span class="t">Движений денег пока нет</span>';
+            return;
+        }
+        host.className = 'cl-ledger';
+        host.innerHTML = '<div class="trow"><span class="grow"><span class="t">Деньги клиента</span>' +
+            '<div class="sub">касса ' + (bal.payments_total || 0) + ' BYN · свободно ' + (bal.available || 0) + ' BYN · привязано ' + (bal.paid_on_cards || 0) + ' BYN</div></span></div>' +
+            rows.slice(0, 15).map(function (r) {
+                return '<div class="trow' + (r.dim ? ' done' : '') + '"><span class="grow"><span class="t">' + esc(r.t) + '</span>' +
+                    '<div class="sub">' + esc(r.d) + (r.sub ? ' · ' + esc(r.sub) : '') + '</div></span></div>';
+            }).join('') +
+            (rows.length > 15 ? '<p class="fin-note">Показаны последние 15 из ' + rows.length + '</p>' : '');
+    }
+
     // Drawer: баланс кассы + приём оплаты. Перерисовывается при смене клиента.
     function onDrawerChange() {
         var drawer = document.getElementById('cl-drawer');
@@ -1150,8 +1198,11 @@
             delete body.dataset.balanceLoading;
             updateCashLine(drawer, clientId, bal);
             var el = block.querySelector('[data-cl-balance]');
-            el.textContent = 'Баланс кассы: ' + fmtKop(Math.round(bal.balance * 100)) + ' BYN' +
+            el.textContent = 'Касса клиента: ' + fmtKop(Math.round(bal.payments_total * 100)) + ' BYN' +
+                ' · свободно ' + fmtKop(Math.round(bal.available * 100)) + ' BYN' +
+                ' · привязано к сделкам ' + fmtKop(Math.round(bal.paid_on_cards * 100)) + ' BYN' +
                 (bal.balance > 0 ? ' — переплата клиента' : bal.balance < 0 ? ' — долг клиента' : '');
+            renderClientLedger(drawer, bal);
         }).catch(function (err) {
             // B1 fix: не глотаем ошибку — показываем состояние и даём повторить.
             if (numeric(drawer.dataset.clientId) === clientId) balanceErrorClientId = clientId;
