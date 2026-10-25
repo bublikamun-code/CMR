@@ -268,6 +268,7 @@ def create_delivery(
     webhook_id: int | None,
     event: str,
     tenant_id: int | None,
+    payload: dict | None = None,
 ) -> models.WebhookDelivery:
     delivery = models.WebhookDelivery(
         correlation_id=str(uuid.uuid4()),
@@ -275,11 +276,72 @@ def create_delivery(
         event=event,
         status="queued",
         tenant_id=tenant_id,
+        # Тело хранится для восстановления после рестарта (волна D, 0024):
+        # без него строка 'queued' навсегда оставалась бы без содержимого.
+        payload=json.dumps(payload, ensure_ascii=False) if payload is not None else None,
     )
     session.add(delivery)
     session.commit()
     session.refresh(delivery)
     return delivery
+
+
+def recover_pending_deliveries(limit: int = MAX_PENDING) -> dict:
+    """Вернуть в очередь доставки, застигнутые рестартом процесса.
+
+    До волны D рестарт терял всё, что не успело уйти: payload существовал
+    только в памяти воркера. Теперь тело лежит в webhook_deliveries, и старт
+    процесса переподчиняет незавершённые строки (status queued/delivering,
+    completed_at IS NULL) в executor. Строки ДО миграции 0024 тела не имеют —
+    их честно закрываем failed/restart_lost_payload вместо вечного 'queued'.
+
+    Лимит равен ёместимости очереди: сверх него строки остаются 'queued' и
+    уйдут при следующем рестарте; переполнять executor нельзя — он нужен
+    живым событиям.
+    """
+    session = SessionLocal()
+    stats = {"resubmitted": 0, "lost_payload": 0, "corrupt_payload": 0, "left_queued": 0}
+    try:
+        rows = (
+            session.query(models.WebhookDelivery)
+            .filter(
+                models.WebhookDelivery.completed_at.is_(None),
+                models.WebhookDelivery.status.in_(("queued", "delivering")),
+            )
+            .order_by(models.WebhookDelivery.id)
+            .limit(limit)
+            .all()
+        )
+        for delivery in rows:
+            if not delivery.payload:
+                _finish_delivery(
+                    session, delivery, status="failed",
+                    attempt_count=delivery.attempt_count or 0,
+                    error_code="restart_lost_payload", response_status=None,
+                )
+                stats["lost_payload"] += 1
+                continue
+            try:
+                payload = json.loads(delivery.payload)
+            except (TypeError, ValueError):
+                _finish_delivery(
+                    session, delivery, status="failed",
+                    attempt_count=delivery.attempt_count or 0,
+                    error_code="restart_payload_corrupt", response_status=None,
+                )
+                stats["corrupt_payload"] += 1
+                continue
+            # 'delivering' от умершего процесса сбрасываем: старый воркер
+            # гарантированно не существует, статус обязан отражать факт.
+            delivery.status = "queued"
+            session.commit()
+            if submit_delivery(deliver_delivery, delivery.id, payload):
+                stats["resubmitted"] += 1
+            else:
+                stats["left_queued"] += 1
+        return stats
+    finally:
+        session.close()
 
 
 def _finish_delivery(
@@ -388,7 +450,24 @@ def deliver_delivery(
 
         last_error = "transport_error"
         last_status = None
-        for attempt_number in range(1, max_attempts + 1):
+        # Волна D: бюджет попыток считается на ДОСТАВКУ, а не на вызов.
+        # Нумерация продолжается с attempt_count+1: индекс
+        # ux_webhook_attempts_delivery_number уникален, и повтор с 1 падал бы
+        # IntegrityError на восстановленных после рестарта строках. Для живого
+        # потока ничего не меняется — attempt_count у новых строк 0.
+        first_attempt = (delivery.attempt_count or 0) + 1
+        if first_attempt > max_attempts:
+            # Все попытки потрачены, но доставка не завершилась — значит,
+            # процесс умер посреди последней. Отдаём ровно одну
+            # дополнительную: at-least-once важнее строгого бюджета, а
+            # цикл рестартов бесконечным быть не может.
+            logger.warning(
+                "Webhook delivery %s: бюджет попыток исчерпан до рестарта — "
+                "одна дополнительная",
+                delivery.correlation_id,
+            )
+        final_attempt = max(first_attempt, max_attempts)
+        for attempt_number in range(first_attempt, final_attempt + 1):
             attempt = models.WebhookAttempt(
                 delivery_id=delivery.id,
                 attempt_number=attempt_number,
@@ -544,6 +623,7 @@ __all__ = [
     "deliver_delivery",
     "mark_dead_letter",
     "pinned_http_transport",
+    "recover_pending_deliveries",
     "resolve_public_target",
     "submit_delivery",
 ]

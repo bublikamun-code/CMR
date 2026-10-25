@@ -123,6 +123,25 @@ app = FastAPI(
     openapi_url=None,
 )
 
+
+@app.on_event("startup")
+def _recover_webhook_queue_on_boot():
+    """Волна D: доставки, застигнутые рестартом, возвращаются в очередь.
+
+    До этого payload жил только в памяти воркера — рестарт PM2 молча терял
+    всё, что не успело уйти, хотя строки 'queued' в webhook_deliveries
+    оставались. Сбой восстановления не должен поднимать сервер: живые
+    события важнее, недоставленные останутся 'queued' до следующего старта.
+    """
+    try:
+        from webhook_delivery import recover_pending_deliveries
+
+        stats = recover_pending_deliveries()
+        if any(stats.values()):
+            logger.info("Очередь вебхуков восстановлена после старта: %s", stats)
+    except Exception:
+        logger.exception("Восстановление очереди вебхуков не удалось — пропущено")
+
 if API_DOCS_MODE != "disabled":
     # В режиме superadmin каждый из трёх маршрутов закрыт валидным токеном
     # суперадмина (тот же механизм, что и в роутерах: httpOnly-cookie crm_token

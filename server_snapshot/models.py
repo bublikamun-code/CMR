@@ -472,7 +472,13 @@ class Webhook(Base):
 
 
 class WebhookDelivery(Base):
-    """Минимальный аудит одной доставки без body, URL и секрета."""
+    """Аудит одной доставки: без URL и секрета, но с payload для рестарта.
+
+    Payload (волна D, миграция 0024) хранится, чтобы процесс, переживший
+    рестарт, мог доставить незавершённые события: до этого body существовал
+    только в памяти воркера, и строка 'queued' после рестарта висела вечно.
+    URL и секрет по-прежнему не хранятся — их доставка читает из webhooks.
+    """
 
     __tablename__ = "webhook_deliveries"
     id = Column(Integer, primary_key=True, index=True)
@@ -492,6 +498,7 @@ class WebhookDelivery(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     completed_at = Column(DateTime, nullable=True)
+    payload = Column(Text, nullable=True)
 
 
 class WebhookAttempt(Base):

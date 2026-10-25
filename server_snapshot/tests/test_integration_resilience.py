@@ -160,7 +160,7 @@ def test_one_failing_webhook_does_not_block_others(client, db, admin, monkeypatc
 
     created = []
 
-    def fake_create_delivery(db_, webhook_id, event, tenant_id):
+    def fake_create_delivery(db_, webhook_id, event, tenant_id, payload=None):
         # Первый webhook падает так, как падал бы OperationalError из commit.
         # Второй — просто фиксируется. Строка доставки здесь НЕ создаётся
         # намеренно: тест проверяет, что цикл не прервался, а не устройство

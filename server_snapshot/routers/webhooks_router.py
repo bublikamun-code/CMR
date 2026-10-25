@@ -249,6 +249,7 @@ def test_webhook(
         # на создании вебхука — у суперадмина tenant_id NULL, а у
         # webhook_deliveries та же NOT NULL и тот же триггер.
         tenant_id=writable_tenant_id(current_user),
+        payload=payload,
     )
     outcome = deliver_delivery(delivery.id, payload)
     return _delivery_response(outcome)
@@ -279,6 +280,7 @@ async def notify_webhooks(tenant_id, event, data):
                     webhook_id=webhook.id,
                     event=event,
                     tenant_id=tenant_id,
+                    payload=payload,
                 )
                 deliveries.append((delivery.id, payload))
             except (TypeError, ValueError):
