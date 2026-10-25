@@ -20,13 +20,16 @@ from webhook_delivery import (
     recover_pending_deliveries,
 )
 from webhook_security import encrypt_secret, obtain_fernet
+# Импорт строго как «conftest» (конвенция остальных тестов): «tests.conftest»
+# создаёт ВТОРОЙ экземпляр модуля, его модульный код перезаписывает
+# CRM_DATA_DIR на новый tmpdir, и _ensure_inside_data_dir на POST
+# /email-parser/settings начинает видеть рассинхрон → 500 в чужих тестах.
+from conftest import DEFAULT_TEST_TENANT_ID
 
 
 @pytest.fixture
 def hook(db):
     """Активный webhook с расшифровываемым секретом (tenant 101 из conftest)."""
-    from tests.conftest import DEFAULT_TEST_TENANT_ID
-
     fernet = obtain_fernet()
     webhook = models.Webhook(
         url="https://example.com/hook",

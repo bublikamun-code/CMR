@@ -16,7 +16,11 @@ import pytest
 
 import models
 import routers.webhooks_router as webhooks_router
-from tests.conftest import DEFAULT_TEST_TENANT_ID
+# Импорт строго как «conftest» (конвенция остальных тестов): «tests.conftest»
+# создаёт ВТОРОЙ экземпляр модуля, его модульный код перезаписывает
+# CRM_DATA_DIR на новый tmpdir, и _ensure_inside_data_dir на POST
+# /email-parser/settings начинает видеть рассинхрон → 500 в чужих тестах.
+from conftest import DEFAULT_TEST_TENANT_ID
 
 ALL_EVENTS = [
     "card.created", "card.updated", "card.deleted",

@@ -2,6 +2,9 @@
 [data-mgmt] .card-head, [data-mgmt] .card-head .right { flex-wrap: wrap; gap: 8px; }
 [data-mgmt] .tbl { min-width: 640px; }
 [data-mgmt] .tbl td { white-space: normal; overflow-wrap: anywhere; }
+/* Диалог закупок поставщика (волна D): суммы не переносятся. Класс, а не
+   inline style — у v2 строгий CSP без unsafe-inline. */
+[data-mgmt] .tbl td.num { white-space: nowrap; }
 [data-mgmt] .search-pill { min-height: 38px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); font: inherit; }
 /* Скрытие по роли (пункт 9): атрибут hidden на кнопках и ячейках таблицы
    перебивают авторские display (.btn — inline-flex), поэтому здесь свой

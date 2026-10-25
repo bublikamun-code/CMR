@@ -852,7 +852,7 @@ const MGMT_DICT = (() => {
                     '<tr>' +
                     '<td>' + esc(it.card_title || '—') + '</td>' +
                     '<td>' + esc(it.card_status || '—') + '</td>' +
-                    '<td style="white-space:nowrap">' + money(it.amount) + '</td>' +
+                    '<td class="num">' + money(it.amount) + '</td>' +
                     '<td>' + (it.is_paid ? 'оплачено' : '<b>не оплачено</b>') + '</td>' +
                     '</tr>').join('');
                 buyDialog.innerHTML =
