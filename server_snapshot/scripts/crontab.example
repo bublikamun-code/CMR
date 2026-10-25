@@ -1,0 +1,31 @@
+# Канонический crontab CRM «Свет в доме» (волна D, 26.10).
+#
+# Зачем файл в репо: расписание cron до 29.09 существовало ТОЛЬКО на боевом
+# сервере — при переезде оно терялось, а починенный на проде sync-overdue
+# (грабелька crm- vs cmr- в crontab) нельзя было сверить с исходниками.
+# Файл — база для восстановления; конкретные пути и время на текущем сервере
+# сверяются по `crontab -l` при следующем доступе по SSH.
+#
+# Установка (на сервере, от пользователя приложения):
+#   crontab -l 2>/dev/null | grep -v crm- > /tmp/crm.cron
+#   cat scripts/crontab.example >> /tmp/crm.cron
+#   crontab /tmp/crm.cron
+#
+# Все три задачи пишут в ~/data/backups (LOG_DIR watchdog'a) — диагностика
+# `tools/deploy.sh logs` и watchdog.log.
+
+# Watchdog CRM каждые 5 минут: liveness PM2 + readiness, затем триггерит
+# импорт почты (POST /email-parser/sync-all на 127.0.0.1:PORT) — поэтому
+# отдельной задачи для почты здесь НЕТ. Токен берётся из .pm2.env / .cron_token
+# (см. scripts/watchdog_crm.sh:120-136).
+*/5 * * * * /bin/bash /var/www/h212005/data/www/crm-svetvdome/server_snapshot/scripts/watchdog_crm.sh >> /var/www/h212005/data/backups/watchdog-cron.log 2>&1
+
+# Просрочки сделок/задач/оплат: уведомления по payment_due_date и due_date
+# (POST /notifications/sync-overdue, гейт X-Cron-Token). Раз в сутки: дубли
+# непрочитанных уведомлений подавляются по получателю/сущности, и повторный
+# сбой одного дня не заспамит.
+30 6 * * * /bin/bash -c 'CRON_TOKEN=$(grep "^CRM_CRON_TOKEN=" /var/www/h212005/data/www/crm-svetvdome/server_snapshot/.pm2.env | cut -d= -f2-); curl -s -m 110 -X POST http://127.0.0.1:20008/notifications/sync-overdue -H "X-Cron-Token: $CRON_TOKEN" >> /var/www/h212005/data/backups/sync-overdue.log 2>&1'
+
+# Бэкап базы и uploads: ночная ротация KEEP/KEEP_UPLOADS внутри скрипта
+# (см. scripts/backup_crm.sh).
+0 3 * * * /bin/bash /var/www/h212005/data/www/crm-svetvdome/server_snapshot/scripts/backup_crm.sh >> /var/www/h212005/data/backups/backup-cron.log 2>&1

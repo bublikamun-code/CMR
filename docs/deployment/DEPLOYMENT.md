@@ -267,6 +267,13 @@ chmod +x /usr/local/bin/crm-sync-emails.sh
 (crontab -l 2>/dev/null; echo "*/15 * * * * /usr/local/bin/crm-sync-emails.sh") | crontab -
 ```
 
+> **Каноническое расписание:** боевой crontab сверяется с
+> `server_snapshot/scripts/crontab.example` — в нём три задачи (watchdog
+> с триггером импорта почты каждые 5 минут, суточный sync-overdue в 06:30,
+> ночной бэкап в 03:00). До 26.10 расписание существовало только на сервере;
+> файл — база восстановления при переезде.
+```
+
 ### Notification overdue sync
 
 `POST /notifications/sync-overdue` (same `X-Cron-Token` guard) creates
