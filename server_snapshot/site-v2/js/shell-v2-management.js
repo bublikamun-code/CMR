@@ -365,10 +365,11 @@ const MGMT_DICT = (() => {
         render(kind);
         $('mgmt-'+kind+'-new').onclick=e=>open(kind,null,e.currentTarget);
         $('mgmt-'+kind+'-rows').onclick=e=>{
-            const button=e.target.closest('[data-edit], [data-user-toggle], [data-user-del]');
+            const button=e.target.closest('[data-edit], [data-user-toggle], [data-user-del], [data-supp-buy]');
             if (!button) return;
             if (button.hasAttribute('data-user-toggle')) toggleUserAccess(button);
             else if (button.hasAttribute('data-user-del')) removeUser(button);
+            else if (button.hasAttribute('data-supp-buy')) showSupplierPurchases(button.dataset.suppBuy, button);
             else open(kind, button.dataset.edit, button);
         };
     });
@@ -773,6 +774,16 @@ const MGMT_DICT = (() => {
     }
 
     function rowActions(kind, record) {
+        if (kind === 'supplier') {
+            // Волна D: роут /suppliers/{id}/purchases существовал давно, но
+            // UI его не звал — сумма долга поставщику была видна только
+            // через API. Кнопка видна всем, как «Изменить»: закупка —
+            // операционная сущность менеджера.
+            return '<div class="mgmt-acts">' +
+                '<button type="button" class="btn btn-ghost btn-sm" data-supp-buy="' + esc(record.id) +
+                '" aria-label="Закупки поставщика ' + esc(record.name) + '">Закупки</button>' +
+                editButton(record, esc(record.name)) + '</div>';
+        }
         if (kind !== 'user') return editButton(record, esc(record.name || record.username));
         const name = esc(record.username);
         if (record.role === 'superadmin' && !canEditOwner()) {
@@ -797,6 +808,72 @@ const MGMT_DICT = (() => {
         MGMT_TOAST(what + ' недоступно в предпросмотре макета: нужен вход в CRM.', true);
         return false;
     }
+
+    // ── Закупки поставщика (волна D) ──────────────────────────────────────
+    // GET /suppliers/{id}/purchases: пункты чек-листов сделок с этим
+    // поставщиком + итоги (сколько должны всего / оплачено / остаток).
+    // Свой <dialog>: содержимое пересобирается на каждое открытие, слушатели
+    // (close, cancel, клик по фону) навешиваются один раз при создании.
+    let buyDialog = null;
+    let buyOpener = null;
+    // Роут закупок отдаёт суммы в BYN (float), не в копейках — как в реестре.
+    const money = (x) => Number(x || 0).toFixed(2);
+
+    function showSupplierPurchases(supplierId, button) {
+        if (!needNetwork('Закупки поставщика')) return;
+        buyOpener = button || null;
+        if (!buyDialog) {
+            buyDialog = document.createElement('dialog');
+            buyDialog.id = 'mgmt-buy-dialog';
+            buyDialog.className = 'v2-form-dialog';
+            buyDialog.setAttribute('aria-labelledby', 'mgmt-buy-title');
+            buyDialog.addEventListener('close', () => {
+                if (buyOpener && buyOpener.isConnected) buyOpener.focus();
+                buyOpener = null;
+            });
+            buyDialog.addEventListener('click', (e) => {
+                if (e.target === buyDialog) buyDialog.close();
+                const cancel = e.target.closest('[data-buy-cancel]');
+                if (cancel) buyDialog.close();
+            });
+            document.body.appendChild(buyDialog);
+        }
+        buyDialog.innerHTML = '<h2 id="mgmt-buy-title">Закупки: …</h2>' +
+            '<p class="mgmt-note" role="status">Загрузка…</p>' +
+            '<div class="mgmt-actions"><button type="button" class="btn btn-ghost" data-buy-cancel>Закрыть</button></div>';
+        buyDialog.showModal();
+        // Id в KBData префиксован ('sup-9'), роут ждёт число — как
+        // numericClientId у доски, чистим до цифр; detail у 422 — список
+        // объектов FastAPI, в тексте показываете только его.
+        const numericId = String(supplierId).replace(/[^0-9]/g, '');
+        window.V2Api.api('/suppliers/' + numericId + '/purchases')
+            .then(p => {
+                const rows = (p.items || []).map(it =>
+                    '<tr>' +
+                    '<td>' + esc(it.card_title || '—') + '</td>' +
+                    '<td>' + esc(it.card_status || '—') + '</td>' +
+                    '<td style="white-space:nowrap">' + money(it.amount) + '</td>' +
+                    '<td>' + (it.is_paid ? 'оплачено' : '<b>не оплачено</b>') + '</td>' +
+                    '</tr>').join('');
+                buyDialog.innerHTML =
+                    '<h2 id="mgmt-buy-title">Закупки: ' + esc(p.supplier_name || '') + '</h2>' +
+                    '<p class="mgmt-note">Должны всего: <b>' + money(p.total_amount) + ' BYN</b> · оплачено: ' +
+                    money(p.paid_amount) + ' BYN · остаток: <b>' + money(p.unpaid_amount) + ' BYN</b></p>' +
+                    (p.count
+                        ? '<table class="tbl"><thead><tr><th>Сделка</th><th>Стадия</th><th>Сумма, BYN</th><th>Оплата</th></tr></thead><tbody>' + rows + '</tbody></table>'
+                        : '<p class="mgmt-note">Закупок с этим поставщиком пока нет: он ни разу не выбран в чек-листе сделки.</p>') +
+                    '<div class="mgmt-actions"><button type="button" class="btn btn-ghost" data-buy-cancel>Закрыть</button></div>';
+            })
+            .catch(err => {
+                const raw = (err && (err.detail || err.message)) || 'ошибка';
+                const msg = (raw && typeof raw === 'object') ? 'сервер отклонил запрос' : String(raw);
+                buyDialog.innerHTML =
+                    '<h2 id="mgmt-buy-title">Закупки</h2>' +
+                    '<p class="mgmt-note" role="alert">Не удалось загрузить: ' + esc(msg) + '</p>' +
+                    '<div class="mgmt-actions"><button type="button" class="btn btn-ghost" data-buy-cancel>Закрыть</button></div>';
+            });
+    }
+
     // Подтверждение опасного действия — тот же диалог, что у доски
     // (KBConfirm.ask, shell-v2-board.js): форма-диалог, не confirm() и не
     // prompt(); фокус после закрытия возвращается в строку таблицы.

@@ -172,7 +172,12 @@ node payment-menu-verify.mjs
   карточке и чекбокс в финансах синхронизированы в обе стороны (`fin:originals`).
   Справочники подключены к API (`store-save`, `status-save`, `supplier-save`,
   `user-save`), позиции чек-листа берут поставщика из базы `KBData.suppliers` и
-  сохраняются с `supplier_id`. Оплата (волна C) — атомарный POST
+  сохраняются с `supplier_id`. Закупки поставщика (волна D) — кнопка
+  «Закупки» в строке справочника поставщиков открывает диалог с итогами и
+  списком из GET `/suppliers/{id}/purchases`. Сохранённые виды доски (волна D)
+  живут на сервере: GET/POST/DELETE `/kanban/saved-views`, upsert по имени,
+  первый успешный `kb:reloaded` после логина грузит список и однократно
+  переносит legacy-ключи localStorage. Оплата (волна C) — атомарный POST
   `/cards/{id}/pay`: приход в кассу клиента и привязка к карточке одним
   запросом; «Отсрочка» и «Сбросить» — `register-payment` (PATCH
   `/cards/{id}/payment`); аванс — приём в кассу клиента (POST
