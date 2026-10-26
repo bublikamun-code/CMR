@@ -525,10 +525,91 @@
         if (open) { window.KBBoard.open(open.dataset.openCard); return; }
         var tab = e.target.closest('[data-cl-tab]');
         if (tab) { setClientTab(tab.dataset.clTab); return; }
+        if (e.target.closest('[data-cl-print]')) { printClientSheet(); return; }
         if (e.target.closest('[data-cl-reset]')) {
             selectedClient = D.clients.length ? D.clients[0].id : null;
             renderClients();
         }
+    });
+
+    // ── Печать: финансовая сводка клиента (волна E) ─────────────────────
+    // Аудит 05.10 «Печатные формы»: печать в v2 уехала в legacy, и кнопка
+    // drawer печатала через window.print() всю страницу CRM. Теперь лист
+    // собирается из тех же данных, что рендерит drawer, кладётся в
+    // #v2-print-area, а @media print (management.css) показывает только его.
+    // Функция живёт в этом IIFE сознательно: selectedClient, clientDeals,
+    // money/esc/statusName — отсюда, во второй IIFE они не видны (см. его
+    // комментарий «Свои esc»). Класс pr-printing на body — страховка Ctrl+P
+    // мимо кнопки: без собранного листа приложение печатается как раньше.
+    function printDateStamp() {
+        var t = todayUTC();
+        return ('0' + t.getUTCDate()).slice(-2) + '.' + ('0' + (t.getUTCMonth() + 1)).slice(-2) + '.' + t.getUTCFullYear();
+    }
+    function printClientSheet() {
+        var area = document.getElementById('v2-print-area');
+        if (!area) return;
+        var client = selectedClient ? D.clientById(selectedClient) : null;
+        if (!client) {
+            // Кнопка существует только при выбранном клиенте; ветка страхует
+            // прямой вызов. Тост общий — свой в этом IIFE не заводим.
+            if (window.KBToast) window.KBToast.show('Клиент не выбран — печатать нечего.', true);
+            return;
+        }
+        var deals = clientDeals(client.id);
+        var today = printDateStamp();
+        var sumAmount = 0, sumPaid = 0;
+        var dealRows = deals.map(function (c) {
+            sumAmount += c.amount; sumPaid += c.paidAmount;
+            return '<tr><td>' + esc(c.title) + '</td><td>' + esc(statusName(c.stage)) + '</td>' +
+                '<td>' + esc(c.deadline || '—') + '</td>' +
+                '<td class="pr-num">' + money(c.amount) + '</td>' +
+                '<td class="pr-num">' + money(c.paidAmount) + '</td>' +
+                '<td class="pr-num">' + money(Math.max(c.amount - c.paidAmount, 0)) + '</td></tr>';
+        }).join('') || '<tr><td colspan="6" class="pr-empty">Сделок по клиенту нет.</td></tr>';
+        var docRows = '';
+        deals.forEach(function (c) {
+            c.docs.forEach(function (d) {
+                docRows += '<tr><td>ТН ' + esc(d.series + ' ' + d.number) + '</td><td>' + esc(c.title) + '</td>' +
+                    '<td>' + esc(d.date || '—') + '</td><td class="pr-num">' + money(d.amount) + '</td></tr>';
+            });
+            if (c.groupId) {
+                var g = D.groups.filter(function (x) { return x.id === c.groupId; })[0];
+                if (g) docRows += '<tr><td>Групповая ТН ' + esc(g.series + ' ' + g.number) + '</td><td>' + esc(c.title) + '</td>' +
+                    '<td>' + esc(g.date || '—') + '</td><td class="pr-num">' + money(g.amount) + '</td></tr>';
+            }
+        });
+        if (!docRows) docRows = '<tr><td colspan="4" class="pr-empty">Выписанных накладных нет.</td></tr>';
+        var contacts = formatContacts(client.contact_person);
+        area.innerHTML =
+            '<div class="pr-sheet">' +
+            '<h1>Финансовая сводка</h1>' +
+            '<p class="pr-client">' + esc(client.name) + (client.unp ? ' · УНП ' + esc(client.unp) : '') + '</p>' +
+            '<p class="pr-meta">' + (contacts ? 'Контакты: ' + esc(contacts) + '<br>' : '') +
+            (client.phone ? 'Телефон: ' + esc(client.phone) + '<br>' : '') +
+            'По состоянию на ' + today + '</p>' +
+            '<h2 class="pr-title">Сделки</h2>' +
+            '<table class="pr-table"><thead><tr><th>Сделка</th><th>Этап</th><th>Срок</th>' +
+            '<th class="pr-num">Сумма, BYN</th><th class="pr-num">Оплачено, BYN</th><th class="pr-num">Долг, BYN</th></tr></thead>' +
+            '<tbody>' + dealRows + '</tbody>' +
+            (deals.length ? '<tfoot><tr><td colspan="3">Итого</td><td class="pr-num">' + money(sumAmount) + '</td>' +
+                '<td class="pr-num">' + money(sumPaid) + '</td>' +
+                '<td class="pr-num">' + money(Math.max(sumAmount - sumPaid, 0)) + '</td></tr></tfoot>' : '') +
+            '</table>' +
+            '<h2 class="pr-title">Накладные и счета</h2>' +
+            '<table class="pr-table"><thead><tr><th>Документ</th><th>Сделка</th><th>Дата</th>' +
+            '<th class="pr-num">Сумма, BYN</th></tr></thead>' +
+            '<tbody>' + docRows + '</tbody></table>' +
+            '<p class="pr-foot">Сформировано в CRM «Свет в доме», ' + today + '</p>' +
+            '</div>';
+        document.body.classList.add('pr-printing');
+        window.print();
+    }
+    // afterprint срабатывает и после отмены печати — снимаем класс и чистим
+    // лист в любом исходе; на Ctrl+P мимо кнопки класс уже снят, чистка пустая.
+    window.addEventListener('afterprint', function () {
+        document.body.classList.remove('pr-printing');
+        var area = document.getElementById('v2-print-area');
+        if (area) area.innerHTML = '';
     });
 
     // ---------- «Только мои»: выбор ответственного ----------
@@ -1037,6 +1118,7 @@
             .then(function () { window.alert('Сделка создана в «Новый запрос».'); refreshAll(); })
             .catch(function (e) { window.alert('Не создано: ' + (e.detail || e.message || 'ошибка')); });
     }
+
     document.addEventListener('click', function (event) {
         var deal = event.target.closest('[data-cl-new-deal]');
         if (deal && window.V2Api && window.V2Api.token()) { openNewDealFor(deal.dataset.clNewDeal); return; }
@@ -1065,7 +1147,6 @@
             window.open('tel:' + phone.replace(/[^+0-9]/g, ''), '_self');
             return;
         }
-        if (event.target.closest('[data-cl-print]')) window.print();
     });
 
     var newBtn = document.getElementById('cl-new');

@@ -2926,5 +2926,11 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
     }
 })();
 </script>
+<!-- Волна E: контейнер печатного листа «финансовая сводка клиента».
+     На экране всегда скрыт (management.css), наполняет его shell-v2-insights.js
+     перед window.print(); @media print прячет .app и показывает лист.
+     Класс pr-printing на body ставит только кнопка «Печать» в drawer, поэтому
+     Ctrl+P мимо кнопки продолжает печатать страницу приложения как раньше. -->
+<div id="v2-print-area"></div>
 </body>
 </html>

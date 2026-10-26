@@ -180,3 +180,36 @@
 /* «Не прочитано» для скринридера: точка декоративна, состояние читаем текстом */
 .v2-notif-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media(pointer:coarse) { .v2-notif-del { width: 44px; height: 44px; } }
+
+/* ============================================================
+   Печать (волна E): лист «финансовая сводка клиента».
+   Контейнер #v2-print-area наполняет shell-v2-insights.js перед
+   window.print(). На экране он всегда скрыт; в печать уходит только
+   он — и лишь когда лист реально собран (класс pr-printing на body
+   ставит кнопка «Печать» drawer), иначе Ctrl+P продолжил бы печатать
+   страницу приложения как раньше. Специфичности body.pr-printing
+   > *:not(#v2-print-area) хватает, чтобы переопределить и .app, и
+   правила по id — без !important.
+   ============================================================ */
+#v2-print-area { display: none; }
+
+@media print {
+    body.pr-printing > *:not(#v2-print-area) { display: none; }
+    body.pr-printing #v2-print-area {
+        display: block;
+        font: 11pt/1.45 'Times New Roman', Georgia, serif;
+        color: #000;
+        background: #fff;
+    }
+    .pr-sheet h1 { font-size: 16pt; margin: 0 0 2pt; }
+    .pr-client { font-size: 13pt; font-weight: 700; margin: 0 0 2pt; }
+    .pr-meta { font-size: 10pt; color: #333; margin: 0 0 10pt; }
+    .pr-title { font-size: 12pt; margin: 10pt 0 4pt; }
+    .pr-table { width: 100%; border-collapse: collapse; }
+    .pr-table th, .pr-table td { border: 1px solid #888; padding: 3pt 5pt; text-align: left; vertical-align: top; }
+    .pr-table th { background: #eee; }
+    .pr-num { text-align: right; white-space: nowrap; }
+    .pr-table tfoot td { font-weight: 700; }
+    .pr-empty { text-align: center; color: #555; }
+    .pr-foot { margin-top: 12pt; font-size: 9pt; color: #555; }
+}

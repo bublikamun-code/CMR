@@ -5,15 +5,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<script src="js/v2/head.js?v=fbbcf8e681"></script>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=fbbcf8e681">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=fbbcf8e681">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=fbbcf8e681">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=fbbcf8e681">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=fbbcf8e681">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=fbbcf8e681">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=fbbcf8e681">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=fbbcf8e681">
+<script src="js/v2/head.js?v=aba46a3343"></script>
+<link rel="stylesheet" href="css/shell-v2-base.css?v=aba46a3343">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=aba46a3343">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=aba46a3343">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=aba46a3343">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=aba46a3343">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=aba46a3343">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=aba46a3343">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=aba46a3343">
 <!-- Предзагрузка модулей второй волны. Сборщик вырезает из прототипа все
      <script src="./shell-v2-*"> — их подключает загрузчик сам (APP_SCRIPTS),
      и без preload браузер узнаёт о 169 КБ модулей только после ответа API,
@@ -35,9 +35,9 @@
      Здесь они срабатывали при разборе index.html — то есть ~106 КБ gzip кода
      приложения уезжали человеку на экране входа, который мог и не войти.
      Расстановка приоритетов сохранена целиком, изменился момент списания. -->
-<script src="js/v2/api.js?v=fbbcf8e681" defer></script>
-<script src="js/v2/boot.js?v=fbbcf8e681" defer></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=fbbcf8e681">
+<script src="js/v2/api.js?v=aba46a3343" defer></script>
+<script src="js/v2/boot.js?v=aba46a3343" defer></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=aba46a3343">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -708,6 +708,12 @@
   </div>
 </div>
 
+<!-- Волна E: контейнер печатного листа «финансовая сводка клиента».
+     На экране всегда скрыт (management.css), наполняет его shell-v2-insights.js
+     перед window.print(); @media print прячет .app и показывает лист.
+     Класс pr-printing на body ставит только кнопка «Печать» в drawer, поэтому
+     Ctrl+P мимо кнопки продолжает печатать страницу приложения как раньше. -->
+<div id="v2-print-area"></div>
 <div class="login-overlay" id="login-overlay" hidden>
   <form class="login-box" id="login-form">
     <h1>Свет в доме · CRM</h1>
