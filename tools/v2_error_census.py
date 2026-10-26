@@ -73,7 +73,11 @@ def main() -> int:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": w, "height": h})
+        # ignore_https_errors: прод исторически на самоподписанном сертификате
+        # (nip.io), иначе перепись падает на ERR_CERT_AUTHORITY_INVALID ещё до
+        # входа. Для http://-стенда флаг ни на что не влияет.
+        page = browser.new_page(viewport={"width": w, "height": h},
+                                ignore_https_errors=True)
         page.set_default_timeout(args.timeout)
 
         def on_pageerror(e):
