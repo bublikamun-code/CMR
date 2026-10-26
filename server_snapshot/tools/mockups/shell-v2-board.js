@@ -3004,7 +3004,7 @@
             '<input id="kb-pay-due" type="date"></div>' +
             '<div class="kb-field" id="kb-pay-note-wrap"><label for="kb-pay-note">Комментарий</label>' +
             '<input id="kb-pay-note" maxlength="200" placeholder="например: предоплата по счёту"></div>' +
-            '<label class="login-remember" id="kb-pay-from-balance-wrap" hidden><input type="checkbox" id="kb-pay-from-balance"> <span>Из баланса клиента (без новых денег)</span></label>' +
+            '<label class="kb-pay-balance" id="kb-pay-from-balance-wrap" hidden><input type="checkbox" id="kb-pay-from-balance"> <span>Из баланса клиента (без новых денег)</span></label>' +
             '<p class="kb-form-error" id="kb-pay-error" role="alert"></p>' +
             '<p class="kb-form-hint" id="kb-pay-hint"></p>' +
             '<button class="btn btn-primary" type="submit">Провести</button>' +
@@ -3022,6 +3022,10 @@
         var noteInput = document.getElementById('kb-pay-note');
         dateInput.value = new Date().toISOString().slice(0, 10);
         amountInput.value = money(rest);
+        // Дровер карточки энхансит селекты единым KBSelect.enhance(dialog),
+        // но openPay перерисовывает innerHTML уже после него — без своего
+        // вызова селект «Способ» оставался нативным («нестилизованный пункт»).
+        window.KBSelect.enhance(dialog);
 
         if (hasClient) {
             window.V2Api.api('/clients/' + numericClientId(c.clientId) + '/balance').then(function (bal) {

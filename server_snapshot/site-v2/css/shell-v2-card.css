@@ -75,6 +75,11 @@
 #kb-dialog .kb-form input { min-height: 44px; }
 #kb-dialog .kb-form-hint { font-size: var(--font-ui); color: var(--text); }
 #kb-dialog .kb-form-error:empty { display: none; }
+/* Чекбокс «Из баланса клиента» в диалоге оплаты: раньше класс наследовался
+   от формы логина и не стилизовался вовсе — голый чекбокс браузера в
+   половине грида формы. Форма двухколоночная — строка на всю ширину. */
+#kb-dialog .kb-pay-balance { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s2); min-height: 36px; cursor: pointer; font-size: var(--font-ui); color: var(--text); }
+#kb-dialog .kb-pay-balance input { width: 18px; height: 18px; flex: 0 0 18px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 @keyframes kb-detail-enter { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @media (max-width: 540px) {
     #kb-dialog.kb-dialog { padding: var(--s4); padding-bottom: max(var(--s4), env(safe-area-inset-bottom)); border-radius: 0; border-left: 0; }
