@@ -685,6 +685,7 @@
         // id и имя статуса — до cleanupDrag(): он обнуляет drag.
         var cardId = Number(drag.card.id);
         var status = stageName(toStage);
+        var movedCard = drag.card;
         moveCard(drag.card, toStage, drag.beforeId);
         // Оптимистичный drop: карточка остаётся там, куда её бросили, шапки
         // колонок и очередь пересчитываются локально — полная перерисовка
@@ -704,6 +705,13 @@
             // для переноса между колонками — перестановка внутри колонки этап не
             // меняет и объяснений не требует.
             if (changedStage) notify('Сделка ' + cardId + ' перенесена в «' + status + '»');
+            // Волна E: сделка уехала в «Сборку» без клиента — предложить
+            // привязать/создать/продолжить. Карточку ищем заново: за время
+            // запроса данные могли перечитаться, объект мог замениться.
+            if (toStage === 'assembly' && movedCard && !movedCard.clientId) {
+                var freshMoved = cards.find(function (x) { return x.id === movedCard.id; }) || movedCard;
+                offerAssemblyClient(freshMoved);
+            }
         });
     });
     document.addEventListener('dragend', cleanupDrag);
@@ -1694,6 +1702,117 @@
         }
     };
     window.KBConfirm = KBConfirm;
+
+    // Волна E (фидбек 26.10): перенос сделки в «Сборку» без клиента — явная
+    // развилка вместо молчаливого «создайте в разделе Клиенты»: привязать
+    // существующего из справочника, создать карточку на месте или продолжить
+    // без клиента (Esc — то же). Ничего не блокирует: без клиента сделка
+    // доезжает до «Сборки» как раньше, диалог только предлагает.
+    var kbAsmDialog = null;
+    function ensureAssemblyDialog() {
+        if (!kbAsmDialog) {
+            kbAsmDialog = document.createElement('dialog');
+            kbAsmDialog.id = 'kb-assembly-dialog';
+            kbAsmDialog.setAttribute('aria-labelledby', 'kb-asm-title');
+            document.body.appendChild(kbAsmDialog);
+        }
+        return kbAsmDialog;
+    }
+    function offerAssemblyClient(card, opts) {
+        if (!card || card.clientId) return; // клиент уже есть — предложить нечего
+        if (!window.V2Api || !window.V2Api.token()) return; // предпросмотр мокапа: сети нет
+        var reopenDrawer = !!(opts && opts.reopenDrawer);
+        var dlg = ensureAssemblyDialog();
+        if (dlg.open) dlg.close();
+        var input, err, attachBtn, createBtn;
+        // Те же правила, что у поля «Клиент» сделки: сверка по имени без
+        // регистра — имена в справочнике не уникальны, берём первого.
+        function matchClient(value) {
+            var v = String(value || '').trim().toLowerCase();
+            if (!v) return null;
+            return KBData.clients.filter(function (cl) { return cl.name && cl.name.toLowerCase() === v; })[0] || null;
+        }
+        function paint() {
+            var m = matchClient(input.value);
+            attachBtn.disabled = !m;
+            createBtn.disabled = !m && !!input.value.trim();
+        }
+        // preserved-механизм openCard возвращает полям дровера их значения на
+        // момент перерисовки; клиент менялся мимо поля — имя надо проставить
+        // поверх, иначе в открытом дровере поле клиента останется пустым
+        // до переоткрытия. В закрытом дровере поля нет — no-op.
+        function syncDrawerClientField(name) {
+            var field = document.getElementById('kb-deal-client');
+            if (field) field.value = name || '';
+        }
+        function attachExisting(m) {
+            card.clientId = m.id;
+            card.client = m.name;
+            apiMutate('card', { id: Number(card.id), fields: { client_id: numericClientIdValue(m.id) } });
+            syncCard(card, { documents: true });
+            if (reopenDrawer) openCard(card);
+            syncDrawerClientField(m.name);
+            dlg.close();
+            notify('Сделка ' + card.id + ': клиент «' + m.name + '» привязан.');
+        }
+        dlg.innerHTML = '<h2 id="kb-asm-title">Сделка ' + esc(card.id) + ' → «' + esc(assemblyStageName()) + '»</h2>' +
+            '<p class="kb-confirm-msg">Клиент не указан. Привяжите клиента из справочника или создайте карточку на месте — либо продолжите без клиента.</p>' +
+            '<div class="kb-asm-field"><label for="kb-asm-client">Клиент (начните вводить — поиск по справочнику)</label>' +
+            '<input id="kb-asm-client" placeholder="Не указан" autocomplete="off" maxlength="200"></div>' +
+            '<p class="kb-asm-error" role="alert"></p>' +
+            '<div class="kb-confirm-foot">' +
+            '<button type="button" class="btn btn-ghost" data-asm-skip>Продолжить без клиента</button>' +
+            '<button type="button" class="btn btn-ghost" data-asm-create disabled>Создать карточку</button>' +
+            '<button type="button" class="btn btn-primary" data-asm-attach disabled>Привязать</button></div>';
+        input = dlg.querySelector('#kb-asm-client');
+        err = dlg.querySelector('.kb-asm-error');
+        attachBtn = dlg.querySelector('[data-asm-attach]');
+        createBtn = dlg.querySelector('[data-asm-create]');
+        initCombo(input, KBData.clients.map(function (cl) { return cl.name; }).filter(Boolean));
+        // initCombo при выборе пункта диспетчит change, ручной ввод — input:
+        // красим кнопки по обоим событиям.
+        input.addEventListener('input', paint);
+        input.addEventListener('change', paint);
+        dlg.querySelector('[data-asm-skip]').onclick = function () { dlg.close(); };
+        attachBtn.onclick = function () {
+            var m = matchClient(input.value);
+            if (m) attachExisting(m);
+        };
+        createBtn.onclick = function () {
+            var name = input.value.trim();
+            var existing = matchClient(name);
+            if (existing) { attachExisting(existing); return; }
+            if (!name) return;
+            attachBtn.disabled = createBtn.disabled = true;
+            window.V2Api.api('/clients', { method: 'POST', body: { name: name } })
+                .then(function (created) {
+                    // Справочник в памяти дополняем сразу: комбобоксы и
+                    // datalist'ы увидят клиента до ближайшей полной перезагрузки.
+                    var entry = {
+                        id: 'cl-' + created.id, name: created.name || name,
+                        phone: created.phone || '', unp: created.unp || '',
+                        contact_person: created.contact_person || '', address: created.address || ''
+                    };
+                    if (!KBData.clients.some(function (x) { return numericClientIdValue(x.id) === created.id; })) {
+                        KBData.clients.push(entry);
+                    }
+                    card.clientId = entry.id;
+                    card.client = entry.name;
+                    apiMutate('card', { id: Number(card.id), fields: { client_id: created.id } });
+                    syncCard(card, { documents: true });
+                    if (reopenDrawer) openCard(card);
+                    syncDrawerClientField(entry.name);
+                    dlg.close();
+                    notify('Клиент «' + entry.name + '» создан и привязан к сделке ' + card.id + '.');
+                })
+                .catch(function (e) {
+                    attachBtn.disabled = createBtn.disabled = false;
+                    err.textContent = 'Не создано: ' + (e.detail || e.message || 'ошибка');
+                });
+        };
+        dlg.showModal();
+        input.focus();
+    }
     // Помощники разметки полей сделки (optionsHTML/dealField/dealInput/dealSelect).
     // Правка поля не сессионная: она уходит на сервер через apiMutate('card'),
     // а выписанные суммы меняют только выписка ТН и её отмена.
@@ -3711,7 +3830,18 @@
                 var ownerId = value ? (Number(String(value.id).replace('us-', '')) || null) : null;
                 apiMutate('card', { id: Number(activeCard.id), fields: { owner_id: ownerId } });
             }
-            else if (key === 'stage') apiMutate('status', { id: Number(activeCard.id), status: stageName(value) });
+            else if (key === 'stage') {
+                apiMutate('status', { id: Number(activeCard.id), status: stageName(value) })
+                    .then(function (ok) {
+                        if (ok === false) return; // сервер отказал: тост уже показан boot-слоем
+                        // Волна E: «Сборка» без клиента — развилка диалогом
+                        // поверх дровера; после выбора дровер перечитаем.
+                        if (value === 'assembly' && !activeCard.clientId) {
+                            var freshActive = cards.find(function (x) { return x.id === activeCard.id; }) || activeCard;
+                            offerAssemblyClient(freshActive, { reopenDrawer: true });
+                        }
+                    });
+            }
             // Переезд в другую колонку точечно не обновить: плитка должна
             // сменить колонку и место в порядке — тут полная перерисовка.
             if (key === 'stage') refresh();

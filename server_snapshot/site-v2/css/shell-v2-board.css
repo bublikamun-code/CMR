@@ -410,6 +410,32 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .btn-danger { background: var(--danger); color: var(--bg); border-color: transparent; }
 .btn-danger:hover { background: color-mix(in srgb, var(--danger) 85%, black); }
 
+/* Волна E: развилка «Сборка без клиента» — те же пластины, что у #kb-confirm,
+   плюс строка поиска клиента и ошибка сервера. Футер общий с #kb-confirm —
+   на узких экранах кнопки переносятся (три кнопки в ряд не влезают). */
+#kb-assembly-dialog {
+    margin: auto; width: min(460px, calc(100% - 24px));
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--r-lg);
+    padding: 20px; font: inherit;
+}
+#kb-assembly-dialog::backdrop { background: rgb(0 0 0 / .3); }
+#kb-assembly-dialog[open], #kb-assembly-dialog[open]::backdrop { animation: kb-confirm-in var(--dur-enter) var(--ease); }
+#kb-assembly-dialog h2 { font-size: 18px; letter-spacing: -.2px; margin: 0 0 12px; overflow-wrap: anywhere; }
+#kb-assembly-dialog .kb-asm-field { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; }
+#kb-assembly-dialog .kb-asm-field label { font-size: var(--font-ui); font-weight: 600; }
+#kb-assembly-dialog .kb-asm-field input {
+    font: inherit; font-size: var(--font-body); color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: var(--r-md); padding: 8px 10px; width: 100%; min-width: 0;
+}
+#kb-assembly-dialog .kb-asm-error { color: var(--danger); font-size: var(--font-ui); font-weight: 600; margin: 6px 0 0; min-height: 0; }
+#kb-assembly-dialog .kb-asm-error:empty { display: none; }
+#kb-assembly-dialog .kb-confirm-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); margin-top: 20px; }
+/* Кнопки диалога включаются/выключяются динамически; без этого правила
+   выключенная btn-primary выглядит активной (у v2 нет :disabled-стилей). */
+#kb-assembly-dialog .btn:disabled { opacity: .45; cursor: not-allowed; }
+
 @media (prefers-reduced-motion: reduce) {
     .kb-card, .kb-card-del, .kb-queue summary::after { transition: none; }
     #kb-confirm[open], #kb-confirm[open]::backdrop { animation: none; }
