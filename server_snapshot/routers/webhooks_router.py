@@ -80,7 +80,7 @@ class WebhookUpdate(BaseModel):
 
 
 AVAILABLE_EVENTS = [
-    "card.created", "card.updated", "card.deleted",
+    "card.created", "card.updated", "card.deleted", "card.commented",
     "client.created", "client.updated", "client.deleted",
     "supplier.created", "supplier.updated", "supplier.deleted",
     "payment.created", "payment.updated",

@@ -1,5 +1,7 @@
 from typing import List
 
+import contextlib
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -18,6 +20,11 @@ router = APIRouter(
 
 
 class ActivityDetailsUpdate(BaseModel):
+    details: str = Field(min_length=1, max_length=4000)
+
+
+class ActivityCreate(BaseModel):
+    card_id: int
     details: str = Field(min_length=1, max_length=4000)
 
 
@@ -71,6 +78,47 @@ def list_activity(
         }
         for e in entries
     ]
+
+
+@router.post("", response_model=schemas.ActivityLogResponse)
+def create_comment(
+    payload: ActivityCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Комментарий по сделке — та же лента ActivityLog, action='Комментарий'.
+
+    Писать может любой авторизованный пользователь; править/удалять —
+    только автор (админ — любой), это делает PATCH/DELETE ниже.
+    """
+    card = get_tenant_object(
+        db, models.Card, payload.card_id, current_user, detail="Карточка не найдена"
+    )
+    entry = models.ActivityLog(
+        user_id=current_user.id,
+        card_id=card.id,
+        action="Комментарий",
+        details=payload.details.strip(),
+        tenant_id=current_user.tenant_id,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    # Подписчику важна карточка, а не текст: он может сам перечитать ленту.
+    with contextlib.suppress(Exception):
+        from routers.webhooks_router import notify_webhooks_async
+
+        notify_webhooks_async(current_user.tenant_id, "card.commented",
+            {"id": card.id, "title": card.title, "comment_id": entry.id})
+    return {
+        "id": entry.id,
+        "user_id": entry.user_id,
+        "card_id": entry.card_id,
+        "action": entry.action,
+        "details": entry.details,
+        "created_at": entry.created_at,
+        "user_name": current_user.username,
+    }
 
 
 @router.patch("/{entry_id}", response_model=schemas.ActivityLogResponse)
