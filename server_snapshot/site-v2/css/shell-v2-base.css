@@ -271,6 +271,10 @@ html[data-theme="dark"] .chip-icon { background: var(--surface-3); color: var(--
 /* Пресс-фидбек: нажатие сжимает кнопку (60ms — быстро), отпускание — 140ms */
 .btn, .btn-quiet { transition: transform var(--dur-fast) var(--ease), filter var(--dur-fast) var(--ease); }
 .btn:active, .btn-quiet:active { transform: scale(.97); transition-duration: 60ms; }
+/* Выключенное состояние: disabled ставится на время запросов по всему UI,
+   а общих стилей у v2 не было — выключенная btn-primary выглядела активной. */
+.btn:disabled, .btn[disabled], .btn-quiet:disabled, .btn-quiet[disabled] { opacity: .45; cursor: not-allowed; }
+.btn:disabled:active, .btn-quiet:disabled:active { transform: none; }
 
 /* ============ ОЧЕРЕДЬ «ТРЕБУЕТ ВНИМАНИЯ» ============ */
 .queue { display: flex; flex-direction: column; }

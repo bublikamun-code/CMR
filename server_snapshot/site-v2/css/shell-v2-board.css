@@ -432,9 +432,6 @@ html[data-theme="dark"] .kb-dialog::backdrop { background: rgba(0, 0, 0, .6); }
 #kb-assembly-dialog .kb-asm-error { color: var(--danger); font-size: var(--font-ui); font-weight: 600; margin: 6px 0 0; min-height: 0; }
 #kb-assembly-dialog .kb-asm-error:empty { display: none; }
 #kb-assembly-dialog .kb-confirm-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); margin-top: 20px; }
-/* Кнопки диалога включаются/выключяются динамически; без этого правила
-   выключенная btn-primary выглядит активной (у v2 нет :disabled-стилей). */
-#kb-assembly-dialog .btn:disabled { opacity: .45; cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
     .kb-card, .kb-card-del, .kb-queue summary::after { transition: none; }
