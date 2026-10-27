@@ -13,9 +13,11 @@ clients, users).
 тестовая сделка: выписка, галочки реестра + сохранение, CSV, документы
 (ТН/Счёт/Печать), все режимы оплаты, аванс и закрытие из баланса,
 «Импорт почты» в истории; создание сделки с доски (UI-путь: кнопка →
-диалог → POST /kanban/cards → карточка в DOM без F5); настройки почты;
-колокольчик; разделы; ошибки консоли. Мутации — только на тестовых
-карточках AUDIT v2 тест и AUDIT v2 UI-сделка.
+диалог → POST /kanban/cards → карточка в DOM без F5); комментарии по
+сделке (отправка/правка/удаление во вкладке «История»); глобальный поиск
+в шапке (панель + переход к сделке); настройки почты; колокольчик;
+разделы; ошибки консоли. Мутации — только на тестовых карточках
+AUDIT v2 тест и AUDIT v2 UI-сделка.
 """
 import argparse, json, os, sys
 from playwright.sync_api import sync_playwright
@@ -503,6 +505,51 @@ with sync_playwright() as p:
           f"кнопка={ui_btn} POST={len(ui_posts)} id={ui_card} сумма={ui_amount} тост={ui_toast} "
           f"без F5={ui_no_reload} в DOM={ui_dom} в KBData={ui_data}" + (f" | {ui_err}" if ui_err else ""))
 
+    # 6l. Комментарии по сделке (волна F-1): композер во вкладке «История» →
+    # POST /activity → запись в ленте; правка и удаление своего комментария
+    # (подтверждение удаления жмёт KBConfirm-автопилот из add_init_script).
+    # Открытие карточки — KBBoard.open: тестовая сделка к этому шагу уже
+    # «Оплачен» (этап closed) и на доске не отрисована, а openCard умеет
+    # открывать любой объект из KBData.
+    page.evaluate("(cid) => window.KBBoard.open(String(cid))", t["card"])
+    page.wait_for_timeout(1000)
+    page.evaluate("() => { const tab = document.querySelector('[data-card-tab=history]'); if (tab) tab.click(); }")
+    page.wait_for_selector("#kb-comment-input", timeout=6000)
+    page.fill("#kb-comment-input", "AUDIT v2 комментарий")
+    page.evaluate("() => document.getElementById('kb-comment-send').click()")
+    page.wait_for_timeout(1200)
+
+    def _find_comment_li(action_selector):
+        return page.evaluate("""(sel) => {
+          const lis = Array.from(document.querySelectorAll('#kb-history-real li'));
+          const li = lis.find(l => l.textContent.indexOf('AUDIT v2 комментарий') >= 0);
+          if (!li) return null;
+          const b = li.querySelector(sel);
+          if (b) b.click();
+          return Boolean(b);
+        }""", action_selector)
+
+    posted = page.evaluate(
+        "() => (document.getElementById('kb-history-real') || {textContent: ''})"
+        ".textContent.indexOf('AUDIT v2 комментарий') >= 0")
+    edited_btn = _find_comment_li("[data-comment-edit]")
+    page.wait_for_selector(".kb-comment-edit-input", timeout=4000)
+    page.fill(".kb-comment-edit-input", "AUDIT v2 комментарий (правка)")
+    page.evaluate("() => { const b = document.querySelector('[data-comment-save]'); if (b) b.click(); }")
+    page.wait_for_timeout(1200)
+    edited = page.evaluate(
+        "() => (document.getElementById('kb-history-real') || {textContent: ''})"
+        ".textContent.indexOf('AUDIT v2 комментарий (правка)') >= 0")
+    deleted_btn = _find_comment_li("[data-comment-del]")
+    page.wait_for_timeout(1200)
+    deleted = page.evaluate(
+        "() => !(document.getElementById('kb-history-real') || {textContent: ''})"
+        ".textContent.indexOf('AUDIT v2 комментарий') >= 0")
+    check("6l. Комментарий по сделке: отправка/правка/удаление",
+          posted and edited_btn and edited and deleted_btn and deleted,
+          f"отправка={posted} правка={edited_btn and edited} удаление={deleted_btn and deleted}")
+    page.keyboard.press("Escape"); page.wait_for_timeout(300)
+
     # --- 7. Почта: карточка настроек заполняется ---
     page.locator("[data-view=admin]").first.click(timeout=5000)
     page.wait_for_timeout(1200)
@@ -525,6 +572,40 @@ with sync_playwright() as p:
         except Exception:
             ok = False
         check(f"9. Раздел {view} открывается", ok)
+
+    # --- 9b. Глобальный поиск в шапке (волна F-2) ---
+    # Термин — подстрока заголовка первой живой карточки: попадание
+    # гарантировано и не зависит от данных стенда. Кликаем строку именно
+    # группы «Сделки»: в выдаче могут быть и клиенты/поставщики.
+    page.locator("[data-view=board]").first.click(timeout=5000)
+    page.wait_for_timeout(500)
+    term = page.evaluate(
+        "() => ((window.KBData.cards.find(c => !c.is_deleted) || {}).title || '').slice(0, 5)")
+    search_ok = False
+    search_note = ""
+    if term:
+        page.fill("#v2-search", term)
+        page.wait_for_timeout(900)
+        row_clicked = page.evaluate("""() => {
+          const group = Array.from(document.querySelectorAll('.v2-search-group'))
+              .find(g => g.textContent === 'Сделки');
+          if (!group) return false;
+          let n = group.nextElementSibling;
+          while (n && !n.classList.contains('v2-search-row')) n = n.nextElementSibling;
+          if (!n) return false;
+          n.click();
+          return true;
+        }""")
+        page.wait_for_timeout(1200)
+        dialog_open = page.evaluate(
+            "() => Boolean(document.getElementById('kb-dialog') && document.getElementById('kb-dialog').open)")
+        search_ok = row_clicked and dialog_open
+        search_note = f"термин={term!r} строка={row_clicked} диалог={dialog_open}"
+        page.keyboard.press("Escape"); page.wait_for_timeout(300)
+        page.fill("#v2-search", "")
+    else:
+        search_note = "нет карточек для термина"
+    check("9b. Глобальный поиск: панель и переход к сделке", search_ok, search_note)
 
     # --- 10. Ошибки консоли ---
     check("10. Консоль без ошибок", len(console_errors) == 0, "; ".join(e[:80] for e in console_errors[:3]))

@@ -1330,14 +1330,25 @@
                     );
                     // Токен сохраняем сразу; роль будет уточнена из /auth/me в bootApi() (B6).
                     window.V2Api.save(result.access_token, result.role);
-                    overlay.hidden = true;
-                    // bootApi() вызовет /auth/me и перезапишет роль подтверждённой.
-                    await bootApi();
                 } catch (err) {
                     errorEl.textContent = err.unauthorized || err.status === 401 ? 'Неверное имя пользователя или пароль.' :
                         err.status === 429 ? 'Слишком много попыток входа. Подождите минуту.' :
                         'Сервер недоступен. Проверьте подключение и адрес API.';
                     button.disabled = false;
+                    return;
+                }
+                // Вход успешен — дальше ошибки не входа, а загрузки данных.
+                // Раньше bootApi() сидел в этом же catch, и сбой раздела после
+                // логина показывался «Сервер недоступен» в уже скрытой форме:
+                // пользователь оставался с пустой оболочкой без showFatal.
+                overlay.hidden = true;
+                try {
+                    // bootApi() вызовет /auth/me и перезапишет роль подтверждённой.
+                    await bootApi();
+                } catch (err) {
+                    if (err && err.unauthorized) { showLogin(''); return; }
+                    console.error('Загрузка данных CRM не удалась:', err);
+                    showFatal(err);
                 }
             });
         }
