@@ -1055,3 +1055,33 @@ class SavedViewCreate(BaseModel):
     mode: Optional[str] = "board"
     priority: Optional[str] = None
     pay: Optional[str] = None
+
+
+# --- ГЛОБАЛЬНЫЙ ПОИСК ---
+
+class SearchClientHit(BaseModel):
+    id: int
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    unp: Optional[str] = None
+
+
+class SearchCardHit(BaseModel):
+    id: int
+    title: Optional[str] = None
+    status: Optional[str] = None
+    client_name: Optional[str] = None
+
+
+class SearchSupplierHit(BaseModel):
+    id: int
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    unp: Optional[str] = None
+
+
+class SearchResponse(BaseModel):
+    q: str
+    clients: List[SearchClientHit] = Field(default_factory=list)
+    cards: List[SearchCardHit] = Field(default_factory=list)
+    suppliers: List[SearchSupplierHit] = Field(default_factory=list)

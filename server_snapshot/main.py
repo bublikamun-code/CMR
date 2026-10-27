@@ -50,6 +50,7 @@ from routers import (
     nakladnye_router,
     notifications_router,
     payments_router,
+    search_router,
     suppliers_router,
     tags_router,
     tasks_router,
@@ -275,6 +276,7 @@ app.include_router(clients_router.router)
 app.include_router(dictionaries_router.router)
 app.include_router(tags_router.router)
 app.include_router(suppliers_router.router)
+app.include_router(search_router.router)
 app.include_router(activity_router.router)
 app.include_router(tasks_router.router)
 app.include_router(notifications_router.router)
