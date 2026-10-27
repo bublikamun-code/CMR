@@ -165,6 +165,25 @@
 .kb-history-full { max-height: 420px; overflow: auto; }
 .kb-history-date { opacity: .72; margin: 2px 0 0; }
 .kb-history-details { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }
+/* Комментарии по сделке (волна F-1): композер и кнопки в ленте истории. */
+.kb-comment-box { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s4); }
+#kb-dialog .kb-comment-box textarea {
+    width: 100%; min-width: 0; min-height: 36px; padding: 7px 9px; resize: vertical;
+    font: inherit; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+}
+.kb-comment-box .btn { align-self: flex-start; }
+.kb-comment-actions { display: inline-flex; gap: var(--s2); margin-top: 6px; }
+.kb-comment-act { min-height: 28px; padding: 0 8px; font-size: 12px; }
+.kb-comment-edit { display: flex; flex-direction: column; gap: var(--s2); margin-top: 6px; }
+#kb-dialog .kb-comment-edit-input {
+    width: 100%; min-width: 0; padding: 7px 9px; resize: vertical;
+    font: inherit; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+}
+@media (pointer: coarse) {
+    .kb-comment-act { min-height: 40px; }
+}
 
 /* Вложение сделки — кнопка скачивания файла (в т.ч. из письма) */
 button.kb-att-dl {

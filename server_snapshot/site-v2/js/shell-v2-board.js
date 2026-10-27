@@ -2262,6 +2262,13 @@
             groupJoin +
             '<p class="kb-detail-hint">Выписанные ТН доступны в «Финансы → Документы». Оплата учитывается отдельно.</p></section>' +
             '<section id="kb-panel-history" role="tabpanel" aria-labelledby="kb-tab-history" tabindex="0" hidden>' +
+            (window.V2Api && window.V2Api.token()
+                ? '<h3 class="kb-detail-section-title">Комментарий</h3>' +
+                  '<div class="kb-comment-box">' +
+                  '<textarea id="kb-comment-input" rows="3" maxlength="4000" aria-label="Новый комментарий к сделке" placeholder="Комментарий к сделке — попадёт в историю. Ctrl+Enter — отправить"></textarea>' +
+                  '<button type="button" class="btn btn-primary btn-sm" id="kb-comment-send">Отправить</button>' +
+                  '</div>'
+                : '') +
             '<h3 class="kb-detail-section-title">История сделки</h3><div id="kb-history-real"><p class="kb-detail-empty">Журнал загружается…</p></div>' +
             '<h3 class="kb-detail-section-title">Письма отправителя</h3><div id="kb-email-related">' + emailsBoxHTML(c) + '</div>' +
             '<h3 class="kb-detail-section-title">Выписки по сделке</h3><ol class="kb-detail-history">' + history +
@@ -2692,6 +2699,89 @@
     // Фидбек 18.09: вкладка «История» показывает журнал из CRM (та же лента,
     // что в основной версии) — включая «Импорт почты» с текстом письма.
     // Текст письма содержит переносы — выводится как есть (pre-wrap).
+    // Волна F-1: комментарии по сделке — та же лента, action='Комментарий'.
+    // Пишет любой подключённый пользователь (POST /activity), правит/удаляет
+    // только автор (админ — любой): права повторяют PATCH/DELETE на бэке.
+    function canModerateComment(e) {
+        if (!window.V2Api || !window.V2Api.token()) return false;
+        if (window.V2Api.isAdmin()) return true;
+        return Number(e.user_id) === Number(window.V2Api.userId());
+    }
+    function reloadCardHistory(c) {
+        c.historyLoaded = false;
+        c.historyHtml = null;
+        c._historyLoading = false;
+        loadCardHistory(c);
+    }
+    function submitCardComment(c) {
+        var input = document.getElementById('kb-comment-input');
+        var btn = document.getElementById('kb-comment-send');
+        if (!input || !btn) return;
+        var text = input.value.trim();
+        if (!text) { input.focus(); return; }
+        btn.disabled = true; input.disabled = true;
+        window.V2Api.api('/activity', { method: 'POST', body: { card_id: Number(c.id), details: text } })
+            .then(function () {
+                input.disabled = false; btn.disabled = false;
+                input.value = '';
+                input.focus();
+                reloadCardHistory(c);
+            })
+            .catch(function () {
+                input.disabled = false; btn.disabled = false;
+                notify('Не удалось отправить комментарий', true);
+            });
+    }
+    function startCommentEdit(c, btn) {
+        var li = btn.closest('li');
+        var p = li ? li.querySelector('p.kb-history-details') : null;
+        if (!li || !p || li.querySelector('.kb-comment-edit')) return;
+        var box = document.createElement('span');
+        box.className = 'kb-comment-edit';
+        box.innerHTML = '<textarea class="kb-comment-edit-input" rows="3" maxlength="4000" aria-label="Правка комментария"></textarea>' +
+            '<span class="kb-comment-actions">' +
+            '<button type="button" class="btn btn-primary btn-sm" data-comment-save>Сохранить</button>' +
+            '<button type="button" class="btn-quiet kb-comment-act" data-comment-cancel>Отмена</button>' +
+            '</span>';
+        box.querySelector('textarea').value = p.textContent;
+        p.hidden = true;
+        p.after(box);
+        var ta = box.querySelector('textarea');
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+        box.querySelector('[data-comment-save]').onclick = function () {
+            var text = ta.value.trim();
+            if (!text) { ta.focus(); return; }
+            var saveBtn = box.querySelector('[data-comment-save]');
+            saveBtn.disabled = true;
+            window.V2Api.api('/activity/' + encodeURIComponent(btn.dataset.commentEdit), { method: 'PATCH', body: { details: text } })
+                .then(function () { reloadCardHistory(c); })
+                .catch(function () {
+                    saveBtn.disabled = false;
+                    notify('Не удалось сохранить комментарий', true);
+                });
+        };
+        box.querySelector('[data-comment-cancel]').onclick = function () { reloadCardHistory(c); };
+    }
+    function startCommentDelete(c, btn) {
+        KBConfirm.ask({
+            title: 'Удалить комментарий?',
+            message: 'Комментарий будет удалён безвозвратно.',
+            confirmText: 'Удалить',
+            danger: true
+        }).then(function (ok) {
+            if (!ok) return;
+            window.V2Api.api('/activity/' + encodeURIComponent(btn.dataset.commentDel), { method: 'DELETE' })
+                .then(function () { reloadCardHistory(c); })
+                .catch(function () { notify('Не удалось удалить комментарий', true); });
+        });
+    }
+    function onHistoryPanelClick(c, ev) {
+        var editBtn = ev.target.closest('[data-comment-edit]');
+        if (editBtn) { startCommentEdit(c, editBtn); return; }
+        var delBtn = ev.target.closest('[data-comment-del]');
+        if (delBtn) startCommentDelete(c, delBtn);
+    }
     function loadCardHistory(c) {
         var box = document.getElementById('kb-history-real');
         if (!box) return;
@@ -2712,8 +2802,15 @@
                     var when = isNaN(d) ? String(e.created_at || '') : d.toLocaleString('ru-RU');
                     var who = e.user_name ? ' · ' + esc(e.user_name) : '';
                     var details = e.details ? '<p class="kb-history-details">' + esc(e.details) + '</p>' : '';
+                    var controls = '';
+                    if (e.action === 'Комментарий' && canModerateComment(e)) {
+                        controls = '<span class="kb-comment-actions">' +
+                            '<button type="button" class="btn-quiet kb-comment-act" data-comment-edit="' + e.id + '">Изменить</button>' +
+                            '<button type="button" class="btn-quiet kb-comment-act" data-comment-del="' + e.id + '">Удалить</button>' +
+                            '</span>';
+                    }
                     return '<li><span class="kb-detail-event-dot" aria-hidden="true"></span><div><b>' + esc(e.action) + '</b>' + who +
-                        '<p class="kb-history-date">' + esc(when) + '</p>' + details + '</div></li>';
+                        '<p class="kb-history-date">' + esc(when) + '</p>' + details + controls + '</div></li>';
                 }).join('');
                 historyHtml = '<ol class="kb-detail-history kb-history-full">' + rows + '</ol>';
             }
@@ -2930,6 +3027,22 @@
             index = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
             selectTab(tabs[index][0], true);
         };
+        // Комментарии (волна F-1): композер и кнопки ленты — делегирование
+        // по панели «История», innerHTML которой перерисовывается при каждой
+        // загрузке журнала.
+        var historyPanel = dialog.querySelector('#kb-panel-history');
+        if (historyPanel) {
+            historyPanel.addEventListener('click', function (ev) { onHistoryPanelClick(c, ev); });
+            var commentSend = document.getElementById('kb-comment-send');
+            if (commentSend) commentSend.onclick = function () { submitCardComment(c); };
+            var commentInput = document.getElementById('kb-comment-input');
+            if (commentInput) commentInput.addEventListener('keydown', function (ev) {
+                if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+                    ev.preventDefault();
+                    submitCardComment(c);
+                }
+            });
+        }
         updateOverviewVisibility(preserved);
         // Отрисовка карточки ничего не сохраняет: только показываем состояние
         // условий оплаты (PATCH уходит лишь из input/change — см. updatePayment).
