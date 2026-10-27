@@ -556,7 +556,7 @@
     // kb:documents/kb:groups именно «до первого открытия финансов».
     const APP_SCRIPTS = [
         'js/shell-v2-select.js', 'js/shell-v2-payment.js', 'js/shell-v2-board.js',
-        'js/shell-v2-fin.js', 'js/shell-v2-navigation.js'
+        'js/shell-v2-fin.js', 'js/shell-v2-navigation.js', 'js/shell-v2-search.js'
     ];
     // Первая волна — preload (тот же приоритет, что у обычного <script>).
     // Вторая — prefetch: management и insights рисуют только ленивые секции,
@@ -568,9 +568,9 @@
         { rel: 'preload', path: 'js/shell-v2-board.js' },
         { rel: 'preload', path: 'js/shell-v2-fin.js' },
         { rel: 'preload', path: 'js/shell-v2-navigation.js' },
+        { rel: 'preload', path: 'js/shell-v2-search.js' },
         { rel: 'prefetch', path: 'js/shell-v2-management.js' },
-        { rel: 'prefetch', path: 'js/shell-v2-insights.js' },
-        { rel: 'prefetch', path: 'js/shell-v2-search.js' }
+        { rel: 'prefetch', path: 'js/shell-v2-insights.js' }
     ];
     // Вторая волна. injectAll — это Promise.all, поэтому await в bootApi()
     // ждал ВСЕ модули, а management.js (39 КБ gzip) и insights.js (21 КБ)

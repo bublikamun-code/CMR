@@ -144,10 +144,13 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
     position: absolute; top: 7px; right: 7px; width: 7px; height: 7px;
     border-radius: 50%; background: var(--warn); border: 2px solid var(--surface);
 }
-/* flyout-подпись при ховере */
+/* flyout-подпись при ховере. Контраст: пара text-on-bg даёт 4.46:1 (ниже
+   нормы 4.5:1 для текста), поэтому подпись на surface с цветом текста —
+   та же пара, что у всего основного UI, и проходит с запасом. */
 .rail-item .flyout {
     position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%) translateX(-4px);
-    background: var(--text); color: var(--bg); padding: 5px 10px; border-radius: var(--r-sm);
+    background: var(--surface); color: var(--text); border: 1px solid var(--border-strong);
+    padding: 5px 10px; border-radius: var(--r-sm);
     font-size: var(--font-ui); font-weight: 600; white-space: nowrap;
     opacity: 0; pointer-events: none; transition: opacity 140ms var(--ease), transform 140ms var(--ease);
     z-index: 40;

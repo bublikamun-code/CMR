@@ -74,7 +74,10 @@
     .rail .rail-item { display: flex; flex-direction: column; justify-content: center; gap: 4px; width: auto; min-width: 84px; height: 60px; padding: 4px 8px; flex: none; }
     .rail-item .flyout, .rail-item:hover .flyout, .rail-item:focus-visible .flyout {
         position: static; transform: none; opacity: 1; background: none;
-        color: inherit; padding: 0; font-size: 11px; line-height: 1.2;
+        /* Наследуемый --muted даёт 3.84:1 на surface (светлая тема) — ниже
+           нормы 4.5:1 для текста 11px. Иконки остаются --muted (графика,
+           норма 3:1), подпись — цветом текста. */
+        color: var(--text); padding: 0; font-size: 11px; line-height: 1.2;
     }
     .rail-item small { font-size: 10px; }
     .main { width: 100%; }

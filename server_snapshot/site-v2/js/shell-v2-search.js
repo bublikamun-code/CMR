@@ -131,12 +131,26 @@
         input.setAttribute('aria-expanded', 'false');
     }
 
+    // KBData хранит клиентские id с префиксом ('cl-N', как 'sup-N' у
+    // поставщиков), а /search отдаёт серверные числа — сводим по числовому
+    // суффиксу, как это делает диалог закупок (волна D-3).
+    function clientIdFor(serverId) {
+        var s = String(serverId);
+        var clients = (window.KBData && window.KBData.clients) || [];
+        for (var i = 0; i < clients.length; i++) {
+            var id = String(clients[i].id);
+            if (id === s || id.replace(/^\D+/, '') === s) return id;
+        }
+        return s;
+    }
+
     function openResult(r) {
         closePanel();
-        if (r.kind === 'client') {
+        // kind — ключ группы ('clients'/'cards'/'suppliers'), как в render().
+        if (r.kind === 'clients') {
             location.hash = '#clients';
-            document.dispatchEvent(new CustomEvent('kb:open-client', { detail: { id: String(r.id) } }));
-        } else if (r.kind === 'card') {
+            document.dispatchEvent(new CustomEvent('kb:open-client', { detail: { id: clientIdFor(r.id) } }));
+        } else if (r.kind === 'cards') {
             window.KBBoard.open(String(r.id));
         } else {
             location.hash = '#suppliers';
