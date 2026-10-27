@@ -5,15 +5,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Свет в доме · CRM v2</title>
-<script src="js/v2/head.js?v=875aa9f721"></script>
-<link rel="stylesheet" href="css/shell-v2-base.css?v=875aa9f721">
-<link rel="stylesheet" href="css/shell-v2-board.css?v=875aa9f721">
-<link rel="stylesheet" href="css/shell-v2-controls.css?v=875aa9f721">
-<link rel="stylesheet" href="css/shell-v2-card.css?v=875aa9f721">
-<link rel="stylesheet" href="css/shell-v2-navigation.css?v=875aa9f721">
-<link rel="stylesheet" href="css/shell-v2-select.css?v=875aa9f721">
-<link rel="stylesheet" href="css/shell-v2-payment.css?v=875aa9f721">
-<link rel="stylesheet" href="css/shell-v2-procurement.css?v=875aa9f721">
+<script src="js/v2/head.js?v=c1176de6dc"></script>
+<link rel="stylesheet" href="css/shell-v2-base.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-board.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-controls.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-card.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-navigation.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-select.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-payment.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-procurement.css?v=c1176de6dc">
+<link rel="stylesheet" href="css/shell-v2-search.css?v=c1176de6dc">
 <!-- Предзагрузка модулей второй волны. Сборщик вырезает из прототипа все
      <script src="./shell-v2-*"> — их подключает загрузчик сам (APP_SCRIPTS),
      и без preload браузер узнаёт о 169 КБ модулей только после ответа API,
@@ -35,9 +36,9 @@
      Здесь они срабатывали при разборе index.html — то есть ~106 КБ gzip кода
      приложения уезжали человеку на экране входа, который мог и не войти.
      Расстановка приоритетов сохранена целиком, изменился момент списания. -->
-<script src="js/v2/api.js?v=875aa9f721" defer></script>
-<script src="js/v2/boot.js?v=875aa9f721" defer></script>
-<link rel="stylesheet" href="css/shell-v2-management.css?v=875aa9f721">
+<script src="js/v2/api.js?v=c1176de6dc" defer></script>
+<script src="js/v2/boot.js?v=c1176de6dc" defer></script>
+<link rel="stylesheet" href="css/shell-v2-management.css?v=c1176de6dc">
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -98,6 +99,9 @@
       <div class="shell-heading">
         <h1 id="shell-title">Доска сделок</h1>
         <p class="shell-preview" id="shell-source"></p>
+      </div>
+      <div class="v2-search">
+        <input id="v2-search" type="search" placeholder="Поиск: клиенты, сделки, поставщики" aria-label="Глобальный поиск" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="v2-search-panel" aria-autocomplete="list">
       </div>
       <div class="topbar-right"><span id="v2-user" class="row"></span><button type="button" class="v2-bell" id="v2-bell" title="Уведомления" aria-label="Уведомления"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="v2-bell-count" class="v2-bell-count" hidden></span></button><div id="v2-notif-panel" class="v2-notif-panel" hidden></div></div>
     </header>

@@ -520,6 +520,14 @@
         var tr = e.target.closest('[data-cl-id]');
         if (tr) { e.preventDefault(); selectedClient = tr.dataset.clId; renderDrawer(); }
     });
+    // Волна F-2: переход из глобального поиска — открыть дровер клиента.
+    // Хэш '#clients' ставит shell-v2-search.js, здесь только выбор строки.
+    document.addEventListener('kb:open-client', function (e) {
+        var id = e.detail && e.detail.id;
+        if (!id) return;
+        selectedClient = String(id);
+        renderDrawer();
+    });
     document.getElementById('cl-drawer').addEventListener('click', function (e) {
         var open = e.target.closest('[data-open-card]');
         if (open) { window.KBBoard.open(open.dataset.openCard); return; }

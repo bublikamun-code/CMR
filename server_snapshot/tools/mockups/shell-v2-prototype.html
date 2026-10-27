@@ -740,6 +740,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
 <link rel="stylesheet" href="./shell-v2-select.css">
 <link rel="stylesheet" href="./shell-v2-payment.css">
 <link rel="stylesheet" href="./shell-v2-procurement.css">
+<link rel="stylesheet" href="./shell-v2-search.css">
 <!-- Предзагрузка модулей второй волны. Сборщик вырезает из прототипа все
      <script src="./shell-v2-*"> — их подключает загрузчик сам (APP_SCRIPTS),
      и без preload браузер узнаёт о 169 КБ модулей только после ответа API,
@@ -769,6 +770,7 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
 <script src="./shell-v2-board.js" defer></script>
 <script src="./shell-v2-insights.js" defer></script>
 <script src="./shell-v2-navigation.js" defer></script>
+<script src="./shell-v2-search.js" defer></script>
 </head>
 <body>
 <a class="shell-skip" href="#shell-content">К содержимому</a>
@@ -829,6 +831,9 @@ svg.i-sm { width: 14px; height: 14px; flex: 0 0 auto; }
       <div class="shell-heading">
         <h1 id="shell-title">Доска сделок</h1>
         <p class="shell-preview" id="shell-source"></p>
+      </div>
+      <div class="v2-search">
+        <input id="v2-search" type="search" placeholder="Поиск: клиенты, сделки, поставщики" aria-label="Глобальный поиск" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="v2-search-panel" aria-autocomplete="list">
       </div>
     </header>
 

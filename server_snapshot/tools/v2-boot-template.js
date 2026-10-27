@@ -569,7 +569,8 @@
         { rel: 'preload', path: 'js/shell-v2-fin.js' },
         { rel: 'preload', path: 'js/shell-v2-navigation.js' },
         { rel: 'prefetch', path: 'js/shell-v2-management.js' },
-        { rel: 'prefetch', path: 'js/shell-v2-insights.js' }
+        { rel: 'prefetch', path: 'js/shell-v2-insights.js' },
+        { rel: 'prefetch', path: 'js/shell-v2-search.js' }
     ];
     // Вторая волна. injectAll — это Promise.all, поэтому await в bootApi()
     // ждал ВСЕ модули, а management.js (39 КБ gzip) и insights.js (21 КБ)
