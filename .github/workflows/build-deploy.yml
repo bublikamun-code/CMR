@@ -123,13 +123,21 @@ jobs:
 
   security-audit:
     runs-on: ubuntu-latest
-    
+    # На push в main токена хватало, а на pull_request gitleaks-action@v2
+    # требует его явно: без GITHUB_TOKEN job падал с «GITHUB_TOKEN is now
+    # required to scan pull requests». Права на PR — только чтение.
+    permissions:
+      contents: read
+      pull-requests: read
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Check for secrets
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Экшен gaurav-nelson/github-action-bandit удалён с GitHub, из-за него
       # весь security-audit падал на «repository not found». Ставим bandit
