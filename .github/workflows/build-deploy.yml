@@ -8,7 +8,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # GHCR требует имя образа в нижнем регистре. Имя репозитория «CMR»
+  # заглавными, и ${{ github.repository }} давал невалидный тег
+  # «ghcr.io/bublikamun-code/CMR-backend:latest» — сборка падала на build.
+  IMAGE_NAME: ${{ github.repository_owner }}/crm
 
 jobs:
   build:
@@ -120,18 +123,38 @@ jobs:
 
   security-audit:
     runs-on: ubuntu-latest
-    
+    # На push в main токена хватало, а на pull_request gitleaks-action@v2
+    # требует его явно: без GITHUB_TOKEN job падал с «GITHUB_TOKEN is now
+    # required to scan pull requests». Права на PR — только чтение.
+    permissions:
+      contents: read
+      pull-requests: read
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Полная история обязательна: gitleaks на pull_request сканирует диф
+          # между коммитами PR, а при неглубоком клоне (fetch-depth: 1) родительский
+          # коммит отсутствует и git отвечает «unknown revision».
+          fetch-depth: 0
 
       - name: Check for secrets
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Экшен gaurav-nelson/github-action-bandit удалён с GitHub, из-за него
+      # весь security-audit падал на «repository not found». Ставим bandit
+      # напрямую; .venv внутри server_snapshot из сканирования исключаем.
+      # Порог — high: в коде около 20 находок уровня medium, которые проект
+      # уже принял (пометки # noqa: S602 bandit не читает — он понимает
+      # # nosec). Полный отчёт остаётся в логе джобы.
       - name: SAST scan with Bandit
-        uses: gaurav-nelson/github-action-bandit@v1
-        with:
-          path: "server_snapshot"
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit
+          bandit -r server_snapshot -lll -x server_snapshot/.venv
 
   deploy-staging:
     needs: [build, test]

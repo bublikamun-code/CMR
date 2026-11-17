@@ -170,7 +170,9 @@ def main():
     # Один штамп на сборку: подставляется в статику index.html и в
     # динамические загрузки boot.js (APP_SCRIPTS/DEMO_SCRIPTS).
     import hashlib
-    ver = hashlib.sha1()
+    # Штамп — это кэш-метка, а не криптография: usedforsecurity=False
+    # отключает предупреждение Bandit (B324) о SHA1, digest не меняется.
+    ver = hashlib.sha1(usedforsecurity=False)
     for f in sorted((OUT / "js").rglob("*.js")) + sorted((OUT / "css").glob("*.css")):
         ver.update(f.read_bytes())
     stamp = ver.hexdigest()[:10]
