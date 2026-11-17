@@ -133,6 +133,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Полная история обязательна: gitleaks на pull_request сканирует диф
+          # между коммитами PR, а при неглубоком клоне (fetch-depth: 1) родительский
+          # коммит отсутствует и git отвечает «unknown revision».
+          fetch-depth: 0
 
       - name: Check for secrets
         uses: gitleaks/gitleaks-action@v2
