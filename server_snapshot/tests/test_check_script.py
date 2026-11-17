@@ -166,6 +166,7 @@ def test_missing_v2_freshness_tools_fail_preflight(gate_sandbox, missing):
     assert calls == []
 
 
+@pytest.mark.skipif(not os.access(JSC, os.X_OK), reason='Gate явно требует macOS JavaScriptCore')
 def test_missing_secret_preflight_tool_fails_before_checks(gate_sandbox):
     root, run = gate_sandbox
     missing = 'server_snapshot/tools/check_secret_permissions.py'

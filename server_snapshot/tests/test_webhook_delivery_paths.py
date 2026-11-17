@@ -710,6 +710,13 @@ class _FakeTLSContext:
     def __init__(self, error=None):
         self.error = error
         self.calls = []
+        # http.client в Python 3.11 при создании HTTPSConnection читает
+        # verify_mode и check_hostname у переданного контекста. На 3.12
+        # (локальный гейт) этот код не выполняется, а CI и образ с прода
+        # собираются на 3.11 — без этих атрибутов stdlib роняет тест.
+        self.verify_mode = ssl.CERT_REQUIRED
+        self.check_hostname = True
+
 
     def wrap_socket(self, sock, server_hostname=None):
         self.calls.append((sock, server_hostname))

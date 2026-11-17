@@ -32,7 +32,8 @@ def log(msg):
 
 def sh(cmd, **kw):
     # shell=True: команды фиксированные, собираются из констант этого скрипта
-    return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kw)  # noqa: S602
+    # nosec B602 — bandit читает nosec, а не noqa (flake8-стиль).
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kw)  # noqa: S602  # nosec B602
 
 def css_positions():
     src = (ROOT / 'css' / 'style.css').read_text(encoding='utf-8')
